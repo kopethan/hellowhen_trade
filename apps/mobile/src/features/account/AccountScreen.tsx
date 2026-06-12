@@ -20,7 +20,7 @@ import { DetailInfoList, DetailSection } from '../../components/detail';
 import { resolveMediaUrl } from '../trade/mediaUrls';
 
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
-type AccountRoute = 'AccountProfile' | 'Notifications' | 'SavedLibrary' | 'Agenda' | 'OnboardingGuide' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
+type AccountRoute = 'AccountProfile' | 'Notifications' | 'SavedLibrary' | 'Agenda' | 'OnboardingGuide' | 'Membership' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
 type AccountGroupKey = 'activity' | 'settings' | 'future';
 
 type AccountAction = {
@@ -43,7 +43,7 @@ const accountActions: AccountAction[] = [
   { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings', group: 'settings' },
   { titleKey: 'account.items.legal.title', descriptionKey: 'account.items.legal.bodyNative', badgeKey: 'account.items.legal.badge', tone: 'warning', route: 'LegalPolicy', icon: 'warning', group: 'settings' },
   { titleKey: 'account.items.delete.title', descriptionKey: 'account.items.delete.bodyNative', badgeKey: 'account.items.delete.badge', tone: 'warning', route: 'AccountDeletion', icon: 'warning', group: 'settings' },
-  ...(betaFeatures.plusSubscriptionFeatures.plusPublic ? [{ titleKey: 'account.items.plans.title', descriptionKey: 'account.items.plans.bodyNative', badgeKey: 'account.items.plans.badge', tone: 'success' as SemanticColorName, route: 'ProPlans' as AccountRoute, icon: 'profile' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
+  ...(betaFeatures.mobileMembershipVisible ? [{ titleKey: 'account.items.membership.title', descriptionKey: 'account.items.membership.bodyNative', badgeKey: 'account.items.membership.badge', tone: 'success' as SemanticColorName, route: 'Membership' as AccountRoute, icon: 'profile' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
   ...(betaFeatures.businessAccountsVisible ? [{ titleKey: 'account.items.business.title', descriptionKey: 'account.items.business.bodyNative', badgeKey: 'account.items.business.badge', tone: 'instruction' as SemanticColorName, route: 'BusinessAccounts' as AccountRoute, icon: 'business' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
   ...(betaFeatures.walletVisible ? [{ titleKey: 'account.items.wallet.title', descriptionKey: 'account.items.wallet.bodyNative', badgeKey: 'account.items.wallet.badge', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute, icon: 'wallet' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
   ...(betaFeatures.payoutsVisible ? [{ titleKey: 'account.items.payouts.title', descriptionKey: 'account.items.payouts.bodyNative', badgeKey: 'account.items.payouts.badge', tone: 'success' as SemanticColorName, route: 'Payouts' as AccountRoute, icon: 'payout' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
@@ -141,6 +141,7 @@ export function AccountScreen() {
     else if (route === 'SavedLibrary') navigation.navigate('SavedLibrary');
     else if (route === 'Agenda') navigation.navigate('Agenda');
     else if (route === 'OnboardingGuide') navigation.navigate('OnboardingGuide', { replay: true });
+    else if (route === 'Membership') navigation.navigate('Membership');
     else if (route === 'ProPlans') navigation.navigate('ProPlans');
     else if (route === 'BusinessAccounts') navigation.navigate('BusinessAccounts');
     else if (route === 'Wallet') navigation.navigate('Wallet');

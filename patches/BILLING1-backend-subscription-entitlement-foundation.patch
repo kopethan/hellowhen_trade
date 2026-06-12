@@ -1,0 +1,799 @@
+diff --git a/apps/api/src/modules/agenda/agenda.routes.ts b/apps/api/src/modules/agenda/agenda.routes.ts
+index 67dccae..b7148ab 100644
+--- a/apps/api/src/modules/agenda/agenda.routes.ts
++++ b/apps/api/src/modules/agenda/agenda.routes.ts
+@@ -1,6 +1,6 @@
+ import { Router } from 'express';
+ import type { AgendaItemSourceType, Prisma } from '@prisma/client';
+-import { canUseAgendaFeature, getPlusPrivateFeatureBlockers, normalizeSubscriptionStatus, normalizeSubscriptionTier } from '@hellowhen/shared';
++import { canUseAgendaFeature, getPlusPrivateFeatureBlockers } from '@hellowhen/shared';
+ import {
+   agendaIcsExportQuerySchema,
+   createAgendaItemRequestSchema,
+@@ -15,6 +15,7 @@ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { requireAgendaEnabled } from '../../middleware/featureGates.js';
+ import { publicTradeVisibilityWhere } from '../trades/trades.routes.js';
+ import { usersHaveBlockBetween } from '../users/userBlocks.js';
++import { loadMembershipAccessStateForUser, type MembershipEntitlementAccessState } from '../subscriptions/membershipEntitlements.js';
+ 
+ export const agendaRoutes = Router();
+ 
+@@ -270,7 +271,7 @@ function agendaSourceNotFoundPayload() {
+   };
+ }
+ 
+-function agendaPlusRequiredPayload(owner: { subscriptionTier?: string | null; subscriptionStatus?: string | null } | null) {
++function agendaPlusRequiredPayload(accessState: MembershipEntitlementAccessState) {
+   return {
+     error: 'agenda_plus_required',
+     message: 'Agenda is a Plus feature. Upgrade to Plus to organize trades, reminders, follow-ups, and deadlines privately.',
+@@ -279,29 +280,20 @@ function agendaPlusRequiredPayload(owner: { subscriptionTier?: string | null; su
+     blockers: getPlusPrivateFeatureBlockers({
+       plusEnabled: env.plusEnabled,
+       featureEnabled: env.agendaEnabled,
+-      state: {
+-        subscriptionTier: normalizeSubscriptionTier(owner?.subscriptionTier),
+-        subscriptionStatus: normalizeSubscriptionStatus(owner?.subscriptionStatus),
+-      },
++      state: accessState,
+     }),
+   };
+ }
+ 
+ async function requireAgendaPlus(ownerId: string, res: any) {
+-  const owner = await prisma.user.findUnique({
+-    where: { id: ownerId },
+-    select: { subscriptionTier: true, subscriptionStatus: true },
+-  });
++  const accessState = await loadMembershipAccessStateForUser(prisma as any, ownerId);
+   const allowed = canUseAgendaFeature({
+     plusEnabled: env.plusEnabled,
+     agendaEnabled: env.agendaEnabled,
+-    state: {
+-      subscriptionTier: owner?.subscriptionTier ?? 'free',
+-      subscriptionStatus: owner?.subscriptionStatus ?? 'none',
+-    },
++    state: accessState,
+   });
+   if (allowed) return true;
+-  res.status(403).json(agendaPlusRequiredPayload(owner));
++  res.status(403).json(agendaPlusRequiredPayload(accessState));
+   return false;
+ }
+ 
+diff --git a/apps/api/src/modules/ai/aiAssist.routes.ts b/apps/api/src/modules/ai/aiAssist.routes.ts
+index ddbce32..aea8b1f 100644
+--- a/apps/api/src/modules/ai/aiAssist.routes.ts
++++ b/apps/api/src/modules/ai/aiAssist.routes.ts
+@@ -7,6 +7,10 @@ import { prisma } from '../../lib/prisma.js';
+ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { assertAiAssistQuotaAvailable, getAiAssistUsageSummary, recordAiAssistUsage } from '../subscriptions/aiAssistUsage.js';
+ import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
++import {
++  loadMembershipEntitlementForUser,
++  membershipEntitlementAsAiAssistUser,
++} from '../subscriptions/membershipEntitlements.js';
+ 
+ export const aiAssistRoutes = Router();
+ 
+@@ -153,11 +157,9 @@ function iso(value: Date | string | null | undefined) {
+ aiAssistRoutes.post('/assist', requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = aiAssistRequestSchema.parse(req.body);
+   const config = ensureAiAssistEnabled();
+-  const user = await prisma.user.findUnique({
+-    where: { id: req.user!.id },
+-    select: { id: true, subscriptionTier: true, subscriptionStatus: true },
+-  });
+-  if (!user) return res.status(404).json({ error: 'not_found' });
++  const entitlement = await loadMembershipEntitlementForUser(prisma as any, req.user!.id);
++  if (!entitlement) return res.status(404).json({ error: 'not_found' });
++  const user = membershipEntitlementAsAiAssistUser(req.user!.id, entitlement);
+ 
+   await assertAiAssistQuotaAvailable(prisma as any, user, config);
+ 
+diff --git a/apps/api/src/modules/inventory-folders.routes.ts b/apps/api/src/modules/inventory-folders.routes.ts
+index 1f9b7c0..7ec3f27 100644
+--- a/apps/api/src/modules/inventory-folders.routes.ts
++++ b/apps/api/src/modules/inventory-folders.routes.ts
+@@ -12,6 +12,7 @@ import { prisma } from '../lib/prisma.js';
+ import { requireActiveAccount, requireAuth } from '../middleware/auth.js';
+ import { requireInventoryFoldersEnabled } from '../middleware/featureGates.js';
+ import { plusConfigSnapshot } from './subscriptions/plus.routes.js';
++import { loadMembershipAccessStateForUser } from './subscriptions/membershipEntitlements.js';
+ 
+ export const inventoryFoldersRoutes = Router();
+ inventoryFoldersRoutes.use(requireAuth);
+@@ -69,14 +70,8 @@ function duplicateFolderPayload() {
+ 
+ 
+ async function requireInventoryFoldersPlus(ownerId: string, res: any) {
+-  const user = await prisma.user.findUnique({
+-    where: { id: ownerId },
+-    select: { subscriptionTier: true, subscriptionStatus: true },
+-  });
+-  const gate = evaluatePlusGate(plusConfigSnapshot(), {
+-    subscriptionTier: user?.subscriptionTier ?? 'free',
+-    subscriptionStatus: user?.subscriptionStatus ?? 'none',
+-  } as any);
++  const accessState = await loadMembershipAccessStateForUser(prisma as any, ownerId);
++  const gate = evaluatePlusGate(plusConfigSnapshot(), accessState as any);
+   if (gate.hasPlusAccess) return true;
+   res.status(403).json({
+     error: 'inventory_folders_plus_required',
+diff --git a/apps/api/src/modules/proposals/proposalPackages.ts b/apps/api/src/modules/proposals/proposalPackages.ts
+index d91bbb3..2c3e367 100644
+--- a/apps/api/src/modules/proposals/proposalPackages.ts
++++ b/apps/api/src/modules/proposals/proposalPackages.ts
+@@ -10,6 +10,7 @@ import {
+ } from '@hellowhen/shared';
+ import { env } from '../../config/env.js';
+ import { prisma } from '../../lib/prisma.js';
++import { loadMembershipAccessStateForUser } from '../subscriptions/membershipEntitlements.js';
+ 
+ type ProposalPackageInput = {
+   packageKind?: string | null;
+@@ -57,15 +58,18 @@ function proposalPackageEntitlements() {
+ }
+ 
+ async function loadProAccessState(userId: string): Promise<ProAccessState> {
+-  const user = await prisma.user.findUnique({
+-    where: { id: userId },
+-    select: { professionalStatus: true, subscriptionTier: true, subscriptionStatus: true },
+-  });
++  const [user, accessState] = await Promise.all([
++    prisma.user.findUnique({
++      where: { id: userId },
++      select: { professionalStatus: true },
++    }),
++    loadMembershipAccessStateForUser(prisma as any, userId),
++  ]);
+ 
+   return {
+     professionalStatus: user?.professionalStatus ?? 'none',
+-    subscriptionTier: user?.subscriptionTier ?? 'free',
+-    subscriptionStatus: user?.subscriptionStatus ?? 'none',
++    subscriptionTier: accessState.subscriptionTier,
++    subscriptionStatus: accessState.subscriptionStatus,
+   } as ProAccessState;
+ }
+ 
+diff --git a/apps/api/src/modules/saved/saved.routes.ts b/apps/api/src/modules/saved/saved.routes.ts
+index 39befbc..35ee3cc 100644
+--- a/apps/api/src/modules/saved/saved.routes.ts
++++ b/apps/api/src/modules/saved/saved.routes.ts
+@@ -20,6 +20,7 @@ import { publicTradeVisibilityWhere } from '../trades/trades.routes.js';
+ import { publicUserPreviewSelect } from '../users/publicUser.js';
+ import { usersHaveBlockBetween } from '../users/userBlocks.js';
+ import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
++import { loadMembershipAccessStateForUser } from '../subscriptions/membershipEntitlements.js';
+ 
+ export const savedRoutes = Router();
+ savedRoutes.use(requireAuth);
+@@ -258,14 +259,8 @@ function duplicateCollectionPayload() {
+ }
+ 
+ async function getSavedLibraryGate(ownerId: string) {
+-  const user = await prisma.user.findUnique({
+-    where: { id: ownerId },
+-    select: { subscriptionTier: true, subscriptionStatus: true },
+-  });
+-  return evaluatePlusGate(plusConfigSnapshot(), {
+-    subscriptionTier: user?.subscriptionTier ?? 'free',
+-    subscriptionStatus: user?.subscriptionStatus ?? 'none',
+-  } as any);
++  const accessState = await loadMembershipAccessStateForUser(prisma as any, ownerId);
++  return evaluatePlusGate(plusConfigSnapshot(), accessState as any);
+ }
+ 
+ async function requireSavedCollectionsPlus(ownerId: string, res: any) {
+diff --git a/apps/api/src/modules/subscriptions/membershipEntitlements.ts b/apps/api/src/modules/subscriptions/membershipEntitlements.ts
+new file mode 100644
+index 0000000..9a38aaa
+--- /dev/null
++++ b/apps/api/src/modules/subscriptions/membershipEntitlements.ts
+@@ -0,0 +1,346 @@
++import {
++  getMembershipEntitlementSourceMetadata,
++  getMembershipEntitlementSourcePriority,
++  getMembershipTierPriority,
++  normalizeMembershipEntitlementSource,
++  normalizeSubscriptionStatus,
++  normalizeSubscriptionTier,
++  type MembershipEntitlementSource,
++  type SubscriptionStatus,
++  type SubscriptionTier,
++} from '@hellowhen/shared';
++
++export const membershipEntitlementUserSelect = {
++  id: true,
++  subscriptionTier: true,
++  subscriptionStatus: true,
++  subscriptionStatusUpdatedAt: true,
++  subscriptionState: {
++    select: {
++      id: true,
++      tier: true,
++      status: true,
++      provider: true,
++      externalCustomerId: true,
++      externalSubscriptionId: true,
++      currentPeriodStartedAt: true,
++      currentPeriodEndsAt: true,
++      trialStartedAt: true,
++      trialEndsAt: true,
++      canceledAt: true,
++      pastDueAt: true,
++      expiresAt: true,
++      lastSyncedAt: true,
++      adminNote: true,
++    },
++  },
++} as const;
++
++export type MembershipSubscriptionStateRow = {
++  id: string;
++  tier: string | null;
++  status: string | null;
++  provider: string | null;
++  externalCustomerId?: string | null;
++  externalSubscriptionId?: string | null;
++  currentPeriodStartedAt?: Date | string | null;
++  currentPeriodEndsAt?: Date | string | null;
++  trialStartedAt?: Date | string | null;
++  trialEndsAt?: Date | string | null;
++  canceledAt?: Date | string | null;
++  pastDueAt?: Date | string | null;
++  expiresAt?: Date | string | null;
++  lastSyncedAt?: Date | string | null;
++  adminNote?: string | null;
++};
++
++export type MembershipEntitlementUserRow = {
++  id: string;
++  subscriptionTier: string | null;
++  subscriptionStatus: string | null;
++  subscriptionStatusUpdatedAt?: Date | string | null;
++  subscriptionState?: MembershipSubscriptionStateRow | null;
++};
++
++export type MembershipEntitlementAccessState = {
++  subscriptionTier: SubscriptionTier;
++  subscriptionStatus: SubscriptionStatus;
++};
++
++export type MembershipEntitlementCandidate = MembershipEntitlementAccessState & {
++  source: MembershipEntitlementSource;
++  sourceLabel: string;
++  candidateKind: 'user_app_state' | 'subscription_state';
++  subscriptionStateId?: string | null;
++  providerCustomerId?: string | null;
++  providerSubscriptionId?: string | null;
++  currentPeriodStartedAt?: Date | string | null;
++  currentPeriodEndsAt?: Date | string | null;
++  trialStartedAt?: Date | string | null;
++  trialEndsAt?: Date | string | null;
++  canceledAt?: Date | string | null;
++  pastDueAt?: Date | string | null;
++  expiresAt?: Date | string | null;
++  lastSyncedAt?: Date | string | null;
++  adminNote?: string | null;
++  activePaidAccess: boolean;
++  tierPriority: number;
++  sourcePriority: number;
++  statusReason: 'stored_status' | 'period_still_active' | 'period_expired' | 'no_entitlement';
++};
++
++export type MembershipEntitlementResolution = {
++  userId: string;
++  appState: MembershipEntitlementAccessState & {
++    subscriptionStatusUpdatedAt?: Date | string | null;
++  };
++  accessState: MembershipEntitlementAccessState;
++  source: MembershipEntitlementSource;
++  sourceLabel: string;
++  provider: {
++    source: MembershipEntitlementSource;
++    billingProvider: boolean;
++    nativeStore: boolean;
++    channel: string;
++  };
++  activePaidAccess: boolean;
++  candidates: MembershipEntitlementCandidate[];
++  selectedCandidateKind: MembershipEntitlementCandidate['candidateKind'];
++  reconciliation: {
++    usedSubscriptionState: boolean;
++    usedUserAppStateFallback: boolean;
++    appStateDiffersFromAccessState: boolean;
++    reason: 'subscription_state_selected' | 'user_app_state_selected' | 'free_or_inactive';
++  };
++};
++
++type MembershipEntitlementClient = {
++  user: {
++    findUnique: (args: unknown) => Promise<MembershipEntitlementUserRow | null>;
++  };
++};
++
++function toDate(value: Date | string | null | undefined): Date | null {
++  if (!value) return null;
++  const date = value instanceof Date ? value : new Date(value);
++  return Number.isNaN(date.getTime()) ? null : date;
++}
++
++function isFuture(value: Date | string | null | undefined, now: Date) {
++  const date = toDate(value);
++  return Boolean(date && date.getTime() > now.getTime());
++}
++
++function isPastOrNow(value: Date | string | null | undefined, now: Date) {
++  const date = toDate(value);
++  return Boolean(date && date.getTime() <= now.getTime());
++}
++
++function isActiveStatus(status: SubscriptionStatus) {
++  return status === 'trialing' || status === 'active';
++}
++
++function hasPaidTier(tier: SubscriptionTier) {
++  return tier === 'plus' || tier === 'pro';
++}
++
++function normalizeStatusForPeriod(input: {
++  status: string | null | undefined;
++  currentPeriodEndsAt?: Date | string | null;
++  trialEndsAt?: Date | string | null;
++  expiresAt?: Date | string | null;
++  now: Date;
++}): { status: SubscriptionStatus; reason: MembershipEntitlementCandidate['statusReason'] } {
++  const storedStatus = normalizeSubscriptionStatus(input.status);
++  const latestKnownEndAt = input.expiresAt ?? input.currentPeriodEndsAt ?? input.trialEndsAt;
++
++  if ((storedStatus === 'canceled' || storedStatus === 'active' || storedStatus === 'trialing') && isFuture(latestKnownEndAt, input.now)) {
++    return {
++      status: storedStatus === 'trialing' ? 'trialing' : 'active',
++      reason: storedStatus === 'canceled' ? 'period_still_active' : 'stored_status',
++    };
++  }
++
++  if (isActiveStatus(storedStatus) && isPastOrNow(latestKnownEndAt, input.now)) {
++    return { status: 'expired', reason: 'period_expired' };
++  }
++
++  if (storedStatus === 'none') return { status: storedStatus, reason: 'no_entitlement' };
++  return { status: storedStatus, reason: 'stored_status' };
++}
++
++function buildCandidate(input: {
++  tier: string | null | undefined;
++  status: string | null | undefined;
++  source: string | null | undefined;
++  candidateKind: MembershipEntitlementCandidate['candidateKind'];
++  now: Date;
++  subscriptionStateId?: string | null;
++  providerCustomerId?: string | null;
++  providerSubscriptionId?: string | null;
++  currentPeriodStartedAt?: Date | string | null;
++  currentPeriodEndsAt?: Date | string | null;
++  trialStartedAt?: Date | string | null;
++  trialEndsAt?: Date | string | null;
++  canceledAt?: Date | string | null;
++  pastDueAt?: Date | string | null;
++  expiresAt?: Date | string | null;
++  lastSyncedAt?: Date | string | null;
++  adminNote?: string | null;
++}): MembershipEntitlementCandidate {
++  const source = normalizeMembershipEntitlementSource(input.source);
++  const sourceMetadata = getMembershipEntitlementSourceMetadata(source);
++  const subscriptionTier = normalizeSubscriptionTier(input.tier);
++  const normalizedStatus = normalizeStatusForPeriod({
++    status: input.status,
++    currentPeriodEndsAt: input.currentPeriodEndsAt,
++    trialEndsAt: input.trialEndsAt,
++    expiresAt: input.expiresAt,
++    now: input.now,
++  });
++  const tierPriority = getMembershipTierPriority(subscriptionTier);
++  const sourcePriority = getMembershipEntitlementSourcePriority(source);
++  const activePaidAccess = hasPaidTier(subscriptionTier) && isActiveStatus(normalizedStatus.status);
++
++  return {
++    source,
++    sourceLabel: sourceMetadata.displayName,
++    candidateKind: input.candidateKind,
++    subscriptionStateId: input.subscriptionStateId ?? null,
++    providerCustomerId: input.providerCustomerId ?? null,
++    providerSubscriptionId: input.providerSubscriptionId ?? null,
++    subscriptionTier,
++    subscriptionStatus: normalizedStatus.status,
++    currentPeriodStartedAt: input.currentPeriodStartedAt ?? null,
++    currentPeriodEndsAt: input.currentPeriodEndsAt ?? null,
++    trialStartedAt: input.trialStartedAt ?? null,
++    trialEndsAt: input.trialEndsAt ?? null,
++    canceledAt: input.canceledAt ?? null,
++    pastDueAt: input.pastDueAt ?? null,
++    expiresAt: input.expiresAt ?? null,
++    lastSyncedAt: input.lastSyncedAt ?? null,
++    adminNote: input.adminNote ?? null,
++    activePaidAccess,
++    tierPriority,
++    sourcePriority,
++    statusReason: normalizedStatus.reason,
++  };
++}
++
++function compareCandidates(left: MembershipEntitlementCandidate, right: MembershipEntitlementCandidate) {
++  if (left.activePaidAccess !== right.activePaidAccess) return left.activePaidAccess ? 1 : -1;
++  if (left.tierPriority !== right.tierPriority) return left.tierPriority - right.tierPriority;
++  if (left.sourcePriority !== right.sourcePriority) return left.sourcePriority - right.sourcePriority;
++  if (left.candidateKind !== right.candidateKind) return left.candidateKind === 'subscription_state' ? 1 : -1;
++  return 0;
++}
++
++export function resolveMembershipEntitlement(
++  user: MembershipEntitlementUserRow,
++  options: { now?: Date } = {},
++): MembershipEntitlementResolution {
++  const now = options.now ?? new Date();
++  const appState = {
++    subscriptionTier: normalizeSubscriptionTier(user.subscriptionTier),
++    subscriptionStatus: normalizeSubscriptionStatus(user.subscriptionStatus),
++    subscriptionStatusUpdatedAt: user.subscriptionStatusUpdatedAt ?? null,
++  };
++
++  const userCandidate = buildCandidate({
++    tier: appState.subscriptionTier,
++    status: appState.subscriptionStatus,
++    source: user.subscriptionState?.provider ?? 'manual_admin',
++    candidateKind: 'user_app_state',
++    now,
++  });
++
++  const candidates = [userCandidate];
++  const state = user.subscriptionState;
++  if (state) {
++    candidates.push(buildCandidate({
++      tier: state.tier,
++      status: state.status,
++      source: state.provider ?? 'manual_admin',
++      candidateKind: 'subscription_state',
++      now,
++      subscriptionStateId: state.id,
++      providerCustomerId: state.externalCustomerId ?? null,
++      providerSubscriptionId: state.externalSubscriptionId ?? null,
++      currentPeriodStartedAt: state.currentPeriodStartedAt ?? null,
++      currentPeriodEndsAt: state.currentPeriodEndsAt ?? null,
++      trialStartedAt: state.trialStartedAt ?? null,
++      trialEndsAt: state.trialEndsAt ?? null,
++      canceledAt: state.canceledAt ?? null,
++      pastDueAt: state.pastDueAt ?? null,
++      expiresAt: state.expiresAt ?? null,
++      lastSyncedAt: state.lastSyncedAt ?? null,
++      adminNote: state.adminNote ?? null,
++    }));
++  }
++
++  const selected = [...candidates].sort(compareCandidates).at(-1) ?? userCandidate;
++  const sourceMetadata = getMembershipEntitlementSourceMetadata(selected.source);
++  const appStateDiffersFromAccessState = appState.subscriptionTier !== selected.subscriptionTier
++    || appState.subscriptionStatus !== selected.subscriptionStatus;
++  const reason = selected.activePaidAccess
++    ? selected.candidateKind === 'subscription_state' ? 'subscription_state_selected' : 'user_app_state_selected'
++    : 'free_or_inactive';
++
++  return {
++    userId: user.id,
++    appState,
++    accessState: {
++      subscriptionTier: selected.subscriptionTier,
++      subscriptionStatus: selected.subscriptionStatus,
++    },
++    source: selected.source,
++    sourceLabel: selected.sourceLabel,
++    provider: {
++      source: selected.source,
++      billingProvider: sourceMetadata.billingProvider,
++      nativeStore: sourceMetadata.nativeStore,
++      channel: sourceMetadata.channel,
++    },
++    activePaidAccess: selected.activePaidAccess,
++    candidates,
++    selectedCandidateKind: selected.candidateKind,
++    reconciliation: {
++      usedSubscriptionState: selected.candidateKind === 'subscription_state',
++      usedUserAppStateFallback: selected.candidateKind === 'user_app_state',
++      appStateDiffersFromAccessState,
++      reason,
++    },
++  };
++}
++
++export async function loadMembershipEntitlementForUser(
++  client: MembershipEntitlementClient,
++  userId: string,
++  options: { now?: Date } = {},
++): Promise<MembershipEntitlementResolution | null> {
++  const user = await client.user.findUnique({
++    where: { id: userId },
++    select: membershipEntitlementUserSelect,
++  });
++  return user ? resolveMembershipEntitlement(user, options) : null;
++}
++
++export async function loadMembershipAccessStateForUser(
++  client: MembershipEntitlementClient,
++  userId: string,
++  options: { now?: Date } = {},
++): Promise<MembershipEntitlementAccessState> {
++  const entitlement = await loadMembershipEntitlementForUser(client, userId, options);
++  return entitlement?.accessState ?? { subscriptionTier: 'free', subscriptionStatus: 'none' };
++}
++
++export function membershipEntitlementAsAiAssistUser(
++  userId: string,
++  entitlement: MembershipEntitlementResolution | null,
++) {
++  return {
++    id: userId,
++    subscriptionTier: entitlement?.accessState.subscriptionTier ?? 'free',
++    subscriptionStatus: entitlement?.accessState.subscriptionStatus ?? 'none',
++  };
++}
+diff --git a/apps/api/src/modules/subscriptions/plus.routes.ts b/apps/api/src/modules/subscriptions/plus.routes.ts
+index 948d1c8..d6ed53f 100644
+--- a/apps/api/src/modules/subscriptions/plus.routes.ts
++++ b/apps/api/src/modules/subscriptions/plus.routes.ts
+@@ -5,6 +5,12 @@ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
+ import { getAiAssistUsageSummary } from './aiAssistUsage.js';
++import {
++  membershipEntitlementAsAiAssistUser,
++  membershipEntitlementUserSelect,
++  resolveMembershipEntitlement,
++  type MembershipEntitlementUserRow,
++} from './membershipEntitlements.js';
+ 
+ export const plusRoutes = Router();
+ 
+@@ -26,27 +32,7 @@ export function plusConfigSnapshot(): PlusSubscriptionFeatureFlags {
+   };
+ }
+ 
+-type PlusSnapshotUser = {
+-  id: string;
+-  subscriptionTier: string;
+-  subscriptionStatus: string;
+-  subscriptionStatusUpdatedAt: Date | string | null;
+-  subscriptionState?: {
+-    id: string;
+-    tier: string;
+-    status: string;
+-    provider: string | null;
+-    currentPeriodStartedAt: Date | string | null;
+-    currentPeriodEndsAt: Date | string | null;
+-    trialStartedAt: Date | string | null;
+-    trialEndsAt: Date | string | null;
+-    canceledAt: Date | string | null;
+-    pastDueAt: Date | string | null;
+-    expiresAt: Date | string | null;
+-    lastSyncedAt: Date | string | null;
+-    adminNote: string | null;
+-  } | null;
+-};
++type PlusSnapshotUser = MembershipEntitlementUserRow;
+ 
+ function iso(value: Date | string | null | undefined) {
+   if (!value) return null;
+@@ -56,17 +42,15 @@ function iso(value: Date | string | null | undefined) {
+ 
+ export function normalizePlusSnapshot(user: PlusSnapshotUser, aiAssistUsage: Awaited<ReturnType<typeof getAiAssistUsageSummary>>) {
+   const config = plusConfigSnapshot();
+-  const gate = evaluatePlusGate(config, {
+-    subscriptionTier: user.subscriptionTier,
+-    subscriptionStatus: user.subscriptionStatus,
+-  } as any);
++  const entitlement = resolveMembershipEntitlement(user);
++  const gate = evaluatePlusGate(config, entitlement.accessState as any);
+ 
+   return {
+     config,
+     state: {
+-      subscriptionTier: gate.subscriptionTier,
+-      subscriptionStatus: gate.subscriptionStatus,
+-      subscriptionStatusUpdatedAt: iso(user.subscriptionStatusUpdatedAt),
++      subscriptionTier: entitlement.appState.subscriptionTier,
++      subscriptionStatus: entitlement.appState.subscriptionStatus,
++      subscriptionStatusUpdatedAt: iso(entitlement.appState.subscriptionStatusUpdatedAt),
+     },
+     subscriptionState: user.subscriptionState ? {
+       id: user.subscriptionState.id,
+@@ -83,6 +67,15 @@ export function normalizePlusSnapshot(user: PlusSnapshotUser, aiAssistUsage: Awa
+       lastSyncedAt: iso(user.subscriptionState.lastSyncedAt),
+       adminNote: user.subscriptionState.adminNote,
+     } : null,
++    entitlement: {
++      source: entitlement.source,
++      sourceLabel: entitlement.sourceLabel,
++      provider: entitlement.provider,
++      accessState: entitlement.accessState,
++      activePaidAccess: entitlement.activePaidAccess,
++      selectedCandidateKind: entitlement.selectedCandidateKind,
++      reconciliation: entitlement.reconciliation,
++    },
+     access: {
+       canSeePlusSurfaces: gate.canSeePlusSurfaces,
+       hasPlusAccess: gate.hasPlusAccess,
+@@ -98,32 +91,13 @@ plusRoutes.get('/me', asyncRoute(async (req, res) => {
+   const user = await prisma.user.findUnique({
+     where: { id: req.user!.id },
+     select: {
+-      id: true,
+-      subscriptionTier: true,
+-      subscriptionStatus: true,
+-      subscriptionStatusUpdatedAt: true,
+-      subscriptionState: {
+-        select: {
+-          id: true,
+-          tier: true,
+-          status: true,
+-          provider: true,
+-          currentPeriodStartedAt: true,
+-          currentPeriodEndsAt: true,
+-          trialStartedAt: true,
+-          trialEndsAt: true,
+-          canceledAt: true,
+-          pastDueAt: true,
+-          expiresAt: true,
+-          lastSyncedAt: true,
+-          adminNote: true,
+-        },
+-      },
++      ...membershipEntitlementUserSelect,
+     },
+   });
+ 
+   if (!user) return res.status(404).json({ error: 'not_found' });
+   const config = plusConfigSnapshot();
+-  const aiAssistUsage = await getAiAssistUsageSummary(prisma as any, user, config);
++  const entitlement = resolveMembershipEntitlement(user);
++  const aiAssistUsage = await getAiAssistUsageSummary(prisma as any, membershipEntitlementAsAiAssistUser(user.id, entitlement), config);
+   return res.json(normalizePlusSnapshot(user, aiAssistUsage));
+ }));
+diff --git a/apps/api/src/modules/subscriptions/plusCustomization.ts b/apps/api/src/modules/subscriptions/plusCustomization.ts
+index a08e424..cb47b67 100644
+--- a/apps/api/src/modules/subscriptions/plusCustomization.ts
++++ b/apps/api/src/modules/subscriptions/plusCustomization.ts
+@@ -1,14 +1,12 @@
+ import { normalizePreviewCardTheme, type PreviewCardTheme, hasPlusAccess } from '@hellowhen/shared';
+ import { env } from '../../config/env.js';
+ import { prisma } from '../../lib/prisma.js';
++import { loadMembershipAccessStateForUser } from './membershipEntitlements.js';
+ 
+ export async function userCanUsePlusCustomization(userId: string): Promise<boolean> {
+   if (!env.plusEnabled || !env.plusCustomizationEnabled) return false;
+-  const user = await prisma.user.findUnique({
+-    where: { id: userId },
+-    select: { subscriptionTier: true, subscriptionStatus: true },
+-  });
+-  return hasPlusAccess(user);
++  const accessState = await loadMembershipAccessStateForUser(prisma as any, userId);
++  return hasPlusAccess(accessState);
+ }
+ 
+ export async function resolvePlusPreviewThemeForCreate(userId: string, requestedTheme?: string | null): Promise<PreviewCardTheme> {
+diff --git a/apps/api/src/modules/subscriptions/subscriptions.routes.ts b/apps/api/src/modules/subscriptions/subscriptions.routes.ts
+index 8f2be0c..0f37037 100644
+--- a/apps/api/src/modules/subscriptions/subscriptions.routes.ts
++++ b/apps/api/src/modules/subscriptions/subscriptions.routes.ts
+@@ -3,6 +3,7 @@ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
++import { resolveMembershipEntitlement } from './membershipEntitlements.js';
+ 
+ export const subscriptionsRoutes = Router();
+ 
+@@ -50,21 +51,48 @@ type SubscriptionSnapshotRow = {
+   rejectionReason: string | null;
+ };
+ 
++function resolveRowMembershipEntitlement(row: SubscriptionSnapshotRow) {
++  return resolveMembershipEntitlement({
++    id: row.id,
++    subscriptionTier: row.subscriptionTier,
++    subscriptionStatus: row.subscriptionStatus,
++    subscriptionStatusUpdatedAt: row.subscriptionStatusUpdatedAt,
++    subscriptionState: row.subscriptionStateId ? {
++      id: row.subscriptionStateId,
++      tier: row.subscriptionStateTier,
++      status: row.subscriptionStateStatus,
++      provider: row.subscriptionStateProvider,
++      currentPeriodStartedAt: row.currentPeriodStartedAt,
++      currentPeriodEndsAt: row.currentPeriodEndsAt,
++      trialStartedAt: row.trialStartedAt,
++      trialEndsAt: row.trialEndsAt,
++      canceledAt: row.canceledAt,
++      pastDueAt: row.pastDueAt,
++      expiresAt: row.expiresAt,
++    } : null,
++  });
++}
++
+ function hasProAccess(row: SubscriptionSnapshotRow) {
++  const entitlement = resolveRowMembershipEntitlement(row);
+   return row.professionalStatus === 'verified'
+-    && row.subscriptionTier === 'pro'
+-    && (row.subscriptionStatus === 'trialing' || row.subscriptionStatus === 'active');
++    && entitlement.accessState.subscriptionTier === 'pro'
++    && (entitlement.accessState.subscriptionStatus === 'trialing' || entitlement.accessState.subscriptionStatus === 'active');
+ }
+ 
+ function proAccessBlockers(row: SubscriptionSnapshotRow) {
++  const entitlement = resolveRowMembershipEntitlement(row);
+   const blockers: string[] = [];
+   if (row.professionalStatus !== 'verified') blockers.push('identity_not_verified');
+-  if (row.subscriptionTier !== 'pro') blockers.push('not_on_pro_tier');
+-  if (row.subscriptionStatus !== 'trialing' && row.subscriptionStatus !== 'active') blockers.push('subscription_not_active');
++  if (entitlement.accessState.subscriptionTier !== 'pro') blockers.push('not_on_pro_tier');
++  if (entitlement.accessState.subscriptionStatus !== 'trialing' && entitlement.accessState.subscriptionStatus !== 'active') blockers.push('subscription_not_active');
+   return blockers;
+ }
+ 
+ function normalizeSnapshot(row: SubscriptionSnapshotRow) {
++  const entitlement = resolveRowMembershipEntitlement(row);
++  const proAccess = hasProAccess(row);
++
+   return {
+     config: {
+       subscriptionsEnabled: env.subscriptionsEnabled,
+@@ -122,9 +150,18 @@ function normalizeSnapshot(row: SubscriptionSnapshotRow) {
+       expiresAt: row.verificationExpiresAt,
+       rejectionReason: row.rejectionReason,
+     } : null,
++    entitlement: {
++      source: entitlement.source,
++      sourceLabel: entitlement.sourceLabel,
++      provider: entitlement.provider,
++      accessState: entitlement.accessState,
++      activePaidAccess: entitlement.activePaidAccess,
++      selectedCandidateKind: entitlement.selectedCandidateKind,
++      reconciliation: entitlement.reconciliation,
++    },
+     access: {
+-      hasProAccess: hasProAccess(row),
+-      blockers: hasProAccess(row) ? [] : proAccessBlockers(row),
++      hasProAccess: proAccess,
++      blockers: proAccess ? [] : proAccessBlockers(row),
+     },
+   };
+ }
+diff --git a/docs/product/membership-billing-architecture.md b/docs/product/membership-billing-architecture.md
+index 689cd7e..516ac75 100644
+--- a/docs/product/membership-billing-architecture.md
++++ b/docs/product/membership-billing-architecture.md
+@@ -452,3 +452,25 @@ wallet
+ payouts
+ cash promise
+ ```
++### BILLING1 backend entitlement resolver
++
++BILLING1 adds a backend-only entitlement resolver at:
++
++```txt
++apps/api/src/modules/subscriptions/membershipEntitlements.ts
++```
++
++The resolver intentionally does not create checkout, call Stripe, validate StoreKit receipts, or mutate billing data. It normalizes the existing `User.subscriptionTier/status` and optional `SubscriptionState` row into a single access decision that existing backend gates can use.
++
++Rules:
++
++```txt
++- User.subscriptionTier/status remain the app-facing state.
++- SubscriptionState is a provider/admin synchronization row.
++- Active paid entitlements win over inactive/expired candidates.
++- Higher tier wins over lower tier.
++- Canceled subscriptions with a future period end remain active until that date.
++- Manual admin grants still work through the same resolver.
++```
++
++This prepares the backend for Stripe, Apple App Store, Google Play Billing, promo, and migration sources without introducing a payment provider yet.

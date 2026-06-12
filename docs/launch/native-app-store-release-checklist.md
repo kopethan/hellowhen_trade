@@ -20,3 +20,15 @@
 - Verify dark/light/system appearance persistence after app restart.
 - Prepare store privacy disclosures that match implemented data collection and safety workflows.
 - Keep payment/wallet/payout claims out of store copy until those features are explicitly enabled and reviewed.
+
+## Membership billing addendum
+
+Before submitting any build with Membership purchase controls enabled:
+
+- Review `docs/launch/membership-billing-store-review-notes.md`.
+- Run `docs/tests/membership-billing-final-smoke.md`.
+- Confirm iOS Plus/Pro digital Membership purchases use Apple StoreKit, not Stripe Checkout.
+- Confirm Android Plus/Pro digital Membership purchases use Google Play Billing, not Stripe Checkout.
+- Confirm Restore purchases is visible and works for the enabled native platform.
+- Confirm backend server validation is enabled before provider sync can mutate entitlements in production.
+- Confirm store screenshots and review notes do not imply Hellowhen processes user-to-user payments, wallet balances, payouts, escrow, or Cash Promise payments.

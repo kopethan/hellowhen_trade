@@ -65,6 +65,29 @@ export const env = {
   stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? '',
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? '',
   stripeCurrency: (process.env.STRIPE_CURRENCY ?? 'eur').toLowerCase(),
+  stripeMembershipCheckoutEnabled: enabled(process.env.STRIPE_MEMBERSHIP_CHECKOUT_ENABLED),
+  stripeMembershipWebhookEnabled: enabled(process.env.STRIPE_MEMBERSHIP_WEBHOOK_ENABLED),
+  stripeMembershipWebhookSecret: process.env.STRIPE_MEMBERSHIP_WEBHOOK_SECRET ?? '',
+  stripeMembershipPortalEnabled: enabled(process.env.STRIPE_MEMBERSHIP_PORTAL_ENABLED),
+  stripeMembershipPortalReturnPath: process.env.STRIPE_MEMBERSHIP_PORTAL_RETURN_PATH ?? '/account/membership?membership_portal=return',
+  appleMembershipPurchaseSyncEnabled: enabled(process.env.APPLE_MEMBERSHIP_PURCHASE_SYNC_ENABLED),
+  appleMembershipServerValidationEnabled: enabled(process.env.APPLE_MEMBERSHIP_SERVER_VALIDATION_ENABLED),
+  appleMembershipServerEnvironment: (process.env.APPLE_MEMBERSHIP_SERVER_ENVIRONMENT ?? 'sandbox').trim().toLowerCase(),
+  appleMembershipBundleId: process.env.APPLE_MEMBERSHIP_BUNDLE_ID ?? process.env.IOS_BUNDLE_IDENTIFIER ?? 'com.hellowhen.app',
+  appleMembershipIssuerId: process.env.APPLE_MEMBERSHIP_ISSUER_ID ?? '',
+  appleMembershipKeyId: process.env.APPLE_MEMBERSHIP_KEY_ID ?? '',
+  appleMembershipPrivateKey: process.env.APPLE_MEMBERSHIP_PRIVATE_KEY ?? '',
+  googlePlayMembershipPurchaseSyncEnabled: enabled(process.env.GOOGLE_PLAY_MEMBERSHIP_PURCHASE_SYNC_ENABLED),
+  googlePlayMembershipServerValidationEnabled: enabled(process.env.GOOGLE_PLAY_MEMBERSHIP_SERVER_VALIDATION_ENABLED),
+  googlePlayMembershipPackageName: process.env.GOOGLE_PLAY_MEMBERSHIP_PACKAGE_NAME ?? process.env.ANDROID_PACKAGE_NAME ?? 'com.hellowhen.app',
+  googlePlayMembershipServiceAccountEmail: process.env.GOOGLE_PLAY_MEMBERSHIP_SERVICE_ACCOUNT_EMAIL ?? '',
+  googlePlayMembershipServiceAccountPrivateKey: process.env.GOOGLE_PLAY_MEMBERSHIP_SERVICE_ACCOUNT_PRIVATE_KEY ?? '',
+  stripeMembershipSuccessPath: process.env.STRIPE_MEMBERSHIP_SUCCESS_PATH ?? '/account/membership?membership_checkout=success&session_id={CHECKOUT_SESSION_ID}',
+  stripeMembershipCancelPath: process.env.STRIPE_MEMBERSHIP_CANCEL_PATH ?? '/account/membership?membership_checkout=cancelled',
+  stripePlusMonthlyPriceId: process.env.STRIPE_PLUS_MONTHLY_PRICE_ID ?? '',
+  stripePlusYearlyPriceId: process.env.STRIPE_PLUS_YEARLY_PRICE_ID ?? '',
+  stripeProMonthlyPriceId: process.env.STRIPE_PRO_MONTHLY_PRICE_ID ?? '',
+  stripeProYearlyPriceId: process.env.STRIPE_PRO_YEARLY_PRICE_ID ?? '',
   stripeConnectEnabled: (process.env.STRIPE_CONNECT_ENABLED ?? 'false').toLowerCase() === 'true',
   stripeConnectCountry: (process.env.STRIPE_CONNECT_COUNTRY ?? 'US').toUpperCase(),
   stripeConnectRefreshPath: process.env.STRIPE_CONNECT_REFRESH_PATH ?? '/account/payouts?stripe_connect=refresh',
@@ -310,20 +333,29 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     || env.moneyProviderWebhooksEnabled
     || env.stripeConnectEnabled
     || env.stripeConnectTransferMode
+    || env.stripeMembershipCheckoutEnabled
+    || env.stripeMembershipWebhookEnabled
+    || env.stripeMembershipPortalEnabled
+    || env.appleMembershipPurchaseSyncEnabled
+    || env.appleMembershipServerValidationEnabled
     || env.airwallexEnabled
     || env.airwallexConnectedAccountsEnabled;
   if (providerRuntimeEnabled) {
-    errors.push('Stripe/Airwallex provider runtime flags must stay disabled for first launch.');
+    errors.push('Stripe/Airwallex/Apple billing provider runtime flags must stay disabled for first launch.');
   }
 
   const providerSecretsConfigured = hasConfiguredValue(env.stripeSecretKey)
     || hasConfiguredValue(env.stripeWebhookSecret)
+    || hasConfiguredValue(env.stripeMembershipWebhookSecret)
+    || hasConfiguredValue(env.appleMembershipIssuerId)
+    || hasConfiguredValue(env.appleMembershipKeyId)
+    || hasConfiguredValue(env.appleMembershipPrivateKey)
     || hasConfiguredValue(env.airwallexClientId)
     || hasConfiguredValue(env.airwallexApiKey)
     || hasConfiguredValue(env.airwallexWebhookSecret)
     || hasConfiguredValue(env.airwallexPlatformAccountId);
   if (providerSecretsConfigured) {
-    errors.push('Stripe/Airwallex credentials must not be configured in the first-launch production environment.');
+    errors.push('Stripe/Airwallex/Apple billing credentials must not be configured in the first-launch production environment.');
   }
 
   const moneyUiEnabled = env.moneyFeaturesVisible
@@ -398,6 +430,7 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     || publicFlagEnabled('NEXT_PUBLIC_PRO_ACCOUNTS_VISIBLE')
     || publicFlagEnabled('NEXT_PUBLIC_PRO_TRIALS_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_IDENTITY_VERIFICATION_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_STRIPE_MEMBERSHIP_CHECKOUT_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_PLUS_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_PLUS_PUBLIC')
@@ -513,6 +546,14 @@ export function validateProductionEnv() {
   if (publicFlagEnabled('NEXT_PUBLIC_AGENDA_ENABLED') && !publicFlagEnabled('NEXT_PUBLIC_PLUS_ENABLED')) errors.push('NEXT_PUBLIC_AGENDA_ENABLED=true requires NEXT_PUBLIC_PLUS_ENABLED=true.');
   if (publicFlagEnabled('EXPO_PUBLIC_AGENDA_ENABLED') && !publicFlagEnabled('EXPO_PUBLIC_PLUS_ENABLED')) errors.push('EXPO_PUBLIC_AGENDA_ENABLED=true requires EXPO_PUBLIC_PLUS_ENABLED=true.');
   if (env.plusAiAssistEnabled && !env.aiEnabled) errors.push('AI_ASSIST_ENABLED requires AI_ENABLED=true in production.');
+  if (env.appleMembershipPurchaseSyncEnabled && !env.subscriptionsEnabled) errors.push('APPLE_MEMBERSHIP_PURCHASE_SYNC_ENABLED=true requires SUBSCRIPTIONS_ENABLED=true.');
+  if (env.appleMembershipPurchaseSyncEnabled && !env.plusEnabled) errors.push('APPLE_MEMBERSHIP_PURCHASE_SYNC_ENABLED=true requires PLUS_ENABLED=true.');
+  if (env.appleMembershipPurchaseSyncEnabled && !env.appleMembershipServerValidationEnabled) errors.push('APPLE_MEMBERSHIP_PURCHASE_SYNC_ENABLED=true requires APPLE_MEMBERSHIP_SERVER_VALIDATION_ENABLED=true in production.');
+  if (env.appleMembershipServerValidationEnabled && (!env.appleMembershipIssuerId || !env.appleMembershipKeyId || !env.appleMembershipPrivateKey || !env.appleMembershipBundleId)) errors.push('Apple StoreKit server validation requires APPLE_MEMBERSHIP_ISSUER_ID, APPLE_MEMBERSHIP_KEY_ID, APPLE_MEMBERSHIP_PRIVATE_KEY, and APPLE_MEMBERSHIP_BUNDLE_ID.');
+  if (env.googlePlayMembershipPurchaseSyncEnabled && !env.subscriptionsEnabled) errors.push('GOOGLE_PLAY_MEMBERSHIP_PURCHASE_SYNC_ENABLED=true requires SUBSCRIPTIONS_ENABLED=true.');
+  if (env.googlePlayMembershipPurchaseSyncEnabled && !env.plusEnabled) errors.push('GOOGLE_PLAY_MEMBERSHIP_PURCHASE_SYNC_ENABLED=true requires PLUS_ENABLED=true.');
+  if (env.googlePlayMembershipPurchaseSyncEnabled && !env.googlePlayMembershipServerValidationEnabled) errors.push('GOOGLE_PLAY_MEMBERSHIP_PURCHASE_SYNC_ENABLED=true requires GOOGLE_PLAY_MEMBERSHIP_SERVER_VALIDATION_ENABLED=true in production.');
+  if (env.googlePlayMembershipServerValidationEnabled && (!env.googlePlayMembershipPackageName || !env.googlePlayMembershipServiceAccountEmail || !env.googlePlayMembershipServiceAccountPrivateKey)) errors.push('Google Play server validation requires GOOGLE_PLAY_MEMBERSHIP_PACKAGE_NAME, GOOGLE_PLAY_MEMBERSHIP_SERVICE_ACCOUNT_EMAIL, and GOOGLE_PLAY_MEMBERSHIP_SERVICE_ACCOUNT_PRIVATE_KEY.');
   const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.plusAiAssistEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiModerationSuggestionsEnabled || env.aiDebugPlaceholders;
   const aiSecretsConfigured = hasConfiguredValue(env.openaiApiKey) || hasConfiguredValue(env.geminiApiKey) || hasConfiguredValue(env.groqApiKey);
   if (aiConfigured && env.aiProvider === 'none') {

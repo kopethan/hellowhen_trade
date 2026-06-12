@@ -132,6 +132,71 @@ export const plusSubscriptionStateSchema = z.object({
   adminNote: z.string().nullable().optional(),
 }).passthrough();
 
+export const membershipEntitlementSourceSchema = z.enum([
+  'manual_admin',
+  'stripe',
+  'apple_app_store',
+  'google_play',
+  'promo',
+  'migration',
+  'revenuecat_later',
+]);
+
+export const membershipEntitlementCandidateKindSchema = z.enum(['user_app_state', 'subscription_state']);
+export const membershipEntitlementStatusReasonSchema = z.enum(['stored_status', 'period_still_active', 'period_expired', 'no_entitlement']);
+export const membershipEntitlementSelectionRuleSchema = z.enum(['active_paid_higher_tier_source_priority', 'free_or_inactive_fallback']);
+export const membershipEntitlementAppStateRecommendationSchema = z.enum(['in_sync', 'sync_user_app_state_from_subscription_state', 'keep_user_app_state_fallback']);
+
+export const membershipEntitlementProviderSchema = z.object({
+  source: membershipEntitlementSourceSchema,
+  billingProvider: z.boolean(),
+  nativeStore: z.boolean(),
+  channel: z.string(),
+});
+
+export const membershipEntitlementAccessStateSchema = z.object({
+  subscriptionTier: plusSubscriptionTierSchema,
+  subscriptionStatus: plusSubscriptionStatusSchema,
+});
+
+export const membershipEntitlementCandidateSchema = z.object({
+  source: membershipEntitlementSourceSchema,
+  sourceLabel: z.string(),
+  candidateKind: membershipEntitlementCandidateKindSchema,
+  subscriptionTier: plusSubscriptionTierSchema,
+  subscriptionStatus: plusSubscriptionStatusSchema,
+  activePaidAccess: z.boolean(),
+  statusReason: membershipEntitlementStatusReasonSchema,
+  currentPeriodEndsAt: z.string().nullable().optional(),
+  trialEndsAt: z.string().nullable().optional(),
+  expiresAt: z.string().nullable().optional(),
+  providerCustomerId: z.string().nullable().optional(),
+  providerSubscriptionId: z.string().nullable().optional(),
+});
+
+export const membershipEntitlementReconciliationSchema = z.object({
+  usedSubscriptionState: z.boolean(),
+  usedUserAppStateFallback: z.boolean(),
+  appStateDiffersFromAccessState: z.boolean(),
+  reason: z.enum(['subscription_state_selected', 'user_app_state_selected', 'free_or_inactive']),
+  selectionRule: membershipEntitlementSelectionRuleSchema,
+  appStateRecommendation: membershipEntitlementAppStateRecommendationSchema,
+  candidateCount: z.number().int().nonnegative(),
+  activeCandidateCount: z.number().int().nonnegative(),
+});
+
+export const membershipEntitlementSnapshotSchema = z.object({
+  source: membershipEntitlementSourceSchema,
+  sourceLabel: z.string(),
+  provider: membershipEntitlementProviderSchema,
+  accessState: membershipEntitlementAccessStateSchema,
+  activePaidAccess: z.boolean(),
+  selectedCandidateKind: membershipEntitlementCandidateKindSchema,
+  selectedCandidate: membershipEntitlementCandidateSchema,
+  candidates: z.array(membershipEntitlementCandidateSchema),
+  reconciliation: membershipEntitlementReconciliationSchema,
+});
+
 export const plusSubscriptionSnapshotResponseSchema = z.object({
   config: plusSubscriptionConfigSchema,
   state: z.object({
@@ -140,6 +205,7 @@ export const plusSubscriptionSnapshotResponseSchema = z.object({
     subscriptionStatusUpdatedAt: z.string().nullable().optional(),
   }),
   subscriptionState: plusSubscriptionStateSchema.nullable(),
+  entitlement: membershipEntitlementSnapshotSchema,
   access: plusAccessSchema,
   price: z.object({
     monthlyCents: z.number().int().nonnegative(),
@@ -216,6 +282,7 @@ export type PlusGateBlocker = z.infer<typeof plusGateBlockerSchema>;
 export type PlusSubscriptionConfig = z.infer<typeof plusSubscriptionConfigSchema>;
 export type PlusEntitlementsDto = z.infer<typeof plusEntitlementsSchema>;
 export type PlusSubscriptionStateDto = z.infer<typeof plusSubscriptionStateSchema>;
+export type MembershipEntitlementSnapshot = z.infer<typeof membershipEntitlementSnapshotSchema>;
 export type PlusAiAssistQuotaSummary = z.infer<typeof plusAiAssistQuotaSummarySchema>;
 export type AdminPlusAiAssistUsage = z.infer<typeof adminPlusAiAssistUsageSchema>;
 export type PlusSubscriptionSnapshotResponse = z.infer<typeof plusSubscriptionSnapshotResponseSchema>;

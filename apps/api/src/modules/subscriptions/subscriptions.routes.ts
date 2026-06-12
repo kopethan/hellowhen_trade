@@ -2,7 +2,12 @@ import { Router } from 'express';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+import { resolveMembershipEntitlement, serializeMembershipEntitlement } from './membershipEntitlements.js';
+import { createMembershipCheckoutSessionRequestSchema, createStripeMembershipCheckoutSession } from './stripeMembershipCheckout.js';
+import { createStripeMembershipCustomerPortalSession } from './stripeMembershipPortal.js';
+import { syncAppleStoreKitPurchase } from './appleStoreKitSync.js';
+import { syncGooglePlayPurchase } from './googlePlayBillingSync.js';
 
 export const subscriptionsRoutes = Router();
 
@@ -50,21 +55,48 @@ type SubscriptionSnapshotRow = {
   rejectionReason: string | null;
 };
 
+function resolveRowMembershipEntitlement(row: SubscriptionSnapshotRow) {
+  return resolveMembershipEntitlement({
+    id: row.id,
+    subscriptionTier: row.subscriptionTier,
+    subscriptionStatus: row.subscriptionStatus,
+    subscriptionStatusUpdatedAt: row.subscriptionStatusUpdatedAt,
+    subscriptionState: row.subscriptionStateId ? {
+      id: row.subscriptionStateId,
+      tier: row.subscriptionStateTier,
+      status: row.subscriptionStateStatus,
+      provider: row.subscriptionStateProvider,
+      currentPeriodStartedAt: row.currentPeriodStartedAt,
+      currentPeriodEndsAt: row.currentPeriodEndsAt,
+      trialStartedAt: row.trialStartedAt,
+      trialEndsAt: row.trialEndsAt,
+      canceledAt: row.canceledAt,
+      pastDueAt: row.pastDueAt,
+      expiresAt: row.expiresAt,
+    } : null,
+  });
+}
+
 function hasProAccess(row: SubscriptionSnapshotRow) {
+  const entitlement = resolveRowMembershipEntitlement(row);
   return row.professionalStatus === 'verified'
-    && row.subscriptionTier === 'pro'
-    && (row.subscriptionStatus === 'trialing' || row.subscriptionStatus === 'active');
+    && entitlement.accessState.subscriptionTier === 'pro'
+    && (entitlement.accessState.subscriptionStatus === 'trialing' || entitlement.accessState.subscriptionStatus === 'active');
 }
 
 function proAccessBlockers(row: SubscriptionSnapshotRow) {
+  const entitlement = resolveRowMembershipEntitlement(row);
   const blockers: string[] = [];
   if (row.professionalStatus !== 'verified') blockers.push('identity_not_verified');
-  if (row.subscriptionTier !== 'pro') blockers.push('not_on_pro_tier');
-  if (row.subscriptionStatus !== 'trialing' && row.subscriptionStatus !== 'active') blockers.push('subscription_not_active');
+  if (entitlement.accessState.subscriptionTier !== 'pro') blockers.push('not_on_pro_tier');
+  if (entitlement.accessState.subscriptionStatus !== 'trialing' && entitlement.accessState.subscriptionStatus !== 'active') blockers.push('subscription_not_active');
   return blockers;
 }
 
 function normalizeSnapshot(row: SubscriptionSnapshotRow) {
+  const entitlement = resolveRowMembershipEntitlement(row);
+  const proAccess = hasProAccess(row);
+
   return {
     config: {
       subscriptionsEnabled: env.subscriptionsEnabled,
@@ -122,12 +154,35 @@ function normalizeSnapshot(row: SubscriptionSnapshotRow) {
       expiresAt: row.verificationExpiresAt,
       rejectionReason: row.rejectionReason,
     } : null,
+    entitlement: serializeMembershipEntitlement(entitlement),
     access: {
-      hasProAccess: hasProAccess(row),
-      blockers: hasProAccess(row) ? [] : proAccessBlockers(row),
+      hasProAccess: proAccess,
+      blockers: proAccess ? [] : proAccessBlockers(row),
     },
   };
 }
+
+
+subscriptionsRoutes.post('/checkout-session', requireActiveAccount, asyncRoute(async (req, res) => {
+  const body = createMembershipCheckoutSessionRequestSchema.parse(req.body);
+  const session = await createStripeMembershipCheckoutSession(req.user!.id, body.productHandle);
+  res.json(session);
+}));
+
+subscriptionsRoutes.post('/customer-portal-session', requireActiveAccount, asyncRoute(async (req, res) => {
+  const session = await createStripeMembershipCustomerPortalSession(req.user!.id);
+  res.json(session);
+}));
+
+subscriptionsRoutes.post('/apple/storekit-sync', requireActiveAccount, asyncRoute(async (req, res) => {
+  const result = await syncAppleStoreKitPurchase(req.user!.id, req.body);
+  res.json(result);
+}));
+
+subscriptionsRoutes.post('/google/play-sync', requireActiveAccount, asyncRoute(async (req, res) => {
+  const result = await syncGooglePlayPurchase(req.user!.id, req.body);
+  res.json(result);
+}));
 
 subscriptionsRoutes.get('/me', asyncRoute(async (req, res) => {
   const rows = await prisma.$queryRaw<SubscriptionSnapshotRow[]>`

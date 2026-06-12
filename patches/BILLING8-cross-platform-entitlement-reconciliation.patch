@@ -1,0 +1,566 @@
+diff --git a/apps/api/src/modules/subscriptions/membershipEntitlements.ts b/apps/api/src/modules/subscriptions/membershipEntitlements.ts
+--- a/apps/api/src/modules/subscriptions/membershipEntitlements.ts
++++ b/apps/api/src/modules/subscriptions/membershipEntitlements.ts
+@@ -89,6 +89,33 @@
+   statusReason: 'stored_status' | 'period_still_active' | 'period_expired' | 'no_entitlement';
+ };
+ 
++export type MembershipEntitlementCandidateSummary = {
++  source: MembershipEntitlementSource;
++  sourceLabel: string;
++  candidateKind: MembershipEntitlementCandidate['candidateKind'];
++  subscriptionTier: SubscriptionTier;
++  subscriptionStatus: SubscriptionStatus;
++  activePaidAccess: boolean;
++  statusReason: MembershipEntitlementCandidate['statusReason'];
++  currentPeriodEndsAt?: Date | string | null;
++  trialEndsAt?: Date | string | null;
++  expiresAt?: Date | string | null;
++  providerCustomerId?: string | null;
++  providerSubscriptionId?: string | null;
++};
++
++export type MembershipEntitlementSerialized = {
++  source: MembershipEntitlementSource;
++  sourceLabel: string;
++  provider: MembershipEntitlementResolution['provider'];
++  accessState: MembershipEntitlementAccessState;
++  activePaidAccess: boolean;
++  selectedCandidateKind: MembershipEntitlementCandidate['candidateKind'];
++  selectedCandidate: MembershipEntitlementCandidateSummary;
++  candidates: MembershipEntitlementCandidateSummary[];
++  reconciliation: MembershipEntitlementResolution['reconciliation'];
++};
++
+ export type MembershipEntitlementResolution = {
+   userId: string;
+   appState: MembershipEntitlementAccessState & {
+@@ -111,6 +138,10 @@
+     usedUserAppStateFallback: boolean;
+     appStateDiffersFromAccessState: boolean;
+     reason: 'subscription_state_selected' | 'user_app_state_selected' | 'free_or_inactive';
++    selectionRule: 'active_paid_higher_tier_source_priority' | 'free_or_inactive_fallback';
++    appStateRecommendation: 'in_sync' | 'sync_user_app_state_from_subscription_state' | 'keep_user_app_state_fallback';
++    candidateCount: number;
++    activeCandidateCount: number;
+   };
+ };
+ 
+@@ -235,6 +266,32 @@
+   return 0;
+ }
+ 
++function summarizeCandidate(candidate: MembershipEntitlementCandidate): MembershipEntitlementCandidateSummary {
++  return {
++    source: candidate.source,
++    sourceLabel: candidate.sourceLabel,
++    candidateKind: candidate.candidateKind,
++    subscriptionTier: candidate.subscriptionTier,
++    subscriptionStatus: candidate.subscriptionStatus,
++    activePaidAccess: candidate.activePaidAccess,
++    statusReason: candidate.statusReason,
++    currentPeriodEndsAt: candidate.currentPeriodEndsAt ?? null,
++    trialEndsAt: candidate.trialEndsAt ?? null,
++    expiresAt: candidate.expiresAt ?? null,
++    providerCustomerId: candidate.providerCustomerId ?? null,
++    providerSubscriptionId: candidate.providerSubscriptionId ?? null,
++  };
++}
++
++function resolveAppStateRecommendation(input: {
++  selected: MembershipEntitlementCandidate;
++  appStateDiffersFromAccessState: boolean;
++}): MembershipEntitlementResolution['reconciliation']['appStateRecommendation'] {
++  if (!input.appStateDiffersFromAccessState) return 'in_sync';
++  if (input.selected.candidateKind === 'subscription_state') return 'sync_user_app_state_from_subscription_state';
++  return 'keep_user_app_state_fallback';
++}
++
+ export function resolveMembershipEntitlement(
+   user: MembershipEntitlementUserRow,
+   options: { now?: Date } = {},
+@@ -285,6 +342,7 @@
+   const reason = selected.activePaidAccess
+     ? selected.candidateKind === 'subscription_state' ? 'subscription_state_selected' : 'user_app_state_selected'
+     : 'free_or_inactive';
++  const activeCandidateCount = candidates.filter((candidate) => candidate.activePaidAccess).length;
+ 
+   return {
+     userId: user.id,
+@@ -309,10 +367,41 @@
+       usedUserAppStateFallback: selected.candidateKind === 'user_app_state',
+       appStateDiffersFromAccessState,
+       reason,
++      selectionRule: selected.activePaidAccess ? 'active_paid_higher_tier_source_priority' : 'free_or_inactive_fallback',
++      appStateRecommendation: resolveAppStateRecommendation({ selected, appStateDiffersFromAccessState }),
++      candidateCount: candidates.length,
++      activeCandidateCount,
+     },
+   };
+ }
+ 
++export function serializeMembershipEntitlement(
++  entitlement: MembershipEntitlementResolution,
++): MembershipEntitlementSerialized {
++  const selected = entitlement.candidates.find((candidate) => (
++    candidate.candidateKind === entitlement.selectedCandidateKind
++    && candidate.subscriptionTier === entitlement.accessState.subscriptionTier
++    && candidate.subscriptionStatus === entitlement.accessState.subscriptionStatus
++    && candidate.source === entitlement.source
++  ));
++
++  if (!selected) {
++    throw new Error('membership_entitlement_selected_candidate_missing');
++  }
++
++  return {
++    source: entitlement.source,
++    sourceLabel: entitlement.sourceLabel,
++    provider: entitlement.provider,
++    accessState: entitlement.accessState,
++    activePaidAccess: entitlement.activePaidAccess,
++    selectedCandidateKind: entitlement.selectedCandidateKind,
++    selectedCandidate: summarizeCandidate(selected),
++    candidates: entitlement.candidates.map(summarizeCandidate),
++    reconciliation: entitlement.reconciliation,
++  };
++}
++
+ export async function loadMembershipEntitlementForUser(
+   client: MembershipEntitlementClient,
+   userId: string,
+diff --git a/apps/api/src/modules/subscriptions/plus.routes.ts b/apps/api/src/modules/subscriptions/plus.routes.ts
+--- a/apps/api/src/modules/subscriptions/plus.routes.ts
++++ b/apps/api/src/modules/subscriptions/plus.routes.ts
+@@ -9,6 +9,7 @@
+   membershipEntitlementAsAiAssistUser,
+   membershipEntitlementUserSelect,
+   resolveMembershipEntitlement,
++  serializeMembershipEntitlement,
+   type MembershipEntitlementUserRow,
+ } from './membershipEntitlements.js';
+ 
+@@ -67,15 +68,7 @@
+       lastSyncedAt: iso(user.subscriptionState.lastSyncedAt),
+       adminNote: user.subscriptionState.adminNote,
+     } : null,
+-    entitlement: {
+-      source: entitlement.source,
+-      sourceLabel: entitlement.sourceLabel,
+-      provider: entitlement.provider,
+-      accessState: entitlement.accessState,
+-      activePaidAccess: entitlement.activePaidAccess,
+-      selectedCandidateKind: entitlement.selectedCandidateKind,
+-      reconciliation: entitlement.reconciliation,
+-    },
++    entitlement: serializeMembershipEntitlement(entitlement),
+     access: {
+       canSeePlusSurfaces: gate.canSeePlusSurfaces,
+       hasPlusAccess: gate.hasPlusAccess,
+diff --git a/apps/api/src/modules/subscriptions/subscriptions.routes.ts b/apps/api/src/modules/subscriptions/subscriptions.routes.ts
+--- a/apps/api/src/modules/subscriptions/subscriptions.routes.ts
++++ b/apps/api/src/modules/subscriptions/subscriptions.routes.ts
+@@ -3,7 +3,7 @@
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+-import { resolveMembershipEntitlement } from './membershipEntitlements.js';
++import { resolveMembershipEntitlement, serializeMembershipEntitlement } from './membershipEntitlements.js';
+ import { createMembershipCheckoutSessionRequestSchema, createStripeMembershipCheckoutSession } from './stripeMembershipCheckout.js';
+ import { createStripeMembershipCustomerPortalSession } from './stripeMembershipPortal.js';
+ import { syncAppleStoreKitPurchase } from './appleStoreKitSync.js';
+@@ -154,15 +154,7 @@
+       expiresAt: row.verificationExpiresAt,
+       rejectionReason: row.rejectionReason,
+     } : null,
+-    entitlement: {
+-      source: entitlement.source,
+-      sourceLabel: entitlement.sourceLabel,
+-      provider: entitlement.provider,
+-      accessState: entitlement.accessState,
+-      activePaidAccess: entitlement.activePaidAccess,
+-      selectedCandidateKind: entitlement.selectedCandidateKind,
+-      reconciliation: entitlement.reconciliation,
+-    },
++    entitlement: serializeMembershipEntitlement(entitlement),
+     access: {
+       hasProAccess: proAccess,
+       blockers: proAccess ? [] : proAccessBlockers(row),
+diff --git a/apps/mobile/src/features/account/MembershipScreen.tsx b/apps/mobile/src/features/account/MembershipScreen.tsx
+--- a/apps/mobile/src/features/account/MembershipScreen.tsx
++++ b/apps/mobile/src/features/account/MembershipScreen.tsx
+@@ -197,7 +197,8 @@
+               <View style={[styles.statusGrid, { borderTopColor: theme.color.border }]}>
+                 <StatusMetric label={t('account.mobileMembership.metrics.plusAccess')} value={gate.hasPlusAccess ? t('account.mobileMembership.values.available') : t('account.mobileMembership.values.notActive')} />
+                 <StatusMetric label={t('account.mobileMembership.metrics.aiQuota')} value={`${gate.entitlements.monthlyAiAssistQuota}`} />
+-                <StatusMetric label={t('account.mobileMembership.metrics.provider')} value={snapshot?.subscriptionState?.provider ?? t('account.mobileMembership.values.none')} />
++                <StatusMetric label={t('account.mobileMembership.metrics.provider')} value={snapshot?.entitlement?.sourceLabel ?? snapshot?.subscriptionState?.provider ?? t('account.mobileMembership.values.none')} />
++                <StatusMetric label={t('account.mobileMembership.metrics.reconciliation')} value={snapshot?.entitlement?.reconciliation?.appStateRecommendation ? t(`account.mobileMembership.reconciliation.${snapshot.entitlement.reconciliation.appStateRecommendation}`) : t('account.mobileMembership.values.none')} />
+               </View>
+               {error ? <InfoNotice tone="warning" title={t('account.mobileMembership.loadErrorTitle')} body={t('account.mobileMembership.loadErrorBody')} /> : null}
+             </AppCard>
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -3067,6 +3067,7 @@
+ .membership-status-overview__main p { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
+ .membership-status-grid { display: grid; gap: 10px; }
+ .membership-status-tile { display: grid; gap: 6px; min-width: 0; border: 1px solid var(--app-border); border-radius: 20px; background: color-mix(in srgb, var(--app-surface) 86%, var(--app-surface-soft)); padding: 12px; }
++.membership-status-tile--wide { border-color: color-mix(in srgb, var(--info-border) 48%, var(--app-border)); background: linear-gradient(135deg, color-mix(in srgb, var(--info-bg) 18%, var(--app-surface)), var(--app-surface)); }
+ .membership-status-tile > span { color: var(--app-text-muted); font-size: 11px; font-weight: 950; letter-spacing: .06em; text-transform: uppercase; }
+ .membership-status-tile strong { overflow-wrap: anywhere; color: var(--app-text); font-size: 16px; font-weight: 950; line-height: 1.2; }
+ .membership-status-tile small { color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.35; }
+@@ -3101,6 +3102,7 @@
+   .membership-grid--personal .membership-card.is-featured { transform: translateY(-4px); }
+   .membership-namespace-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+   .membership-status-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
++  .membership-status-tile--wide { grid-column: span 2; }
+   .membership-boundary-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+   .membership-billing-panel { grid-template-columns: minmax(0, 1fr) auto; }
+   .membership-availability-panel { grid-template-columns: minmax(0, .7fr) minmax(0, 1fr); align-items: start; }
+@@ -3132,6 +3134,7 @@
+   .membership-status-card .button, .membership-billing-panel .button { width: 100%; }
+   .membership-status-overview__main h3 { font-size: 21px; }
+   .membership-status-tile strong { font-size: 15px; }
++  .membership-status-tile--wide { grid-column: auto; }
+   .membership-namespace-grid > div { padding: 10px; }
+ }
+ 
+diff --git a/apps/web/src/features/account/MembershipClient.tsx b/apps/web/src/features/account/MembershipClient.tsx
+--- a/apps/web/src/features/account/MembershipClient.tsx
++++ b/apps/web/src/features/account/MembershipClient.tsx
+@@ -83,6 +83,25 @@
+   return formatWebDate(value, '—', language);
+ }
+ 
++function formatEntitlementSource(snapshot: MembershipSnapshot, t: WebTranslator) {
++  return snapshot?.entitlement?.sourceLabel ?? t('account.membership.statusOverview.noEntitlementSource');
++}
++
++function formatReconciliationSummary(snapshot: MembershipSnapshot, t: WebTranslator) {
++  const recommendation = snapshot?.entitlement?.reconciliation?.appStateRecommendation;
++  if (!recommendation) return t('account.membership.reconciliation.loading');
++  return t(`account.membership.reconciliation.recommendations.${recommendation}`);
++}
++
++function formatCandidateSummary(snapshot: MembershipSnapshot, t: WebTranslator) {
++  const reconciliation = snapshot?.entitlement?.reconciliation;
++  if (!reconciliation) return t('account.membership.reconciliation.noCandidates');
++  return t('account.membership.reconciliation.candidateSummary', {
++    active: String(reconciliation.activeCandidateCount),
++    total: String(reconciliation.candidateCount),
++  });
++}
++
+ function formatPeriodSummary(snapshot: MembershipSnapshot, language: SupportedLanguage, t: WebTranslator) {
+   const state = snapshot?.subscriptionState;
+   if (!state) return t('account.membership.statusOverview.noBillingPeriod');
+@@ -315,6 +334,16 @@
+           <small>{t('account.membership.statusOverview.noPaymentProvider')}</small>
+         </div>
+         <div className="membership-status-tile">
++          <span>{t('account.membership.statusOverview.entitlementSource')}</span>
++          <strong>{formatEntitlementSource(snapshot, t)}</strong>
++          <small>{formatCandidateSummary(snapshot, t)}</small>
++        </div>
++        <div className="membership-status-tile membership-status-tile--wide">
++          <span>{t('account.membership.statusOverview.reconciliation')}</span>
++          <strong>{formatReconciliationSummary(snapshot, t)}</strong>
++          <small>{t('account.membership.statusOverview.reconciliationNote')}</small>
++        </div>
++        <div className="membership-status-tile">
+           <span>{t('account.membership.statusOverview.referencePrice')}</span>
+           <strong>{t('account.membership.statusOverview.monthlyPrice', { price: monthlyPrice })}</strong>
+           <small>{t('account.membership.statusOverview.referencePriceNote')}</small>
+diff --git a/docs/product/membership-billing-architecture.md b/docs/product/membership-billing-architecture.md
+--- a/docs/product/membership-billing-architecture.md
++++ b/docs/product/membership-billing-architecture.md
+@@ -745,3 +745,30 @@
+ ```
+ 
+ BILLING8 should focus on cross-platform entitlement reconciliation and conflict handling across Stripe, Apple, Google, manual grants, promo grants, and migrations.
++
++
++## BILLING8 reconciliation rule
++
++Hellowhen resolves Membership access through one normalized entitlement snapshot before any Plus/Pro gate runs.
++
++Current candidates:
++
++- `User.subscriptionTier` / `User.subscriptionStatus` as the app-facing fallback state.
++- `SubscriptionState` as the provider/admin synchronization state.
++
++Selection order:
++
++1. Active paid access wins over expired, canceled-without-time-left, past-due, or free candidates.
++2. Higher personal tier wins over lower personal tier: Pro beats Plus, Plus beats Free.
++3. If tier/status are otherwise equivalent, source priority decides: manual admin / migration / promo / Stripe / Apple / Google / RevenueCat-later metadata.
++4. If a subscription is canceled but its current period or expiry date is still in the future, Hellowhen treats access as active until that date.
++
++The resolver exposes a serialized `entitlement` block in `/plus/me` and `/subscriptions/me` so web and mobile can show:
++
++- selected entitlement source
++- selected candidate kind
++- active candidate count
++- whether `User.subscriptionTier/status` differs from resolved access
++- whether app-facing state should be synced from provider state
++
++BILLING8 does not add a new provider, a new purchase flow, a schema migration, RevenueCat, Apple server notifications, or Google real-time developer notifications.
+diff --git a/docs/tests/membership-route-smoke.md b/docs/tests/membership-route-smoke.md
+--- a/docs/tests/membership-route-smoke.md
++++ b/docs/tests/membership-route-smoke.md
+@@ -255,3 +255,15 @@
+ - Backend grants Plus/Pro only after validated Google subscription data maps to a known Membership product id.
+ - /plus/me and /subscriptions/me reflect the normalized entitlement after sync.
+ ```
++
++
++## BILLING8 entitlement reconciliation smoke
++
++- [ ] `/account/membership` loads the resolved entitlement source tile.
++- [ ] `/account/membership` loads the reconciliation tile.
++- [ ] Mobile Membership preview shows the resolved source metric.
++- [ ] Mobile Membership preview shows the reconciliation metric.
++- [ ] Canceled subscriptions with a future period end still display active access until the end date.
++- [ ] Expired provider state does not override an active paid app/admin state.
++- [ ] Pro active state wins over Plus active state when both candidates exist.
++- [ ] No Stripe checkout, Apple purchase, Google purchase, or entitlement mutation is triggered by merely viewing the reconciliation metadata.
+diff --git a/packages/contracts/src/plus.ts b/packages/contracts/src/plus.ts
+--- a/packages/contracts/src/plus.ts
++++ b/packages/contracts/src/plus.ts
+@@ -132,6 +132,71 @@
+   adminNote: z.string().nullable().optional(),
+ }).passthrough();
+ 
++export const membershipEntitlementSourceSchema = z.enum([
++  'manual_admin',
++  'stripe',
++  'apple_app_store',
++  'google_play',
++  'promo',
++  'migration',
++  'revenuecat_later',
++]);
++
++export const membershipEntitlementCandidateKindSchema = z.enum(['user_app_state', 'subscription_state']);
++export const membershipEntitlementStatusReasonSchema = z.enum(['stored_status', 'period_still_active', 'period_expired', 'no_entitlement']);
++export const membershipEntitlementSelectionRuleSchema = z.enum(['active_paid_higher_tier_source_priority', 'free_or_inactive_fallback']);
++export const membershipEntitlementAppStateRecommendationSchema = z.enum(['in_sync', 'sync_user_app_state_from_subscription_state', 'keep_user_app_state_fallback']);
++
++export const membershipEntitlementProviderSchema = z.object({
++  source: membershipEntitlementSourceSchema,
++  billingProvider: z.boolean(),
++  nativeStore: z.boolean(),
++  channel: z.string(),
++});
++
++export const membershipEntitlementAccessStateSchema = z.object({
++  subscriptionTier: plusSubscriptionTierSchema,
++  subscriptionStatus: plusSubscriptionStatusSchema,
++});
++
++export const membershipEntitlementCandidateSchema = z.object({
++  source: membershipEntitlementSourceSchema,
++  sourceLabel: z.string(),
++  candidateKind: membershipEntitlementCandidateKindSchema,
++  subscriptionTier: plusSubscriptionTierSchema,
++  subscriptionStatus: plusSubscriptionStatusSchema,
++  activePaidAccess: z.boolean(),
++  statusReason: membershipEntitlementStatusReasonSchema,
++  currentPeriodEndsAt: z.string().nullable().optional(),
++  trialEndsAt: z.string().nullable().optional(),
++  expiresAt: z.string().nullable().optional(),
++  providerCustomerId: z.string().nullable().optional(),
++  providerSubscriptionId: z.string().nullable().optional(),
++});
++
++export const membershipEntitlementReconciliationSchema = z.object({
++  usedSubscriptionState: z.boolean(),
++  usedUserAppStateFallback: z.boolean(),
++  appStateDiffersFromAccessState: z.boolean(),
++  reason: z.enum(['subscription_state_selected', 'user_app_state_selected', 'free_or_inactive']),
++  selectionRule: membershipEntitlementSelectionRuleSchema,
++  appStateRecommendation: membershipEntitlementAppStateRecommendationSchema,
++  candidateCount: z.number().int().nonnegative(),
++  activeCandidateCount: z.number().int().nonnegative(),
++});
++
++export const membershipEntitlementSnapshotSchema = z.object({
++  source: membershipEntitlementSourceSchema,
++  sourceLabel: z.string(),
++  provider: membershipEntitlementProviderSchema,
++  accessState: membershipEntitlementAccessStateSchema,
++  activePaidAccess: z.boolean(),
++  selectedCandidateKind: membershipEntitlementCandidateKindSchema,
++  selectedCandidate: membershipEntitlementCandidateSchema,
++  candidates: z.array(membershipEntitlementCandidateSchema),
++  reconciliation: membershipEntitlementReconciliationSchema,
++});
++
+ export const plusSubscriptionSnapshotResponseSchema = z.object({
+   config: plusSubscriptionConfigSchema,
+   state: z.object({
+@@ -140,6 +205,7 @@
+     subscriptionStatusUpdatedAt: z.string().nullable().optional(),
+   }),
+   subscriptionState: plusSubscriptionStateSchema.nullable(),
++  entitlement: membershipEntitlementSnapshotSchema,
+   access: plusAccessSchema,
+   price: z.object({
+     monthlyCents: z.number().int().nonnegative(),
+@@ -216,6 +282,7 @@
+ export type PlusSubscriptionConfig = z.infer<typeof plusSubscriptionConfigSchema>;
+ export type PlusEntitlementsDto = z.infer<typeof plusEntitlementsSchema>;
+ export type PlusSubscriptionStateDto = z.infer<typeof plusSubscriptionStateSchema>;
++export type MembershipEntitlementSnapshot = z.infer<typeof membershipEntitlementSnapshotSchema>;
+ export type PlusAiAssistQuotaSummary = z.infer<typeof plusAiAssistQuotaSummarySchema>;
+ export type AdminPlusAiAssistUsage = z.infer<typeof adminPlusAiAssistUsageSchema>;
+ export type PlusSubscriptionSnapshotResponse = z.infer<typeof plusSubscriptionSnapshotResponseSchema>;
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+--- a/packages/i18n/src/locales/en/account.ts
++++ b/packages/i18n/src/locales/en/account.ts
+@@ -708,8 +708,8 @@
+     productsBadge: 'Native product metadata',
+     productsTitle: 'Apple and Google product IDs',
+     productsBody: 'These identifiers are used by StoreKit on iOS and Google Play Billing on Android.',
+-    boundaryTitle: 'BILLING7 boundary',
+-    boundaryBody: 'iOS StoreKit and Android Google Play purchase/restore actions are available only behind flags. RevenueCat, Real-time Developer Notifications, and cross-platform reconciliation remain future patches.',
++    boundaryTitle: 'BILLING8 boundary',
++    boundaryBody: 'iOS StoreKit and Android Google Play purchase/restore actions are available only behind flags. Cross-platform entitlement reconciliation now shows which source won; RevenueCat and real-time store notifications remain future patches.',
+     tiers: {
+       free: 'Free / Basic',
+       plus: 'Plus',
+@@ -736,13 +736,19 @@
+     metrics: {
+       plusAccess: 'Plus access',
+       aiQuota: 'AI quota',
+-      provider: 'Provider',
++      provider: 'Resolved source',
++      reconciliation: 'Sync state',
+     },
+     values: {
+       available: 'Available',
+       notActive: 'Not active',
+       none: 'None',
+     },
++    reconciliation: {
++      in_sync: 'In sync',
++      sync_user_app_state_from_subscription_state: 'Sync needed',
++      keep_user_app_state_fallback: 'Fallback',
++    },
+     identity: {
+       badge: 'Separate identity',
+       title: 'Business is not a personal tier',
+@@ -936,6 +942,10 @@
+       aiQuotaDetails: 'Remaining this month · resets {{date}}',
+       period: 'Period',
+       noPaymentProvider: 'Billing management is exposed only for Stripe Membership accounts when the customer portal flag is enabled.',
++      entitlementSource: 'Resolved source',
++      noEntitlementSource: 'No source yet',
++      reconciliation: 'Reconciliation',
++      reconciliationNote: 'Active paid access wins first, then the highest tier, then provider/source priority.',
+       referencePrice: 'Reference price',
+       monthlyPrice: '{{price}}/mo',
+       referencePriceNote: 'Reference display price. Stripe checkout uses configured Stripe Price IDs when enabled.',
+@@ -948,6 +958,16 @@
+       noStatusUpdate: 'No status update date',
+       statusUpdated: 'Updated {{date}}',
+     },
++    reconciliation: {
++      loading: 'Waiting for entitlement snapshot',
++      noCandidates: 'No entitlement candidates yet',
++      candidateSummary: '{{active}} active of {{total}} candidate(s)',
++      recommendations: {
++        in_sync: 'App state is in sync',
++        sync_user_app_state_from_subscription_state: 'Provider state should sync app access',
++        keep_user_app_state_fallback: 'Using app-state fallback',
++      },
++    },
+     checkout: {
+       errorTitle: 'Checkout unavailable:',
+       error: 'Could not open Stripe checkout. Check the Membership billing flags and Stripe Price IDs, then try again.',
+@@ -1000,8 +1020,8 @@
+       },
+     },
+     nextNote: {
+-      label: 'BILLING4 boundary:',
+-      body: 'this adds a web Stripe customer portal session foundation only. Mobile Apple/Google purchases, public pricing, organization routes, and schema changes remain out of scope.',
++      label: 'BILLING8 boundary:',
++      body: 'this adds cross-platform entitlement reconciliation metadata only. RevenueCat, real-time store notifications, public pricing, organization routes, and schema changes remain out of scope.',
+     },
+   },
+   membershipPreview: {
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+--- a/packages/i18n/src/locales/fr/account.ts
++++ b/packages/i18n/src/locales/fr/account.ts
+@@ -708,8 +708,8 @@
+     productsBadge: 'Métadonnées produits natifs',
+     productsTitle: 'Identifiants Apple et Google',
+     productsBody: 'Ces identifiants sont utilisés par StoreKit sur iOS et Google Play Billing sur Android.',
+-    boundaryTitle: 'Limite BILLING7',
+-    boundaryBody: 'Les achats/restaurations iOS StoreKit et Android Google Play sont disponibles uniquement derrière des flags. RevenueCat, les notifications temps réel Google et la réconciliation multi-plateforme restent pour des patches futurs.',
++    boundaryTitle: 'Limite BILLING8',
++    boundaryBody: 'Les achats/restaurations iOS StoreKit et Android Google Play sont disponibles uniquement derrière des flags. La réconciliation des droits multi-plateforme affiche maintenant quelle source gagne ; RevenueCat et les notifications store temps réel restent pour des patches futurs.',
+     tiers: {
+       free: 'Free / Basic',
+       plus: 'Plus',
+@@ -736,13 +736,19 @@
+     metrics: {
+       plusAccess: 'Accès Plus',
+       aiQuota: 'Quota IA',
+-      provider: 'Fournisseur',
++      provider: 'Source résolue',
++      reconciliation: 'Synchronisation',
+     },
+     values: {
+       available: 'Disponible',
+       notActive: 'Inactif',
+       none: 'Aucun',
+     },
++    reconciliation: {
++      in_sync: 'Synchronisé',
++      sync_user_app_state_from_subscription_state: 'Sync requise',
++      keep_user_app_state_fallback: 'Fallback',
++    },
+     identity: {
+       badge: 'Identité séparée',
+       title: 'Business n’est pas un niveau personnel',
+@@ -936,6 +942,10 @@
+       aiQuotaDetails: 'Restant ce mois-ci · réinitialisation {{date}}',
+       period: 'Période',
+       noPaymentProvider: 'La gestion de facturation est exposée seulement pour les comptes Stripe Membership quand le flag du portail client est activé.',
++      entitlementSource: 'Source résolue',
++      noEntitlementSource: 'Aucune source pour le moment',
++      reconciliation: 'Réconciliation',
++      reconciliationNote: 'L’accès payant actif gagne d’abord, puis le niveau le plus élevé, puis la priorité fournisseur/source.',
+       referencePrice: 'Prix de référence',
+       monthlyPrice: '{{price}}/mois',
+       referencePriceNote: 'Prix de référence affiché. Le checkout Stripe utilise les Price IDs Stripe configurés quand il est activé.',
+@@ -948,6 +958,16 @@
+       noStatusUpdate: 'Aucune date de mise à jour du statut',
+       statusUpdated: 'Mis à jour le {{date}}',
+     },
++    reconciliation: {
++      loading: 'En attente de l’instantané des droits',
++      noCandidates: 'Aucun candidat de droit pour le moment',
++      candidateSummary: '{{active}} actif(s) sur {{total}} candidat(s)',
++      recommendations: {
++        in_sync: 'L’état app est synchronisé',
++        sync_user_app_state_from_subscription_state: 'L’état fournisseur doit synchroniser l’accès app',
++        keep_user_app_state_fallback: 'Fallback sur l’état app',
++      },
++    },
+     checkout: {
+       errorTitle: 'Checkout indisponible :',
+       error: 'Impossible d’ouvrir le checkout Stripe. Vérifie les flags de billing Membership et les Stripe Price IDs, puis réessaie.',
+@@ -1000,8 +1020,8 @@
+       },
+     },
+     nextNote: {
+-      label: 'Limite BILLING4 :',
+-      body: 'cela ajoute seulement une base de session de portail client Stripe web. Les achats mobiles Apple/Google, la page publique de prix, les routes d’organisation et les changements de schéma restent hors périmètre.',
++      label: 'Limite BILLING8 :',
++      body: 'cela ajoute seulement les métadonnées de réconciliation des droits multi-plateforme. RevenueCat, les notifications store temps réel, la page publique de prix, les routes d’organisation et les changements de schéma restent hors périmètre.',
+     },
+   },
+   membershipPreview: {

@@ -12,6 +12,7 @@ import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
 import { NotificationsScreen } from '../features/account/NotificationsScreen';
 import { AgendaScreen } from '../features/account/AgendaScreen';
 import { SavedCollectionDetailScreen, SavedLibraryScreen } from '../features/account/SavedLibraryScreen';
+import { MembershipScreen } from '../features/account/MembershipScreen';
 import { PlanSelectionScreen } from '../features/account/PlanSelectionScreen';
 import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
 import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
@@ -64,6 +65,7 @@ export type RootStackParamList = {
   SavedLibrary: undefined;
   Agenda: undefined;
   SavedLibraryCollection: { collectionId: string; title?: string };
+  Membership: undefined;
   ProPlans: undefined;
   Wallet: undefined;
   Payouts: undefined;
@@ -144,6 +146,7 @@ const ProtectedNotificationsScreen = withAuth(NotificationsScreen);
 const ProtectedSavedLibraryScreen = withAuth(SavedLibraryScreen);
 const ProtectedAgendaScreen = withAuth(AgendaScreen);
 const ProtectedSavedCollectionDetailScreen = withAuth(SavedCollectionDetailScreen);
+const ProtectedMembershipScreen = withAuth(MembershipScreen);
 const ProtectedPlanSelectionScreen = withAuth(PlanSelectionScreen);
 const ProtectedWalletScreen = withAuth(WalletScreen);
 const ProtectedPayoutsScreen = withAuth(PayoutsScreen);
@@ -242,6 +245,7 @@ export function RootNavigator() {
       <Stack.Screen name="SavedLibrary" component={ProtectedSavedLibraryScreen} />
       <Stack.Screen name="Agenda" component={ProtectedAgendaScreen} />
       <Stack.Screen name="SavedLibraryCollection" component={ProtectedSavedCollectionDetailScreen} />
+      {betaFeatures.mobileMembershipVisible ? <Stack.Screen name="Membership" component={ProtectedMembershipScreen} /> : null}
       {betaFeatures.plusSubscriptionFeatures.plusPublic ? <Stack.Screen name="ProPlans" component={ProtectedPlanSelectionScreen} /> : null}
       {betaFeatures.walletVisible ? <Stack.Screen name="Wallet" component={ProtectedWalletScreen} /> : null}
       {betaFeatures.payoutsVisible ? <Stack.Screen name="Payouts" component={ProtectedPayoutsScreen} /> : null}

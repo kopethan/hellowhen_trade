@@ -1,0 +1,545 @@
+diff --git a/docs/launch/app-store-google-play-review-notes.md b/docs/launch/app-store-google-play-review-notes.md
+index 274b856..4d2d1ed 100644
+--- a/docs/launch/app-store-google-play-review-notes.md
++++ b/docs/launch/app-store-google-play-review-notes.md
+@@ -64,3 +64,23 @@ Suggested reviewer path:
+ - Native public money flags stay off: `EXPO_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `EXPO_PUBLIC_WALLET_VISIBLE=false`, `EXPO_PUBLIC_PAYOUTS_VISIBLE=false`, `EXPO_PUBLIC_MONEY_TRADES_ENABLED=false`, `EXPO_PUBLIC_CASH_PROMISE_ENABLED=false`, `EXPO_PUBLIC_CASH_PROMISE_VISIBLE=false`.
+ - Web public money flags stay off: `NEXT_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `NEXT_PUBLIC_WALLET_VISIBLE=false`, `NEXT_PUBLIC_PAYOUTS_VISIBLE=false`, `NEXT_PUBLIC_MONEY_TRADES_ENABLED=false`, `NEXT_PUBLIC_CASH_PROMISE_ENABLED=false`, `NEXT_PUBLIC_CASH_PROMISE_VISIBLE=false`.
+ - Terms, Privacy, Community/Safety, Support, and Account Deletion pages are reachable from the app.
++
++## Membership billing review note
++
++If a later build enables Plus/Pro Membership billing, use the dedicated Membership billing review document before submission:
++
++```txt
++docs/launch/membership-billing-store-review-notes.md
++```
++
++For native builds, Plus/Pro digital Membership purchases must use the native store purchase path for the platform being tested:
++
++```txt
++iOS: Apple StoreKit / App Store subscriptions
++Android: Google Play Billing subscriptions
++Web/PWA: Stripe Billing
++```
++
++Do not present Stripe Checkout as the native iOS/Android purchase path for Plus/Pro digital Membership features unless a separate legal/store-review decision explicitly approves an applicable regional alternative billing flow.
++
++Membership billing is separate from user-to-user payments. Hellowhen must not claim to process, protect, escrow, refund, or pay out trades between users.
+diff --git a/docs/launch/membership-billing-store-review-notes.md b/docs/launch/membership-billing-store-review-notes.md
+new file mode 100644
+index 0000000..c32a783
+--- /dev/null
++++ b/docs/launch/membership-billing-store-review-notes.md
+@@ -0,0 +1,275 @@
++# Membership billing store review notes
++
++> Documentation note: this is operational review guidance for Hellowhen Membership billing. It is not legal advice. Re-check Apple App Store Review Guidelines, Google Play billing policy, Stripe docs, tax/VAT rules, and local consumer-law requirements before any production billing launch.
++
++## Status
++
++BILLING9 completes documentation for the Membership billing foundation added in TIERS11 through BILLING8.
++
++This document does not enable billing. It records how to describe the implemented architecture to Apple, Google, Stripe/web QA, and internal launch reviewers.
++
++Current safe default remains:
++
++```txt
++Free first
++No production billing launch unless the explicit billing flags are enabled intentionally
++No Stripe Checkout inside the native iOS or Android app
++No Airwallex Membership billing
++No user-to-user payment processing
++No wallet
++No payouts
++No escrow
++No Cash Promise public launch
++```
++
++## Product explanation for reviewers
++
++Hellowhen is an 18+ platform where adults can publish Needs, Offers, and Trades, then communicate with other users about possible exchanges.
++
++Membership tiers are digital account features:
++
++```txt
++Free / Basic:
++  core marketplace access
++
++Plus:
++  private organization tools such as Saved Library and Agenda
++  AI-assistance quota when enabled
++  customization utilities when enabled
++
++Pro:
++  future professional presentation and proposal utilities
++```
++
++Business / organization identity is separate from personal Membership tiers. A Business account is not simply a paid personal tier.
++
++Hellowhen does not process user-to-user payments in the Membership system. Membership billing pays Hellowhen for digital app/account features only.
++
++## Provider architecture to disclose internally
++
++```txt
++Web / PWA Membership checkout:
++  Stripe Billing / Checkout
++  Stripe Customer Portal for web billing management
++  Stripe webhooks sync Hellowhen entitlement state
++
++Native iOS Membership purchase:
++  Apple StoreKit / App Store subscriptions
++  Restore purchases path required
++  Backend StoreKit sync validates before entitlement updates
++
++Native Android Membership purchase:
++  Google Play Billing subscriptions
++  Restore/query purchases path required
++  Backend Google Play purchase-token sync validates before entitlement updates
++
++Backend:
++  Normalized Membership entitlement resolver
++  One app-facing tier/status result across providers
++```
++
++## Required native-app purchase boundaries
++
++For native iOS and Android builds, do not show Stripe Checkout as the purchase path for Plus/Pro digital Membership features.
++
++Allowed native labels:
++
++```txt
++iOS:
++  Subscribe with Apple
++  Restore purchases
++
++Android:
++  Subscribe with Google Play
++  Restore purchases
++```
++
++Avoid native labels and review-note wording such as:
++
++```txt
++Pay with Stripe in the app
++Open Stripe Checkout
++Subscribe on our website from the app
++External checkout for Plus
++External checkout for Pro
++```
++
++Regional alternative billing/linking exceptions may exist, but Hellowhen should not rely on them without a separate legal/store-review decision.
++
++## Apple App Review notes template
++
++Use this as a starting point for App Store Connect review notes when iOS Membership purchases are enabled.
++
++```txt
++Hellowhen offers optional Plus/Pro digital Membership subscriptions that unlock app/account features such as private organization tools, Saved Library, Agenda, AI-assistance quota where enabled, and future Pro presentation tools.
++
++The iOS app uses Apple StoreKit / App Store subscriptions for native Membership purchases. It does not use Stripe Checkout inside the iOS app for these digital Membership features.
++
++Users can restore purchases from Account > Membership.
++
++Hellowhen does not process user-to-user payments, wallet balances, payouts, escrow, or Cash Promise payments in this build. Trades and proposals are communication/organization flows only.
++
++Business / organization identity is separate from personal Membership tiers and is not launched as a paid business onboarding flow in this build unless explicitly enabled.
++
++Reviewer path:
++1. Log in with the provided reviewer account.
++2. Open Account > Membership.
++3. Review Free / Basic, Plus, Pro, and Business identity separation.
++4. On iOS, test Subscribe with Apple using sandbox products if the build has StoreKit Membership enabled.
++5. Test Restore purchases.
++6. Confirm Stripe Checkout is not opened from the iOS app.
++7. Confirm reports, block/unblock, support, account deletion, Terms/Privacy, and 18+ age confirmation are available.
++```
++
++Before enabling iOS production Membership purchases, verify:
++
++- App Store Connect subscription products exist for all shown Apple product IDs.
++- Product names/descriptions match the visible in-app Membership benefits.
++- StoreKit sandbox purchase and restore work on a development/TestFlight build.
++- Backend App Store Server API validation credentials are configured.
++- Server validation is enabled before entitlement mutation in production.
++- Subscription screenshots for review clearly show the digital Membership benefit being offered.
++- Account deletion and support paths are available in app.
++- Cash Promise, wallet, payouts, escrow, and user-to-user payment wording are absent unless separately approved.
++
++## Google Play review notes template
++
++Use this as a starting point for Play Console review notes when Android Membership purchases are enabled.
++
++```txt
++Hellowhen offers optional Plus/Pro digital Membership subscriptions that unlock app/account features such as private organization tools, Saved Library, Agenda, AI-assistance quota where enabled, and future Pro presentation tools.
++
++The Android app uses Google Play Billing subscriptions for native Membership purchases. It does not use Stripe Checkout inside the Android app for these digital Membership features.
++
++Users can restore/query purchases from Account > Membership.
++
++Hellowhen does not process user-to-user payments, wallet balances, payouts, escrow, or Cash Promise payments in this build. Trades and proposals are communication/organization flows only.
++
++Business / organization identity is separate from personal Membership tiers and is not launched as a paid business onboarding flow in this build unless explicitly enabled.
++
++Reviewer path:
++1. Log in with the provided reviewer account.
++2. Open Account > Membership.
++3. Review Free / Basic, Plus, Pro, and Business identity separation.
++4. On Android, test Subscribe with Google Play using Play testing products if the build has Google Play Membership enabled.
++5. Test Restore purchases.
++6. Confirm Stripe Checkout is not opened from the Android app.
++7. Confirm reports, block/unblock, support, account deletion, Terms/Privacy, and 18+ age confirmation are available.
++```
++
++Before enabling Android production Membership purchases, verify:
++
++- Play Console subscription products exist for all shown Google product IDs.
++- Product names/descriptions match the visible in-app Membership benefits.
++- Internal testing purchase and restore/query flows work.
++- Backend Google Play Developer API validation credentials are configured.
++- Server validation is enabled before entitlement mutation in production.
++- License/test accounts are configured for Play Billing tests.
++- Cash Promise, wallet, payouts, escrow, and user-to-user payment wording are absent unless separately approved.
++
++## Stripe web billing notes
++
++Stripe is only for web/PWA Membership checkout and web customer billing management.
++
++Web flow:
++
++```txt
++/account/membership
++  -> select Plus or Pro
++  -> backend creates Stripe Checkout Session
++  -> user completes Stripe-hosted checkout
++  -> Stripe webhook confirms subscription
++  -> Hellowhen updates SubscriptionState/User entitlement
++```
++
++Web management flow:
++
++```txt
++/account/membership
++  -> Manage Membership billing
++  -> backend creates Stripe Customer Portal Session
++  -> user manages billing in Stripe-hosted portal
++  -> Stripe webhook confirms subscription changes
++  -> Hellowhen updates entitlement state
++```
++
++Boundary:
++
++```txt
++Checkout return alone must not grant access.
++Customer Portal return alone must not change entitlement.
++Stripe webhook confirmation is required.
++```
++
++## User-to-user payment boundary
++
++Membership billing must not be described as payment protection for trades.
++
++Forbidden Membership/store copy:
++
++```txt
++Protected payment for trades
++Escrow for Hellowhen trades
++Pay other users through Hellowhen
++Receive payouts from Hellowhen
++Wallet balance
++Refund protection for user-to-user exchanges
++Stripe payments between users
++Airwallex payouts between users
++```
++
++Allowed Membership/store copy:
++
++```txt
++Optional Membership for digital Hellowhen features
++Private organization tools
++Saved Library
++Agenda
++AI assistance quota when enabled
++Customization when enabled
++Professional presentation tools when enabled
++```
++
++## Production billing launch gates
++
++Before any production Membership billing launch, complete all of these:
++
++- [ ] Final legal/consumer terms reviewed for recurring subscriptions, cancellation, refunds, and VAT/tax wording.
++- [ ] Privacy policy and data safety disclosures updated for billing provider data.
++- [ ] Apple product IDs created and reviewed if iOS purchases are enabled.
++- [ ] Google Play products created and reviewed if Android purchases are enabled.
++- [ ] Stripe products/prices configured in live mode if web checkout is enabled.
++- [ ] Stripe webhook live endpoint configured and verified.
++- [ ] Backend server validation enabled for Apple/Google production purchase sync.
++- [ ] Test accounts prepared for Apple and Google reviewers.
++- [ ] Support team can identify user tier, provider source, subscription status, and billing management path.
++- [ ] Cash Promise/wallet/payout flags remain disabled unless separately reviewed.
++- [ ] Store screenshots do not show disabled or unavailable paid features as if they are live.
++- [ ] `/account/membership` explains Business identity separately from personal tiers.
++
++## Default disabled flags checklist
++
++Keep these disabled in production until the specific launch path is approved:
++
++```env
++STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=false
++STRIPE_MEMBERSHIP_WEBHOOK_ENABLED=false
++STRIPE_MEMBERSHIP_PORTAL_ENABLED=false
++NEXT_PUBLIC_STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=false
++NEXT_PUBLIC_STRIPE_MEMBERSHIP_PORTAL_ENABLED=false
++
++EXPO_PUBLIC_IOS_STOREKIT_MEMBERSHIP_ENABLED=false
++APPLE_MEMBERSHIP_PURCHASE_SYNC_ENABLED=false
++APPLE_MEMBERSHIP_SERVER_VALIDATION_ENABLED=false
++
++EXPO_PUBLIC_ANDROID_GOOGLE_PLAY_MEMBERSHIP_ENABLED=false
++GOOGLE_PLAY_MEMBERSHIP_PURCHASE_SYNC_ENABLED=false
++GOOGLE_PLAY_MEMBERSHIP_SERVER_VALIDATION_ENABLED=false
++
++CASH_PROMISE_ENABLED=false
++CASH_PROMISE_VISIBLE=false
++EXPO_PUBLIC_CASH_PROMISE_ENABLED=false
++EXPO_PUBLIC_CASH_PROMISE_VISIBLE=false
++NEXT_PUBLIC_CASH_PROMISE_ENABLED=false
++NEXT_PUBLIC_CASH_PROMISE_VISIBLE=false
++```
+diff --git a/docs/launch/native-app-store-release-checklist.md b/docs/launch/native-app-store-release-checklist.md
+index badb843..dcf2ea5 100644
+--- a/docs/launch/native-app-store-release-checklist.md
++++ b/docs/launch/native-app-store-release-checklist.md
+@@ -20,3 +20,15 @@
+ - Verify dark/light/system appearance persistence after app restart.
+ - Prepare store privacy disclosures that match implemented data collection and safety workflows.
+ - Keep payment/wallet/payout claims out of store copy until those features are explicitly enabled and reviewed.
++
++## Membership billing addendum
++
++Before submitting any build with Membership purchase controls enabled:
++
++- Review `docs/launch/membership-billing-store-review-notes.md`.
++- Run `docs/tests/membership-billing-final-smoke.md`.
++- Confirm iOS Plus/Pro digital Membership purchases use Apple StoreKit, not Stripe Checkout.
++- Confirm Android Plus/Pro digital Membership purchases use Google Play Billing, not Stripe Checkout.
++- Confirm Restore purchases is visible and works for the enabled native platform.
++- Confirm backend server validation is enabled before provider sync can mutate entitlements in production.
++- Confirm store screenshots and review notes do not imply Hellowhen processes user-to-user payments, wallet balances, payouts, escrow, or Cash Promise payments.
+diff --git a/docs/product/membership-billing-architecture.md b/docs/product/membership-billing-architecture.md
+index a45d6d5..4ebf4e1 100644
+--- a/docs/product/membership-billing-architecture.md
++++ b/docs/product/membership-billing-architecture.md
+@@ -4,7 +4,7 @@
+ 
+ TIERS11 decision document plus TIERS12 shared constants/types, BILLING1 entitlement resolver, BILLING2 Stripe web Checkout foundation, BILLING3 Stripe webhook entitlement sync, BILLING4 Stripe customer portal foundation, BILLING5 mobile subscription product metadata, and BILLING6 iOS StoreKit purchase/restore integration foundation.
+ 
+-This document is for implementation planning. BILLING2 can create Stripe Checkout sessions for web test-mode Membership purchases when explicitly enabled. BILLING3 can sync Stripe subscription webhook confirmations into the existing Hellowhen subscription state. BILLING4 can create Stripe Customer Portal sessions for existing Stripe Membership customers when explicitly enabled. BILLING5 can show a read-only native Membership screen and Apple/Google product identifiers when mobile flags are enabled. BILLING6 adds iOS StoreKit purchase and restore UI behind explicit flags, plus a backend StoreKit sync endpoint that requires Apple server validation before production. It still does not enable Airwallex, enable Google Play Billing, adopt RevenueCat, launch Business onboarding, or make production billing ready without a final billing launch review.
++This document is for implementation planning. BILLING2 can create Stripe Checkout sessions for web test-mode Membership purchases when explicitly enabled. BILLING3 can sync Stripe subscription webhook confirmations into the existing Hellowhen subscription state. BILLING4 can create Stripe Customer Portal sessions for existing Stripe Membership customers when explicitly enabled. BILLING5 can show a read-only native Membership screen and Apple/Google product identifiers when mobile flags are enabled. BILLING6 adds iOS StoreKit purchase and restore UI behind explicit flags, plus a backend StoreKit sync endpoint that requires Apple server validation before production. BILLING7 adds Android Google Play Billing purchase/restore UI behind explicit flags, plus a backend Google Play sync endpoint that requires server validation before production. BILLING8 exposes cross-platform entitlement reconciliation metadata. BILLING9 adds final store review and payment compliance notes. It still does not enable Airwallex, adopt RevenueCat, launch Business onboarding, or make production billing ready without a final billing launch review.
+ 
+ Current first-launch rule remains:
+ 
+@@ -76,6 +76,28 @@ The backend should not treat Stripe, Apple, or Google as separate products in th
+ | RevenueCat | Optional future entitlement aggregator | If cross-platform subscription operations become too complex | Required dependency for the first architecture patch |
+ | Airwallex | Possible later business/money infrastructure candidate | Business, global payments, KYB, payouts, multi-currency finance later | First Plus/Pro membership launch |
+ 
++
++## BILLING9 review documents
++
++Use these documents before any billing-enabled external review or production launch:
++
++```txt
++docs/launch/membership-billing-store-review-notes.md
++docs/tests/membership-billing-final-smoke.md
++```
++
++They cover:
++
++```txt
++Apple App Review notes
++Google Play review notes
++Stripe web billing smoke checks
++Test account preparation
++User-to-user payment boundary wording
++Mobile purchase boundaries
++Production billing launch gates
++```
++
+ ## Stripe vs Airwallex decision
+ 
+ Prefer Stripe first for Membership billing.
+diff --git a/docs/tests/membership-billing-final-smoke.md b/docs/tests/membership-billing-final-smoke.md
+new file mode 100644
+index 0000000..7ce5408
+--- /dev/null
++++ b/docs/tests/membership-billing-final-smoke.md
+@@ -0,0 +1,150 @@
++# Membership billing final smoke checklist
++
++Use this checklist before enabling any Membership billing flag in staging, TestFlight, Google Play internal testing, or production.
++
++## Static code checks
++
++Run from the repository root:
++
++```powershell
++git grep -n "account/plans" -- apps packages docs scripts
++git grep -n "Stripe Checkout" -- apps/mobile apps/web docs
++git grep -n "Cash Promise\|wallet\|payout\|escrow" -- apps packages docs
++```
++
++Expected:
++
++```txt
++/account/plans only appears in legacy redirect/checklist/roadmap context.
++Stripe Checkout appears in web/API/docs only, not as a native mobile purchase path.
++Cash Promise, wallet, payout, and escrow remain disabled or documented as unavailable unless separately approved.
++```
++
++## Web Stripe smoke
++
++Flags for local/staging web checkout testing:
++
++```env
++SUBSCRIPTIONS_ENABLED=true
++PLUS_ENABLED=true
++STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=true
++STRIPE_MEMBERSHIP_WEBHOOK_ENABLED=true
++STRIPE_MEMBERSHIP_PORTAL_ENABLED=true
++NEXT_PUBLIC_SUBSCRIPTIONS_ENABLED=true
++NEXT_PUBLIC_PLUS_ENABLED=true
++NEXT_PUBLIC_STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=true
++NEXT_PUBLIC_STRIPE_MEMBERSHIP_PORTAL_ENABLED=true
++STRIPE_SECRET_KEY=sk_test_...
++STRIPE_MEMBERSHIP_WEBHOOK_SECRET=whsec_...
++STRIPE_PLUS_MONTHLY_PRICE_ID=price_...
++STRIPE_PLUS_YEARLY_PRICE_ID=price_...
++STRIPE_PRO_MONTHLY_PRICE_ID=price_...
++STRIPE_PRO_YEARLY_PRICE_ID=price_...
++```
++
++Verify:
++
++- [ ] `/account/membership` loads for an authenticated web user.
++- [ ] Subscribe button creates a Stripe Checkout Session.
++- [ ] Browser redirects to Stripe-hosted Checkout.
++- [ ] Checkout return lands on `/account/membership`.
++- [ ] Checkout return alone does not grant access before webhook confirmation.
++- [ ] Signed `checkout.session.completed` webhook creates/updates Stripe `SubscriptionState`.
++- [ ] `customer.subscription.updated` updates tier/status/period dates.
++- [ ] `invoice.payment_failed` sets past-due state.
++- [ ] `customer.subscription.deleted` removes active entitlement when no valid period remains.
++- [ ] Customer Portal opens only for users with `SubscriptionState.provider=stripe` and `externalCustomerId=cus_...`.
++- [ ] Customer Portal return alone does not mutate entitlement; webhook sync does.
++
++## iOS StoreKit smoke
++
++Use an iOS development build/TestFlight/sandbox build, not Expo Go.
++
++Flags for iOS sandbox testing:
++
++```env
++EXPO_PUBLIC_MOBILE_MEMBERSHIP_VISIBLE=true
++EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED=true
++EXPO_PUBLIC_PLUS_ENABLED=true
++EXPO_PUBLIC_IOS_STOREKIT_MEMBERSHIP_ENABLED=true
++APPLE_MEMBERSHIP_PURCHASE_SYNC_ENABLED=true
++APPLE_MEMBERSHIP_SERVER_VALIDATION_ENABLED=true
++APPLE_MEMBERSHIP_SERVER_ENVIRONMENT=sandbox
++APPLE_MEMBERSHIP_BUNDLE_ID=com.hellowhen.app
++APPLE_MEMBERSHIP_ISSUER_ID=...
++APPLE_MEMBERSHIP_KEY_ID=...
++APPLE_MEMBERSHIP_PRIVATE_KEY=...
++```
++
++Verify:
++
++- [ ] Account shows Membership.
++- [ ] Membership screen shows Apple purchase controls on iOS only.
++- [ ] Product lookup returns App Store Connect subscription products.
++- [ ] Subscribe with Apple opens the Apple purchase sheet.
++- [ ] Completed purchase sends transaction data to `/subscriptions/apple/storekit-sync`.
++- [ ] Backend rejects sync when server validation is disabled or credentials are missing.
++- [ ] Backend grants Plus/Pro only when a validated Apple transaction maps to a known product.
++- [ ] Restore purchases finds active Apple subscriptions and syncs them.
++- [ ] Stripe Checkout is not opened from the iOS app.
++- [ ] Google Play purchase controls are not shown on iOS.
++
++## Android Google Play smoke
++
++Use a Play internal testing build, not Expo Go.
++
++Flags for Android internal testing:
++
++```env
++EXPO_PUBLIC_MOBILE_MEMBERSHIP_VISIBLE=true
++EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED=true
++EXPO_PUBLIC_PLUS_ENABLED=true
++EXPO_PUBLIC_ANDROID_GOOGLE_PLAY_MEMBERSHIP_ENABLED=true
++GOOGLE_PLAY_MEMBERSHIP_PURCHASE_SYNC_ENABLED=true
++GOOGLE_PLAY_MEMBERSHIP_SERVER_VALIDATION_ENABLED=true
++GOOGLE_PLAY_MEMBERSHIP_PACKAGE_NAME=com.hellowhen.app
++GOOGLE_PLAY_MEMBERSHIP_SERVICE_ACCOUNT_EMAIL=...
++GOOGLE_PLAY_MEMBERSHIP_SERVICE_ACCOUNT_PRIVATE_KEY=...
++```
++
++Verify:
++
++- [ ] Account shows Membership.
++- [ ] Membership screen shows Google Play purchase controls on Android only.
++- [ ] Product lookup returns Play Console subscription products.
++- [ ] Subscribe with Google Play opens the Google Play purchase sheet.
++- [ ] Completed purchase sends product ID and purchase token to `/subscriptions/google/play-sync`.
++- [ ] Backend rejects sync when server validation is disabled or credentials are missing.
++- [ ] Backend grants Plus/Pro only when a validated Google subscription maps to a known product.
++- [ ] Restore/query purchases finds active Google subscriptions and syncs them.
++- [ ] Stripe Checkout is not opened from the Android app.
++- [ ] Apple purchase controls are not shown on Android.
++
++## Cross-platform entitlement smoke
++
++Prepare test users with overlapping provider states.
++
++Verify:
++
++- [ ] Active Pro beats active Plus.
++- [ ] Active paid provider entitlement beats expired provider state.
++- [ ] Canceled-but-valid-until remains active until the paid period ends.
++- [ ] Expired/deleted/refunded/revoked provider state does not unlock Plus/Pro.
++- [ ] Manual admin/promo/migration states are visible in reconciliation metadata.
++- [ ] `/plus/me` and `/subscriptions/me` expose the same selected entitlement source.
++- [ ] Web Membership page shows the resolved source/reconciliation summary.
++- [ ] Mobile Membership screen shows resolved source/sync state.
++- [ ] Payment state never bypasses account restrictions or moderation blocks.
++
++## Store review packet smoke
++
++Before external review, prepare:
++
++- [ ] Apple reviewer notes from `docs/launch/membership-billing-store-review-notes.md` when iOS billing is enabled.
++- [ ] Google reviewer notes from `docs/launch/membership-billing-store-review-notes.md` when Android billing is enabled.
++- [ ] Reviewer test account credentials with safe sample content.
++- [ ] Support/contact path available from Account.
++- [ ] Account deletion path available from Account and public web.
++- [ ] Terms, Privacy, and Safety/Community pages reachable.
++- [ ] Store screenshots match enabled features only.
++- [ ] Cash Promise, wallet, payout, escrow, and user-to-user payment claims are absent unless separately approved.
+diff --git a/docs/tests/membership-route-smoke.md b/docs/tests/membership-route-smoke.md
+index 08cb462..62b3675 100644
+--- a/docs/tests/membership-route-smoke.md
++++ b/docs/tests/membership-route-smoke.md
+@@ -267,3 +267,13 @@ Smoke checklist:
+ - [ ] Expired provider state does not override an active paid app/admin state.
+ - [ ] Pro active state wins over Plus active state when both candidates exist.
+ - [ ] No Stripe checkout, Apple purchase, Google purchase, or entitlement mutation is triggered by merely viewing the reconciliation metadata.
++
++## BILLING9 final review docs smoke
++
++- [ ] `docs/launch/membership-billing-store-review-notes.md` exists.
++- [ ] `docs/tests/membership-billing-final-smoke.md` exists.
++- [ ] Apple review notes explain that iOS Membership purchases use StoreKit and that Stripe Checkout is not the native purchase path.
++- [ ] Google review notes explain that Android Membership purchases use Google Play Billing and that Stripe Checkout is not the native purchase path.
++- [ ] Stripe notes explain that Checkout/Portal returns do not mutate entitlements without webhook sync.
++- [ ] User-to-user payment boundary notes say Hellowhen does not process, protect, escrow, refund, or pay out trades between users.
++- [ ] Production billing launch gates keep Cash Promise, wallet, payouts, and escrow disabled unless separately reviewed.

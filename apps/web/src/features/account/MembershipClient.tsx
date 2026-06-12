@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PlusSubscriptionSnapshotResponse } from '@hellowhen/contracts';
 import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
 import {
@@ -12,6 +12,7 @@ import {
   normalizePersonalMembershipTier,
   normalizeSubscriptionStatus,
   type AccountIdentityMetadata,
+  type MembershipProductHandle,
   type MembershipFeatureAvailability,
   type MembershipFeatureInclusion,
   type MembershipFeatureKey,
@@ -41,6 +42,9 @@ type MembershipCardAction = {
   label: string;
   href?: string;
   disabled?: boolean;
+  busy?: boolean;
+  busyLabel?: string;
+  onClick?: () => void;
 };
 
 function formatStatus(status: SubscriptionStatus, t: WebTranslator) {
@@ -77,6 +81,25 @@ function boolStatusTone(value: boolean) {
 
 function formatSubscriptionDate(value: string | null | undefined, language: SupportedLanguage) {
   return formatWebDate(value, '—', language);
+}
+
+function formatEntitlementSource(snapshot: MembershipSnapshot, t: WebTranslator) {
+  return snapshot?.entitlement?.sourceLabel ?? t('account.membership.statusOverview.noEntitlementSource');
+}
+
+function formatReconciliationSummary(snapshot: MembershipSnapshot, t: WebTranslator) {
+  const recommendation = snapshot?.entitlement?.reconciliation?.appStateRecommendation;
+  if (!recommendation) return t('account.membership.reconciliation.loading');
+  return t(`account.membership.reconciliation.recommendations.${recommendation}`);
+}
+
+function formatCandidateSummary(snapshot: MembershipSnapshot, t: WebTranslator) {
+  const reconciliation = snapshot?.entitlement?.reconciliation;
+  if (!reconciliation) return t('account.membership.reconciliation.noCandidates');
+  return t('account.membership.reconciliation.candidateSummary', {
+    active: String(reconciliation.activeCandidateCount),
+    total: String(reconciliation.candidateCount),
+  });
 }
 
 function formatPeriodSummary(snapshot: MembershipSnapshot, language: SupportedLanguage, t: WebTranslator) {
@@ -182,6 +205,13 @@ function FeatureList({ features, t }: { features: readonly MembershipFeatureIncl
 
 function CardAction({ action }: { action: MembershipCardAction }) {
   if (action.href && !action.disabled) return <Link className="button full" href={action.href}>{action.label}</Link>;
+  if (action.onClick && !action.disabled) {
+    return (
+      <button className="button full" type="button" disabled={action.busy} onClick={action.onClick}>
+        {action.busy ? (action.busyLabel ?? action.label) : action.label}
+      </button>
+    );
+  }
   return <button className="secondary full" type="button" disabled>{action.label}</button>;
 }
 
@@ -304,11 +334,56 @@ function MembershipStatusOverview({
           <small>{t('account.membership.statusOverview.noPaymentProvider')}</small>
         </div>
         <div className="membership-status-tile">
+          <span>{t('account.membership.statusOverview.entitlementSource')}</span>
+          <strong>{formatEntitlementSource(snapshot, t)}</strong>
+          <small>{formatCandidateSummary(snapshot, t)}</small>
+        </div>
+        <div className="membership-status-tile membership-status-tile--wide">
+          <span>{t('account.membership.statusOverview.reconciliation')}</span>
+          <strong>{formatReconciliationSummary(snapshot, t)}</strong>
+          <small>{t('account.membership.statusOverview.reconciliationNote')}</small>
+        </div>
+        <div className="membership-status-tile">
           <span>{t('account.membership.statusOverview.referencePrice')}</span>
           <strong>{t('account.membership.statusOverview.monthlyPrice', { price: monthlyPrice })}</strong>
           <small>{t('account.membership.statusOverview.referencePriceNote')}</small>
         </div>
       </div>
+    </section>
+  );
+}
+
+function MembershipBillingPortalPanel({
+  snapshot,
+  busy,
+  error,
+  onOpen,
+  t,
+}: {
+  snapshot: MembershipSnapshot;
+  busy: boolean;
+  error: string | null;
+  onOpen: () => void;
+  t: WebTranslator;
+}) {
+  const portalEnabled = betaFeatures.stripeMembershipPortalEnabled;
+  const provider = snapshot?.subscriptionState?.provider ?? null;
+  const hasStripeCustomer = provider === 'stripe';
+  const canOpenPortal = portalEnabled && hasStripeCustomer;
+
+  return (
+    <section className={`membership-billing-panel ${canOpenPortal ? 'is-ready' : ''}`.trim()}>
+      <div>
+        <span className={`semantic-badge ${canOpenPortal ? 'success' : 'neutral'}`}>
+          {canOpenPortal ? t('account.membership.portal.readyBadge') : t('account.membership.portal.lockedBadge')}
+        </span>
+        <h3>{t('account.membership.portal.title')}</h3>
+        <p>{canOpenPortal ? t('account.membership.portal.readyBody') : t('account.membership.portal.lockedBody')}</p>
+        {error ? <p className="membership-billing-panel__error" role="alert">{error}</p> : null}
+      </div>
+      <button className="button" type="button" disabled={!canOpenPortal || busy} onClick={onOpen}>
+        {busy ? t('account.membership.actions.openingStripePortal') : t('account.membership.actions.manageStripeBilling')}
+      </button>
     </section>
   );
 }
@@ -413,6 +488,10 @@ export function MembershipClient() {
   const { t, language } = useWebTranslation();
   const [plusSnapshot, setPlusSnapshot] = useState<PlusSubscriptionSnapshotResponse | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [checkoutProduct, setCheckoutProduct] = useState<MembershipProductHandle | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [portalBusy, setPortalBusy] = useState(false);
+  const [portalError, setPortalError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -445,6 +524,30 @@ export function MembershipClient() {
   const currentTier = normalizePersonalMembershipTier(plusSnapshot?.state?.subscriptionTier);
   const currentStatus = normalizeSubscriptionStatus(plusSnapshot?.state?.subscriptionStatus);
 
+  const startStripeCheckout = useCallback(async (productHandle: MembershipProductHandle) => {
+    setCheckoutProduct(productHandle);
+    setCheckoutError(null);
+    try {
+      const response = await api.subscriptions.createCheckoutSession({ productHandle });
+      window.location.assign(response.checkoutUrl);
+    } catch {
+      setCheckoutError(t('account.membership.checkout.error'));
+      setCheckoutProduct(null);
+    }
+  }, [t]);
+
+  const openStripeCustomerPortal = useCallback(async () => {
+    setPortalBusy(true);
+    setPortalError(null);
+    try {
+      const response = await api.subscriptions.createCustomerPortalSession();
+      window.location.assign(response.portalUrl);
+    } catch {
+      setPortalError(t('account.membership.portal.error'));
+      setPortalBusy(false);
+    }
+  }, [t]);
+
   const actions = useMemo<Record<PersonalMembershipTier, MembershipCardAction>>(() => {
     const loginHref = `/auth?next=${encodeURIComponent(membershipRoute)}`;
     if (!auth.isAuthenticated) {
@@ -463,12 +566,37 @@ export function MembershipClient() {
       };
     }
 
+    const checkoutEnabled = betaFeatures.stripeMembershipCheckoutEnabled;
+    const currentIsActive = currentStatus === 'active' || currentStatus === 'trialing';
+    const plusCheckoutProduct: MembershipProductHandle = 'hellowhen_plus_monthly';
+    const proCheckoutProduct: MembershipProductHandle = 'hellowhen_pro_monthly';
+    const plusAction: MembershipCardAction = statusLoaded && currentIsActive && (currentTier === 'plus' || currentTier === 'pro')
+      ? { label: t('account.membership.actions.currentMembership'), disabled: true }
+      : checkoutEnabled && betaFeatures.plusSubscriptionFeatures.plusEnabled
+        ? {
+            label: t('account.membership.actions.startStripeCheckout'),
+            busy: checkoutProduct === plusCheckoutProduct,
+            busyLabel: t('account.membership.actions.openingStripeCheckout'),
+            onClick: () => { void startStripeCheckout(plusCheckoutProduct); },
+          }
+        : { label: t('account.membership.actions.checkoutNotConnected'), disabled: true };
+    const proAction: MembershipCardAction = statusLoaded && currentIsActive && currentTier === 'pro'
+      ? { label: t('account.membership.actions.currentMembership'), disabled: true }
+      : checkoutEnabled && betaFeatures.proSubscriptionFeatures.proAccountsEnabled
+        ? {
+            label: t('account.membership.actions.startStripeCheckout'),
+            busy: checkoutProduct === proCheckoutProduct,
+            busyLabel: t('account.membership.actions.openingStripeCheckout'),
+            onClick: () => { void startStripeCheckout(proCheckoutProduct); },
+          }
+        : { label: t('account.membership.actions.checkoutNotConnected'), disabled: true };
+
     return {
       free: { label: statusLoaded && currentTier === 'free' ? t('account.membership.actions.currentMembership') : t('account.membership.actions.includedByDefault'), disabled: true },
-      plus: { label: statusLoaded && currentTier === 'plus' ? t('account.membership.actions.currentMembership') : t('account.membership.actions.checkoutNotConnected'), disabled: true },
-      pro: { label: statusLoaded && currentTier === 'pro' ? t('account.membership.actions.currentMembership') : t('account.membership.actions.checkoutNotConnected'), disabled: true },
+      plus: plusAction,
+      pro: proAction,
     };
-  }, [auth.isAuthenticated, currentTier, loadError, statusLoaded, t]);
+  }, [auth.isAuthenticated, checkoutProduct, currentStatus, currentTier, loadError, startStripeCheckout, statusLoaded, t]);
 
   return (
     <div className="membership-page">
@@ -510,6 +638,22 @@ export function MembershipClient() {
           snapshot={plusSnapshot}
           t={t}
         />
+      ) : null}
+
+      {auth.isAuthenticated && betaFeatures.stripeMembershipPortalEnabled ? (
+        <MembershipBillingPortalPanel
+          busy={portalBusy}
+          error={portalError}
+          onOpen={() => { void openStripeCustomerPortal(); }}
+          snapshot={plusSnapshot}
+          t={t}
+        />
+      ) : null}
+
+      {checkoutError ? (
+        <section className="notice-box warning membership-checkout-error" role="alert">
+          <strong>{t('account.membership.checkout.errorTitle')}</strong> {checkoutError}
+        </section>
       ) : null}
 
       <BusinessBoundaryPanel t={t} />

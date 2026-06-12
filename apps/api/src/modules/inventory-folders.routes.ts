@@ -12,6 +12,7 @@ import { prisma } from '../lib/prisma.js';
 import { requireActiveAccount, requireAuth } from '../middleware/auth.js';
 import { requireInventoryFoldersEnabled } from '../middleware/featureGates.js';
 import { plusConfigSnapshot } from './subscriptions/plus.routes.js';
+import { loadMembershipAccessStateForUser } from './subscriptions/membershipEntitlements.js';
 
 export const inventoryFoldersRoutes = Router();
 inventoryFoldersRoutes.use(requireAuth);
@@ -69,14 +70,8 @@ function duplicateFolderPayload() {
 
 
 async function requireInventoryFoldersPlus(ownerId: string, res: any) {
-  const user = await prisma.user.findUnique({
-    where: { id: ownerId },
-    select: { subscriptionTier: true, subscriptionStatus: true },
-  });
-  const gate = evaluatePlusGate(plusConfigSnapshot(), {
-    subscriptionTier: user?.subscriptionTier ?? 'free',
-    subscriptionStatus: user?.subscriptionStatus ?? 'none',
-  } as any);
+  const accessState = await loadMembershipAccessStateForUser(prisma as any, ownerId);
+  const gate = evaluatePlusGate(plusConfigSnapshot(), accessState as any);
   if (gate.hasPlusAccess) return true;
   res.status(403).json({
     error: 'inventory_folders_plus_required',

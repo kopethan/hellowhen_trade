@@ -3067,9 +3067,18 @@ html.dark .pro-package-prototype__item.selected {
 .membership-status-overview__main p { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
 .membership-status-grid { display: grid; gap: 10px; }
 .membership-status-tile { display: grid; gap: 6px; min-width: 0; border: 1px solid var(--app-border); border-radius: 20px; background: color-mix(in srgb, var(--app-surface) 86%, var(--app-surface-soft)); padding: 12px; }
+.membership-status-tile--wide { border-color: color-mix(in srgb, var(--info-border) 48%, var(--app-border)); background: linear-gradient(135deg, color-mix(in srgb, var(--info-bg) 18%, var(--app-surface)), var(--app-surface)); }
 .membership-status-tile > span { color: var(--app-text-muted); font-size: 11px; font-weight: 950; letter-spacing: .06em; text-transform: uppercase; }
 .membership-status-tile strong { overflow-wrap: anywhere; color: var(--app-text); font-size: 16px; font-weight: 950; line-height: 1.2; }
 .membership-status-tile small { color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.35; }
+
+.membership-billing-panel { display: grid; gap: 14px; align-items: center; border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent); border-radius: 26px; background: color-mix(in srgb, var(--app-surface) 92%, var(--app-surface-soft)); padding: 16px; box-shadow: var(--app-card-shadow); }
+.membership-billing-panel.is-ready { border-color: color-mix(in srgb, var(--success-border) 54%, var(--app-border)); background: linear-gradient(135deg, color-mix(in srgb, var(--success-bg) 20%, var(--app-surface)), var(--app-surface)); }
+.membership-billing-panel h3, .membership-billing-panel p { margin: 7px 0 0; }
+.membership-billing-panel h3 { color: var(--app-text); font-size: 18px; font-weight: 950; letter-spacing: -0.02em; }
+.membership-billing-panel p { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
+.membership-billing-panel .button { justify-self: start; }
+.membership-billing-panel__error { color: var(--danger-text) !important; }
 .membership-boundary-panel { display: grid; gap: 12px; }
 .membership-boundary-card { display: grid; align-content: start; gap: 8px; min-width: 0; border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent); border-radius: 26px; background: var(--app-surface); padding: 15px; box-shadow: var(--app-card-shadow); }
 .membership-boundary-card--business { border-color: color-mix(in srgb, var(--trade-border) 48%, var(--app-border)); background: linear-gradient(135deg, color-mix(in srgb, var(--trade-bg) 18%, var(--app-surface)), var(--app-surface)); }
@@ -3093,13 +3102,15 @@ html.dark .pro-package-prototype__item.selected {
   .membership-grid--personal .membership-card.is-featured { transform: translateY(-4px); }
   .membership-namespace-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .membership-status-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .membership-status-tile--wide { grid-column: span 2; }
   .membership-boundary-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .membership-billing-panel { grid-template-columns: minmax(0, 1fr) auto; }
   .membership-availability-panel { grid-template-columns: minmax(0, .7fr) minmax(0, 1fr); align-items: start; }
 }
 
 @media (min-width: 1040px) {
   .membership-page { gap: 20px; }
-  .membership-hero-card, .membership-status-overview, .membership-availability-panel { padding: 20px; }
+  .membership-hero-card, .membership-status-overview, .membership-billing-panel, .membership-availability-panel { padding: 20px; }
   .membership-card { padding: 20px; }
   .membership-card__header h3 { font-size: 26px; }
 }
@@ -3113,16 +3124,17 @@ html.dark .pro-package-prototype__item.selected {
 
 @media (max-width: 560px) {
   .membership-hero-card, .membership-section__header, .membership-card__header, .membership-availability-row { grid-template-columns: 1fr; }
-  .membership-hero-card, .membership-status-overview, .membership-availability-panel { padding: 14px; border-radius: 24px; }
+  .membership-hero-card, .membership-status-overview, .membership-billing-panel, .membership-availability-panel { padding: 14px; border-radius: 24px; }
   .membership-hero-card__icon { width: 42px; height: 42px; border-radius: 16px; }
   .membership-card, .membership-boundary-card { border-radius: 24px; padding: 14px; }
   .membership-card__header h3 { font-size: 22px; }
   .membership-card__header .semantic-badge { width: fit-content; }
   .membership-card__features li { grid-template-columns: 1fr; gap: 6px; }
   .membership-card__features .semantic-badge { width: fit-content; }
-  .membership-status-card .button { width: 100%; }
+  .membership-status-card .button, .membership-billing-panel .button { width: 100%; }
   .membership-status-overview__main h3 { font-size: 21px; }
   .membership-status-tile strong { font-size: 15px; }
+  .membership-status-tile--wide { grid-column: auto; }
   .membership-namespace-grid > div { padding: 10px; }
 }
 

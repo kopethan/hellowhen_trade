@@ -5,6 +5,13 @@ import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { getAiAssistUsageSummary } from './aiAssistUsage.js';
+import {
+  membershipEntitlementAsAiAssistUser,
+  membershipEntitlementUserSelect,
+  resolveMembershipEntitlement,
+  serializeMembershipEntitlement,
+  type MembershipEntitlementUserRow,
+} from './membershipEntitlements.js';
 
 export const plusRoutes = Router();
 
@@ -26,27 +33,7 @@ export function plusConfigSnapshot(): PlusSubscriptionFeatureFlags {
   };
 }
 
-type PlusSnapshotUser = {
-  id: string;
-  subscriptionTier: string;
-  subscriptionStatus: string;
-  subscriptionStatusUpdatedAt: Date | string | null;
-  subscriptionState?: {
-    id: string;
-    tier: string;
-    status: string;
-    provider: string | null;
-    currentPeriodStartedAt: Date | string | null;
-    currentPeriodEndsAt: Date | string | null;
-    trialStartedAt: Date | string | null;
-    trialEndsAt: Date | string | null;
-    canceledAt: Date | string | null;
-    pastDueAt: Date | string | null;
-    expiresAt: Date | string | null;
-    lastSyncedAt: Date | string | null;
-    adminNote: string | null;
-  } | null;
-};
+type PlusSnapshotUser = MembershipEntitlementUserRow;
 
 function iso(value: Date | string | null | undefined) {
   if (!value) return null;
@@ -56,17 +43,15 @@ function iso(value: Date | string | null | undefined) {
 
 export function normalizePlusSnapshot(user: PlusSnapshotUser, aiAssistUsage: Awaited<ReturnType<typeof getAiAssistUsageSummary>>) {
   const config = plusConfigSnapshot();
-  const gate = evaluatePlusGate(config, {
-    subscriptionTier: user.subscriptionTier,
-    subscriptionStatus: user.subscriptionStatus,
-  } as any);
+  const entitlement = resolveMembershipEntitlement(user);
+  const gate = evaluatePlusGate(config, entitlement.accessState as any);
 
   return {
     config,
     state: {
-      subscriptionTier: gate.subscriptionTier,
-      subscriptionStatus: gate.subscriptionStatus,
-      subscriptionStatusUpdatedAt: iso(user.subscriptionStatusUpdatedAt),
+      subscriptionTier: entitlement.appState.subscriptionTier,
+      subscriptionStatus: entitlement.appState.subscriptionStatus,
+      subscriptionStatusUpdatedAt: iso(entitlement.appState.subscriptionStatusUpdatedAt),
     },
     subscriptionState: user.subscriptionState ? {
       id: user.subscriptionState.id,
@@ -83,6 +68,7 @@ export function normalizePlusSnapshot(user: PlusSnapshotUser, aiAssistUsage: Awa
       lastSyncedAt: iso(user.subscriptionState.lastSyncedAt),
       adminNote: user.subscriptionState.adminNote,
     } : null,
+    entitlement: serializeMembershipEntitlement(entitlement),
     access: {
       canSeePlusSurfaces: gate.canSeePlusSurfaces,
       hasPlusAccess: gate.hasPlusAccess,
@@ -98,32 +84,13 @@ plusRoutes.get('/me', asyncRoute(async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.user!.id },
     select: {
-      id: true,
-      subscriptionTier: true,
-      subscriptionStatus: true,
-      subscriptionStatusUpdatedAt: true,
-      subscriptionState: {
-        select: {
-          id: true,
-          tier: true,
-          status: true,
-          provider: true,
-          currentPeriodStartedAt: true,
-          currentPeriodEndsAt: true,
-          trialStartedAt: true,
-          trialEndsAt: true,
-          canceledAt: true,
-          pastDueAt: true,
-          expiresAt: true,
-          lastSyncedAt: true,
-          adminNote: true,
-        },
-      },
+      ...membershipEntitlementUserSelect,
     },
   });
 
   if (!user) return res.status(404).json({ error: 'not_found' });
   const config = plusConfigSnapshot();
-  const aiAssistUsage = await getAiAssistUsageSummary(prisma as any, user, config);
+  const entitlement = resolveMembershipEntitlement(user);
+  const aiAssistUsage = await getAiAssistUsageSummary(prisma as any, membershipEntitlementAsAiAssistUser(user.id, entitlement), config);
   return res.json(normalizePlusSnapshot(user, aiAssistUsage));
 }));

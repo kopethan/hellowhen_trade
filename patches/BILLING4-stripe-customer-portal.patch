@@ -1,0 +1,685 @@
+diff --git a/.env.example b/.env.example
+index f93e6bf..27a34a3 100644
+--- a/.env.example
++++ b/.env.example
+@@ -37,6 +37,8 @@ STRIPE_CURRENCY=eur
+ STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=false
+ STRIPE_MEMBERSHIP_WEBHOOK_ENABLED=false
+ STRIPE_MEMBERSHIP_WEBHOOK_SECRET=
++STRIPE_MEMBERSHIP_PORTAL_ENABLED=false
++STRIPE_MEMBERSHIP_PORTAL_RETURN_PATH=/account/membership?membership_portal=return
+ STRIPE_MEMBERSHIP_SUCCESS_PATH=/account/membership?membership_checkout=success&session_id={CHECKOUT_SESSION_ID}
+ STRIPE_MEMBERSHIP_CANCEL_PATH=/account/membership?membership_checkout=cancelled
+ STRIPE_PLUS_MONTHLY_PRICE_ID=
+@@ -44,6 +46,7 @@ STRIPE_PLUS_YEARLY_PRICE_ID=
+ STRIPE_PRO_MONTHLY_PRICE_ID=
+ STRIPE_PRO_YEARLY_PRICE_ID=
+ NEXT_PUBLIC_STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=false
++NEXT_PUBLIC_STRIPE_MEMBERSHIP_PORTAL_ENABLED=false
+ STRIPE_CONNECT_ENABLED=false
+ STRIPE_CONNECT_COUNTRY=US
+ STRIPE_CONNECT_REFRESH_PATH=/account/payouts?stripe_connect=refresh
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index d2aec51..f6262e7 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -68,6 +68,8 @@ export const env = {
+   stripeMembershipCheckoutEnabled: enabled(process.env.STRIPE_MEMBERSHIP_CHECKOUT_ENABLED),
+   stripeMembershipWebhookEnabled: enabled(process.env.STRIPE_MEMBERSHIP_WEBHOOK_ENABLED),
+   stripeMembershipWebhookSecret: process.env.STRIPE_MEMBERSHIP_WEBHOOK_SECRET ?? '',
++  stripeMembershipPortalEnabled: enabled(process.env.STRIPE_MEMBERSHIP_PORTAL_ENABLED),
++  stripeMembershipPortalReturnPath: process.env.STRIPE_MEMBERSHIP_PORTAL_RETURN_PATH ?? '/account/membership?membership_portal=return',
+   stripeMembershipSuccessPath: process.env.STRIPE_MEMBERSHIP_SUCCESS_PATH ?? '/account/membership?membership_checkout=success&session_id={CHECKOUT_SESSION_ID}',
+   stripeMembershipCancelPath: process.env.STRIPE_MEMBERSHIP_CANCEL_PATH ?? '/account/membership?membership_checkout=cancelled',
+   stripePlusMonthlyPriceId: process.env.STRIPE_PLUS_MONTHLY_PRICE_ID ?? '',
+@@ -321,6 +323,7 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
+     || env.stripeConnectTransferMode
+     || env.stripeMembershipCheckoutEnabled
+     || env.stripeMembershipWebhookEnabled
++    || env.stripeMembershipPortalEnabled
+     || env.airwallexEnabled
+     || env.airwallexConnectedAccountsEnabled;
+   if (providerRuntimeEnabled) {
+diff --git a/apps/api/src/modules/subscriptions/stripeMembershipPortal.ts b/apps/api/src/modules/subscriptions/stripeMembershipPortal.ts
+new file mode 100644
+index 0000000..bfb9834
+--- /dev/null
++++ b/apps/api/src/modules/subscriptions/stripeMembershipPortal.ts
+@@ -0,0 +1,97 @@
++import type Stripe from 'stripe';
++import { env } from '../../config/env.js';
++import { prisma } from '../../lib/prisma.js';
++import { getStripe, isStripeConfigured } from '../credits/stripeClient.js';
++
++type StripeMembershipPortalErrorCode =
++  | 'stripe_membership_portal_disabled'
++  | 'stripe_membership_portal_not_configured'
++  | 'stripe_membership_portal_customer_missing'
++  | 'stripe_membership_portal_session_failed';
++
++class StripeMembershipPortalError extends Error {
++  statusCode: number;
++  code: StripeMembershipPortalErrorCode;
++  publicMessage: string;
++
++  constructor(code: StripeMembershipPortalErrorCode, message: string, statusCode = 503) {
++    super(message);
++    this.name = 'StripeMembershipPortalError';
++    this.code = code;
++    this.statusCode = statusCode;
++    this.publicMessage = message;
++  }
++}
++
++function requireStripeMembershipPortal() {
++  const stripe = getStripe();
++  if (!env.stripeMembershipPortalEnabled) {
++    throw new StripeMembershipPortalError('stripe_membership_portal_disabled', 'Stripe Membership customer portal is not enabled.', 403);
++  }
++  if (!isStripeConfigured() || !stripe) {
++    throw new StripeMembershipPortalError('stripe_membership_portal_not_configured', 'Stripe test mode is not configured for Membership customer portal.');
++  }
++  return stripe;
++}
++
++function safeMembershipReturnPath(value: string | undefined, fallback: string) {
++  const raw = (value ?? fallback).trim();
++  if (!raw.startsWith('/') || raw.startsWith('//')) return fallback;
++  return raw;
++}
++
++function webAppUrl(pathname: string) {
++  return new URL(pathname, env.webAppUrl).toString();
++}
++
++async function getStripeMembershipCustomerId(userId: string) {
++  const state = await prisma.subscriptionState.findUnique({
++    where: { userId },
++    select: {
++      provider: true,
++      externalCustomerId: true,
++      externalSubscriptionId: true,
++    },
++  });
++  const customerId = state?.provider === 'stripe' ? state.externalCustomerId?.trim() : '';
++  if (!customerId?.startsWith('cus_')) return null;
++  return {
++    customerId,
++    subscriptionId: state?.externalSubscriptionId ?? null,
++  };
++}
++
++export async function createStripeMembershipCustomerPortalSession(userId: string) {
++  const stripe = requireStripeMembershipPortal();
++  const membershipCustomer = await getStripeMembershipCustomerId(userId);
++  if (!membershipCustomer) {
++    throw new StripeMembershipPortalError(
++      'stripe_membership_portal_customer_missing',
++      'No Stripe Membership customer is attached to this account yet.',
++      409,
++    );
++  }
++
++  let session: Stripe.BillingPortal.Session;
++  try {
++    session = await stripe.billingPortal.sessions.create({
++      customer: membershipCustomer.customerId,
++      return_url: webAppUrl(safeMembershipReturnPath(env.stripeMembershipPortalReturnPath, '/account/membership?membership_portal=return')),
++    });
++  } catch (error) {
++    const message = error instanceof Error ? error.message : 'Stripe did not create a customer portal session.';
++    throw new StripeMembershipPortalError('stripe_membership_portal_session_failed', message);
++  }
++
++  if (!session.url) {
++    throw new StripeMembershipPortalError('stripe_membership_portal_session_failed', 'Stripe did not return a customer portal URL.');
++  }
++
++  return {
++    provider: 'stripe' as const,
++    mode: 'customer_portal' as const,
++    testMode: true,
++    sessionId: session.id,
++    portalUrl: session.url,
++  };
++}
+diff --git a/apps/api/src/modules/subscriptions/subscriptions.routes.ts b/apps/api/src/modules/subscriptions/subscriptions.routes.ts
+index 870c3c1..fc0ec7d 100644
+--- a/apps/api/src/modules/subscriptions/subscriptions.routes.ts
++++ b/apps/api/src/modules/subscriptions/subscriptions.routes.ts
+@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma.js';
+ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { resolveMembershipEntitlement } from './membershipEntitlements.js';
+ import { createMembershipCheckoutSessionRequestSchema, createStripeMembershipCheckoutSession } from './stripeMembershipCheckout.js';
++import { createStripeMembershipCustomerPortalSession } from './stripeMembershipPortal.js';
+ 
+ export const subscriptionsRoutes = Router();
+ 
+@@ -174,6 +175,11 @@ subscriptionsRoutes.post('/checkout-session', requireActiveAccount, asyncRoute(a
+   res.json(session);
+ }));
+ 
++subscriptionsRoutes.post('/customer-portal-session', requireActiveAccount, asyncRoute(async (req, res) => {
++  const session = await createStripeMembershipCustomerPortalSession(req.user!.id);
++  res.json(session);
++}));
++
+ subscriptionsRoutes.get('/me', asyncRoute(async (req, res) => {
+   const rows = await prisma.$queryRaw<SubscriptionSnapshotRow[]>`
+     SELECT
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 054ec00..ef28186 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -3070,6 +3070,14 @@ html.dark .pro-package-prototype__item.selected {
+ .membership-status-tile > span { color: var(--app-text-muted); font-size: 11px; font-weight: 950; letter-spacing: .06em; text-transform: uppercase; }
+ .membership-status-tile strong { overflow-wrap: anywhere; color: var(--app-text); font-size: 16px; font-weight: 950; line-height: 1.2; }
+ .membership-status-tile small { color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.35; }
++
++.membership-billing-panel { display: grid; gap: 14px; align-items: center; border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent); border-radius: 26px; background: color-mix(in srgb, var(--app-surface) 92%, var(--app-surface-soft)); padding: 16px; box-shadow: var(--app-card-shadow); }
++.membership-billing-panel.is-ready { border-color: color-mix(in srgb, var(--success-border) 54%, var(--app-border)); background: linear-gradient(135deg, color-mix(in srgb, var(--success-bg) 20%, var(--app-surface)), var(--app-surface)); }
++.membership-billing-panel h3, .membership-billing-panel p { margin: 7px 0 0; }
++.membership-billing-panel h3 { color: var(--app-text); font-size: 18px; font-weight: 950; letter-spacing: -0.02em; }
++.membership-billing-panel p { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
++.membership-billing-panel .button { justify-self: start; }
++.membership-billing-panel__error { color: var(--danger-text) !important; }
+ .membership-boundary-panel { display: grid; gap: 12px; }
+ .membership-boundary-card { display: grid; align-content: start; gap: 8px; min-width: 0; border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent); border-radius: 26px; background: var(--app-surface); padding: 15px; box-shadow: var(--app-card-shadow); }
+ .membership-boundary-card--business { border-color: color-mix(in srgb, var(--trade-border) 48%, var(--app-border)); background: linear-gradient(135deg, color-mix(in srgb, var(--trade-bg) 18%, var(--app-surface)), var(--app-surface)); }
+@@ -3094,12 +3102,13 @@ html.dark .pro-package-prototype__item.selected {
+   .membership-namespace-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+   .membership-status-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+   .membership-boundary-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
++  .membership-billing-panel { grid-template-columns: minmax(0, 1fr) auto; }
+   .membership-availability-panel { grid-template-columns: minmax(0, .7fr) minmax(0, 1fr); align-items: start; }
+ }
+ 
+ @media (min-width: 1040px) {
+   .membership-page { gap: 20px; }
+-  .membership-hero-card, .membership-status-overview, .membership-availability-panel { padding: 20px; }
++  .membership-hero-card, .membership-status-overview, .membership-billing-panel, .membership-availability-panel { padding: 20px; }
+   .membership-card { padding: 20px; }
+   .membership-card__header h3 { font-size: 26px; }
+ }
+@@ -3113,14 +3122,14 @@ html.dark .pro-package-prototype__item.selected {
+ 
+ @media (max-width: 560px) {
+   .membership-hero-card, .membership-section__header, .membership-card__header, .membership-availability-row { grid-template-columns: 1fr; }
+-  .membership-hero-card, .membership-status-overview, .membership-availability-panel { padding: 14px; border-radius: 24px; }
++  .membership-hero-card, .membership-status-overview, .membership-billing-panel, .membership-availability-panel { padding: 14px; border-radius: 24px; }
+   .membership-hero-card__icon { width: 42px; height: 42px; border-radius: 16px; }
+   .membership-card, .membership-boundary-card { border-radius: 24px; padding: 14px; }
+   .membership-card__header h3 { font-size: 22px; }
+   .membership-card__header .semantic-badge { width: fit-content; }
+   .membership-card__features li { grid-template-columns: 1fr; gap: 6px; }
+   .membership-card__features .semantic-badge { width: fit-content; }
+-  .membership-status-card .button { width: 100%; }
++  .membership-status-card .button, .membership-billing-panel .button { width: 100%; }
+   .membership-status-overview__main h3 { font-size: 21px; }
+   .membership-status-tile strong { font-size: 15px; }
+   .membership-namespace-grid > div { padding: 10px; }
+diff --git a/apps/web/src/features/account/MembershipClient.tsx b/apps/web/src/features/account/MembershipClient.tsx
+index 11e8be8..53a1f7f 100644
+--- a/apps/web/src/features/account/MembershipClient.tsx
++++ b/apps/web/src/features/account/MembershipClient.tsx
+@@ -324,6 +324,41 @@ function MembershipStatusOverview({
+   );
+ }
+ 
++function MembershipBillingPortalPanel({
++  snapshot,
++  busy,
++  error,
++  onOpen,
++  t,
++}: {
++  snapshot: MembershipSnapshot;
++  busy: boolean;
++  error: string | null;
++  onOpen: () => void;
++  t: WebTranslator;
++}) {
++  const portalEnabled = betaFeatures.stripeMembershipPortalEnabled;
++  const provider = snapshot?.subscriptionState?.provider ?? null;
++  const hasStripeCustomer = provider === 'stripe';
++  const canOpenPortal = portalEnabled && hasStripeCustomer;
++
++  return (
++    <section className={`membership-billing-panel ${canOpenPortal ? 'is-ready' : ''}`.trim()}>
++      <div>
++        <span className={`semantic-badge ${canOpenPortal ? 'success' : 'neutral'}`}>
++          {canOpenPortal ? t('account.membership.portal.readyBadge') : t('account.membership.portal.lockedBadge')}
++        </span>
++        <h3>{t('account.membership.portal.title')}</h3>
++        <p>{canOpenPortal ? t('account.membership.portal.readyBody') : t('account.membership.portal.lockedBody')}</p>
++        {error ? <p className="membership-billing-panel__error" role="alert">{error}</p> : null}
++      </div>
++      <button className="button" type="button" disabled={!canOpenPortal || busy} onClick={onOpen}>
++        {busy ? t('account.membership.actions.openingStripePortal') : t('account.membership.actions.manageStripeBilling')}
++      </button>
++    </section>
++  );
++}
++
+ function MembershipAvailabilityPanel({ t }: { t: WebTranslator }) {
+   const featureRows = [
+     { key: 'plusMembershipSurfaces', enabled: betaFeatures.plusSubscriptionFeatures.plusPublic },
+@@ -426,6 +461,8 @@ export function MembershipClient() {
+   const [loadError, setLoadError] = useState(false);
+   const [checkoutProduct, setCheckoutProduct] = useState<MembershipProductHandle | null>(null);
+   const [checkoutError, setCheckoutError] = useState<string | null>(null);
++  const [portalBusy, setPortalBusy] = useState(false);
++  const [portalError, setPortalError] = useState<string | null>(null);
+ 
+   useEffect(() => {
+     let mounted = true;
+@@ -470,6 +507,18 @@ export function MembershipClient() {
+     }
+   }, [t]);
+ 
++  const openStripeCustomerPortal = useCallback(async () => {
++    setPortalBusy(true);
++    setPortalError(null);
++    try {
++      const response = await api.subscriptions.createCustomerPortalSession();
++      window.location.assign(response.portalUrl);
++    } catch {
++      setPortalError(t('account.membership.portal.error'));
++      setPortalBusy(false);
++    }
++  }, [t]);
++
+   const actions = useMemo<Record<PersonalMembershipTier, MembershipCardAction>>(() => {
+     const loginHref = `/auth?next=${encodeURIComponent(membershipRoute)}`;
+     if (!auth.isAuthenticated) {
+@@ -562,6 +611,16 @@ export function MembershipClient() {
+         />
+       ) : null}
+ 
++      {auth.isAuthenticated && betaFeatures.stripeMembershipPortalEnabled ? (
++        <MembershipBillingPortalPanel
++          busy={portalBusy}
++          error={portalError}
++          onOpen={() => { void openStripeCustomerPortal(); }}
++          snapshot={plusSnapshot}
++          t={t}
++        />
++      ) : null}
++
+       {checkoutError ? (
+         <section className="notice-box warning membership-checkout-error" role="alert">
+           <strong>{t('account.membership.checkout.errorTitle')}</strong> {checkoutError}
+diff --git a/apps/web/src/lib/betaFeatures.tsx b/apps/web/src/lib/betaFeatures.tsx
+index 60d10c0..4b218b6 100644
+--- a/apps/web/src/lib/betaFeatures.tsx
++++ b/apps/web/src/lib/betaFeatures.tsx
+@@ -25,6 +25,7 @@ const aiFeatures = {
+ } as const;
+ const subscriptionsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_SUBSCRIPTIONS_ENABLED);
+ const stripeMembershipCheckoutEnabled = subscriptionsEnabled && !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_STRIPE_MEMBERSHIP_CHECKOUT_ENABLED);
++const stripeMembershipPortalEnabled = subscriptionsEnabled && !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_STRIPE_MEMBERSHIP_PORTAL_ENABLED);
+ const plusEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_PLUS_ENABLED);
+ const plusSubscriptionFeatures = {
+   ...PLUS_SUBSCRIPTION_FEATURE_DEFAULTS,
+@@ -92,6 +93,7 @@ export const betaFeatures = {
+   proSubscriptionFeatures,
+   proTradePackageFeatures,
+   stripeMembershipCheckoutEnabled,
++  stripeMembershipPortalEnabled,
+   adsProvider: forceFirstLaunchSafeFlags ? 'none' : rawAdsProvider,
+   adsEnabled,
+   webAdsEnabled,
+diff --git a/docs/product/membership-billing-architecture.md b/docs/product/membership-billing-architecture.md
+index 27077d0..e58a628 100644
+--- a/docs/product/membership-billing-architecture.md
++++ b/docs/product/membership-billing-architecture.md
+@@ -2,9 +2,9 @@
+ 
+ ## Status
+ 
+-TIERS11 decision document plus TIERS12 shared constants/types, BILLING1 entitlement resolver, BILLING2 Stripe web Checkout foundation, and BILLING3 Stripe webhook entitlement sync.
++TIERS11 decision document plus TIERS12 shared constants/types, BILLING1 entitlement resolver, BILLING2 Stripe web Checkout foundation, BILLING3 Stripe webhook entitlement sync, and BILLING4 Stripe customer portal foundation.
+ 
+-This document is for implementation planning. BILLING2 can create Stripe Checkout sessions for web test-mode Membership purchases when explicitly enabled. BILLING3 can sync Stripe subscription webhook confirmations into the existing Hellowhen subscription state. It still does not create Customer Portal sessions, enable Airwallex, enable Apple in-app purchases, enable Google Play Billing, adopt RevenueCat, launch Business onboarding, or make production billing ready without a final billing launch review.
++This document is for implementation planning. BILLING2 can create Stripe Checkout sessions for web test-mode Membership purchases when explicitly enabled. BILLING3 can sync Stripe subscription webhook confirmations into the existing Hellowhen subscription state. BILLING4 can create Stripe Customer Portal sessions for existing Stripe Membership customers when explicitly enabled. It still does not enable Airwallex, enable Apple in-app purchases, enable Google Play Billing, adopt RevenueCat, launch Business onboarding, or make production billing ready without a final billing launch review.
+ 
+ Current first-launch rule remains:
+ 
+@@ -345,12 +345,14 @@ Apple/Google product ids should be documented in the app-store setup checklist l
+ 
+ ## Environment variables
+ 
+-BILLING2/BILLING3 add web Membership checkout and webhook variables, disabled by default:
++BILLING2/BILLING3/BILLING4 add web Membership checkout, webhook, and customer portal variables, disabled by default:
+ 
+ ```env
+ STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=false
+ STRIPE_MEMBERSHIP_WEBHOOK_ENABLED=false
+ STRIPE_MEMBERSHIP_WEBHOOK_SECRET=
++STRIPE_MEMBERSHIP_PORTAL_ENABLED=false
++STRIPE_MEMBERSHIP_PORTAL_RETURN_PATH=/account/membership?membership_portal=return
+ STRIPE_MEMBERSHIP_SUCCESS_PATH=/account/membership?membership_checkout=success&session_id={CHECKOUT_SESSION_ID}
+ STRIPE_MEMBERSHIP_CANCEL_PATH=/account/membership?membership_checkout=cancelled
+ STRIPE_PLUS_MONTHLY_PRICE_ID=
+@@ -358,6 +360,7 @@ STRIPE_PLUS_YEARLY_PRICE_ID=
+ STRIPE_PRO_MONTHLY_PRICE_ID=
+ STRIPE_PRO_YEARLY_PRICE_ID=
+ NEXT_PUBLIC_STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=false
++NEXT_PUBLIC_STRIPE_MEMBERSHIP_PORTAL_ENABLED=false
+ ```
+ 
+ These rely on the existing API-only Stripe secret variable for API calls:
+@@ -366,7 +369,7 @@ These rely on the existing API-only Stripe secret variable for API calls:
+ STRIPE_SECRET_KEY=
+ ```
+ 
+-`STRIPE_WEBHOOK_SECRET` remains the legacy wallet/credit/Connect webhook secret. Membership subscriptions use `STRIPE_MEMBERSHIP_WEBHOOK_SECRET` so entitlement sync does not depend on money/wallet webhook flags. Use Stripe test mode first. BILLING3 webhook sync confirms subscriptions, but a complete billing launch still needs Customer Portal, cancellation smoke tests, tax/legal review, and store-review notes.
++`STRIPE_WEBHOOK_SECRET` remains the legacy wallet/credit/Connect webhook secret. Membership subscriptions use `STRIPE_MEMBERSHIP_WEBHOOK_SECRET` so entitlement sync does not depend on money/wallet webhook flags. Use Stripe test mode first. BILLING3 webhook sync confirms subscriptions. BILLING4 can open the hosted Stripe Customer Portal for existing Stripe Membership customers, but a complete billing launch still needs portal configuration review, cancellation smoke tests, tax/legal review, and store-review notes.
+ 
+ Likely future mobile billing flags:
+ 
+@@ -465,19 +468,45 @@ Checkout success does not grant Plus or Pro in BILLING2.
+ BILLING3 webhook sync must confirm Stripe subscription status before entitlements update.
+ ```
+ 
+-## TIERS12/BILLING1/BILLING2/BILLING3 non-goals
++## BILLING4 Stripe customer portal foundation
+ 
+-Do not add in TIERS11/TIERS12/BILLING1/BILLING2/BILLING3:
++BILLING4 adds a web-only backend endpoint:
++
++```txt
++POST /subscriptions/customer-portal-session
++```
++
++The endpoint:
++
++```txt
++- requires auth and active account
++- requires SUBSCRIPTIONS_ENABLED=true
++- requires STRIPE_MEMBERSHIP_PORTAL_ENABLED=true
++- requires Stripe test-mode API configuration
++- requires an existing SubscriptionState.provider=stripe row with externalCustomerId=cus_...
++- creates a Stripe-hosted Customer Portal session
++- redirects back to /account/membership
++```
++
++Important boundary:
++
++```txt
++The portal manages billing details in Stripe only. It does not grant entitlements directly.
++BILLING3 webhook sync remains the source that updates Hellowhen subscription state after Stripe changes.
++```
++
++## TIERS12/BILLING1/BILLING2/BILLING3/BILLING4 non-goals
++
++Do not add in TIERS11/TIERS12/BILLING1/BILLING2/BILLING3/BILLING4:
+ 
+ ```txt
+-Stripe Customer Portal
+ Apple StoreKit integration
+ Google Play Billing integration
+ RevenueCat SDK
+ Airwallex SDK
+ schema migration
+ native checkout buttons
+-pricing actions beyond existing Checkout buttons
++pricing actions beyond existing Checkout/Portal buttons
+ production subscription launch
+ mobile Membership screen
+ Business onboarding
+diff --git a/docs/tests/membership-route-smoke.md b/docs/tests/membership-route-smoke.md
+index 81d7fea..e87496d 100644
+--- a/docs/tests/membership-route-smoke.md
++++ b/docs/tests/membership-route-smoke.md
+@@ -2,7 +2,7 @@
+ 
+ TIERS10 route decision: `/account/plans` is now a legacy route that redirects to `/account/membership`.
+ 
+-Membership is the account-facing tier explanation page. BILLING2 may show web Stripe Checkout actions only when Membership checkout flags and Stripe Price IDs are configured. BILLING3 may sync Stripe subscription webhooks into Hellowhen entitlements only when webhook flags and secrets are configured. These patches must not start identity verification, native purchases, customer portal management, Business onboarding, wallet, payouts, or a production billing launch.
++Membership is the account-facing tier explanation page. BILLING2 may show web Stripe Checkout actions only when Membership checkout flags and Stripe Price IDs are configured. BILLING3 may sync Stripe subscription webhooks into Hellowhen entitlements only when webhook flags and secrets are configured. BILLING4 may show a web Stripe Customer Portal action only for existing Stripe Membership customers when portal flags are configured. These patches must not start identity verification, native purchases, Business onboarding, wallet, payouts, or a production billing launch.
+ 
+ ## Static route checks
+ 
+@@ -30,8 +30,9 @@ With default local launch flags, verify:
+ ```txt
+ /account/membership loads from Account.
+ /account/plans redirects to /account/membership.
+-/account/membership shows no checkout action with default flags.
++/account/membership shows no checkout or billing portal action with default flags.
+ /account/membership can show web Stripe checkout buttons only when NEXT_PUBLIC_STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=true and the matching API flags are configured.
++/account/membership can show a web Stripe customer portal button only when NEXT_PUBLIC_STRIPE_MEMBERSHIP_PORTAL_ENABLED=true and the account has Stripe Membership state.
+ Account hub Membership preview links to /account/membership.
+ Saved Library Plus prompt links to /account/membership.
+ Agenda Plus prompt links to /account/membership.
+@@ -58,7 +59,6 @@ The Membership page and upgrade prompts must not include:
+ ```txt
+ Apple in-app purchase button
+ Google Play billing button
+-Stripe Customer Portal
+ production billing launch notice
+ identity verification launch
+ Pro entitlement mutation
+@@ -118,3 +118,27 @@ User.subscriptionTier/status update only after valid signed webhook events.
+ Unrelated Stripe wallet/credit/Connect events are ignored by the Membership webhook.
+ The legacy /stripe/webhook route is not required for Membership billing.
+ ```
++
++
++## BILLING4 local Stripe customer portal smoke
++
++For local test-mode customer portal only, configure the BILLING2/BILLING3 variables plus:
++
++```env
++STRIPE_MEMBERSHIP_PORTAL_ENABLED=true
++NEXT_PUBLIC_STRIPE_MEMBERSHIP_PORTAL_ENABLED=true
++STRIPE_MEMBERSHIP_PORTAL_RETURN_PATH=/account/membership?membership_portal=return
++```
++
++Before testing, configure the Stripe Customer Portal in the Stripe Dashboard test-mode settings. Then verify:
++
++```txt
++Authenticated Stripe Membership user can click Manage Membership billing.
++API returns a Stripe Customer Portal URL.
++Browser redirects to Stripe-hosted Customer Portal.
++Returning from the portal lands back on /account/membership.
++Changing/canceling in the portal does not mutate Hellowhen directly from the redirect.
++A valid BILLING3 Stripe webhook must sync the resulting subscription change.
++Users without SubscriptionState.provider=stripe and externalCustomerId=cus_... cannot open the portal.
++The portal endpoint does not depend on legacy wallet/money Stripe routes.
++```
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 10d785c..624c634 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, ListInventoryFoldersQuery, CreateInventoryFolderRequest, UpdateInventoryFolderRequest, AddInventoryFolderItemRequest, InventoryFoldersResponse, InventoryFolderResponse, InventoryFolderItemResponse, CreateSavedItemRequest, SavedItemStatusQuery, ListSavedItemsQuery, CreateSavedCollectionRequest, UpdateSavedCollectionRequest, AddSavedCollectionItemRequest, SavedItemsResponse, SavedItemResponse, SavedItemStatusResponse, SavedCollectionsResponse, SavedCollectionResponse, SavedCollectionItemResponse, ListAgendaItemsQuery, AgendaIcsExportQuery, CreateAgendaItemRequest, UpdateAgendaItemRequest, AgendaItemsResponse, AgendaItemResponse, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, CreateDealProblemReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery, PlusSubscriptionSnapshotResponse, AdminPlusGrantRequest, AdminPlusUsersResponse, AdminPlusGrantResponse, AdminPlusAiAssistUsageResponse, AiAssistRequest, AiAssistResponse, ListTradeSearchSuggestionsQuery, RecordTradeSearchKeywordRequest, TradeSearchSuggestionsResponse, TradeSearchKeywordResponse, CreateMembershipCheckoutSessionRequest, MembershipCheckoutSessionResponse } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, ListInventoryFoldersQuery, CreateInventoryFolderRequest, UpdateInventoryFolderRequest, AddInventoryFolderItemRequest, InventoryFoldersResponse, InventoryFolderResponse, InventoryFolderItemResponse, CreateSavedItemRequest, SavedItemStatusQuery, ListSavedItemsQuery, CreateSavedCollectionRequest, UpdateSavedCollectionRequest, AddSavedCollectionItemRequest, SavedItemsResponse, SavedItemResponse, SavedItemStatusResponse, SavedCollectionsResponse, SavedCollectionResponse, SavedCollectionItemResponse, ListAgendaItemsQuery, AgendaIcsExportQuery, CreateAgendaItemRequest, UpdateAgendaItemRequest, AgendaItemsResponse, AgendaItemResponse, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, CreateDealProblemReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery, PlusSubscriptionSnapshotResponse, AdminPlusGrantRequest, AdminPlusUsersResponse, AdminPlusGrantResponse, AdminPlusAiAssistUsageResponse, AiAssistRequest, AiAssistResponse, ListTradeSearchSuggestionsQuery, RecordTradeSearchKeywordRequest, TradeSearchSuggestionsResponse, TradeSearchKeywordResponse, CreateMembershipCheckoutSessionRequest, MembershipCheckoutSessionResponse, MembershipCustomerPortalSessionResponse } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, requestText, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -19,7 +19,7 @@ export function createApiClient(options: ApiClientOptions) {
+     settings: { me: () => requestJson(options, '/settings/me'), updateMe: (body: UpdateSettingsRequest) => requestJson(options, '/settings/me', { method: 'PATCH', body: JSON.stringify(body) }) },
+     ai: { assist: (body: AiAssistRequest) => requestJson<AiAssistResponse>(options, '/ai/assist', { method: 'POST', body: JSON.stringify(body) }) },
+     plus: { me: () => requestJson<PlusSubscriptionSnapshotResponse>(options, '/plus/me') },
+-    subscriptions: { createCheckoutSession: (body: CreateMembershipCheckoutSessionRequest) => requestJson<MembershipCheckoutSessionResponse>(options, '/subscriptions/checkout-session', { method: 'POST', body: JSON.stringify(body) }) },
++    subscriptions: { createCheckoutSession: (body: CreateMembershipCheckoutSessionRequest) => requestJson<MembershipCheckoutSessionResponse>(options, '/subscriptions/checkout-session', { method: 'POST', body: JSON.stringify(body) }), createCustomerPortalSession: () => requestJson<MembershipCustomerPortalSessionResponse>(options, '/subscriptions/customer-portal-session', { method: 'POST' }) },
+     business: {
+       publicProfileBySlug: (slug: string) => requestJson<PublicBusinessProfileResponse>(options, `/business/by-slug/${encodeURIComponent(slug)}/public-profile`),
+       mine: () => requestJson(options, '/business/mine'),
+diff --git a/packages/contracts/src/membershipBilling.js b/packages/contracts/src/membershipBilling.js
+index ee1e6d9..b12ac41 100644
+--- a/packages/contracts/src/membershipBilling.js
++++ b/packages/contracts/src/membershipBilling.js
+@@ -21,4 +21,11 @@ export const membershipCheckoutSessionResponseSchema = z.object({
+     tier: membershipCheckoutTierSchema,
+     interval: membershipCheckoutIntervalSchema,
+ });
++export const membershipCustomerPortalSessionResponseSchema = z.object({
++    provider: z.literal('stripe'),
++    mode: z.literal('customer_portal'),
++    testMode: z.boolean(),
++    sessionId: z.string(),
++    portalUrl: z.string().url(),
++});
+ //# sourceMappingURL=membershipBilling.js.map
+diff --git a/packages/contracts/src/membershipBilling.ts b/packages/contracts/src/membershipBilling.ts
+index e400835..863a8f9 100644
+--- a/packages/contracts/src/membershipBilling.ts
++++ b/packages/contracts/src/membershipBilling.ts
+@@ -26,8 +26,17 @@ export const membershipCheckoutSessionResponseSchema = z.object({
+   interval: membershipCheckoutIntervalSchema,
+ });
+ 
++export const membershipCustomerPortalSessionResponseSchema = z.object({
++  provider: z.literal('stripe'),
++  mode: z.literal('customer_portal'),
++  testMode: z.boolean(),
++  sessionId: z.string(),
++  portalUrl: z.string().url(),
++});
++
+ export type MembershipCheckoutProductHandle = z.infer<typeof membershipCheckoutProductHandleSchema>;
+ export type MembershipCheckoutTier = z.infer<typeof membershipCheckoutTierSchema>;
+ export type MembershipCheckoutInterval = z.infer<typeof membershipCheckoutIntervalSchema>;
+ export type CreateMembershipCheckoutSessionRequest = z.infer<typeof createMembershipCheckoutSessionRequestSchema>;
+ export type MembershipCheckoutSessionResponse = z.infer<typeof membershipCheckoutSessionResponseSchema>;
++export type MembershipCustomerPortalSessionResponse = z.infer<typeof membershipCustomerPortalSessionResponseSchema>;
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+index 4e76580..45f4761 100644
+--- a/packages/i18n/src/locales/en/account.ts
++++ b/packages/i18n/src/locales/en/account.ts
+@@ -713,9 +713,9 @@ export const account = {
+     moreFeatures: '+{{count}} more',
+     currentTierBadge: 'Your tier',
+     hero: {
+-      badge: 'Web checkout foundation',
++      badge: 'Web billing foundation',
+       title: 'Membership overview',
+-      body: 'This page shows Free / Basic, Plus, Pro, and Business metadata. Stripe web checkout can be enabled for test-mode Membership purchases while webhooks remain the next billing step.',
++      body: 'This page shows Free / Basic, Plus, Pro, and Business metadata. Stripe web checkout and the customer portal can be enabled for test-mode Membership billing only.',
+     },
+     signedOut: {
+       badge: 'Signed out',
+@@ -808,6 +808,8 @@ export const account = {
+       checkoutNotConnected: 'Checkout not connected',
+       startStripeCheckout: 'Subscribe on web',
+       openingStripeCheckout: 'Opening Stripe…',
++      manageStripeBilling: 'Manage Membership billing',
++      openingStripePortal: 'Opening billing portal…',
+       openBusinessArea: 'Open business area',
+       businessHidden: 'Business identity is not public yet',
+     },
+@@ -818,7 +820,7 @@ export const account = {
+       currentBadge: 'Current account',
+       loadedTitle: '{{tier}} · {{status}}',
+       loadingTitle: 'Loading membership status…',
+-      body: 'Read-only status for this account. Checkout and billing actions are intentionally not connected on this page.',
++      body: 'Read-only status for this account. Web billing actions are shown only when Stripe Membership billing flags and account state allow them.',
+       gridAria: 'Current membership status details',
+       personalTier: 'Personal tier',
+       subscriptionStatus: 'Subscription status',
+@@ -831,7 +833,7 @@ export const account = {
+       aiQuotaEmpty: 'Quota loads with the account snapshot.',
+       aiQuotaDetails: 'Remaining this month · resets {{date}}',
+       period: 'Period',
+-      noPaymentProvider: 'No payment provider action is exposed unless Stripe Membership checkout is enabled for web testing.',
++      noPaymentProvider: 'Billing management is exposed only for Stripe Membership accounts when the customer portal flag is enabled.',
+       referencePrice: 'Reference price',
+       monthlyPrice: '{{price}}/mo',
+       referencePriceNote: 'Reference display price. Stripe checkout uses configured Stripe Price IDs when enabled.',
+@@ -848,6 +850,14 @@ export const account = {
+       errorTitle: 'Checkout unavailable:',
+       error: 'Could not open Stripe checkout. Check the Membership billing flags and Stripe Price IDs, then try again.',
+     },
++    portal: {
++      title: 'Stripe customer portal',
++      readyBadge: 'Billing available',
++      lockedBadge: 'Billing locked',
++      readyBody: 'Manage payment method, invoices, cancellation, and subscription settings in Stripe’s hosted customer portal.',
++      lockedBody: 'The customer portal appears after this account has a Stripe Membership customer and the portal flag is enabled.',
++      error: 'Could not open the Stripe customer portal. Check the Membership billing flags and Stripe customer state, then try again.',
++    },
+     boundaryPanel: {
+       aria: 'Membership and identity boundary',
+       personalBadge: 'Personal membership',
+@@ -888,8 +898,8 @@ export const account = {
+       },
+     },
+     nextNote: {
+-      label: 'BILLING2 boundary:',
+-      body: 'this adds a web Stripe Checkout session foundation only. Webhook entitlement sync, customer portal, mobile Apple/Google purchases, public pricing, organization routes, and schema changes remain out of scope.',
++      label: 'BILLING4 boundary:',
++      body: 'this adds a web Stripe customer portal session foundation only. Mobile Apple/Google purchases, public pricing, organization routes, and schema changes remain out of scope.',
+     },
+   },
+   membershipPreview: {
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+index c737392..7f3b6fc 100644
+--- a/packages/i18n/src/locales/fr/account.ts
++++ b/packages/i18n/src/locales/fr/account.ts
+@@ -713,9 +713,9 @@ export const account = {
+     moreFeatures: '+{{count}} de plus',
+     currentTierBadge: 'Votre niveau',
+     hero: {
+-      badge: 'Base de paiement web',
++      badge: 'Base de facturation web',
+       title: 'Aperçu Membership',
+-      body: 'Cette page affiche les métadonnées Free / Basic, Plus, Pro et Business. Le checkout Stripe web peut être activé pour tester les achats Membership pendant que la synchronisation par webhooks reste l’étape suivante.',
++      body: 'Cette page affiche les métadonnées Free / Basic, Plus, Pro et Business. Le checkout Stripe web et le portail client peuvent être activés seulement pour tester la facturation Membership.',
+     },
+     signedOut: {
+       badge: 'Déconnecté',
+@@ -808,6 +808,8 @@ export const account = {
+       checkoutNotConnected: 'Paiement non connecté',
+       startStripeCheckout: 'S’abonner sur le web',
+       openingStripeCheckout: 'Ouverture de Stripe…',
++      manageStripeBilling: 'Gérer la facturation Membership',
++      openingStripePortal: 'Ouverture du portail de facturation…',
+       openBusinessArea: 'Ouvrir l’espace Business',
+       businessHidden: 'L’identité Business n’est pas encore publique',
+     },
+@@ -818,7 +820,7 @@ export const account = {
+       currentBadge: 'Compte actuel',
+       loadedTitle: '{{tier}} · {{status}}',
+       loadingTitle: 'Chargement du statut Membership…',
+-      body: 'Statut en lecture seule pour ce compte. Les actions de paiement et facturation ne sont volontairement pas connectées sur cette page.',
++      body: 'Statut en lecture seule pour ce compte. Les actions de facturation web sont affichées seulement si les flags Stripe Membership et l’état du compte les permettent.',
+       gridAria: 'Détails du statut Membership actuel',
+       personalTier: 'Niveau personnel',
+       subscriptionStatus: 'Statut d’abonnement',
+@@ -831,7 +833,7 @@ export const account = {
+       aiQuotaEmpty: 'Le quota se charge avec l’instantané du compte.',
+       aiQuotaDetails: 'Restant ce mois-ci · réinitialisation {{date}}',
+       period: 'Période',
+-      noPaymentProvider: 'Aucune action de fournisseur de paiement n’est exposée sauf si le checkout Stripe Membership est activé pour les tests web.',
++      noPaymentProvider: 'La gestion de facturation est exposée seulement pour les comptes Stripe Membership quand le flag du portail client est activé.',
+       referencePrice: 'Prix de référence',
+       monthlyPrice: '{{price}}/mois',
+       referencePriceNote: 'Prix de référence affiché. Le checkout Stripe utilise les Price IDs Stripe configurés quand il est activé.',
+@@ -848,6 +850,14 @@ export const account = {
+       errorTitle: 'Checkout indisponible :',
+       error: 'Impossible d’ouvrir le checkout Stripe. Vérifie les flags de billing Membership et les Stripe Price IDs, puis réessaie.',
+     },
++    portal: {
++      title: 'Portail client Stripe',
++      readyBadge: 'Facturation disponible',
++      lockedBadge: 'Facturation verrouillée',
++      readyBody: 'Gérez le moyen de paiement, les factures, l’annulation et les paramètres d’abonnement dans le portail client hébergé par Stripe.',
++      lockedBody: 'Le portail client apparaît après que ce compte dispose d’un client Stripe Membership et que le flag du portail est activé.',
++      error: 'Impossible d’ouvrir le portail client Stripe. Vérifiez les flags de billing Membership et l’état client Stripe, puis réessayez.',
++    },
+     boundaryPanel: {
+       aria: 'Frontière entre membership et identité',
+       personalBadge: 'Membership personnel',
+@@ -888,8 +898,8 @@ export const account = {
+       },
+     },
+     nextNote: {
+-      label: 'Limite BILLING2 :',
+-      body: 'cela ajoute seulement une base de session Stripe Checkout web. La synchronisation des droits par webhooks, le portail client, les achats mobiles Apple/Google, la page publique de prix, les routes d’organisation et les changements de schéma restent hors périmètre.',
++      label: 'Limite BILLING4 :',
++      body: 'cela ajoute seulement une base de session de portail client Stripe web. Les achats mobiles Apple/Google, la page publique de prix, les routes d’organisation et les changements de schéma restent hors périmètre.',
+     },
+   },
+   membershipPreview: {

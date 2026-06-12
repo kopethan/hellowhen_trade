@@ -64,3 +64,23 @@ Suggested reviewer path:
 - Native public money flags stay off: `EXPO_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `EXPO_PUBLIC_WALLET_VISIBLE=false`, `EXPO_PUBLIC_PAYOUTS_VISIBLE=false`, `EXPO_PUBLIC_MONEY_TRADES_ENABLED=false`, `EXPO_PUBLIC_CASH_PROMISE_ENABLED=false`, `EXPO_PUBLIC_CASH_PROMISE_VISIBLE=false`.
 - Web public money flags stay off: `NEXT_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `NEXT_PUBLIC_WALLET_VISIBLE=false`, `NEXT_PUBLIC_PAYOUTS_VISIBLE=false`, `NEXT_PUBLIC_MONEY_TRADES_ENABLED=false`, `NEXT_PUBLIC_CASH_PROMISE_ENABLED=false`, `NEXT_PUBLIC_CASH_PROMISE_VISIBLE=false`.
 - Terms, Privacy, Community/Safety, Support, and Account Deletion pages are reachable from the app.
+
+## Membership billing review note
+
+If a later build enables Plus/Pro Membership billing, use the dedicated Membership billing review document before submission:
+
+```txt
+docs/launch/membership-billing-store-review-notes.md
+```
+
+For native builds, Plus/Pro digital Membership purchases must use the native store purchase path for the platform being tested:
+
+```txt
+iOS: Apple StoreKit / App Store subscriptions
+Android: Google Play Billing subscriptions
+Web/PWA: Stripe Billing
+```
+
+Do not present Stripe Checkout as the native iOS/Android purchase path for Plus/Pro digital Membership features unless a separate legal/store-review decision explicitly approves an applicable regional alternative billing flow.
+
+Membership billing is separate from user-to-user payments. Hellowhen must not claim to process, protect, escrow, refund, or pay out trades between users.

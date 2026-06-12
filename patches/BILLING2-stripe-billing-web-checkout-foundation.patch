@@ -1,0 +1,838 @@
+diff --git a/.env.example b/.env.example
+index c9076a7..0010231 100644
+--- a/.env.example
++++ b/.env.example
+@@ -33,6 +33,15 @@ CREDITS_MODE=fake
+ STRIPE_SECRET_KEY=
+ STRIPE_WEBHOOK_SECRET=
+ STRIPE_CURRENCY=eur
++# Web Membership checkout foundation. Test mode only until BILLING3 webhooks sync entitlements.
++STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=false
++STRIPE_MEMBERSHIP_SUCCESS_PATH=/account/membership?membership_checkout=success&session_id={CHECKOUT_SESSION_ID}
++STRIPE_MEMBERSHIP_CANCEL_PATH=/account/membership?membership_checkout=cancelled
++STRIPE_PLUS_MONTHLY_PRICE_ID=
++STRIPE_PLUS_YEARLY_PRICE_ID=
++STRIPE_PRO_MONTHLY_PRICE_ID=
++STRIPE_PRO_YEARLY_PRICE_ID=
++NEXT_PUBLIC_STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=false
+ STRIPE_CONNECT_ENABLED=false
+ STRIPE_CONNECT_COUNTRY=US
+ STRIPE_CONNECT_REFRESH_PATH=/account/payouts?stripe_connect=refresh
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 6ce736b..fc3c6b0 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -65,6 +65,13 @@ export const env = {
+   stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? '',
+   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? '',
+   stripeCurrency: (process.env.STRIPE_CURRENCY ?? 'eur').toLowerCase(),
++  stripeMembershipCheckoutEnabled: enabled(process.env.STRIPE_MEMBERSHIP_CHECKOUT_ENABLED),
++  stripeMembershipSuccessPath: process.env.STRIPE_MEMBERSHIP_SUCCESS_PATH ?? '/account/membership?membership_checkout=success&session_id={CHECKOUT_SESSION_ID}',
++  stripeMembershipCancelPath: process.env.STRIPE_MEMBERSHIP_CANCEL_PATH ?? '/account/membership?membership_checkout=cancelled',
++  stripePlusMonthlyPriceId: process.env.STRIPE_PLUS_MONTHLY_PRICE_ID ?? '',
++  stripePlusYearlyPriceId: process.env.STRIPE_PLUS_YEARLY_PRICE_ID ?? '',
++  stripeProMonthlyPriceId: process.env.STRIPE_PRO_MONTHLY_PRICE_ID ?? '',
++  stripeProYearlyPriceId: process.env.STRIPE_PRO_YEARLY_PRICE_ID ?? '',
+   stripeConnectEnabled: (process.env.STRIPE_CONNECT_ENABLED ?? 'false').toLowerCase() === 'true',
+   stripeConnectCountry: (process.env.STRIPE_CONNECT_COUNTRY ?? 'US').toUpperCase(),
+   stripeConnectRefreshPath: process.env.STRIPE_CONNECT_REFRESH_PATH ?? '/account/payouts?stripe_connect=refresh',
+@@ -310,6 +317,7 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
+     || env.moneyProviderWebhooksEnabled
+     || env.stripeConnectEnabled
+     || env.stripeConnectTransferMode
++    || env.stripeMembershipCheckoutEnabled
+     || env.airwallexEnabled
+     || env.airwallexConnectedAccountsEnabled;
+   if (providerRuntimeEnabled) {
+@@ -398,6 +406,7 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
+     || publicFlagEnabled('NEXT_PUBLIC_PRO_ACCOUNTS_VISIBLE')
+     || publicFlagEnabled('NEXT_PUBLIC_PRO_TRIALS_ENABLED')
+     || publicFlagEnabled('NEXT_PUBLIC_IDENTITY_VERIFICATION_ENABLED')
++    || publicFlagEnabled('NEXT_PUBLIC_STRIPE_MEMBERSHIP_CHECKOUT_ENABLED')
+     || publicFlagEnabled('EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED')
+     || publicFlagEnabled('EXPO_PUBLIC_PLUS_ENABLED')
+     || publicFlagEnabled('EXPO_PUBLIC_PLUS_PUBLIC')
+diff --git a/apps/api/src/modules/subscriptions/stripeMembershipCheckout.ts b/apps/api/src/modules/subscriptions/stripeMembershipCheckout.ts
+new file mode 100644
+index 0000000..1917bb6
+--- /dev/null
++++ b/apps/api/src/modules/subscriptions/stripeMembershipCheckout.ts
+@@ -0,0 +1,195 @@
++import type Stripe from 'stripe';
++import { createMembershipCheckoutSessionRequestSchema, type MembershipCheckoutProductHandle } from '@hellowhen/contracts';
++import { getMembershipProductMetadata } from '@hellowhen/shared';
++import { env } from '../../config/env.js';
++import { prisma } from '../../lib/prisma.js';
++import { getStripe, isStripeConfigured } from '../credits/stripeClient.js';
++
++export { createMembershipCheckoutSessionRequestSchema };
++
++type StripeMembershipCheckoutErrorCode =
++  | 'stripe_membership_checkout_disabled'
++  | 'stripe_membership_checkout_not_configured'
++  | 'stripe_membership_product_unavailable'
++  | 'stripe_membership_price_not_configured'
++  | 'stripe_membership_session_failed';
++
++class StripeMembershipCheckoutError extends Error {
++  statusCode: number;
++  code: StripeMembershipCheckoutErrorCode;
++  publicMessage: string;
++
++  constructor(code: StripeMembershipCheckoutErrorCode, message: string, statusCode = 503) {
++    super(message);
++    this.name = 'StripeMembershipCheckoutError';
++    this.code = code;
++    this.statusCode = statusCode;
++    this.publicMessage = message;
++  }
++}
++
++type CheckoutUser = {
++  id: string;
++  email: string;
++  profile: { displayName: string | null } | null;
++  subscriptionState: {
++    provider: string | null;
++    externalCustomerId: string | null;
++  } | null;
++};
++
++const stripeCheckoutSessionPlaceholder = '{CHECKOUT_SESSION_ID}';
++
++function requireStripeMembershipCheckout() {
++  const stripe = getStripe();
++  if (!env.stripeMembershipCheckoutEnabled) {
++    throw new StripeMembershipCheckoutError('stripe_membership_checkout_disabled', 'Stripe Membership checkout is not enabled.', 403);
++  }
++  if (!isStripeConfigured() || !stripe) {
++    throw new StripeMembershipCheckoutError('stripe_membership_checkout_not_configured', 'Stripe test mode is not configured for Membership checkout.');
++  }
++  return stripe;
++}
++
++function safeMembershipReturnPath(value: string | undefined, fallback: string) {
++  const raw = (value ?? fallback).trim();
++  if (!raw.startsWith('/') || raw.startsWith('//')) return fallback;
++  return raw;
++}
++
++function webAppUrl(pathname: string) {
++  return new URL(pathname, env.webAppUrl).toString()
++    .replace('%7BCHECKOUT_SESSION_ID%7D', stripeCheckoutSessionPlaceholder)
++    .replace('%7bCHECKOUT_SESSION_ID%7d', stripeCheckoutSessionPlaceholder);
++}
++
++function getConfiguredPriceId(productHandle: MembershipCheckoutProductHandle) {
++  switch (productHandle) {
++    case 'hellowhen_plus_monthly':
++      return env.stripePlusMonthlyPriceId;
++    case 'hellowhen_plus_yearly':
++      return env.stripePlusYearlyPriceId;
++    case 'hellowhen_pro_monthly':
++      return env.stripeProMonthlyPriceId;
++    case 'hellowhen_pro_yearly':
++      return env.stripeProYearlyPriceId;
++    default:
++      return '';
++  }
++}
++
++function isConfiguredStripePriceId(value: string) {
++  const raw = value.trim();
++  return raw.startsWith('price_') && !raw.includes('replace_me') && !raw.includes('change-me');
++}
++
++function assertProductAvailable(productHandle: MembershipCheckoutProductHandle) {
++  const product = getMembershipProductMetadata(productHandle);
++  if (!product) {
++    throw new StripeMembershipCheckoutError('stripe_membership_product_unavailable', 'This Membership product is not available.', 400);
++  }
++  if (product.tier === 'plus' && !env.plusEnabled) {
++    throw new StripeMembershipCheckoutError('stripe_membership_product_unavailable', 'Plus Membership is not enabled.', 403);
++  }
++  if (product.tier === 'pro' && !env.proAccountsEnabled) {
++    throw new StripeMembershipCheckoutError('stripe_membership_product_unavailable', 'Pro Membership is not enabled.', 403);
++  }
++  const priceId = getConfiguredPriceId(productHandle);
++  if (!isConfiguredStripePriceId(priceId)) {
++    throw new StripeMembershipCheckoutError('stripe_membership_price_not_configured', 'Stripe price ID is not configured for this Membership product.');
++  }
++  return { product, priceId };
++}
++
++async function upsertStripeCustomerId(user: CheckoutUser, stripe: Stripe) {
++  const existingCustomerId = user.subscriptionState?.externalCustomerId?.trim();
++  if (existingCustomerId?.startsWith('cus_')) return existingCustomerId;
++
++  const customer = await stripe.customers.create({
++    email: user.email,
++    name: user.profile?.displayName ?? undefined,
++    metadata: {
++      hellowhenUserId: user.id,
++      membershipBilling: 'true',
++    },
++  });
++
++  await prisma.subscriptionState.upsert({
++    where: { userId: user.id },
++    create: {
++      userId: user.id,
++      tier: 'free',
++      status: 'none',
++      provider: 'stripe',
++      externalCustomerId: customer.id,
++      lastSyncedAt: new Date(),
++      adminNote: 'Stripe Membership customer created. Entitlement sync waits for BILLING3 webhooks.',
++    },
++    update: {
++      externalCustomerId: customer.id,
++      lastSyncedAt: new Date(),
++      adminNote: 'Stripe Membership customer created. Entitlement sync waits for BILLING3 webhooks.',
++    },
++  });
++
++  return customer.id;
++}
++
++function checkoutMetadata(userId: string, productHandle: MembershipCheckoutProductHandle) {
++  const product = getMembershipProductMetadata(productHandle)!;
++  return {
++    hellowhenUserId: userId,
++    membershipSource: 'stripe',
++    membershipPurchaseChannel: 'web',
++    membershipProductHandle: product.handle,
++    membershipTier: product.tier,
++    membershipInterval: product.interval,
++  };
++}
++
++export async function createStripeMembershipCheckoutSession(userId: string, productHandle: MembershipCheckoutProductHandle) {
++  const stripe = requireStripeMembershipCheckout();
++  const { product, priceId } = assertProductAvailable(productHandle);
++
++  const user = await prisma.user.findUnique({
++    where: { id: userId },
++    select: {
++      id: true,
++      email: true,
++      profile: { select: { displayName: true } },
++      subscriptionState: { select: { provider: true, externalCustomerId: true } },
++    },
++  });
++  if (!user) {
++    throw new StripeMembershipCheckoutError('stripe_membership_session_failed', 'Could not create a Membership checkout session.', 404);
++  }
++
++  const customerId = await upsertStripeCustomerId(user, stripe);
++  const metadata = checkoutMetadata(user.id, productHandle);
++  const session = await stripe.checkout.sessions.create({
++    mode: 'subscription',
++    customer: customerId,
++    client_reference_id: user.id,
++    line_items: [{ price: priceId, quantity: 1 }],
++    success_url: webAppUrl(safeMembershipReturnPath(env.stripeMembershipSuccessPath, '/account/membership?membership_checkout=success&session_id={CHECKOUT_SESSION_ID}')),
++    cancel_url: webAppUrl(safeMembershipReturnPath(env.stripeMembershipCancelPath, '/account/membership?membership_checkout=cancelled')),
++    allow_promotion_codes: true,
++    metadata,
++    subscription_data: { metadata },
++  });
++
++  if (!session.url) {
++    throw new StripeMembershipCheckoutError('stripe_membership_session_failed', 'Stripe did not return a checkout URL.');
++  }
++
++  return {
++    provider: 'stripe' as const,
++    mode: 'subscription' as const,
++    testMode: true,
++    sessionId: session.id,
++    checkoutUrl: session.url,
++    productHandle: product.handle,
++    tier: product.tier,
++    interval: product.interval,
++  };
++}
+diff --git a/apps/api/src/modules/subscriptions/subscriptions.routes.ts b/apps/api/src/modules/subscriptions/subscriptions.routes.ts
+index 0f37037..870c3c1 100644
+--- a/apps/api/src/modules/subscriptions/subscriptions.routes.ts
++++ b/apps/api/src/modules/subscriptions/subscriptions.routes.ts
+@@ -2,8 +2,9 @@ import { Router } from 'express';
+ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+-import { requireAuth } from '../../middleware/auth.js';
++import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { resolveMembershipEntitlement } from './membershipEntitlements.js';
++import { createMembershipCheckoutSessionRequestSchema, createStripeMembershipCheckoutSession } from './stripeMembershipCheckout.js';
+ 
+ export const subscriptionsRoutes = Router();
+ 
+@@ -166,6 +167,13 @@ function normalizeSnapshot(row: SubscriptionSnapshotRow) {
+   };
+ }
+ 
++
++subscriptionsRoutes.post('/checkout-session', requireActiveAccount, asyncRoute(async (req, res) => {
++  const body = createMembershipCheckoutSessionRequestSchema.parse(req.body);
++  const session = await createStripeMembershipCheckoutSession(req.user!.id, body.productHandle);
++  res.json(session);
++}));
++
+ subscriptionsRoutes.get('/me', asyncRoute(async (req, res) => {
+   const rows = await prisma.$queryRaw<SubscriptionSnapshotRow[]>`
+     SELECT
+diff --git a/apps/web/src/features/account/MembershipClient.tsx b/apps/web/src/features/account/MembershipClient.tsx
+index 62d09e9..11e8be8 100644
+--- a/apps/web/src/features/account/MembershipClient.tsx
++++ b/apps/web/src/features/account/MembershipClient.tsx
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import Link from 'next/link';
+-import { useEffect, useMemo, useState } from 'react';
++import { useCallback, useEffect, useMemo, useState } from 'react';
+ import type { PlusSubscriptionSnapshotResponse } from '@hellowhen/contracts';
+ import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
+ import {
+@@ -12,6 +12,7 @@ import {
+   normalizePersonalMembershipTier,
+   normalizeSubscriptionStatus,
+   type AccountIdentityMetadata,
++  type MembershipProductHandle,
+   type MembershipFeatureAvailability,
+   type MembershipFeatureInclusion,
+   type MembershipFeatureKey,
+@@ -41,6 +42,9 @@ type MembershipCardAction = {
+   label: string;
+   href?: string;
+   disabled?: boolean;
++  busy?: boolean;
++  busyLabel?: string;
++  onClick?: () => void;
+ };
+ 
+ function formatStatus(status: SubscriptionStatus, t: WebTranslator) {
+@@ -182,6 +186,13 @@ function FeatureList({ features, t }: { features: readonly MembershipFeatureIncl
+ 
+ function CardAction({ action }: { action: MembershipCardAction }) {
+   if (action.href && !action.disabled) return <Link className="button full" href={action.href}>{action.label}</Link>;
++  if (action.onClick && !action.disabled) {
++    return (
++      <button className="button full" type="button" disabled={action.busy} onClick={action.onClick}>
++        {action.busy ? (action.busyLabel ?? action.label) : action.label}
++      </button>
++    );
++  }
+   return <button className="secondary full" type="button" disabled>{action.label}</button>;
+ }
+ 
+@@ -413,6 +424,8 @@ export function MembershipClient() {
+   const { t, language } = useWebTranslation();
+   const [plusSnapshot, setPlusSnapshot] = useState<PlusSubscriptionSnapshotResponse | null>(null);
+   const [loadError, setLoadError] = useState(false);
++  const [checkoutProduct, setCheckoutProduct] = useState<MembershipProductHandle | null>(null);
++  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+ 
+   useEffect(() => {
+     let mounted = true;
+@@ -445,6 +458,18 @@ export function MembershipClient() {
+   const currentTier = normalizePersonalMembershipTier(plusSnapshot?.state?.subscriptionTier);
+   const currentStatus = normalizeSubscriptionStatus(plusSnapshot?.state?.subscriptionStatus);
+ 
++  const startStripeCheckout = useCallback(async (productHandle: MembershipProductHandle) => {
++    setCheckoutProduct(productHandle);
++    setCheckoutError(null);
++    try {
++      const response = await api.subscriptions.createCheckoutSession({ productHandle });
++      window.location.assign(response.checkoutUrl);
++    } catch {
++      setCheckoutError(t('account.membership.checkout.error'));
++      setCheckoutProduct(null);
++    }
++  }, [t]);
++
+   const actions = useMemo<Record<PersonalMembershipTier, MembershipCardAction>>(() => {
+     const loginHref = `/auth?next=${encodeURIComponent(membershipRoute)}`;
+     if (!auth.isAuthenticated) {
+@@ -463,12 +488,37 @@ export function MembershipClient() {
+       };
+     }
+ 
++    const checkoutEnabled = betaFeatures.stripeMembershipCheckoutEnabled;
++    const currentIsActive = currentStatus === 'active' || currentStatus === 'trialing';
++    const plusCheckoutProduct: MembershipProductHandle = 'hellowhen_plus_monthly';
++    const proCheckoutProduct: MembershipProductHandle = 'hellowhen_pro_monthly';
++    const plusAction: MembershipCardAction = statusLoaded && currentIsActive && (currentTier === 'plus' || currentTier === 'pro')
++      ? { label: t('account.membership.actions.currentMembership'), disabled: true }
++      : checkoutEnabled && betaFeatures.plusSubscriptionFeatures.plusEnabled
++        ? {
++            label: t('account.membership.actions.startStripeCheckout'),
++            busy: checkoutProduct === plusCheckoutProduct,
++            busyLabel: t('account.membership.actions.openingStripeCheckout'),
++            onClick: () => { void startStripeCheckout(plusCheckoutProduct); },
++          }
++        : { label: t('account.membership.actions.checkoutNotConnected'), disabled: true };
++    const proAction: MembershipCardAction = statusLoaded && currentIsActive && currentTier === 'pro'
++      ? { label: t('account.membership.actions.currentMembership'), disabled: true }
++      : checkoutEnabled && betaFeatures.proSubscriptionFeatures.proAccountsEnabled
++        ? {
++            label: t('account.membership.actions.startStripeCheckout'),
++            busy: checkoutProduct === proCheckoutProduct,
++            busyLabel: t('account.membership.actions.openingStripeCheckout'),
++            onClick: () => { void startStripeCheckout(proCheckoutProduct); },
++          }
++        : { label: t('account.membership.actions.checkoutNotConnected'), disabled: true };
++
+     return {
+       free: { label: statusLoaded && currentTier === 'free' ? t('account.membership.actions.currentMembership') : t('account.membership.actions.includedByDefault'), disabled: true },
+-      plus: { label: statusLoaded && currentTier === 'plus' ? t('account.membership.actions.currentMembership') : t('account.membership.actions.checkoutNotConnected'), disabled: true },
+-      pro: { label: statusLoaded && currentTier === 'pro' ? t('account.membership.actions.currentMembership') : t('account.membership.actions.checkoutNotConnected'), disabled: true },
++      plus: plusAction,
++      pro: proAction,
+     };
+-  }, [auth.isAuthenticated, currentTier, loadError, statusLoaded, t]);
++  }, [auth.isAuthenticated, checkoutProduct, currentStatus, currentTier, loadError, startStripeCheckout, statusLoaded, t]);
+ 
+   return (
+     <div className="membership-page">
+@@ -512,6 +562,12 @@ export function MembershipClient() {
+         />
+       ) : null}
+ 
++      {checkoutError ? (
++        <section className="notice-box warning membership-checkout-error" role="alert">
++          <strong>{t('account.membership.checkout.errorTitle')}</strong> {checkoutError}
++        </section>
++      ) : null}
++
+       <BusinessBoundaryPanel t={t} />
+ 
+       <section className="membership-section membership-section--personal">
+diff --git a/apps/web/src/lib/betaFeatures.tsx b/apps/web/src/lib/betaFeatures.tsx
+index 98ce655..60d10c0 100644
+--- a/apps/web/src/lib/betaFeatures.tsx
++++ b/apps/web/src/lib/betaFeatures.tsx
+@@ -24,6 +24,7 @@ const aiFeatures = {
+   debugPlaceholders: process.env.NODE_ENV !== 'production' && aiEnabled && enabled(process.env.NEXT_PUBLIC_AI_DEBUG_PLACEHOLDERS),
+ } as const;
+ const subscriptionsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_SUBSCRIPTIONS_ENABLED);
++const stripeMembershipCheckoutEnabled = subscriptionsEnabled && !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_STRIPE_MEMBERSHIP_CHECKOUT_ENABLED);
+ const plusEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_PLUS_ENABLED);
+ const plusSubscriptionFeatures = {
+   ...PLUS_SUBSCRIPTION_FEATURE_DEFAULTS,
+@@ -90,6 +91,7 @@ export const betaFeatures = {
+   plusSubscriptionFeatures,
+   proSubscriptionFeatures,
+   proTradePackageFeatures,
++  stripeMembershipCheckoutEnabled,
+   adsProvider: forceFirstLaunchSafeFlags ? 'none' : rawAdsProvider,
+   adsEnabled,
+   webAdsEnabled,
+diff --git a/docs/product/membership-billing-architecture.md b/docs/product/membership-billing-architecture.md
+index 516ac75..b6b6bd4 100644
+--- a/docs/product/membership-billing-architecture.md
++++ b/docs/product/membership-billing-architecture.md
+@@ -2,15 +2,15 @@
+ 
+ ## Status
+ 
+-TIERS11 decision document plus TIERS12 shared constants/types.
++TIERS11 decision document plus TIERS12 shared constants/types, BILLING1 entitlement resolver, and BILLING2 Stripe web Checkout foundation.
+ 
+-This document is for future implementation planning. It does not enable checkout, billing, Stripe, Airwallex, Apple in-app purchases, Google Play Billing, RevenueCat, entitlement mutation, Pro activation, or Business onboarding.
++This document is for implementation planning. BILLING2 can create Stripe Checkout sessions for web test-mode Membership purchases when explicitly enabled, but it does not sync entitlements, create Customer Portal sessions, enable Airwallex, enable Apple in-app purchases, enable Google Play Billing, adopt RevenueCat, activate Pro automatically, or launch Business onboarding.
+ 
+ Current first-launch rule remains:
+ 
+ ```txt
+ Free first
+-No live subscription checkout
++No live production subscription checkout
+ No live native in-app purchases
+ No billing provider SDKs in the app
+ No user-to-user payments
+@@ -343,22 +343,30 @@ STRIPE_PRO_YEARLY_PRICE_ID
+ 
+ Apple/Google product ids should be documented in the app-store setup checklist later.
+ 
+-## Environment variable direction later
++## Environment variables
+ 
+-Do not add these in TIERS11.
+-
+-Likely future web billing variables:
++BILLING2 adds web Membership checkout variables, disabled by default:
+ 
+ ```env
+-STRIPE_SECRET_KEY=
+-STRIPE_WEBHOOK_SECRET=
++STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=false
++STRIPE_MEMBERSHIP_SUCCESS_PATH=/account/membership?membership_checkout=success&session_id={CHECKOUT_SESSION_ID}
++STRIPE_MEMBERSHIP_CANCEL_PATH=/account/membership?membership_checkout=cancelled
+ STRIPE_PLUS_MONTHLY_PRICE_ID=
+ STRIPE_PLUS_YEARLY_PRICE_ID=
+ STRIPE_PRO_MONTHLY_PRICE_ID=
+ STRIPE_PRO_YEARLY_PRICE_ID=
+-NEXT_PUBLIC_STRIPE_ENABLED=false
++NEXT_PUBLIC_STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=false
++```
++
++These rely on the existing API-only Stripe secret variables:
++
++```env
++STRIPE_SECRET_KEY=
++STRIPE_WEBHOOK_SECRET=
+ ```
+ 
++Use Stripe test mode first. BILLING3 must add webhook entitlement sync before paid purchases should be treated as a complete subscription launch.
++
+ Likely future mobile billing flags:
+ 
+ ```env
+@@ -428,21 +436,46 @@ BILLING8 — Cross-platform entitlement reconciliation
+ BILLING9 — Final store review/payment compliance notes
+ ```
+ 
+-## TIERS12 non-goals
++## BILLING2 Stripe Checkout foundation
++
++BILLING2 adds a web-only backend endpoint:
++
++```txt
++POST /subscriptions/checkout-session
++```
++
++The endpoint:
++
++```txt
++- requires auth and active account
++- requires SUBSCRIPTIONS_ENABLED=true
++- requires STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=true
++- uses Stripe Checkout mode=subscription
++- uses configured Stripe Price IDs
++- creates/reuses a Stripe customer ID in SubscriptionState.externalCustomerId
++- attaches Hellowhen user/product metadata to the Checkout Session and subscription
++- redirects back to /account/membership
++```
++
++Important boundary:
++
++```txt
++Checkout success does not grant Plus or Pro in BILLING2.
++BILLING3 webhook sync must confirm Stripe subscription status before entitlements update.
++```
++
++## TIERS12/BILLING2 non-goals
+ 
+-Do not add in TIERS11/TIERS12:
++Do not add in TIERS11/TIERS12/BILLING2:
+ 
+ ```txt
+-Stripe SDK
+-Stripe API routes
+-Stripe webhook handler
++Stripe webhook entitlement sync
+ Apple StoreKit integration
+ Google Play Billing integration
+ RevenueCat SDK
+ Airwallex SDK
+ schema migration
+-new env variables
+-checkout buttons
++native checkout buttons
+ pricing actions
+ subscription activation
+ mobile Membership screen
+diff --git a/docs/tests/membership-route-smoke.md b/docs/tests/membership-route-smoke.md
+index 1fa9e6f..10b87b6 100644
+--- a/docs/tests/membership-route-smoke.md
++++ b/docs/tests/membership-route-smoke.md
+@@ -2,7 +2,7 @@
+ 
+ TIERS10 route decision: `/account/plans` is now a legacy route that redirects to `/account/membership`.
+ 
+-Membership is the account-facing tier explanation page. It may show Free / Basic, Plus, Pro, and a separated Business / organization identity explanation, but it must not start billing, checkout, identity verification, Stripe, native purchases, or Pro entitlement activation.
++Membership is the account-facing tier explanation page. BILLING2 may show web Stripe Checkout actions only when Membership checkout flags and Stripe Price IDs are configured. It must not start identity verification, native purchases, Pro entitlement activation, customer portal management, or webhook-based entitlement mutation in this patch.
+ 
+ ## Static route checks
+ 
+@@ -28,7 +28,8 @@ With default local launch flags, verify:
+ ```txt
+ /account/membership loads from Account.
+ /account/plans redirects to /account/membership.
+-/account/membership shows no checkout or billing provider action.
++/account/membership shows no checkout action with default flags.
++/account/membership can show web Stripe checkout buttons only when NEXT_PUBLIC_STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=true and the matching API flags are configured.
+ Account hub Membership preview links to /account/membership.
+ Saved Library Plus prompt links to /account/membership.
+ Agenda Plus prompt links to /account/membership.
+@@ -53,11 +54,36 @@ Do not reintroduce user-facing wording that treats Business as just another pers
+ The Membership page and upgrade prompts must not include:
+ 
+ ```txt
+-Stripe checkout
+-Stripe Billing session
+ Apple in-app purchase button
+ Google Play billing button
++Stripe Customer Portal
++Stripe webhook entitlement mutation
+ identity verification launch
+ Pro entitlement mutation
+ Business onboarding activation
+ ```
++
++## BILLING2 local Stripe checkout smoke
++
++For local test-mode checkout only, configure:
++
++```env
++SUBSCRIPTIONS_ENABLED=true
++PLUS_ENABLED=true
++STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=true
++NEXT_PUBLIC_SUBSCRIPTIONS_ENABLED=true
++NEXT_PUBLIC_PLUS_ENABLED=true
++NEXT_PUBLIC_STRIPE_MEMBERSHIP_CHECKOUT_ENABLED=true
++STRIPE_SECRET_KEY=sk_test_...
++STRIPE_PLUS_MONTHLY_PRICE_ID=price_...
++```
++
++Then verify:
++
++```txt
++Authenticated web user can click Subscribe on web for Plus.
++API returns a Stripe Checkout URL.
++Browser redirects to Stripe-hosted Checkout.
++Returning from Checkout lands back on /account/membership.
++User.subscriptionTier/status do not change until BILLING3 webhook sync is implemented.
++```
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index d5b2c77..10d785c 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, ListInventoryFoldersQuery, CreateInventoryFolderRequest, UpdateInventoryFolderRequest, AddInventoryFolderItemRequest, InventoryFoldersResponse, InventoryFolderResponse, InventoryFolderItemResponse, CreateSavedItemRequest, SavedItemStatusQuery, ListSavedItemsQuery, CreateSavedCollectionRequest, UpdateSavedCollectionRequest, AddSavedCollectionItemRequest, SavedItemsResponse, SavedItemResponse, SavedItemStatusResponse, SavedCollectionsResponse, SavedCollectionResponse, SavedCollectionItemResponse, ListAgendaItemsQuery, AgendaIcsExportQuery, CreateAgendaItemRequest, UpdateAgendaItemRequest, AgendaItemsResponse, AgendaItemResponse, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, CreateDealProblemReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery, PlusSubscriptionSnapshotResponse, AdminPlusGrantRequest, AdminPlusUsersResponse, AdminPlusGrantResponse, AdminPlusAiAssistUsageResponse, AiAssistRequest, AiAssistResponse, ListTradeSearchSuggestionsQuery, RecordTradeSearchKeywordRequest, TradeSearchSuggestionsResponse, TradeSearchKeywordResponse } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, ListInventoryFoldersQuery, CreateInventoryFolderRequest, UpdateInventoryFolderRequest, AddInventoryFolderItemRequest, InventoryFoldersResponse, InventoryFolderResponse, InventoryFolderItemResponse, CreateSavedItemRequest, SavedItemStatusQuery, ListSavedItemsQuery, CreateSavedCollectionRequest, UpdateSavedCollectionRequest, AddSavedCollectionItemRequest, SavedItemsResponse, SavedItemResponse, SavedItemStatusResponse, SavedCollectionsResponse, SavedCollectionResponse, SavedCollectionItemResponse, ListAgendaItemsQuery, AgendaIcsExportQuery, CreateAgendaItemRequest, UpdateAgendaItemRequest, AgendaItemsResponse, AgendaItemResponse, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, CreateDealProblemReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery, PlusSubscriptionSnapshotResponse, AdminPlusGrantRequest, AdminPlusUsersResponse, AdminPlusGrantResponse, AdminPlusAiAssistUsageResponse, AiAssistRequest, AiAssistResponse, ListTradeSearchSuggestionsQuery, RecordTradeSearchKeywordRequest, TradeSearchSuggestionsResponse, TradeSearchKeywordResponse, CreateMembershipCheckoutSessionRequest, MembershipCheckoutSessionResponse } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, requestText, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -19,6 +19,7 @@ export function createApiClient(options: ApiClientOptions) {
+     settings: { me: () => requestJson(options, '/settings/me'), updateMe: (body: UpdateSettingsRequest) => requestJson(options, '/settings/me', { method: 'PATCH', body: JSON.stringify(body) }) },
+     ai: { assist: (body: AiAssistRequest) => requestJson<AiAssistResponse>(options, '/ai/assist', { method: 'POST', body: JSON.stringify(body) }) },
+     plus: { me: () => requestJson<PlusSubscriptionSnapshotResponse>(options, '/plus/me') },
++    subscriptions: { createCheckoutSession: (body: CreateMembershipCheckoutSessionRequest) => requestJson<MembershipCheckoutSessionResponse>(options, '/subscriptions/checkout-session', { method: 'POST', body: JSON.stringify(body) }) },
+     business: {
+       publicProfileBySlug: (slug: string) => requestJson<PublicBusinessProfileResponse>(options, `/business/by-slug/${encodeURIComponent(slug)}/public-profile`),
+       mine: () => requestJson(options, '/business/mine'),
+diff --git a/packages/contracts/src/index.js b/packages/contracts/src/index.js
+index b04aa9d..2e98b9d 100644
+--- a/packages/contracts/src/index.js
++++ b/packages/contracts/src/index.js
+@@ -18,4 +18,5 @@ export * from './plans.js';
+ export * from './usage.js';
+ export * from './notifications.js';
+ export * from './tradeSearch.js';
+-//# sourceMappingURL=index.js.map
+\ No newline at end of file
++export * from './membershipBilling.js';
++//# sourceMappingURL=index.js.map
+diff --git a/packages/contracts/src/index.ts b/packages/contracts/src/index.ts
+index 3719761..8318d4b 100644
+--- a/packages/contracts/src/index.ts
++++ b/packages/contracts/src/index.ts
+@@ -19,3 +19,4 @@ export * from './usage.js';
+ export * from './notifications.js';
+ export * from './plus.js';
+ export * from './tradeSearch.js';
++export * from './membershipBilling.js';
+diff --git a/packages/contracts/src/membershipBilling.js b/packages/contracts/src/membershipBilling.js
+new file mode 100644
+index 0000000..ee1e6d9
+--- /dev/null
++++ b/packages/contracts/src/membershipBilling.js
+@@ -0,0 +1,24 @@
++import { z } from 'zod';
++export const membershipCheckoutProductHandleSchema = z.enum([
++    'hellowhen_plus_monthly',
++    'hellowhen_plus_yearly',
++    'hellowhen_pro_monthly',
++    'hellowhen_pro_yearly',
++]);
++export const membershipCheckoutTierSchema = z.enum(['plus', 'pro']);
++export const membershipCheckoutIntervalSchema = z.enum(['monthly', 'yearly']);
++export const membershipCheckoutProviderSchema = z.enum(['stripe']);
++export const createMembershipCheckoutSessionRequestSchema = z.object({
++    productHandle: membershipCheckoutProductHandleSchema,
++}).strict();
++export const membershipCheckoutSessionResponseSchema = z.object({
++    provider: membershipCheckoutProviderSchema,
++    mode: z.literal('subscription'),
++    testMode: z.boolean(),
++    sessionId: z.string(),
++    checkoutUrl: z.string().url(),
++    productHandle: membershipCheckoutProductHandleSchema,
++    tier: membershipCheckoutTierSchema,
++    interval: membershipCheckoutIntervalSchema,
++});
++//# sourceMappingURL=membershipBilling.js.map
+diff --git a/packages/contracts/src/membershipBilling.ts b/packages/contracts/src/membershipBilling.ts
+new file mode 100644
+index 0000000..e400835
+--- /dev/null
++++ b/packages/contracts/src/membershipBilling.ts
+@@ -0,0 +1,33 @@
++import { z } from 'zod';
++
++export const membershipCheckoutProductHandleSchema = z.enum([
++  'hellowhen_plus_monthly',
++  'hellowhen_plus_yearly',
++  'hellowhen_pro_monthly',
++  'hellowhen_pro_yearly',
++]);
++
++export const membershipCheckoutTierSchema = z.enum(['plus', 'pro']);
++export const membershipCheckoutIntervalSchema = z.enum(['monthly', 'yearly']);
++export const membershipCheckoutProviderSchema = z.enum(['stripe']);
++
++export const createMembershipCheckoutSessionRequestSchema = z.object({
++  productHandle: membershipCheckoutProductHandleSchema,
++}).strict();
++
++export const membershipCheckoutSessionResponseSchema = z.object({
++  provider: membershipCheckoutProviderSchema,
++  mode: z.literal('subscription'),
++  testMode: z.boolean(),
++  sessionId: z.string(),
++  checkoutUrl: z.string().url(),
++  productHandle: membershipCheckoutProductHandleSchema,
++  tier: membershipCheckoutTierSchema,
++  interval: membershipCheckoutIntervalSchema,
++});
++
++export type MembershipCheckoutProductHandle = z.infer<typeof membershipCheckoutProductHandleSchema>;
++export type MembershipCheckoutTier = z.infer<typeof membershipCheckoutTierSchema>;
++export type MembershipCheckoutInterval = z.infer<typeof membershipCheckoutIntervalSchema>;
++export type CreateMembershipCheckoutSessionRequest = z.infer<typeof createMembershipCheckoutSessionRequestSchema>;
++export type MembershipCheckoutSessionResponse = z.infer<typeof membershipCheckoutSessionResponseSchema>;
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+index 3a36a70..4e76580 100644
+--- a/packages/i18n/src/locales/en/account.ts
++++ b/packages/i18n/src/locales/en/account.ts
+@@ -713,9 +713,9 @@ export const account = {
+     moreFeatures: '+{{count}} more',
+     currentTierBadge: 'Your tier',
+     hero: {
+-      badge: 'No checkout',
+-      title: 'Display foundation only',
+-      body: 'This page shows Free / Basic, Plus, Pro, and Business metadata without Stripe, Apple, Google, or any billing provider.',
++      badge: 'Web checkout foundation',
++      title: 'Membership overview',
++      body: 'This page shows Free / Basic, Plus, Pro, and Business metadata. Stripe web checkout can be enabled for test-mode Membership purchases while webhooks remain the next billing step.',
+     },
+     signedOut: {
+       badge: 'Signed out',
+@@ -806,6 +806,8 @@ export const account = {
+       currentMembership: 'Current membership',
+       includedByDefault: 'Included by default',
+       checkoutNotConnected: 'Checkout not connected',
++      startStripeCheckout: 'Subscribe on web',
++      openingStripeCheckout: 'Opening Stripe…',
+       openBusinessArea: 'Open business area',
+       businessHidden: 'Business identity is not public yet',
+     },
+@@ -829,10 +831,10 @@ export const account = {
+       aiQuotaEmpty: 'Quota loads with the account snapshot.',
+       aiQuotaDetails: 'Remaining this month · resets {{date}}',
+       period: 'Period',
+-      noPaymentProvider: 'No payment provider action is exposed here.',
++      noPaymentProvider: 'No payment provider action is exposed unless Stripe Membership checkout is enabled for web testing.',
+       referencePrice: 'Reference price',
+       monthlyPrice: '{{price}}/mo',
+-      referencePriceNote: 'Display metadata only. Checkout remains out of scope.',
++      referencePriceNote: 'Reference display price. Stripe checkout uses configured Stripe Price IDs when enabled.',
+       noBillingPeriod: 'No billing period is attached.',
+       periodTrialEnds: 'Trial ends {{date}}',
+       periodCurrentEnds: 'Current period ends {{date}}',
+@@ -842,6 +844,10 @@ export const account = {
+       noStatusUpdate: 'No status update date',
+       statusUpdated: 'Updated {{date}}',
+     },
++    checkout: {
++      errorTitle: 'Checkout unavailable:',
++      error: 'Could not open Stripe checkout. Check the Membership billing flags and Stripe Price IDs, then try again.',
++    },
+     boundaryPanel: {
+       aria: 'Membership and identity boundary',
+       personalBadge: 'Personal membership',
+@@ -882,8 +888,8 @@ export const account = {
+       },
+     },
+     nextNote: {
+-      label: 'TIERS6 boundary:',
+-      body: 'this is still a web account foundation page. Payment checkout, public pricing, mobile UI, organization routes, and schema changes are intentionally out of scope.',
++      label: 'BILLING2 boundary:',
++      body: 'this adds a web Stripe Checkout session foundation only. Webhook entitlement sync, customer portal, mobile Apple/Google purchases, public pricing, organization routes, and schema changes remain out of scope.',
+     },
+   },
+   membershipPreview: {
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+index cd71fcc..c737392 100644
+--- a/packages/i18n/src/locales/fr/account.ts
++++ b/packages/i18n/src/locales/fr/account.ts
+@@ -713,9 +713,9 @@ export const account = {
+     moreFeatures: '+{{count}} de plus',
+     currentTierBadge: 'Votre niveau',
+     hero: {
+-      badge: 'Pas de paiement',
+-      title: 'Base d’affichage uniquement',
+-      body: 'Cette page affiche les métadonnées Free / Basic, Plus, Pro et Business sans Stripe, Apple, Google ni fournisseur de facturation.',
++      badge: 'Base de paiement web',
++      title: 'Aperçu Membership',
++      body: 'Cette page affiche les métadonnées Free / Basic, Plus, Pro et Business. Le checkout Stripe web peut être activé pour tester les achats Membership pendant que la synchronisation par webhooks reste l’étape suivante.',
+     },
+     signedOut: {
+       badge: 'Déconnecté',
+@@ -806,6 +806,8 @@ export const account = {
+       currentMembership: 'Membership actuel',
+       includedByDefault: 'Inclus par défaut',
+       checkoutNotConnected: 'Paiement non connecté',
++      startStripeCheckout: 'S’abonner sur le web',
++      openingStripeCheckout: 'Ouverture de Stripe…',
+       openBusinessArea: 'Ouvrir l’espace Business',
+       businessHidden: 'L’identité Business n’est pas encore publique',
+     },
+@@ -829,10 +831,10 @@ export const account = {
+       aiQuotaEmpty: 'Le quota se charge avec l’instantané du compte.',
+       aiQuotaDetails: 'Restant ce mois-ci · réinitialisation {{date}}',
+       period: 'Période',
+-      noPaymentProvider: 'Aucune action de fournisseur de paiement n’est exposée ici.',
++      noPaymentProvider: 'Aucune action de fournisseur de paiement n’est exposée sauf si le checkout Stripe Membership est activé pour les tests web.',
+       referencePrice: 'Prix de référence',
+       monthlyPrice: '{{price}}/mois',
+-      referencePriceNote: 'Métadonnée d’affichage uniquement. Le paiement reste hors périmètre.',
++      referencePriceNote: 'Prix de référence affiché. Le checkout Stripe utilise les Price IDs Stripe configurés quand il est activé.',
+       noBillingPeriod: 'Aucune période de facturation n’est attachée.',
+       periodTrialEnds: 'L’essai se termine le {{date}}',
+       periodCurrentEnds: 'La période actuelle se termine le {{date}}',
+@@ -842,6 +844,10 @@ export const account = {
+       noStatusUpdate: 'Aucune date de mise à jour du statut',
+       statusUpdated: 'Mis à jour le {{date}}',
+     },
++    checkout: {
++      errorTitle: 'Checkout indisponible :',
++      error: 'Impossible d’ouvrir le checkout Stripe. Vérifie les flags de billing Membership et les Stripe Price IDs, puis réessaie.',
++    },
+     boundaryPanel: {
+       aria: 'Frontière entre membership et identité',
+       personalBadge: 'Membership personnel',
+@@ -882,8 +888,8 @@ export const account = {
+       },
+     },
+     nextNote: {
+-      label: 'Limite TIERS6 :',
+-      body: 'cela reste une page de base du compte web. Paiement, tarification publique, UI mobile, routes d’organisation et changements de schéma sont volontairement hors périmètre.',
++      label: 'Limite BILLING2 :',
++      body: 'cela ajoute seulement une base de session Stripe Checkout web. La synchronisation des droits par webhooks, le portail client, les achats mobiles Apple/Google, la page publique de prix, les routes d’organisation et les changements de schéma restent hors périmètre.',
+     },
+   },
+   membershipPreview: {

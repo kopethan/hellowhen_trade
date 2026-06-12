@@ -24,6 +24,8 @@ const aiFeatures = {
   debugPlaceholders: process.env.NODE_ENV !== 'production' && aiEnabled && enabled(process.env.NEXT_PUBLIC_AI_DEBUG_PLACEHOLDERS),
 } as const;
 const subscriptionsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_SUBSCRIPTIONS_ENABLED);
+const stripeMembershipCheckoutEnabled = subscriptionsEnabled && !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_STRIPE_MEMBERSHIP_CHECKOUT_ENABLED);
+const stripeMembershipPortalEnabled = subscriptionsEnabled && !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_STRIPE_MEMBERSHIP_PORTAL_ENABLED);
 const plusEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_PLUS_ENABLED);
 const plusSubscriptionFeatures = {
   ...PLUS_SUBSCRIPTION_FEATURE_DEFAULTS,
@@ -90,6 +92,8 @@ export const betaFeatures = {
   plusSubscriptionFeatures,
   proSubscriptionFeatures,
   proTradePackageFeatures,
+  stripeMembershipCheckoutEnabled,
+  stripeMembershipPortalEnabled,
   adsProvider: forceFirstLaunchSafeFlags ? 'none' : rawAdsProvider,
   adsEnabled,
   webAdsEnabled,

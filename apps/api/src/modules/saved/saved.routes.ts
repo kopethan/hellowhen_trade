@@ -20,6 +20,7 @@ import { publicTradeVisibilityWhere } from '../trades/trades.routes.js';
 import { publicUserPreviewSelect } from '../users/publicUser.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
 import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
+import { loadMembershipAccessStateForUser } from '../subscriptions/membershipEntitlements.js';
 
 export const savedRoutes = Router();
 savedRoutes.use(requireAuth);
@@ -258,14 +259,8 @@ function duplicateCollectionPayload() {
 }
 
 async function getSavedLibraryGate(ownerId: string) {
-  const user = await prisma.user.findUnique({
-    where: { id: ownerId },
-    select: { subscriptionTier: true, subscriptionStatus: true },
-  });
-  return evaluatePlusGate(plusConfigSnapshot(), {
-    subscriptionTier: user?.subscriptionTier ?? 'free',
-    subscriptionStatus: user?.subscriptionStatus ?? 'none',
-  } as any);
+  const accessState = await loadMembershipAccessStateForUser(prisma as any, ownerId);
+  return evaluatePlusGate(plusConfigSnapshot(), accessState as any);
 }
 
 async function requireSavedCollectionsPlus(ownerId: string, res: any) {

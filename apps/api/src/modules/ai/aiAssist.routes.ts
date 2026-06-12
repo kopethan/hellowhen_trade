@@ -7,6 +7,10 @@ import { prisma } from '../../lib/prisma.js';
 import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { assertAiAssistQuotaAvailable, getAiAssistUsageSummary, recordAiAssistUsage } from '../subscriptions/aiAssistUsage.js';
 import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
+import {
+  loadMembershipEntitlementForUser,
+  membershipEntitlementAsAiAssistUser,
+} from '../subscriptions/membershipEntitlements.js';
 
 export const aiAssistRoutes = Router();
 
@@ -153,11 +157,9 @@ function iso(value: Date | string | null | undefined) {
 aiAssistRoutes.post('/assist', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = aiAssistRequestSchema.parse(req.body);
   const config = ensureAiAssistEnabled();
-  const user = await prisma.user.findUnique({
-    where: { id: req.user!.id },
-    select: { id: true, subscriptionTier: true, subscriptionStatus: true },
-  });
-  if (!user) return res.status(404).json({ error: 'not_found' });
+  const entitlement = await loadMembershipEntitlementForUser(prisma as any, req.user!.id);
+  if (!entitlement) return res.status(404).json({ error: 'not_found' });
+  const user = membershipEntitlementAsAiAssistUser(req.user!.id, entitlement);
 
   await assertAiAssistQuotaAvailable(prisma as any, user, config);
 

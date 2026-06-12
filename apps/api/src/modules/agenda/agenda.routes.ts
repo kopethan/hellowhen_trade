@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { AgendaItemSourceType, Prisma } from '@prisma/client';
-import { canUseAgendaFeature, getPlusPrivateFeatureBlockers, normalizeSubscriptionStatus, normalizeSubscriptionTier } from '@hellowhen/shared';
+import { canUseAgendaFeature, getPlusPrivateFeatureBlockers } from '@hellowhen/shared';
 import {
   agendaIcsExportQuerySchema,
   createAgendaItemRequestSchema,
@@ -15,6 +15,7 @@ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { requireAgendaEnabled } from '../../middleware/featureGates.js';
 import { publicTradeVisibilityWhere } from '../trades/trades.routes.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
+import { loadMembershipAccessStateForUser, type MembershipEntitlementAccessState } from '../subscriptions/membershipEntitlements.js';
 
 export const agendaRoutes = Router();
 
@@ -270,7 +271,7 @@ function agendaSourceNotFoundPayload() {
   };
 }
 
-function agendaPlusRequiredPayload(owner: { subscriptionTier?: string | null; subscriptionStatus?: string | null } | null) {
+function agendaPlusRequiredPayload(accessState: MembershipEntitlementAccessState) {
   return {
     error: 'agenda_plus_required',
     message: 'Agenda is a Plus feature. Upgrade to Plus to organize trades, reminders, follow-ups, and deadlines privately.',
@@ -279,29 +280,20 @@ function agendaPlusRequiredPayload(owner: { subscriptionTier?: string | null; su
     blockers: getPlusPrivateFeatureBlockers({
       plusEnabled: env.plusEnabled,
       featureEnabled: env.agendaEnabled,
-      state: {
-        subscriptionTier: normalizeSubscriptionTier(owner?.subscriptionTier),
-        subscriptionStatus: normalizeSubscriptionStatus(owner?.subscriptionStatus),
-      },
+      state: accessState,
     }),
   };
 }
 
 async function requireAgendaPlus(ownerId: string, res: any) {
-  const owner = await prisma.user.findUnique({
-    where: { id: ownerId },
-    select: { subscriptionTier: true, subscriptionStatus: true },
-  });
+  const accessState = await loadMembershipAccessStateForUser(prisma as any, ownerId);
   const allowed = canUseAgendaFeature({
     plusEnabled: env.plusEnabled,
     agendaEnabled: env.agendaEnabled,
-    state: {
-      subscriptionTier: owner?.subscriptionTier ?? 'free',
-      subscriptionStatus: owner?.subscriptionStatus ?? 'none',
-    },
+    state: accessState,
   });
   if (allowed) return true;
-  res.status(403).json(agendaPlusRequiredPayload(owner));
+  res.status(403).json(agendaPlusRequiredPayload(accessState));
   return false;
 }
 

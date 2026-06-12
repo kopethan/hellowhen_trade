@@ -1,14 +1,12 @@
 import { normalizePreviewCardTheme, type PreviewCardTheme, hasPlusAccess } from '@hellowhen/shared';
 import { env } from '../../config/env.js';
 import { prisma } from '../../lib/prisma.js';
+import { loadMembershipAccessStateForUser } from './membershipEntitlements.js';
 
 export async function userCanUsePlusCustomization(userId: string): Promise<boolean> {
   if (!env.plusEnabled || !env.plusCustomizationEnabled) return false;
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { subscriptionTier: true, subscriptionStatus: true },
-  });
-  return hasPlusAccess(user);
+  const accessState = await loadMembershipAccessStateForUser(prisma as any, userId);
+  return hasPlusAccess(accessState);
 }
 
 export async function resolvePlusPreviewThemeForCreate(userId: string, requestedTheme?: string | null): Promise<PreviewCardTheme> {

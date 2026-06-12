@@ -10,6 +10,7 @@ import {
 } from '@hellowhen/shared';
 import { env } from '../../config/env.js';
 import { prisma } from '../../lib/prisma.js';
+import { loadMembershipAccessStateForUser } from '../subscriptions/membershipEntitlements.js';
 
 type ProposalPackageInput = {
   packageKind?: string | null;
@@ -57,15 +58,18 @@ function proposalPackageEntitlements() {
 }
 
 async function loadProAccessState(userId: string): Promise<ProAccessState> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { professionalStatus: true, subscriptionTier: true, subscriptionStatus: true },
-  });
+  const [user, accessState] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { professionalStatus: true },
+    }),
+    loadMembershipAccessStateForUser(prisma as any, userId),
+  ]);
 
   return {
     professionalStatus: user?.professionalStatus ?? 'none',
-    subscriptionTier: user?.subscriptionTier ?? 'free',
-    subscriptionStatus: user?.subscriptionStatus ?? 'none',
+    subscriptionTier: accessState.subscriptionTier,
+    subscriptionStatus: accessState.subscriptionStatus,
   } as ProAccessState;
 }
 

@@ -68,6 +68,28 @@ const proTradePackageFeatures = {
 const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_MONEY_FEATURES_VISIBLE);
 const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED);
 const plansEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_PLANS_ENABLED);
+const mobileMembershipVisible = !forceFirstLaunchSafeFlags && (
+  enabled(process.env.EXPO_PUBLIC_MOBILE_MEMBERSHIP_VISIBLE)
+  || (subscriptionsEnabled && plusSubscriptionFeatures.plusPublic)
+);
+const iosStoreKitMembershipEnabled = mobileMembershipVisible && !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_IOS_STOREKIT_MEMBERSHIP_ENABLED);
+const androidGooglePlayMembershipEnabled = mobileMembershipVisible && !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_ANDROID_GOOGLE_PLAY_MEMBERSHIP_ENABLED);
+const iosMembershipPurchasePlaceholderVisible = mobileMembershipVisible && !iosStoreKitMembershipEnabled && enabled(process.env.EXPO_PUBLIC_IOS_MEMBERSHIP_PURCHASE_PLACEHOLDER_ENABLED);
+const androidMembershipPurchasePlaceholderVisible = mobileMembershipVisible && !androidGooglePlayMembershipEnabled && enabled(process.env.EXPO_PUBLIC_ANDROID_MEMBERSHIP_PURCHASE_PLACEHOLDER_ENABLED);
+const nativeMembershipProductIds = {
+  apple: {
+    hellowhen_plus_monthly: process.env.EXPO_PUBLIC_APPLE_PLUS_MONTHLY_PRODUCT_ID ?? 'hellowhen.plus.monthly',
+    hellowhen_plus_yearly: process.env.EXPO_PUBLIC_APPLE_PLUS_YEARLY_PRODUCT_ID ?? 'hellowhen.plus.yearly',
+    hellowhen_pro_monthly: process.env.EXPO_PUBLIC_APPLE_PRO_MONTHLY_PRODUCT_ID ?? 'hellowhen.pro.monthly',
+    hellowhen_pro_yearly: process.env.EXPO_PUBLIC_APPLE_PRO_YEARLY_PRODUCT_ID ?? 'hellowhen.pro.yearly',
+  },
+  google: {
+    hellowhen_plus_monthly: process.env.EXPO_PUBLIC_GOOGLE_PLUS_MONTHLY_PRODUCT_ID ?? 'hellowhen_plus_monthly',
+    hellowhen_plus_yearly: process.env.EXPO_PUBLIC_GOOGLE_PLUS_YEARLY_PRODUCT_ID ?? 'hellowhen_plus_yearly',
+    hellowhen_pro_monthly: process.env.EXPO_PUBLIC_GOOGLE_PRO_MONTHLY_PRODUCT_ID ?? 'hellowhen_pro_monthly',
+    hellowhen_pro_yearly: process.env.EXPO_PUBLIC_GOOGLE_PRO_YEARLY_PRODUCT_ID ?? 'hellowhen_pro_yearly',
+  },
+} as const;
 
 export const betaFeatures = {
   moneyProvider: forceFirstLaunchSafeFlags ? 'none' : rawMoneyProvider,
@@ -96,5 +118,13 @@ export const betaFeatures = {
   adsDebugPlaceholders,
   plansEnabled,
   plansVisible: plansEnabled && enabled(process.env.EXPO_PUBLIC_PLANS_VISIBLE),
+  mobileMembershipVisible,
+  mobileMembershipPurchases: {
+    iosStoreKitEnabled: iosStoreKitMembershipEnabled,
+    androidGooglePlayEnabled: androidGooglePlayMembershipEnabled,
+    iosPlaceholderVisible: iosMembershipPurchasePlaceholderVisible,
+    androidPlaceholderVisible: androidMembershipPurchasePlaceholderVisible,
+    nativeProductIds: nativeMembershipProductIds,
+  },
   aiFeatures,
 } as const;

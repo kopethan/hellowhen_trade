@@ -7,6 +7,7 @@ import { routes } from './routes.js';
 import { serveUploadedMedia } from './modules/media/media.routes.js';
 import { airwallexWebhookRoutes } from './modules/money/providers/airwallexWebhook.routes.js';
 import { stripeWebhookRoutes } from './modules/stripe/stripeWebhook.routes.js';
+import { stripeMembershipWebhookRoutes } from './modules/subscriptions/stripeMembershipWebhook.js';
 import { requireMoneyFeaturesVisible } from './middleware/featureGates.js';
 import { recordApiRequestMetric } from './middleware/apiRequestMetrics.js';
 
@@ -52,6 +53,7 @@ export function createApp() {
     optionsSuccessStatus: 204
   }));
   app.use('/stripe', requireMoneyFeaturesVisible('Stripe webhook features'), express.raw({ type: 'application/json', limit: '1mb' }), stripeWebhookRoutes);
+  app.use('/subscriptions/stripe', express.raw({ type: 'application/json', limit: '1mb' }), stripeMembershipWebhookRoutes);
   app.use('/airwallex', requireMoneyFeaturesVisible('Airwallex webhook features'), express.raw({ type: 'application/json', limit: '1mb' }), airwallexWebhookRoutes);
   app.use(express.json({ limit: '1mb' }));
   app.use(recordApiRequestMetric);

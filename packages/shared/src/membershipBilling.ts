@@ -19,6 +19,12 @@ export const MEMBERSHIP_BILLING_PROVIDER_SOURCES = [
 ] as const satisfies readonly MembershipEntitlementSource[];
 export type MembershipBillingProviderSource = typeof MEMBERSHIP_BILLING_PROVIDER_SOURCES[number];
 
+export const MEMBERSHIP_NATIVE_STORE_SOURCES = [
+  'apple_app_store',
+  'google_play',
+] as const satisfies readonly MembershipBillingProviderSource[];
+export type MembershipNativeStoreSource = typeof MEMBERSHIP_NATIVE_STORE_SOURCES[number];
+
 export const MEMBERSHIP_NON_BILLING_ENTITLEMENT_SOURCES = [
   'manual_admin',
   'promo',
@@ -206,6 +212,39 @@ export const MEMBERSHIP_PRODUCT_METADATA = {
   },
 } as const satisfies Record<MembershipProductHandle, MembershipProductMetadata>;
 
+
+export type MembershipNativeStoreProductMetadata = {
+  source: MembershipNativeStoreSource;
+  purchaseChannel: Extract<MembershipPurchaseChannel, 'ios' | 'android'>;
+  displayName: string;
+  productIds: Record<MembershipProductHandle, string>;
+};
+
+export const MEMBERSHIP_NATIVE_STORE_PRODUCT_METADATA = {
+  apple_app_store: {
+    source: 'apple_app_store',
+    purchaseChannel: 'ios',
+    displayName: 'Apple App Store subscriptions',
+    productIds: {
+      hellowhen_plus_monthly: MEMBERSHIP_PRODUCT_METADATA.hellowhen_plus_monthly.providerProductKeys.appleProductId,
+      hellowhen_plus_yearly: MEMBERSHIP_PRODUCT_METADATA.hellowhen_plus_yearly.providerProductKeys.appleProductId,
+      hellowhen_pro_monthly: MEMBERSHIP_PRODUCT_METADATA.hellowhen_pro_monthly.providerProductKeys.appleProductId,
+      hellowhen_pro_yearly: MEMBERSHIP_PRODUCT_METADATA.hellowhen_pro_yearly.providerProductKeys.appleProductId,
+    },
+  },
+  google_play: {
+    source: 'google_play',
+    purchaseChannel: 'android',
+    displayName: 'Google Play Billing subscriptions',
+    productIds: {
+      hellowhen_plus_monthly: MEMBERSHIP_PRODUCT_METADATA.hellowhen_plus_monthly.providerProductKeys.googleProductId,
+      hellowhen_plus_yearly: MEMBERSHIP_PRODUCT_METADATA.hellowhen_plus_yearly.providerProductKeys.googleProductId,
+      hellowhen_pro_monthly: MEMBERSHIP_PRODUCT_METADATA.hellowhen_pro_monthly.providerProductKeys.googleProductId,
+      hellowhen_pro_yearly: MEMBERSHIP_PRODUCT_METADATA.hellowhen_pro_yearly.providerProductKeys.googleProductId,
+    },
+  },
+} as const satisfies Record<MembershipNativeStoreSource, MembershipNativeStoreProductMetadata>;
+
 export const MEMBERSHIP_TIER_PRIORITY = {
   free: 0,
   plus: 10,
@@ -301,6 +340,28 @@ export function getMembershipProductMetadata(
 ): MembershipProductMetadata | null {
   const handle = normalizeMembershipProductHandle(value);
   return handle ? MEMBERSHIP_PRODUCT_METADATA[handle] : null;
+}
+
+export function normalizeMembershipNativeStoreSource(
+  value: string | null | undefined,
+): MembershipNativeStoreSource {
+  const normalized = normalizeMembershipEntitlementSource(value);
+  return includesValue(MEMBERSHIP_NATIVE_STORE_SOURCES, normalized) ? normalized : 'apple_app_store';
+}
+
+export function getMembershipNativeStoreProductMetadata(
+  value: string | null | undefined,
+): MembershipNativeStoreProductMetadata {
+  return MEMBERSHIP_NATIVE_STORE_PRODUCT_METADATA[normalizeMembershipNativeStoreSource(value)];
+}
+
+export function getMembershipNativeStoreProductId(
+  source: string | null | undefined,
+  productHandle: string | null | undefined,
+): string | null {
+  const handle = normalizeMembershipProductHandle(productHandle);
+  if (!handle) return null;
+  return getMembershipNativeStoreProductMetadata(source).productIds[handle];
 }
 
 export function getMembershipProductHandleForTier(
