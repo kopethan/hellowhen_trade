@@ -121,6 +121,13 @@ export function requireSavedCollectionsEnabled(surface = 'Saved collections'): R
   return (_req, _res, next) => next();
 }
 
+export function requireAgendaEnabled(surface = 'Agenda'): RequestHandler {
+  if (!env.plusEnabled || !env.agendaEnabled) {
+    return disabledSurface('agenda_disabled', `${surface} is disabled for this launch.`);
+  }
+  return (_req, _res, next) => next();
+}
+
 export function requireInventoryFoldersEnabled(surface = 'Inventory folders'): RequestHandler {
   if (!env.plusEnabled || !env.inventoryFoldersEnabled) {
     return disabledSurface('inventory_folders_disabled', `${surface} are disabled for this launch.`);

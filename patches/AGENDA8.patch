@@ -1,0 +1,716 @@
+diff --git a/apps/api/src/modules/agenda/agenda.routes.ts b/apps/api/src/modules/agenda/agenda.routes.ts
+index eaebab7..d2812a5 100644
+--- a/apps/api/src/modules/agenda/agenda.routes.ts
++++ b/apps/api/src/modules/agenda/agenda.routes.ts
+@@ -2,6 +2,7 @@ import { Router } from 'express';
+ import type { AgendaItemSourceType, Prisma } from '@prisma/client';
+ import { canUseAgendaFeature, getPlusPrivateFeatureBlockers } from '@hellowhen/shared';
+ import {
++  agendaIcsExportQuerySchema,
+   createAgendaItemRequestSchema,
+   listAgendaItemsQuerySchema,
+   updateAgendaItemRequestSchema,
+@@ -36,6 +37,177 @@ function toIso(value: Date | string | null | undefined) {
+   return value instanceof Date ? value.toISOString() : value;
+ }
+ 
++
++
++type AgendaListQueryInput = {
++  from?: string;
++  to?: string;
++  itemType?: string;
++  sourceType?: AgendaItemSourceType;
++  status?: string;
++  q?: string;
++};
++
++function foldIcsLine(line: string) {
++  if (line.length <= 73) return line;
++  const parts: string[] = [];
++  let rest = line;
++  while (rest.length > 73) {
++    parts.push(rest.slice(0, 73));
++    rest = ` ${rest.slice(73)}`;
++  }
++  parts.push(rest);
++  return parts.join('\r\n');
++}
++
++function escapeIcsText(value: string | null | undefined) {
++  return (value ?? '')
++    .replace(/\\/g, '\\\\')
++    .replace(/;/g, '\\;')
++    .replace(/,/g, '\\,')
++    .replace(/\r?\n/g, '\\n');
++}
++
++function toIcsUtcDateTime(value: Date | string) {
++  const date = value instanceof Date ? value : new Date(value);
++  return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
++}
++
++function addDays(value: Date, days: number) {
++  const next = new Date(value);
++  next.setUTCDate(next.getUTCDate() + days);
++  return next;
++}
++
++
++function dateInTimezone(value: Date | string, timezone: string) {
++  const date = value instanceof Date ? value : new Date(value);
++  try {
++    const parts = new Intl.DateTimeFormat('en-CA', {
++      timeZone: timezone || 'UTC',
++      year: 'numeric',
++      month: '2-digit',
++      day: '2-digit',
++    }).formatToParts(date);
++    const year = parts.find((part) => part.type === 'year')?.value;
++    const month = parts.find((part) => part.type === 'month')?.value;
++    const day = parts.find((part) => part.type === 'day')?.value;
++    if (year && month && day) return `${year}${month}${day}`;
++  } catch {
++    // Fall back to UTC formatting when an old runtime does not know the timezone.
++  }
++  return date.toISOString().slice(0, 10).replace(/-/g, '');
++}
++
++function sanitizeIcsFilenamePart(value: string) {
++  return value
++    .toLowerCase()
++    .normalize('NFKD')
++    .replace(/[\u0300-\u036f]/g, '')
++    .replace(/[^a-z0-9]+/g, '-')
++    .replace(/^-+|-+$/g, '')
++    .slice(0, 48) || 'agenda';
++}
++
++function buildAgendaWhere(userId: string, input: AgendaListQueryInput) {
++  const from = input.from ? parseDate(input.from) : null;
++  const to = input.to ? parseDate(input.to) : null;
++  const and: Prisma.AgendaItemWhereInput[] = [{ userId }];
++  if (input.status) and.push({ status: input.status as any });
++  if (input.itemType) and.push({ itemType: input.itemType as any });
++  if (input.sourceType) and.push({ sourceType: input.sourceType });
++  if (input.q) {
++    and.push({
++      OR: [
++        { title: { contains: input.q, mode: 'insensitive' as const } },
++        { note: { contains: input.q, mode: 'insensitive' as const } },
++        { sourceId: { contains: input.q, mode: 'insensitive' as const } },
++      ],
++    });
++  }
++  if (from) {
++    and.push({
++      OR: [
++        { endAt: { gte: from } },
++        { endAt: null, startAt: { gte: from } },
++      ],
++    });
++  }
++  if (to) and.push({ startAt: { lte: to } });
++  return { where: { AND: and }, from, to };
++}
++
++function agendaItemToIcsEvent(item: {
++  id: string;
++  itemType: string;
++  title: string;
++  note: string | null;
++  startAt: Date | string;
++  endAt: Date | string | null;
++  allDay: boolean;
++  timezone: string;
++  status: string;
++  createdAt: Date | string;
++  updatedAt: Date | string;
++}) {
++  const lines = [
++    'BEGIN:VEVENT',
++    `UID:${escapeIcsText(`${item.id}@hellowhen-agenda`)}`,
++    `DTSTAMP:${toIcsUtcDateTime(new Date())}`,
++    `CREATED:${toIcsUtcDateTime(item.createdAt)}`,
++    `LAST-MODIFIED:${toIcsUtcDateTime(item.updatedAt)}`,
++    `SUMMARY:${escapeIcsText(item.title)}`,
++    `CLASS:PRIVATE`,
++    `TRANSP:TRANSPARENT`,
++    `STATUS:${item.status === 'cancelled' ? 'CANCELLED' : 'CONFIRMED'}`,
++    `CATEGORIES:${escapeIcsText(`Hellowhen Agenda,${item.itemType}`)}`,
++    'X-HELLOWHEN-PRIVATE:TRUE',
++    'X-HELLOWHEN-AGENDA-TYPE:' + escapeIcsText(item.itemType),
++  ];
++
++  const description = [
++    item.note?.trim() || null,
++    'Private Hellowhen Agenda item. Exporting this file may copy it to an external calendar app.',
++  ].filter(Boolean).join('\n\n');
++  if (description) lines.push(`DESCRIPTION:${escapeIcsText(description)}`);
++
++  if (item.allDay) {
++    const start = new Date(item.startAt);
++    const end = addDays(new Date(item.endAt ?? item.startAt), 1);
++    lines.push(`DTSTART;VALUE=DATE:${dateInTimezone(start, item.timezone)}`);
++    lines.push(`DTEND;VALUE=DATE:${dateInTimezone(end, item.timezone)}`);
++  } else {
++    const start = new Date(item.startAt);
++    lines.push(`DTSTART:${toIcsUtcDateTime(start)}`);
++    if (item.endAt) lines.push(`DTEND:${toIcsUtcDateTime(item.endAt)}`);
++  }
++
++  lines.push('END:VEVENT');
++  return lines.map(foldIcsLine).join('\r\n');
++}
++
++function agendaItemsToIcs(items: Parameters<typeof agendaItemToIcsEvent>[0][], calendarName = 'Hellowhen Agenda') {
++  const lines = [
++    'BEGIN:VCALENDAR',
++    'VERSION:2.0',
++    'PRODID:-//Hellowhen//Agenda//EN',
++    'CALSCALE:GREGORIAN',
++    'METHOD:PUBLISH',
++    `X-WR-CALNAME:${escapeIcsText(calendarName)}`,
++    'X-WR-TIMEZONE:UTC',
++    ...items.map(agendaItemToIcsEvent),
++    'END:VCALENDAR',
++  ];
++  return `${lines.join('\r\n')}\r\n`;
++}
++
++function sendAgendaIcs(res: any, filename: string, items: Parameters<typeof agendaItemsToIcs>[0], calendarName?: string) {
++  res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
++  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
++  res.setHeader('Cache-Control', 'private, no-store');
++  res.status(200).send(agendaItemsToIcs(items, calendarName));
++}
++
+ function toAgendaItemDto(item: {
+   id: string;
+   userId: string;
+@@ -254,8 +426,7 @@ async function canLinkAgendaSource(ownerId: string, input: AgendaSourceInput) {
+ agendaRoutes.get('/', asyncRoute(async (req, res) => {
+   if (!(await requireAgendaPlus(req.user!.id, res))) return;
+   const input = listAgendaItemsQuerySchema.parse(req.query);
+-  const from = input.from ? parseDate(input.from) : null;
+-  const to = input.to ? parseDate(input.to) : null;
++  const { where, from, to } = buildAgendaWhere(req.user!.id, input);
+   if (from && to && to.getTime() < from.getTime()) {
+     return res.status(400).json({ error: 'invalid_date_range', message: 'The Agenda date range is invalid.' });
+   }
+@@ -265,31 +436,8 @@ agendaRoutes.get('/', asyncRoute(async (req, res) => {
+     if (!cursor) return res.status(400).json({ error: 'invalid_cursor', message: 'This Agenda cursor is no longer available.' });
+   }
+ 
+-  const and: Prisma.AgendaItemWhereInput[] = [{ userId: req.user!.id }];
+-  if (input.status) and.push({ status: input.status });
+-  if (input.itemType) and.push({ itemType: input.itemType });
+-  if (input.sourceType) and.push({ sourceType: input.sourceType });
+-  if (input.q) {
+-    and.push({
+-      OR: [
+-        { title: { contains: input.q, mode: 'insensitive' as const } },
+-        { note: { contains: input.q, mode: 'insensitive' as const } },
+-        { sourceId: { contains: input.q, mode: 'insensitive' as const } },
+-      ],
+-    });
+-  }
+-  if (from) {
+-    and.push({
+-      OR: [
+-        { endAt: { gte: from } },
+-        { endAt: null, startAt: { gte: from } },
+-      ],
+-    });
+-  }
+-  if (to) and.push({ startAt: { lte: to } });
+-
+   const items = await prisma.agendaItem.findMany({
+-    where: { AND: and },
++    where,
+     orderBy: [{ startAt: 'asc' }, { id: 'asc' }],
+     take: input.take + 1,
+     ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+@@ -300,6 +448,32 @@ agendaRoutes.get('/', asyncRoute(async (req, res) => {
+   res.json({ items: page.map(toAgendaItemDto), nextCursor });
+ }));
+ 
++agendaRoutes.get('/ics', asyncRoute(async (req, res) => {
++  if (!(await requireAgendaPlus(req.user!.id, res))) return;
++  const input = agendaIcsExportQuerySchema.parse(req.query);
++  const { where, from, to } = buildAgendaWhere(req.user!.id, input);
++  if (from && to && to.getTime() < from.getTime()) {
++    return res.status(400).json({ error: 'invalid_date_range', message: 'The Agenda date range is invalid.' });
++  }
++
++  const items = await prisma.agendaItem.findMany({
++    where,
++    orderBy: [{ startAt: 'asc' }, { id: 'asc' }],
++    take: input.take,
++  });
++
++  sendAgendaIcs(res, 'hellowhen-agenda.ics', items, 'Hellowhen Agenda');
++}));
++
++agendaRoutes.get('/:itemId/ics', asyncRoute(async (req, res) => {
++  if (!(await requireAgendaPlus(req.user!.id, res))) return;
++  const item = await prisma.agendaItem.findFirst({ where: { id: req.params.itemId, userId: req.user!.id } });
++  if (!item) return res.status(404).json({ error: 'agenda_item_not_found', message: 'Agenda item not found.' });
++
++  const filename = `hellowhen-agenda-${sanitizeIcsFilenamePart(item.title)}.ics`;
++  sendAgendaIcs(res, filename, [item], item.title);
++}));
++
+ agendaRoutes.post('/', asyncRoute(async (req, res) => {
+   if (!(await requireAgendaPlus(req.user!.id, res))) return;
+   const input = createAgendaItemRequestSchema.parse(req.body);
+diff --git a/apps/mobile/src/features/account/AgendaScreen.tsx b/apps/mobile/src/features/account/AgendaScreen.tsx
+index 9b46353..3b90ab9 100644
+--- a/apps/mobile/src/features/account/AgendaScreen.tsx
++++ b/apps/mobile/src/features/account/AgendaScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useMemo, useState } from 'react';
+-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
++import { ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View } from 'react-native';
+ import { useFocusEffect } from '@react-navigation/native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { AgendaItemDto, AgendaItemStatus, AgendaItemType, PlusSubscriptionSnapshotResponse } from '@hellowhen/contracts';
+@@ -134,6 +134,48 @@ function formatItemDateTime(item: AgendaItemDto) {
+   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(start);
+ }
+ 
++function agendaIcsFilename(title: string) {
++  const slug = title
++    .toLowerCase()
++    .normalize('NFKD')
++    .replace(/[\u0300-\u036f]/g, '')
++    .replace(/[^a-z0-9]+/g, '-')
++    .replace(/^-+|-+$/g, '')
++    .slice(0, 48) || 'agenda';
++  return `hellowhen-agenda-${slug}.ics`;
++}
++
++function toGoogleUtcDate(value: Date) {
++  return value.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
++}
++
++function toGoogleAllDayDate(value: Date) {
++  return `${value.getFullYear()}${pad(value.getMonth() + 1)}${pad(value.getDate())}`;
++}
++
++function googleCalendarDates(item: AgendaItemDto) {
++  const start = new Date(item.startAt);
++  const safeStart = Number.isNaN(start.getTime()) ? new Date() : start;
++  const parsedEnd = item.endAt ? new Date(item.endAt) : null;
++  const safeEnd = parsedEnd && !Number.isNaN(parsedEnd.getTime()) ? parsedEnd : null;
++  if (item.allDay) {
++    const end = addDays(safeEnd ?? safeStart, 1);
++    return `${toGoogleAllDayDate(safeStart)}/${toGoogleAllDayDate(end)}`;
++  }
++  const end = safeEnd ?? new Date(safeStart.getTime() + 60 * 60 * 1000);
++  return `${toGoogleUtcDate(safeStart)}/${toGoogleUtcDate(end)}`;
++}
++
++function googleCalendarUrl(item: AgendaItemDto, details: string) {
++  const params = [
++    ['action', 'TEMPLATE'],
++    ['text', item.title],
++    ['dates', googleCalendarDates(item)],
++    ['details', details],
++  ].map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&');
++  return `https://calendar.google.com/calendar/render?${params}`;
++}
++
+ function itemTone(item: AgendaItemDto) {
+   if (item.itemType === 'reminder') return 'instruction' as const;
+   if (item.itemType === 'person') return 'proposal' as const;
+@@ -310,6 +352,33 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+     else if (item.sourceType === 'user') navigation.navigate('UserProfile', { userId: item.sourceId, displayName: item.title });
+   }
+ 
++  async function exportAgendaItem(item: AgendaItemDto) {
++    setBusyAction(`export-${item.id}`);
++    setError(null);
++    setMessage(null);
++    try {
++      const ics = await api.agenda.exportItemIcs(item.id);
++      await Share.share({ title: agendaIcsFilename(item.title), message: ics });
++      setMessage(t('account.agenda.export.itemExported', { title: item.title }));
++    } catch (cause) {
++      setError(getFriendlyApiErrorMessage(cause, t('account.agenda.export.error')));
++    } finally {
++      setBusyAction(null);
++    }
++  }
++
++  async function openGoogleCalendar(item: AgendaItemDto) {
++    const details = [
++      item.note?.trim() || null,
++      t('account.agenda.export.externalDescription'),
++    ].filter(Boolean).join('\n\n');
++    try {
++      await Linking.openURL(googleCalendarUrl(item, details));
++    } catch (cause) {
++      setError(getFriendlyApiErrorMessage(cause, t('account.agenda.export.error')));
++    }
++  }
++
+   async function saveEditor() {
+     if (!editor) return;
+     const title = editor.title.trim();
+@@ -461,6 +530,7 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+           <View style={styles.summaryCopy}>
+             <AppText style={styles.summaryTitle}>{t('account.agenda.summaryTitle')}</AppText>
+             <AppText style={[styles.summaryBody, { color: theme.color.muted }]}>{t('account.agenda.summaryBody')}</AppText>
++            <AppText style={[styles.exportNote, { color: theme.color.muted }]}>{t('account.agenda.export.privacyNote')}</AppText>
+           </View>
+         </AppCard>
+ 
+@@ -536,7 +606,7 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+         ) : (
+           <View style={styles.itemList}>
+             {primaryItems.map((item) => (
+-              <AgendaItemCard key={item.id} item={item} busyAction={busyAction} onDelete={() => setDeleteTarget(item)} onDone={() => { void markDone(item); }} onEdit={() => openEdit(item)} onOpen={() => openLinkedItem(item)} />
++              <AgendaItemCard key={item.id} item={item} busyAction={busyAction} onDelete={() => setDeleteTarget(item)} onDone={() => { void markDone(item); }} onEdit={() => openEdit(item)} onExport={() => { void exportAgendaItem(item); }} onGoogle={() => { void openGoogleCalendar(item); }} onOpen={() => openLinkedItem(item)} />
+             ))}
+           </View>
+         )}
+@@ -553,7 +623,7 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+         ) : (
+           <View style={styles.itemList}>
+             {upcomingItems.map((item) => (
+-              <AgendaItemCard key={item.id} item={item} compact busyAction={busyAction} onDelete={() => setDeleteTarget(item)} onDone={() => { void markDone(item); }} onEdit={() => openEdit(item)} onOpen={() => openLinkedItem(item)} />
++              <AgendaItemCard key={item.id} item={item} compact busyAction={busyAction} onDelete={() => setDeleteTarget(item)} onDone={() => { void markDone(item); }} onEdit={() => openEdit(item)} onExport={() => { void exportAgendaItem(item); }} onGoogle={() => { void openGoogleCalendar(item); }} onOpen={() => openLinkedItem(item)} />
+             ))}
+           </View>
+         )}
+@@ -605,13 +675,14 @@ function FilterChips<TValue extends string>({ active, labelForValue, onChange, v
+   );
+ }
+ 
+-function AgendaItemCard({ busyAction, compact, item, onDelete, onDone, onEdit, onOpen }: { busyAction: string | null; compact?: boolean; item: AgendaItemDto; onDelete: () => void; onDone: () => void; onEdit: () => void; onOpen: () => void }) {
++function AgendaItemCard({ busyAction, compact, item, onDelete, onDone, onEdit, onExport, onGoogle, onOpen }: { busyAction: string | null; compact?: boolean; item: AgendaItemDto; onDelete: () => void; onDone: () => void; onEdit: () => void; onExport: () => void; onGoogle: () => void; onOpen: () => void }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+   const tone = itemTone(item);
+   const semantic = theme.semantic[tone];
+   const canOpen = Boolean(item.sourceId && ['trade', 'need', 'offer', 'proposal', 'user'].includes(item.sourceType));
+   const doneBusy = busyAction === `done-${item.id}`;
++  const exportBusy = busyAction === `export-${item.id}`;
+   const overdue = isOverdueItem(item);
+ 
+   return (
+@@ -635,6 +706,8 @@ function AgendaItemCard({ busyAction, compact, item, onDelete, onDone, onEdit, o
+       <View style={styles.itemActions}>
+         {canOpen ? <SmallAction label={t('account.agenda.openLinkedItem')} onPress={onOpen} /> : null}
+         <SmallAction label={t('common.actions.edit')} onPress={onEdit} />
++        <SmallAction label={exportBusy ? t('account.agenda.export.exporting') : t('account.agenda.export.item')} disabled={exportBusy} onPress={onExport} />
++        <SmallAction label={t('account.agenda.export.google')} onPress={onGoogle} />
+         {item.status === 'active' ? <SmallAction label={doneBusy ? t('common.states.saving') : t('account.agenda.markDone')} disabled={doneBusy} onPress={onDone} /> : null}
+         <SmallAction label={t('common.actions.remove')} danger onPress={onDelete} />
+       </View>
+@@ -739,6 +812,7 @@ const styles = StyleSheet.create({
+   summaryCopy: { flex: 1, gap: 4 },
+   summaryTitle: { fontSize: 18, fontWeight: '900' },
+   summaryBody: { lineHeight: 19, fontWeight: '700' },
++  exportNote: { marginTop: 4, fontSize: 12, lineHeight: 17, fontWeight: '800' },
+   weekPanel: { borderRadius: 24, borderWidth: 1, padding: 13, gap: 13 },
+   weekHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+   weekTitle: { fontSize: 20, fontWeight: '900', letterSpacing: -0.25 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index f1f0c8f..89cd906 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -8075,6 +8075,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .agenda-hero-card__icon { display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid color-mix(in srgb, var(--proposal-border) 42%, var(--app-border)); border-radius: 18px; background: var(--app-surface); color: var(--app-text); box-shadow: var(--app-control-shadow); }
+ .agenda-hero-card h3, .agenda-hero-card p { margin: 7px 0 0; }
+ .agenda-hero-card p { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
++.agenda-hero-card .agenda-export-note { margin-top: 6px; color: color-mix(in srgb, var(--app-text-muted) 86%, var(--warning-text)); font-size: 12px; font-weight: 800; line-height: 1.45; }
+ .agenda-locked-card { display: grid; gap: 10px; border: 1px solid color-mix(in srgb, var(--success-border) 44%, var(--app-border)); border-radius: 26px; background: linear-gradient(135deg, color-mix(in srgb, var(--success-bg) 15%, var(--app-surface)), var(--app-surface)); padding: 18px; box-shadow: var(--app-card-shadow); }
+ .agenda-locked-card h3, .agenda-locked-card p { margin: 0; }
+ .agenda-locked-card p, .agenda-locked-card span:not(.semantic-badge) { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
+diff --git a/apps/web/src/features/account/AgendaClient.tsx b/apps/web/src/features/account/AgendaClient.tsx
+index e698d4d..949b08e 100644
+--- a/apps/web/src/features/account/AgendaClient.tsx
++++ b/apps/web/src/features/account/AgendaClient.tsx
+@@ -204,6 +204,60 @@ function agendaItemHref(item: AgendaItemDto) {
+   return '';
+ }
+ 
++function agendaIcsFilename(title: string) {
++  const slug = title
++    .toLowerCase()
++    .normalize('NFKD')
++    .replace(/[\u0300-\u036f]/g, '')
++    .replace(/[^a-z0-9]+/g, '-')
++    .replace(/^-+|-+$/g, '')
++    .slice(0, 48) || 'agenda';
++  return `hellowhen-agenda-${slug}.ics`;
++}
++
++function downloadAgendaIcs(filename: string, ics: string) {
++  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
++  const url = URL.createObjectURL(blob);
++  const link = document.createElement('a');
++  link.href = url;
++  link.download = filename;
++  document.body.appendChild(link);
++  link.click();
++  link.remove();
++  URL.revokeObjectURL(url);
++}
++
++function toGoogleUtcDate(value: Date) {
++  return value.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
++}
++
++function toGoogleAllDayDate(value: Date) {
++  return `${value.getFullYear()}${pad(value.getMonth() + 1)}${pad(value.getDate())}`;
++}
++
++function googleCalendarDates(item: AgendaItemDto) {
++  const start = new Date(item.startAt);
++  const safeStart = Number.isFinite(start.getTime()) ? start : new Date();
++  const parsedEnd = item.endAt ? new Date(item.endAt) : null;
++  const safeEnd = parsedEnd && Number.isFinite(parsedEnd.getTime()) ? parsedEnd : null;
++  if (item.allDay) {
++    const end = addDays(safeEnd ?? safeStart, 1);
++    return `${toGoogleAllDayDate(safeStart)}/${toGoogleAllDayDate(end)}`;
++  }
++  const end = safeEnd ?? new Date(safeStart.getTime() + 60 * 60 * 1000);
++  return `${toGoogleUtcDate(safeStart)}/${toGoogleUtcDate(end)}`;
++}
++
++function googleCalendarUrl(item: AgendaItemDto, details: string) {
++  const params = [
++    ['action', 'TEMPLATE'],
++    ['text', item.title],
++    ['dates', googleCalendarDates(item)],
++    ['details', details],
++  ].map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&');
++  return `https://calendar.google.com/calendar/render?${params}`;
++}
++
+ export function AgendaClient() {
+   const auth = useWebAuth();
+   const { t, language } = useWebTranslation();
+@@ -219,6 +273,7 @@ export function AgendaClient() {
+   const [loadingMore, setLoadingMore] = useState(false);
+   const [saving, setSaving] = useState(false);
+   const [deletingId, setDeletingId] = useState<string | null>(null);
++  const [exportingId, setExportingId] = useState<string | null>(null);
+   const [editorMode, setEditorMode] = useState<AgendaEditorMode | null>(null);
+   const [editor, setEditor] = useState<AgendaEditorState>(() => defaultEditorState());
+   const [titleError, setTitleError] = useState<string | null>(null);
+@@ -351,6 +406,57 @@ export function AgendaClient() {
+     setNextCursor(null);
+   }
+ 
++  function currentExportQuery() {
++    const range = agendaQuickViewRange(quickView);
++    const query = search.trim();
++    return {
++      take: 500,
++      status,
++      ...(filter !== 'all' ? { itemType: filter } : {}),
++      ...(range.from ? { from: range.from } : {}),
++      ...(range.to ? { to: range.to } : {}),
++      ...(query ? { q: query } : {}),
++    };
++  }
++
++  async function exportAgendaView() {
++    setExportingId('view');
++    setError(null);
++    setMessage(null);
++    try {
++      const ics = await api.agenda.exportIcs(currentExportQuery());
++      downloadAgendaIcs('hellowhen-agenda.ics', ics);
++      setMessage(t('account.agenda.export.exported'));
++    } catch (cause) {
++      setError(getFriendlyApiErrorMessage(cause, t('account.agenda.export.error')));
++    } finally {
++      setExportingId(null);
++    }
++  }
++
++  async function exportAgendaItem(item: AgendaItemDto) {
++    setExportingId(item.id);
++    setError(null);
++    setMessage(null);
++    try {
++      const ics = await api.agenda.exportItemIcs(item.id);
++      downloadAgendaIcs(agendaIcsFilename(item.title), ics);
++      setMessage(t('account.agenda.export.itemExported', { title: item.title }));
++    } catch (cause) {
++      setError(getFriendlyApiErrorMessage(cause, t('account.agenda.export.error')));
++    } finally {
++      setExportingId(null);
++    }
++  }
++
++  function openGoogleCalendar(item: AgendaItemDto) {
++    const details = [
++      item.note?.trim() || null,
++      t('account.agenda.export.externalDescription'),
++    ].filter(Boolean).join('\n\n');
++    window.open(googleCalendarUrl(item, details), '_blank', 'noopener,noreferrer');
++  }
++
+   function validateEditor() {
+     const title = editor.title.trim();
+     const startAt = toApiDateTime(editor.startAt);
+@@ -495,6 +601,7 @@ export function AgendaClient() {
+           <span className="semantic-badge proposal">{t('account.agenda.privateBadge')}</span>
+           <h3>{t('account.agenda.summaryTitle')}</h3>
+           <p>{t('account.agenda.summaryBody')}</p>
++          <p className="agenda-export-note">{t('account.agenda.export.privacyNote')}</p>
+         </div>
+         <button type="button" className="button primary" onClick={openCreateEditor}>{t('account.agenda.create')}</button>
+       </section>
+@@ -507,6 +614,7 @@ export function AgendaClient() {
+           </div>
+           <div className="agenda-toolbar__actions">
+             {hasCustomFilters ? <button type="button" className="button secondary" onClick={clearAgendaFilters}>{t('account.agenda.clearFilters')}</button> : null}
++            <button type="button" className="button secondary" disabled={exportingId === 'view'} onClick={() => { void exportAgendaView(); }}>{exportingId === 'view' ? t('account.agenda.export.exporting') : t('account.agenda.export.view')}</button>
+             <button type="button" className="button secondary" onClick={() => { void load(); }}>{t('common.actions.tryAgain')}</button>
+           </div>
+         </div>
+@@ -663,6 +771,8 @@ export function AgendaClient() {
+                         <div className="agenda-item-card__actions">
+                           {href ? <Link href={href} className="button secondary">{t('common.actions.open')}</Link> : null}
+                           <button type="button" className="button secondary" onClick={() => openEditEditor(item)}>{t('common.actions.edit')}</button>
++                          <button type="button" className="button secondary" disabled={exportingId === item.id} onClick={() => { void exportAgendaItem(item); }}>{exportingId === item.id ? t('account.agenda.export.exporting') : t('account.agenda.export.item')}</button>
++                          <button type="button" className="button secondary" onClick={() => openGoogleCalendar(item)}>{t('account.agenda.export.google')}</button>
+                           {item.status === 'active' ? (
+                             <button type="button" className="ghost-button" disabled={deletingId === item.id} onClick={() => { void updateItemStatus(item, 'done'); }}>
+                               {deletingId === item.id ? t('common.states.working') : t('account.agenda.markDone')}
+diff --git a/packages/api-client/src/http.ts b/packages/api-client/src/http.ts
+index 2b49f9f..6299545 100644
+--- a/packages/api-client/src/http.ts
++++ b/packages/api-client/src/http.ts
+@@ -72,6 +72,21 @@ export async function requestJson<T>(options: ApiClientOptions, path: string, in
+   return response.json() as Promise<T>;
+ }
+ 
++
++export async function requestText(options: ApiClientOptions, path: string, init: RequestInit = {}): Promise<string> {
++  let response: Response;
++  const request = createTimedRequest({ ...init, headers: await makeHeaders(options, init.headers, false) });
++  try {
++    response = await fetch(`${options.baseUrl}${path}`, request.init);
++  } catch (cause) {
++    throwConnectionError(cause, options.baseUrl, request.timedOut());
++  } finally {
++    request.cleanup();
++  }
++  if (!response.ok) await parseErrorResponse(response);
++  return response.text();
++}
++
+ export async function requestFormData<T>(options: ApiClientOptions, path: string, formData: FormData, init: RequestInit = {}): Promise<T> {
+   let response: Response;
+   const request = createTimedRequest({ ...init, method: init.method ?? 'POST', body: formData, headers: await makeHeaders(options, init.headers, false) }, FORM_DATA_REQUEST_TIMEOUT_MS);
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index ecd1978..d5b2c77 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,5 +1,5 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, ListInventoryFoldersQuery, CreateInventoryFolderRequest, UpdateInventoryFolderRequest, AddInventoryFolderItemRequest, InventoryFoldersResponse, InventoryFolderResponse, InventoryFolderItemResponse, CreateSavedItemRequest, SavedItemStatusQuery, ListSavedItemsQuery, CreateSavedCollectionRequest, UpdateSavedCollectionRequest, AddSavedCollectionItemRequest, SavedItemsResponse, SavedItemResponse, SavedItemStatusResponse, SavedCollectionsResponse, SavedCollectionResponse, SavedCollectionItemResponse, ListAgendaItemsQuery, CreateAgendaItemRequest, UpdateAgendaItemRequest, AgendaItemsResponse, AgendaItemResponse, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, CreateDealProblemReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery, PlusSubscriptionSnapshotResponse, AdminPlusGrantRequest, AdminPlusUsersResponse, AdminPlusGrantResponse, AdminPlusAiAssistUsageResponse, AiAssistRequest, AiAssistResponse, ListTradeSearchSuggestionsQuery, RecordTradeSearchKeywordRequest, TradeSearchSuggestionsResponse, TradeSearchKeywordResponse } from '@hellowhen/contracts';
+-import { requestFormData, requestJson, type ApiClientOptions } from './http';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, ListInventoryFoldersQuery, CreateInventoryFolderRequest, UpdateInventoryFolderRequest, AddInventoryFolderItemRequest, InventoryFoldersResponse, InventoryFolderResponse, InventoryFolderItemResponse, CreateSavedItemRequest, SavedItemStatusQuery, ListSavedItemsQuery, CreateSavedCollectionRequest, UpdateSavedCollectionRequest, AddSavedCollectionItemRequest, SavedItemsResponse, SavedItemResponse, SavedItemStatusResponse, SavedCollectionsResponse, SavedCollectionResponse, SavedCollectionItemResponse, ListAgendaItemsQuery, AgendaIcsExportQuery, CreateAgendaItemRequest, UpdateAgendaItemRequest, AgendaItemsResponse, AgendaItemResponse, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, CreateDealProblemReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery, PlusSubscriptionSnapshotResponse, AdminPlusGrantRequest, AdminPlusUsersResponse, AdminPlusGrantResponse, AdminPlusAiAssistUsageResponse, AiAssistRequest, AiAssistResponse, ListTradeSearchSuggestionsQuery, RecordTradeSearchKeywordRequest, TradeSearchSuggestionsResponse, TradeSearchKeywordResponse } from '@hellowhen/contracts';
++import { requestFormData, requestJson, requestText, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+   if (!query) return '';
+@@ -71,7 +71,7 @@ export function createApiClient(options: ApiClientOptions) {
+     inventoryTemplates: { list: (query?: ListInventoryTemplatesQuery) => requestJson(options, `/inventory-templates${buildQueryString(query as Record<string, unknown> | undefined)}`), get: (templateId: string) => requestJson(options, `/inventory-templates/${templateId}`), clone: (templateId: string, body?: CloneInventoryTemplateRequest) => requestJson(options, `/inventory-templates/${templateId}/clone`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
+     inventoryFolders: { list: (query?: ListInventoryFoldersQuery) => requestJson<InventoryFoldersResponse>(options, `/inventory-folders${buildQueryString(query as Record<string, unknown> | undefined)}`), create: (body: CreateInventoryFolderRequest) => requestJson<InventoryFolderResponse>(options, '/inventory-folders', { method: 'POST', body: JSON.stringify(body) }), update: (folderId: string, body: UpdateInventoryFolderRequest) => requestJson<InventoryFolderResponse>(options, `/inventory-folders/${folderId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (folderId: string) => requestJson<void>(options, `/inventory-folders/${folderId}`, { method: 'DELETE' }), addItem: (folderId: string, body: AddInventoryFolderItemRequest) => requestJson<InventoryFolderItemResponse>(options, `/inventory-folders/${folderId}/items`, { method: 'POST', body: JSON.stringify(body) }), removeItem: (folderId: string, folderItemId: string) => requestJson<void>(options, `/inventory-folders/${folderId}/items/${folderItemId}`, { method: 'DELETE' }) },
+     saved: { list: (query?: ListSavedItemsQuery) => requestJson<SavedItemsResponse>(options, `/saved${buildQueryString(query as Record<string, unknown> | undefined)}`), create: (body: CreateSavedItemRequest) => requestJson<SavedItemResponse>(options, '/saved', { method: 'POST', body: JSON.stringify(body) }), remove: (savedItemId: string) => requestJson<void>(options, `/saved/${savedItemId}`, { method: 'DELETE' }), status: (query: SavedItemStatusQuery) => requestJson<SavedItemStatusResponse>(options, `/saved/status${buildQueryString(query as Record<string, unknown>)}`), collections: () => requestJson<SavedCollectionsResponse>(options, '/saved/collections'), createCollection: (body: CreateSavedCollectionRequest) => requestJson<SavedCollectionResponse>(options, '/saved/collections', { method: 'POST', body: JSON.stringify(body) }), updateCollection: (collectionId: string, body: UpdateSavedCollectionRequest) => requestJson<SavedCollectionResponse>(options, `/saved/collections/${collectionId}`, { method: 'PATCH', body: JSON.stringify(body) }), removeCollection: (collectionId: string) => requestJson<void>(options, `/saved/collections/${collectionId}`, { method: 'DELETE' }), addCollectionItem: (collectionId: string, body: AddSavedCollectionItemRequest) => requestJson<SavedCollectionItemResponse>(options, `/saved/collections/${collectionId}/items`, { method: 'POST', body: JSON.stringify(body) }), removeCollectionItem: (collectionId: string, savedItemId: string) => requestJson<void>(options, `/saved/collections/${collectionId}/items/${savedItemId}`, { method: 'DELETE' }) },
+-    agenda: { list: (query?: ListAgendaItemsQuery) => requestJson<AgendaItemsResponse>(options, `/agenda${buildQueryString(query as Record<string, unknown> | undefined)}`), create: (body: CreateAgendaItemRequest) => requestJson<AgendaItemResponse>(options, '/agenda', { method: 'POST', body: JSON.stringify(body) }), update: (itemId: string, body: UpdateAgendaItemRequest) => requestJson<AgendaItemResponse>(options, `/agenda/${itemId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (itemId: string) => requestJson<void>(options, `/agenda/${itemId}`, { method: 'DELETE' }) },
++    agenda: { list: (query?: ListAgendaItemsQuery) => requestJson<AgendaItemsResponse>(options, `/agenda${buildQueryString(query as Record<string, unknown> | undefined)}`), exportIcs: (query?: AgendaIcsExportQuery) => requestText(options, `/agenda/ics${buildQueryString(query as Record<string, unknown> | undefined)}`), exportItemIcs: (itemId: string) => requestText(options, `/agenda/${itemId}/ics`), create: (body: CreateAgendaItemRequest) => requestJson<AgendaItemResponse>(options, '/agenda', { method: 'POST', body: JSON.stringify(body) }), update: (itemId: string, body: UpdateAgendaItemRequest) => requestJson<AgendaItemResponse>(options, `/agenda/${itemId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (itemId: string) => requestJson<void>(options, `/agenda/${itemId}`, { method: 'DELETE' }) },
+     users: { publicProfile: (userId: string) => requestJson<PublicProfileResponse>(options, `/users/${userId}/public-profile`), publicProfileByUsername: (username: string) => requestJson<PublicProfileResponse>(options, `/users/by-username/${encodeURIComponent(username)}/public-profile`), blocked: () => requestJson<UserBlocksResponse>(options, '/users/blocked'), block: (userId: string, body?: CreateUserBlockRequest) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'POST', body: JSON.stringify(body ?? {}) }), unblock: (userId: string) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'DELETE' }) },
+     plans: { feed: (query?: ListPlansQuery) => requestJson<PlansResponse>(options, `/plans/feed${buildQueryString(query as Record<string, unknown> | undefined)}`), mine: () => requestJson<PlansResponse>(options, '/plans/mine'), get: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`), create: (body: CreatePlanRequest) => requestJson<PlanResponse>(options, '/plans', { method: 'POST', body: JSON.stringify(body) }), update: (planId: string, body: UpdatePlanRequest) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'PATCH', body: JSON.stringify(body) }), createPlace: (planId: string, body: CreatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places`, { method: 'POST', body: JSON.stringify(body) }), updatePlace: (planId: string, placeId: string, body: UpdatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places/${placeId}`, { method: 'PATCH', body: JSON.stringify(body) }), requestJoin: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests`, { method: 'POST', body: JSON.stringify(body ?? {}) }), joinRequests: (planId: string) => requestJson<PlanParticipantsResponse>(options, `/plans/${planId}/join-requests`), updateJoinRequest: (planId: string, participantId: string, body: UpdatePlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests/${participantId}`, { method: 'PATCH', body: JSON.stringify(body) }), updateMyJoinRequest: (planId: string, body: UpdateMyPlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/my-join-request`, { method: 'PATCH', body: JSON.stringify(body) }) },
+     reports: { create: (body: CreateReportRequest) => requestJson(options, '/reports', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/reports/mine') },
+diff --git a/packages/contracts/src/agenda.js b/packages/contracts/src/agenda.js
+index 3cec6b8..cc23f95 100644
+--- a/packages/contracts/src/agenda.js
++++ b/packages/contracts/src/agenda.js
+@@ -63,6 +63,10 @@ export const listAgendaItemsQuerySchema = z.object({
+   cursor: z.string().trim().min(1).optional(),
+ });
+ 
++export const agendaIcsExportQuerySchema = listAgendaItemsQuerySchema.omit({ cursor: true }).extend({
++  take: z.coerce.number().int().min(1).max(500).optional().default(500),
++});
++
+ export const createAgendaItemRequestSchema = z.object({
+   sourceType: agendaItemSourceTypeSchema.optional().default('custom'),
+   sourceId: optionalNullableSourceIdSchema,
+diff --git a/packages/contracts/src/agenda.ts b/packages/contracts/src/agenda.ts
+index d8051ce..45bcb20 100644
+--- a/packages/contracts/src/agenda.ts
++++ b/packages/contracts/src/agenda.ts
+@@ -63,6 +63,10 @@ export const listAgendaItemsQuerySchema = z.object({
+   cursor: z.string().trim().min(1).optional(),
+ });
+ 
++export const agendaIcsExportQuerySchema = listAgendaItemsQuerySchema.omit({ cursor: true }).extend({
++  take: z.coerce.number().int().min(1).max(500).optional().default(500),
++});
++
+ export const createAgendaItemRequestSchema = z.object({
+   sourceType: agendaItemSourceTypeSchema.optional().default('custom'),
+   sourceId: optionalNullableSourceIdSchema,
+@@ -121,6 +125,7 @@ export type AgendaItemSourceType = z.infer<typeof agendaItemSourceTypeSchema>;
+ export type AgendaItemType = z.infer<typeof agendaItemTypeSchema>;
+ export type AgendaItemStatus = z.infer<typeof agendaItemStatusSchema>;
+ export type ListAgendaItemsQuery = z.infer<typeof listAgendaItemsQuerySchema>;
++export type AgendaIcsExportQuery = z.infer<typeof agendaIcsExportQuerySchema>;
+ export type CreateAgendaItemRequest = z.infer<typeof createAgendaItemRequestSchema>;
+ export type UpdateAgendaItemRequest = z.infer<typeof updateAgendaItemRequestSchema>;
+ export type AgendaItemDto = z.infer<typeof agendaItemSchema>;
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+index 23225ec..78f6417 100644
+--- a/packages/i18n/src/locales/en/account.ts
++++ b/packages/i18n/src/locales/en/account.ts
+@@ -596,6 +596,17 @@ export const account = {
+       saved_item: 'Linked saved item',
+       custom: 'Custom reminder',
+     },
++    export: {
++      view: 'Export .ics',
++      item: 'Export .ics',
++      google: 'Google Calendar',
++      exporting: 'Exporting…',
++      exported: 'Agenda export is ready.',
++      itemExported: '“{{title}}” export is ready.',
++      error: 'Could not export this Agenda item.',
++      privacyNote: 'Exports are optional. Opening or importing an .ics file may copy private Agenda notes to an external calendar app.',
++      externalDescription: 'Private Hellowhen Agenda item exported by you. This is not a booking, shared availability, or calendar sync.',
++    },
+     add: {
+       button: 'Add to Agenda',
+       title: 'Add to Agenda',
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+index 7fcb978..3b73a5c 100644
+--- a/packages/i18n/src/locales/fr/account.ts
++++ b/packages/i18n/src/locales/fr/account.ts
+@@ -596,6 +596,17 @@ export const account = {
+       saved_item: 'Élément enregistré lié',
+       custom: 'Rappel personnalisé',
+     },
++    export: {
++      view: 'Exporter .ics',
++      item: 'Exporter .ics',
++      google: 'Google Agenda',
++      exporting: 'Export…',
++      exported: 'L’export Agenda est prêt.',
++      itemExported: 'L’export de « {{title}} » est prêt.',
++      error: 'Impossible d’exporter cet élément Agenda.',
++      privacyNote: 'Les exports sont optionnels. Ouvrir ou importer un fichier .ics peut copier vos notes Agenda privées dans une application calendrier externe.',
++      externalDescription: 'Élément Agenda Hellowhen privé exporté par vous. Ce n’est pas une réservation, une disponibilité partagée ou une synchronisation calendrier.',
++    },
+     add: {
+       button: 'Ajouter à l’agenda',
+       title: 'Ajouter à l’agenda',

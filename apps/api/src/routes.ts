@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { accountRoutes } from './modules/account/account.routes.js';
+import { agendaRoutes } from './modules/agenda/agenda.routes.js';
 import { aiAssistRoutes } from './modules/ai/aiAssist.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
@@ -36,6 +37,7 @@ routes.use('/inventory-templates', inventoryTemplatesRoutes);
 routes.use('/inventory-folders', inventoryFoldersRoutes);
 routes.use('/auth', authRoutes);
 routes.use('/account', accountRoutes);
+routes.use('/agenda', agendaRoutes);
 routes.use('/business', requireBusinessAccountsEnabled(), businessRoutes);
 routes.use('/credits', requireMoneyFeaturesVisible('Credit purchase features'), creditsRoutes);
 routes.use('/profile', profileRoutes);

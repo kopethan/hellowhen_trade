@@ -3,6 +3,7 @@ import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, Re
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import { type SavedCollectionDto, type SavedItemDto, type SavedItemType, type SavedLibrarySort } from '@hellowhen/contracts';
+import { AddToAgendaButton } from '../../components/AddToAgendaButton';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { AppCard } from '../../components/AppCard';
@@ -59,6 +60,11 @@ function itemTitle(item: SavedItemDto, t: (key: string) => string) {
       return profile?.displayName ?? (profile?.handle ? `@${profile.handle}` : t('account.saved.unavailable.user'));
     }
   }
+}
+
+function savedItemAgendaType(item: SavedItemDto) {
+  if (item.itemType === 'user') return 'person' as const;
+  return item.itemType;
 }
 
 function itemBody(item: SavedItemDto, t: (key: string) => string) {
@@ -652,6 +658,16 @@ function SavedItemCard({ item, title, body, targetId, updating, onManageCollecti
         <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.open')} disabled={!canOpen} onPress={onOpen} style={({ pressed }) => [styles.itemPrimaryAction, { backgroundColor: canOpen ? theme.color.text : theme.color.border }, pressed && canOpen && styles.pressed]}>
           <AppText style={[styles.itemPrimaryActionText, { color: theme.color.background }]}>{t('common.actions.open')}</AppText>
         </Pressable>
+        <AddToAgendaButton
+          sourceType="saved_item"
+          sourceId={item.id}
+          itemType={savedItemAgendaType(item)}
+          title={title}
+          note={body}
+          disabled={!canOpen}
+          hidden={!canOpen}
+          style={styles.itemAgendaAction}
+        />
         {onManageCollections ? (
           <Pressable accessibilityRole="button" accessibilityLabel={t('account.saved.collections.manage')} onPress={onManageCollections} style={({ pressed }) => [styles.itemSecondaryAction, { borderColor: theme.color.border }, pressed && styles.pressed]}>
             <AppText style={[styles.itemSecondaryActionText, { color: theme.color.text }]}>{t('account.saved.collections.manage')}</AppText>
@@ -799,6 +815,7 @@ const styles = StyleSheet.create({
   itemCollectionTag: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6 },
   itemCollectionTagText: { fontSize: 12, fontWeight: '800' },
   itemActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
+  itemAgendaAction: { flex: 1, minWidth: 130 },
   itemPrimaryAction: { flex: 1, minWidth: 96, minHeight: 44, borderRadius: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
   itemPrimaryActionText: { fontWeight: '900' },
   itemSecondaryAction: { flex: 1, minWidth: 96, minHeight: 44, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },

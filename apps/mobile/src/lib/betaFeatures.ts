@@ -41,6 +41,7 @@ const plusSubscriptionFeatures = {
 } as const;
 const savedLibraryEnabled = plusEnabled && enabled(process.env.EXPO_PUBLIC_SAVED_LIBRARY_ENABLED);
 const savedCollectionsEnabled = savedLibraryEnabled && enabled(process.env.EXPO_PUBLIC_SAVED_COLLECTIONS_ENABLED);
+const agendaEnabled = plusEnabled && enabled(process.env.EXPO_PUBLIC_AGENDA_ENABLED);
 const inventoryFoldersEnabled = plusEnabled && enabled(process.env.EXPO_PUBLIC_INVENTORY_FOLDERS_ENABLED);
 const proAccountsEnabled = subscriptionsEnabled && enabled(process.env.EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED);
 const proSubscriptionFeatures = {
@@ -84,6 +85,7 @@ export const betaFeatures = {
   businessBudgetsEnabled: businessAccountsEnabled && enabled(process.env.EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED),
   savedLibraryEnabled,
   savedCollectionsEnabled,
+  agendaEnabled,
   inventoryFoldersEnabled,
   plusSubscriptionFeatures,
   proSubscriptionFeatures,

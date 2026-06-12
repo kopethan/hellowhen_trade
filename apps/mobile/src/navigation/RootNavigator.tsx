@@ -10,6 +10,7 @@ import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen
 import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
 import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
 import { NotificationsScreen } from '../features/account/NotificationsScreen';
+import { AgendaScreen } from '../features/account/AgendaScreen';
 import { SavedCollectionDetailScreen, SavedLibraryScreen } from '../features/account/SavedLibraryScreen';
 import { PlanSelectionScreen } from '../features/account/PlanSelectionScreen';
 import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
@@ -61,6 +62,7 @@ export type RootStackParamList = {
   AccountProfile: undefined;
   Notifications: undefined;
   SavedLibrary: undefined;
+  Agenda: undefined;
   SavedLibraryCollection: { collectionId: string; title?: string };
   ProPlans: undefined;
   Wallet: undefined;
@@ -140,6 +142,7 @@ const ProtectedAccountScreen = withAuth(AccountScreen, 'Login to open account', 
 const ProtectedProfileScreen = withAuth(ProfileScreen);
 const ProtectedNotificationsScreen = withAuth(NotificationsScreen);
 const ProtectedSavedLibraryScreen = withAuth(SavedLibraryScreen);
+const ProtectedAgendaScreen = withAuth(AgendaScreen);
 const ProtectedSavedCollectionDetailScreen = withAuth(SavedCollectionDetailScreen);
 const ProtectedPlanSelectionScreen = withAuth(PlanSelectionScreen);
 const ProtectedWalletScreen = withAuth(WalletScreen);
@@ -237,6 +240,7 @@ export function RootNavigator() {
       <Stack.Screen name="AccountProfile" component={ProtectedProfileScreen} />
       <Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />
       <Stack.Screen name="SavedLibrary" component={ProtectedSavedLibraryScreen} />
+      <Stack.Screen name="Agenda" component={ProtectedAgendaScreen} />
       <Stack.Screen name="SavedLibraryCollection" component={ProtectedSavedCollectionDetailScreen} />
       {betaFeatures.plusSubscriptionFeatures.plusPublic ? <Stack.Screen name="ProPlans" component={ProtectedPlanSelectionScreen} /> : null}
       {betaFeatures.walletVisible ? <Stack.Screen name="Wallet" component={ProtectedWalletScreen} /> : null}

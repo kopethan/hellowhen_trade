@@ -1,0 +1,630 @@
+diff --git a/apps/api/src/modules/agenda/agenda.routes.ts b/apps/api/src/modules/agenda/agenda.routes.ts
+index 8f8e204..eaebab7 100644
+--- a/apps/api/src/modules/agenda/agenda.routes.ts
++++ b/apps/api/src/modules/agenda/agenda.routes.ts
+@@ -269,6 +269,15 @@ agendaRoutes.get('/', asyncRoute(async (req, res) => {
+   if (input.status) and.push({ status: input.status });
+   if (input.itemType) and.push({ itemType: input.itemType });
+   if (input.sourceType) and.push({ sourceType: input.sourceType });
++  if (input.q) {
++    and.push({
++      OR: [
++        { title: { contains: input.q, mode: 'insensitive' as const } },
++        { note: { contains: input.q, mode: 'insensitive' as const } },
++        { sourceId: { contains: input.q, mode: 'insensitive' as const } },
++      ],
++    });
++  }
+   if (from) {
+     and.push({
+       OR: [
+diff --git a/apps/mobile/src/features/account/AgendaScreen.tsx b/apps/mobile/src/features/account/AgendaScreen.tsx
+index f5fcdbe..9b46353 100644
+--- a/apps/mobile/src/features/account/AgendaScreen.tsx
++++ b/apps/mobile/src/features/account/AgendaScreen.tsx
+@@ -23,6 +23,7 @@ import { useThemeTokens } from '../../providers/ThemeProvider';
+ type AgendaScreenProps = NativeStackScreenProps<RootStackParamList, 'Agenda'>;
+ type AgendaFilter = 'all' | AgendaItemType;
+ type AgendaEditorMode = 'create' | 'edit';
++type AgendaQuickView = 'all' | 'today' | 'this_week' | 'overdue';
+ 
+ type AgendaEditorState = {
+   mode: AgendaEditorMode;
+@@ -40,6 +41,7 @@ type AgendaEditorState = {
+ const agendaTypes: AgendaItemType[] = ['reminder', 'trade', 'need', 'offer', 'proposal', 'deal', 'person'];
+ const agendaStatuses: AgendaItemStatus[] = ['active', 'done', 'cancelled'];
+ const agendaFilters: AgendaFilter[] = ['all', ...agendaTypes];
++const agendaQuickViews: AgendaQuickView[] = ['all', 'today', 'this_week', 'overdue'];
+ const WEEK_DAY_COUNT = 7;
+ 
+ function getTimezone() {
+@@ -64,6 +66,13 @@ function addDays(date: Date, days: number) {
+   return next;
+ }
+ 
++function endOfDay(date: Date) {
++  const end = startOfDay(date);
++  end.setDate(end.getDate() + 1);
++  end.setMilliseconds(end.getMilliseconds() - 1);
++  return end;
++}
++
+ function sameDay(a: Date, b: Date) {
+   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+ }
+@@ -140,6 +149,32 @@ function itemIcon(itemType: AgendaItemType): MobileIconName {
+   return 'bell';
+ }
+ 
++function isOverdueItem(item: AgendaItemDto) {
++  if (item.status !== 'active') return false;
++  const start = new Date(item.startAt);
++  if (Number.isNaN(start.getTime())) return false;
++  return start.getTime() < startOfDay(new Date()).getTime();
++}
++
++function agendaQuickViewRange(view: AgendaQuickView) {
++  const todayStart = startOfDay(new Date());
++  if (view === 'today') return { from: todayStart.toISOString(), to: endOfDay(todayStart).toISOString() };
++  if (view === 'this_week') return { from: todayStart.toISOString(), to: endOfDay(addDays(todayStart, 6)).toISOString() };
++  if (view === 'overdue') {
++    const beforeToday = new Date(todayStart);
++    beforeToday.setMilliseconds(beforeToday.getMilliseconds() - 1);
++    return { from: undefined, to: beforeToday.toISOString() };
++  }
++  return { from: undefined, to: undefined };
++}
++
++function quickViewLabelKey(value: AgendaQuickView) {
++  if (value === 'today') return 'account.agenda.quickViews.today';
++  if (value === 'this_week') return 'account.agenda.quickViews.thisWeek';
++  if (value === 'overdue') return 'account.agenda.quickViews.overdue';
++  return 'account.agenda.quickViews.all';
++}
++
+ function editorFromItem(item: AgendaItemDto): AgendaEditorState {
+   const start = new Date(item.startAt);
+   const end = item.endAt ? new Date(item.endAt) : null;
+@@ -181,6 +216,8 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+   const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()));
+   const [filter, setFilter] = useState<AgendaFilter>('all');
+   const [status, setStatus] = useState<AgendaItemStatus>('active');
++  const [quickView, setQuickView] = useState<AgendaQuickView>('all');
++  const [search, setSearch] = useState('');
+   const [plusSnapshot, setPlusSnapshot] = useState<PlusSubscriptionSnapshotResponse | null>(null);
+   const [loading, setLoading] = useState(betaFeatures.agendaEnabled);
+   const [loadingMore, setLoadingMore] = useState(false);
+@@ -199,10 +236,13 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+     () => visibleItems.filter((item) => sameDay(new Date(item.startAt), selectedDate)),
+     [selectedDate, visibleItems],
+   );
++  const overdueItems = useMemo(() => visibleItems.filter(isOverdueItem), [visibleItems]);
++  const primaryItems = quickView === 'overdue' ? overdueItems : selectedDayItems;
+   const upcomingItems = useMemo(() => {
++    if (quickView === 'overdue') return [];
+     const selectedStart = startOfDay(selectedDate).getTime();
+     return visibleItems.filter((item) => startOfDay(new Date(item.startAt)).getTime() > selectedStart).slice(0, 8);
+-  }, [selectedDate, visibleItems]);
++  }, [quickView, selectedDate, visibleItems]);
+   const weekDays = useMemo(() => {
+     const start = startOfDay(new Date());
+     return Array.from({ length: WEEK_DAY_COUNT }, (_, index) => addDays(start, index));
+@@ -214,11 +254,16 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+     setError(null);
+ 
+     try {
++      const range = agendaQuickViewRange(quickView);
++      const query = search.trim();
+       const [agendaResponse, plusResponse] = await Promise.all([
+         api.agenda.list({
+           take: 80,
+           status,
+           ...(filter !== 'all' ? { itemType: filter } : {}),
++          ...(range.from ? { from: range.from } : {}),
++          ...(range.to ? { to: range.to } : {}),
++          ...(query ? { q: query } : {}),
+           ...(cursor ? { cursor } : {}),
+         }),
+         api.plus.me().catch(() => null),
+@@ -242,7 +287,7 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+       setLoading(false);
+       setLoadingMore(false);
+     }
+-  }, [filter, status, t]);
++  }, [filter, quickView, search, status, t]);
+ 
+   useFocusEffect(useCallback(() => { void load(); }, [load]));
+ 
+@@ -380,7 +425,7 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+     return (
+       <AppFixedHeaderScreen header={header}>
+         <View style={styles.content}>
+-          <AppCard style={[styles.lockedCard, { backgroundColor: theme.color.subtleSurface }]}> 
++          <AppCard style={[styles.lockedCard, { backgroundColor: theme.color.subtleSurface }]}>
+             <SemanticBadge label={t('account.agenda.plus.badge')} tone="instruction" />
+             <AppText style={styles.lockedTitle}>{t('account.agenda.plus.title')}</AppText>
+             <AppText style={[styles.lockedBody, { color: theme.color.muted }]}>{t('account.agenda.plus.body', { price: formatMobilePlusMonthlyPrice(plusGate) })}</AppText>
+@@ -409,8 +454,8 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+           <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.agenda.body')}</AppText>
+         </View>
+ 
+-        <AppCard style={[styles.summaryCard, { backgroundColor: theme.color.subtleSurface }]}> 
+-          <View style={[styles.summaryIcon, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}> 
++        <AppCard style={[styles.summaryCard, { backgroundColor: theme.color.subtleSurface }]}>
++          <View style={[styles.summaryIcon, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+             <MobileIcon name="bell" size={22} color={theme.semantic.proposal.text} />
+           </View>
+           <View style={styles.summaryCopy}>
+@@ -422,7 +467,7 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+         {error ? <InfoNotice tone="warning" body={error} /> : null}
+         {message ? <InfoNotice tone="success" body={message} /> : null}
+ 
+-        <View style={[styles.weekPanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}> 
++        <View style={[styles.weekPanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+           <View style={styles.weekHeader}>
+             <View>
+               <AppText style={styles.weekTitle}>{formatMonthYear(selectedDate)}</AppText>
+@@ -457,13 +502,26 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+           </View>
+         </View>
+ 
++        <View style={styles.searchBox}>
++          <AppText style={styles.fieldLabel}>{t('account.agenda.searchLabel')}</AppText>
++          <TextInput
++            value={search}
++            onChangeText={setSearch}
++            placeholder={t('account.agenda.searchPlaceholder')}
++            placeholderTextColor={theme.color.muted}
++            returnKeyType="search"
++            style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
++          />
++        </View>
++
++        <FilterChips active={quickView} values={agendaQuickViews} labelForValue={(value) => t(quickViewLabelKey(value))} onChange={(value) => { setQuickView(value); if (value === 'overdue') setStatus('active'); }} />
+         <FilterChips active={filter} values={agendaFilters} labelForValue={(value) => value === 'all' ? t('account.agenda.filters.all') : t(`account.agenda.types.${value}`)} onChange={setFilter} />
+         <FilterChips active={status} values={agendaStatuses} labelForValue={(value) => t(`account.agenda.statuses.${value}`)} onChange={setStatus} />
+ 
+         <View style={styles.sectionHeaderRow}>
+           <View>
+-            <AppText style={styles.sectionTitle}>{t('account.agenda.todayTitle')}</AppText>
+-            <AppText style={[styles.sectionBody, { color: theme.color.muted }]}>{t('account.agenda.todaySummary', { count: selectedDayItems.length })}</AppText>
++            <AppText style={styles.sectionTitle}>{quickView === 'overdue' ? t('account.agenda.quickViews.overdue') : t('account.agenda.todayTitle')}</AppText>
++            <AppText style={[styles.sectionBody, { color: theme.color.muted }]}>{quickView === 'overdue' ? t('account.agenda.overdueSummary', { count: primaryItems.length }) : t('account.agenda.todaySummary', { count: primaryItems.length })}</AppText>
+           </View>
+           <Pressable accessibilityRole="button" onPress={openCreate} style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.color.border }, pressed && styles.pressed]}>
+             <MobileIcon name="add" size={15} color={theme.color.text} />
+@@ -473,11 +531,11 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+ 
+         {loading && items.length === 0 ? (
+           <View style={styles.loadingBox}><ActivityIndicator color={theme.color.text} /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('account.agenda.loading')}</AppText></View>
+-        ) : selectedDayItems.length === 0 ? (
+-          <DetailEmptyState icon="bell" title={t('account.agenda.noTodayItems')} body={t('account.agenda.emptyBody')} actionLabel={t('account.agenda.create')} onAction={openCreate} />
++        ) : primaryItems.length === 0 ? (
++          <DetailEmptyState icon="bell" title={t(search.trim() || quickView !== 'all' || filter !== 'all' || status !== 'active' ? 'account.agenda.noResultsTitle' : 'account.agenda.noTodayItems')} body={t(search.trim() || quickView !== 'all' || filter !== 'all' || status !== 'active' ? 'account.agenda.noResultsBody' : 'account.agenda.emptyBody')} actionLabel={t('account.agenda.create')} onAction={openCreate} />
+         ) : (
+           <View style={styles.itemList}>
+-            {selectedDayItems.map((item) => (
++            {primaryItems.map((item) => (
+               <AgendaItemCard key={item.id} item={item} busyAction={busyAction} onDelete={() => setDeleteTarget(item)} onDone={() => { void markDone(item); }} onEdit={() => openEdit(item)} onOpen={() => openLinkedItem(item)} />
+             ))}
+           </View>
+@@ -554,20 +612,22 @@ function AgendaItemCard({ busyAction, compact, item, onDelete, onDone, onEdit, o
+   const semantic = theme.semantic[tone];
+   const canOpen = Boolean(item.sourceId && ['trade', 'need', 'offer', 'proposal', 'user'].includes(item.sourceType));
+   const doneBusy = busyAction === `done-${item.id}`;
++  const overdue = isOverdueItem(item);
+ 
+   return (
+-    <View style={[styles.itemCard, compact && styles.itemCardCompact, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}> 
++    <View style={[styles.itemCard, compact && styles.itemCardCompact, overdue && styles.itemCardOverdue, item.status !== 'active' && styles.itemCardInactive, { backgroundColor: overdue ? theme.semantic.danger.softBg : theme.color.surface, borderColor: overdue ? theme.semantic.danger.border : theme.color.border }]}>
+       <View style={styles.itemTopRow}>
+-        <View style={[styles.itemIcon, { backgroundColor: semantic.softBg, borderColor: semantic.border }]}> 
++        <View style={[styles.itemIcon, { backgroundColor: semantic.softBg, borderColor: semantic.border }]}>
+           <MobileIcon name={itemIcon(item.itemType)} size={18} color={semantic.text} />
+         </View>
+         <View style={styles.itemCopy}>
+           <View style={styles.itemBadgeRow}>
+             <SemanticBadge label={t(`account.agenda.types.${item.itemType}`)} tone={tone} size="sm" />
+             <SemanticBadge label={t(`account.agenda.statuses.${item.status}`)} tone={item.status === 'active' ? 'success' : item.status === 'done' ? 'info' : 'warning'} size="sm" />
++            {overdue ? <SemanticBadge label={t('account.agenda.overdue')} tone="warning" size="sm" /> : null}
+           </View>
+           <AppText style={styles.itemTitle} numberOfLines={2}>{item.title}</AppText>
+-          <AppText style={[styles.itemMeta, { color: theme.color.muted }]}>{formatItemDateTime(item)} · {t(`account.agenda.sourceLabels.${item.sourceType}`)}</AppText>
++          <AppText style={[styles.itemMeta, { color: theme.color.muted }]}>{formatItemDateTime(item)} · {t(`account.agenda.sourceLabels.${item.sourceType}`)} · {t('account.agenda.privateMeta')}</AppText>
+         </View>
+         <AppText style={[styles.itemTime, { color: semantic.text }]}>{formatItemTime(item, t('account.agenda.allDay'))}</AppText>
+       </View>
+@@ -603,7 +663,7 @@ function AgendaEditorModal({ busy, error, onChange, onClose, onSave, state }: {
+     <Modal animationType="fade" onRequestClose={onClose} transparent visible>
+       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
+         <Pressable accessibilityRole="button" onPress={onClose} style={styles.modalTapArea}>
+-          <Pressable accessibilityRole="menu" onPress={(event) => event.stopPropagation()} style={[styles.modalSheet, { backgroundColor: theme.color.elevated, borderColor: theme.color.border }]}> 
++          <Pressable accessibilityRole="menu" onPress={(event) => event.stopPropagation()} style={[styles.modalSheet, { backgroundColor: theme.color.elevated, borderColor: theme.color.border }]}>
+             <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
+               <View style={styles.modalHeader}>
+                 <SemanticBadge label={t('account.agenda.editor.badge')} tone="proposal" />
+@@ -691,6 +751,7 @@ const styles = StyleSheet.create({
+   dayNumber: { fontSize: 18, fontWeight: '900' },
+   dayDot: { width: 5, height: 5, borderRadius: 3 },
+   filterRow: { gap: 8, paddingRight: 2 },
++  searchBox: { gap: 7 },
+   filterChip: { minHeight: 38, borderRadius: 999, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 13 },
+   filterChipText: { fontSize: 12, fontWeight: '900' },
+   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 2 },
+@@ -701,6 +762,8 @@ const styles = StyleSheet.create({
+   itemList: { gap: 10 },
+   itemCard: { borderRadius: 22, borderWidth: 1, padding: 13, gap: 11 },
+   itemCardCompact: { padding: 12, gap: 8 },
++  itemCardOverdue: { borderStyle: 'solid' },
++  itemCardInactive: { opacity: 0.76 },
+   itemTopRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+   itemIcon: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+   itemCopy: { flex: 1, gap: 5, minWidth: 0 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index b2618ce..f1f0c8f 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -8085,10 +8085,20 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .agenda-toolbar__header strong { color: var(--app-text); font-size: 14px; font-weight: 950; }
+ .agenda-toolbar__header span { color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.35; }
+ .agenda-toolbar__header .button { min-height: 36px; padding: 0 12px; font-size: 12px; white-space: nowrap; }
+-.agenda-status-tabs, .agenda-type-tabs { display: flex; gap: 8px; overflow-x: auto; margin-inline: -2px; padding: 0 2px 2px; scrollbar-width: none; }
+-.agenda-status-tabs::-webkit-scrollbar, .agenda-type-tabs::-webkit-scrollbar { display: none; }
+-.agenda-status-tabs button, .agenda-type-tabs button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; min-height: 38px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text-muted); padding: 0 13px; font-size: 12px; font-weight: 950; cursor: pointer; box-shadow: none; }
+-.agenda-status-tabs button.is-active, .agenda-type-tabs button.is-active { border-color: var(--app-text); background: var(--app-text); color: var(--app-bg); }
++.agenda-toolbar__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
++.agenda-insight-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
++.agenda-insight-strip button { display: grid; gap: 2px; border: 1px solid var(--app-border); border-radius: 18px; background: var(--app-surface); color: var(--app-text); padding: 10px; text-align: left; cursor: pointer; }
++.agenda-insight-strip button.is-active { border-color: color-mix(in srgb, var(--proposal-border) 65%, var(--app-border)); background: color-mix(in srgb, var(--proposal-bg) 20%, var(--app-surface)); }
++.agenda-insight-strip strong { font-size: 20px; font-weight: 950; letter-spacing: -0.4px; }
++.agenda-insight-strip span { color: var(--app-text-muted); font-size: 11px; font-weight: 900; text-transform: uppercase; }
++.agenda-search { display: grid; gap: 6px; }
++.agenda-search span { color: var(--app-text-muted); font-size: 12px; font-weight: 900; }
++.agenda-search input { width: 100%; border: 1px solid var(--app-border); border-radius: 17px; background: var(--app-surface); color: var(--app-text); padding: 12px 13px; font: inherit; font-weight: 780; outline: none; }
++.agenda-search input:focus { border-color: color-mix(in srgb, var(--proposal-border) 58%, var(--app-border-strong)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--proposal-bg) 22%, transparent); }
++.agenda-quick-tabs, .agenda-status-tabs, .agenda-type-tabs { display: flex; gap: 8px; overflow-x: auto; margin-inline: -2px; padding: 0 2px 2px; scrollbar-width: none; }
++.agenda-quick-tabs::-webkit-scrollbar, .agenda-status-tabs::-webkit-scrollbar, .agenda-type-tabs::-webkit-scrollbar { display: none; }
++.agenda-quick-tabs button, .agenda-status-tabs button, .agenda-type-tabs button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; min-height: 38px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text-muted); padding: 0 13px; font-size: 12px; font-weight: 950; cursor: pointer; box-shadow: none; }
++.agenda-quick-tabs button.is-active, .agenda-status-tabs button.is-active, .agenda-type-tabs button.is-active { border-color: var(--app-text); background: var(--app-text); color: var(--app-bg); }
+ .agenda-editor { display: grid; gap: 10px; border: 1px solid color-mix(in srgb, var(--instruction-border) 44%, var(--app-border)); border-radius: 24px; background: color-mix(in srgb, var(--instruction-bg) 14%, var(--app-surface)); padding: 14px; box-shadow: var(--app-card-shadow); }
+ .agenda-editor__header { display: grid; gap: 5px; }
+ .agenda-editor__header h3, .agenda-editor__header p { margin: 0; }
+@@ -8118,6 +8128,9 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .agenda-day-section > h3 { margin: 0 2px; color: var(--app-text-muted); font-size: 12px; font-weight: 950; }
+ .agenda-day-section__items { display: grid; gap: 10px; }
+ .agenda-item-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: start; border: 1px solid var(--app-border); border-radius: 26px; background: var(--app-surface); padding: 15px; box-shadow: var(--app-card-shadow); }
++.agenda-item-card--done { opacity: 0.76; }
++.agenda-item-card--cancelled { border-style: dashed; opacity: 0.68; }
++.agenda-item-card--overdue { border-color: color-mix(in srgb, var(--danger-border) 58%, var(--app-border)); background: linear-gradient(135deg, color-mix(in srgb, var(--danger-bg) 13%, var(--app-surface)), var(--app-surface)); }
+ .agenda-item-card__main { display: grid; gap: 8px; min-width: 0; }
+ .agenda-item-card__badges { display: flex; flex-wrap: wrap; gap: 7px; }
+ .agenda-item-card__main h4 { margin: 0; overflow: hidden; color: var(--app-text); font-size: 17px; line-height: 1.18; text-overflow: ellipsis; white-space: nowrap; }
+@@ -8136,6 +8149,9 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   .agenda-hero-card, .agenda-item-card { grid-template-columns: 1fr; }
+   .agenda-hero-card .button { width: 100%; }
+   .agenda-toolbar__header { display: grid; align-items: stretch; }
++  .agenda-toolbar__actions { justify-content: stretch; }
++  .agenda-toolbar__actions .button { flex: 1; }
++  .agenda-insight-strip { grid-template-columns: 1fr; }
+   .agenda-editor__time-grid { grid-template-columns: 1fr; }
+   .agenda-editor__actions { display: grid; grid-template-columns: 1fr; }
+   .agenda-item-card__actions { justify-content: stretch; }
+diff --git a/apps/web/src/features/account/AgendaClient.tsx b/apps/web/src/features/account/AgendaClient.tsx
+index ed3d507..e698d4d 100644
+--- a/apps/web/src/features/account/AgendaClient.tsx
++++ b/apps/web/src/features/account/AgendaClient.tsx
+@@ -17,6 +17,7 @@ const AGENDA_ITEM_NOTE_MAX_LENGTH = 2000;
+ 
+ type AgendaFilter = 'all' | AgendaItemType;
+ type AgendaEditorMode = 'create' | 'edit';
++type AgendaQuickView = 'all' | 'today' | 'this_week' | 'overdue';
+ 
+ type AgendaEditorState = {
+   id?: string;
+@@ -46,6 +47,13 @@ const statusFilters: { value: AgendaItemStatus; labelKey: string }[] = [
+   { value: 'cancelled', labelKey: 'account.agenda.statuses.cancelled' },
+ ];
+ 
++const quickViews: { value: AgendaQuickView; labelKey: string }[] = [
++  { value: 'all', labelKey: 'account.agenda.quickViews.all' },
++  { value: 'today', labelKey: 'account.agenda.quickViews.today' },
++  { value: 'this_week', labelKey: 'account.agenda.quickViews.thisWeek' },
++  { value: 'overdue', labelKey: 'account.agenda.quickViews.overdue' },
++];
++
+ const editableTypes: { value: AgendaItemType; labelKey: string }[] = [
+   { value: 'reminder', labelKey: 'account.agenda.types.reminder' },
+   { value: 'trade', labelKey: 'account.agenda.types.trade' },
+@@ -67,6 +75,23 @@ function roundToNextHour(date = new Date()) {
+   return rounded;
+ }
+ 
++function startOfLocalDay(date = new Date()) {
++  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
++}
++
++function endOfLocalDay(date = new Date()) {
++  const end = startOfLocalDay(date);
++  end.setDate(end.getDate() + 1);
++  end.setMilliseconds(end.getMilliseconds() - 1);
++  return end;
++}
++
++function addDays(date: Date, days: number) {
++  const next = new Date(date);
++  next.setDate(next.getDate() + days);
++  return next;
++}
++
+ function toDateTimeLocal(value: Date | string) {
+   const date = value instanceof Date ? value : new Date(value);
+   if (!Number.isFinite(date.getTime())) return '';
+@@ -140,8 +165,26 @@ function agendaStatusClass(status: AgendaItemStatus) {
+ 
+ function sourceLabel(item: AgendaItemDto, t: (key: string) => string) {
+   if (item.sourceType === 'custom') return t('account.agenda.sourceLabels.custom');
+-  const label = t(`account.agenda.sourceLabels.${item.sourceType}`);
+-  return item.sourceId ? `${label} · ${item.sourceId.slice(0, 8)}` : label;
++  return t(`account.agenda.sourceLabels.${item.sourceType}`);
++}
++
++function isOverdueItem(item: AgendaItemDto) {
++  if (item.status !== 'active') return false;
++  const start = new Date(item.startAt);
++  if (!Number.isFinite(start.getTime())) return false;
++  return start.getTime() < startOfLocalDay().getTime();
++}
++
++function agendaQuickViewRange(view: AgendaQuickView) {
++  const todayStart = startOfLocalDay();
++  if (view === 'today') return { from: todayStart.toISOString(), to: endOfLocalDay(todayStart).toISOString() };
++  if (view === 'this_week') return { from: todayStart.toISOString(), to: endOfLocalDay(addDays(todayStart, 6)).toISOString() };
++  if (view === 'overdue') {
++    const beforeToday = new Date(todayStart);
++    beforeToday.setMilliseconds(beforeToday.getMilliseconds() - 1);
++    return { from: undefined, to: beforeToday.toISOString() };
++  }
++  return { from: undefined, to: undefined };
+ }
+ 
+ function groupByDay(items: AgendaItemDto[]) {
+@@ -170,6 +213,8 @@ export function AgendaClient() {
+   const [nextCursor, setNextCursor] = useState<string | null>(null);
+   const [filter, setFilter] = useState<AgendaFilter>('all');
+   const [status, setStatus] = useState<AgendaItemStatus>('active');
++  const [quickView, setQuickView] = useState<AgendaQuickView>('all');
++  const [search, setSearch] = useState('');
+   const [loading, setLoading] = useState(false);
+   const [loadingMore, setLoadingMore] = useState(false);
+   const [saving, setSaving] = useState(false);
+@@ -200,10 +245,15 @@ export function AgendaClient() {
+     }
+     setError(null);
+     try {
++      const range = agendaQuickViewRange(quickView);
++      const query = search.trim();
+       const response = await api.agenda.list({
+         take: 80,
+         status,
+         ...(filter !== 'all' ? { itemType: filter } : {}),
++        ...(range.from ? { from: range.from } : {}),
++        ...(range.to ? { to: range.to } : {}),
++        ...(query ? { q: query } : {}),
+         ...(cursor ? { cursor } : {}),
+       });
+       setItems((current) => append ? [...current, ...(response.items ?? [])] : (response.items ?? []));
+@@ -246,16 +296,26 @@ export function AgendaClient() {
+     return () => { mounted = false; };
+   }, [auth.hydrated, auth.isAuthenticated, agendaEnabled]);
+ 
+-  useEffect(() => { void load(); }, [auth.hydrated, auth.isAuthenticated, agendaEnabled, hasPlusAccess, filter, status]);
++  useEffect(() => { void load(); }, [auth.hydrated, auth.isAuthenticated, agendaEnabled, hasPlusAccess, filter, status, quickView, search]);
+ 
+   const todayItems = useMemo(() => {
+     const today = new Date();
+     return items.filter((item) => sameLocalDay(new Date(item.startAt), today));
+   }, [items]);
+ 
++  const overdueItems = useMemo(() => items.filter(isOverdueItem), [items]);
++  const weekItems = useMemo(() => {
++    const todayStart = startOfLocalDay();
++    const weekEnd = endOfLocalDay(addDays(todayStart, 6));
++    return items.filter((item) => {
++      const start = new Date(item.startAt);
++      return Number.isFinite(start.getTime()) && start.getTime() >= todayStart.getTime() && start.getTime() <= weekEnd.getTime();
++    });
++  }, [items]);
+   const grouped = useMemo(() => groupByDay(items), [items]);
+   const groupedEntries = useMemo(() => Object.entries(grouped), [grouped]);
+   const hasItems = items.length > 0;
++  const hasCustomFilters = filter !== 'all' || status !== 'active' || quickView !== 'all' || Boolean(search.trim());
+   const editorTitle = editorMode === 'edit' ? t('account.agenda.editor.editTitle') : t('account.agenda.editor.createTitle');
+ 
+   function openCreateEditor() {
+@@ -283,6 +343,14 @@ export function AgendaClient() {
+     setDateError(null);
+   }
+ 
++  function clearAgendaFilters() {
++    setFilter('all');
++    setStatus('active');
++    setQuickView('all');
++    setSearch('');
++    setNextCursor(null);
++  }
++
+   function validateEditor() {
+     const title = editor.title.trim();
+     const startAt = toApiDateTime(editor.startAt);
+@@ -434,10 +502,41 @@ export function AgendaClient() {
+       <section className="agenda-toolbar" aria-label={t('account.agenda.filtersLabel')}>
+         <div className="agenda-toolbar__header">
+           <div>
+-            <strong>{t('account.agenda.todayTitle')}</strong>
+-            <span>{t('account.agenda.todaySummary', { count: todayItems.length })}</span>
++            <strong>{t('account.agenda.quickSummaryTitle')}</strong>
++            <span>{t('account.agenda.quickSummaryBody', { today: todayItems.length, week: weekItems.length, overdue: overdueItems.length })}</span>
+           </div>
+-          <button type="button" className="button secondary" onClick={() => { void load(); }}>{t('common.actions.tryAgain')}</button>
++          <div className="agenda-toolbar__actions">
++            {hasCustomFilters ? <button type="button" className="button secondary" onClick={clearAgendaFilters}>{t('account.agenda.clearFilters')}</button> : null}
++            <button type="button" className="button secondary" onClick={() => { void load(); }}>{t('common.actions.tryAgain')}</button>
++          </div>
++        </div>
++
++        <div className="agenda-insight-strip" aria-label={t('account.agenda.quickSummaryTitle')}>
++          <button type="button" className={quickView === 'today' ? 'is-active' : ''} onClick={() => { setQuickView('today'); setNextCursor(null); }}>
++            <strong>{todayItems.length}</strong>
++            <span>{t('account.agenda.quickViews.today')}</span>
++          </button>
++          <button type="button" className={quickView === 'this_week' ? 'is-active' : ''} onClick={() => { setQuickView('this_week'); setNextCursor(null); }}>
++            <strong>{weekItems.length}</strong>
++            <span>{t('account.agenda.quickViews.thisWeek')}</span>
++          </button>
++          <button type="button" className={quickView === 'overdue' ? 'is-active' : ''} onClick={() => { setQuickView('overdue'); setStatus('active'); setNextCursor(null); }}>
++            <strong>{overdueItems.length}</strong>
++            <span>{t('account.agenda.quickViews.overdue')}</span>
++          </button>
++        </div>
++
++        <label className="agenda-search">
++          <span>{t('account.agenda.searchLabel')}</span>
++          <input value={search} onChange={(event) => { setSearch(event.target.value); setNextCursor(null); }} placeholder={t('account.agenda.searchPlaceholder')} />
++        </label>
++
++        <div className="agenda-quick-tabs" role="tablist" aria-label={t('account.agenda.quickViewsLabel')}>
++          {quickViews.map((option) => (
++            <button key={option.value} type="button" className={quickView === option.value ? 'is-active' : ''} aria-pressed={quickView === option.value} onClick={() => { setQuickView(option.value); if (option.value === 'overdue') setStatus('active'); setNextCursor(null); }}>
++              {t(option.labelKey)}
++            </button>
++          ))}
+         </div>
+         <div className="agenda-status-tabs" role="tablist" aria-label={t('account.agenda.statusFiltersLabel')}>
+           {statusFilters.map((option) => (
+@@ -516,8 +615,8 @@ export function AgendaClient() {
+       ) : !hasItems ? (
+         <section className="agenda-empty-state">
+           <WebIcon name="calendar" size={34} decorative />
+-          <h3>{t('account.agenda.emptyTitle')}</h3>
+-          <p>{t('account.agenda.emptyBody')}</p>
++          <h3>{t(hasCustomFilters ? 'account.agenda.noResultsTitle' : 'account.agenda.emptyTitle')}</h3>
++          <p>{t(hasCustomFilters ? 'account.agenda.noResultsBody' : 'account.agenda.emptyBody')}</p>
+           <button type="button" className="button primary" onClick={openCreateEditor}>{t('account.agenda.create')}</button>
+         </section>
+       ) : (
+@@ -545,11 +644,12 @@ export function AgendaClient() {
+                   {dayItems.map((item) => {
+                     const href = agendaItemHref(item);
+                     return (
+-                      <article key={item.id} className={`agenda-item-card agenda-item-card--${item.itemType}`}>
++                      <article key={item.id} className={`agenda-item-card agenda-item-card--${item.itemType} agenda-item-card--${item.status}${isOverdueItem(item) ? ' agenda-item-card--overdue' : ''}`}>
+                         <div className="agenda-item-card__main">
+                           <div className="agenda-item-card__badges">
+                             <span className={agendaTypeClass(item.itemType)}>{t(`account.agenda.types.${item.itemType}`)}</span>
+                             <span className={agendaStatusClass(item.status)}>{t(`account.agenda.statuses.${item.status}`)}</span>
++                            {isOverdueItem(item) ? <span className="semantic-badge danger">{t('account.agenda.overdue')}</span> : null}
+                           </div>
+                           <h4>{item.title}</h4>
+                           {item.note ? <p>{item.note}</p> : <p>{t('account.agenda.noNote')}</p>}
+@@ -557,6 +657,7 @@ export function AgendaClient() {
+                             <span>{item.allDay ? t('account.agenda.allDay') : formatDateTime(item.startAt, language)}</span>
+                             {item.endAt ? <span>{t('account.agenda.endsAt', { date: formatDateTime(item.endAt, language) })}</span> : null}
+                             <span>{sourceLabel(item, t)}</span>
++                            <span>{t('account.agenda.privateMeta')}</span>
+                           </div>
+                         </div>
+                         <div className="agenda-item-card__actions">
+diff --git a/packages/contracts/src/agenda.js b/packages/contracts/src/agenda.js
+index 2fe6f81..3cec6b8 100644
+--- a/packages/contracts/src/agenda.js
++++ b/packages/contracts/src/agenda.js
+@@ -58,6 +58,7 @@ export const listAgendaItemsQuerySchema = z.object({
+   itemType: agendaItemTypeSchema.optional(),
+   sourceType: agendaItemSourceTypeSchema.optional(),
+   status: agendaItemStatusSchema.optional().default('active'),
++  q: z.string().trim().min(1).max(120).optional(),
+   take: z.coerce.number().int().min(1).max(100).optional().default(50),
+   cursor: z.string().trim().min(1).optional(),
+ });
+diff --git a/packages/contracts/src/agenda.ts b/packages/contracts/src/agenda.ts
+index 5c9d931..d8051ce 100644
+--- a/packages/contracts/src/agenda.ts
++++ b/packages/contracts/src/agenda.ts
+@@ -58,6 +58,7 @@ export const listAgendaItemsQuerySchema = z.object({
+   itemType: agendaItemTypeSchema.optional(),
+   sourceType: agendaItemSourceTypeSchema.optional(),
+   status: agendaItemStatusSchema.optional().default('active'),
++  q: z.string().trim().min(1).max(120).optional(),
+   take: z.coerce.number().int().min(1).max(100).optional().default(50),
+   cursor: z.string().trim().min(1).optional(),
+ });
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+index 8239316..23225ec 100644
+--- a/packages/i18n/src/locales/en/account.ts
++++ b/packages/i18n/src/locales/en/account.ts
+@@ -530,6 +530,17 @@ export const account = {
+     emptyTitle: 'Your Agenda is empty',
+     emptyBody: 'Create a private reminder now, or add trades, needs, offers, people, and saved items from their detail pages.',
+     noNote: 'No private note.',
++    privateMeta: 'Private to you',
++    overdue: 'Overdue',
++    overdueSummary: '{{count}} overdue Agenda items',
++    searchLabel: 'Search Agenda',
++    searchPlaceholder: 'Search title, note, or linked item…',
++    clearFilters: 'Clear filters',
++    quickViewsLabel: 'Agenda quick views',
++    quickSummaryTitle: 'Quick views',
++    quickSummaryBody: '{{today}} today · {{week}} this week · {{overdue}} overdue',
++    noResultsTitle: 'No Agenda items match this view',
++    noResultsBody: 'Try clearing search, quick views, type, or status filters.',
+     allDay: 'All day',
+     endsAt: 'Ends {{date}}',
+     markDone: 'Done',
+@@ -555,6 +566,12 @@ export const account = {
+     filters: {
+       all: 'All',
+     },
++    quickViews: {
++      all: 'All dates',
++      today: 'Today',
++      thisWeek: 'This week',
++      overdue: 'Overdue',
++    },
+     types: {
+       trade: 'Trade',
+       need: 'Need',
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+index 7a215d6..7fcb978 100644
+--- a/packages/i18n/src/locales/fr/account.ts
++++ b/packages/i18n/src/locales/fr/account.ts
+@@ -530,6 +530,17 @@ export const account = {
+     emptyTitle: 'Votre Agenda est vide',
+     emptyBody: 'Créez un rappel privé maintenant, ou ajoutez des échanges, besoins, offres, personnes et éléments enregistrés depuis leurs pages détail.',
+     noNote: 'Aucune note privée.',
++    privateMeta: 'Privé pour vous',
++    overdue: 'En retard',
++    overdueSummary: '{{count}} éléments Agenda en retard',
++    searchLabel: 'Rechercher dans l’Agenda',
++    searchPlaceholder: 'Rechercher titre, note ou élément lié…',
++    clearFilters: 'Effacer les filtres',
++    quickViewsLabel: 'Vues rapides Agenda',
++    quickSummaryTitle: 'Vues rapides',
++    quickSummaryBody: '{{today}} aujourd’hui · {{week}} cette semaine · {{overdue}} en retard',
++    noResultsTitle: 'Aucun élément Agenda ne correspond',
++    noResultsBody: 'Essayez d’effacer la recherche, les vues rapides, le type ou le statut.',
+     allDay: 'Toute la journée',
+     endsAt: 'Fin {{date}}',
+     markDone: 'Terminé',
+@@ -555,6 +566,12 @@ export const account = {
+     filters: {
+       all: 'Tout',
+     },
++    quickViews: {
++      all: 'Toutes les dates',
++      today: 'Aujourd’hui',
++      thisWeek: 'Cette semaine',
++      overdue: 'En retard',
++    },
+     types: {
+       trade: 'Échange',
+       need: 'Besoin',

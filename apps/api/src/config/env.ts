@@ -158,6 +158,7 @@ export const env = {
   plusAdminGrantsEnabled: enabled(process.env.PLUS_ADMIN_GRANTS_ENABLED),
   savedLibraryEnabled: enabled(process.env.SAVED_LIBRARY_ENABLED),
   savedCollectionsEnabled: enabled(process.env.SAVED_COLLECTIONS_ENABLED),
+  agendaEnabled: enabled(process.env.AGENDA_ENABLED),
   inventoryFoldersEnabled: enabled(process.env.INVENTORY_FOLDERS_ENABLED),
   plusMonthlyPriceCents: Number(process.env.PLUS_MONTHLY_PRICE_CENTS ?? 499),
   plusMonthlyPriceCurrency: (process.env.PLUS_MONTHLY_PRICE_CURRENCY ?? 'eur').toLowerCase(),
@@ -377,6 +378,7 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     || env.plusAdminGrantsEnabled
     || env.savedLibraryEnabled
     || env.savedCollectionsEnabled
+    || env.agendaEnabled
     || env.inventoryFoldersEnabled
     || env.proAccountsEnabled
     || env.proAccountsVisible
@@ -390,6 +392,7 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     || publicFlagEnabled('NEXT_PUBLIC_PLUS_CUSTOMIZATION_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_SAVED_LIBRARY_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_SAVED_COLLECTIONS_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_AGENDA_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_INVENTORY_FOLDERS_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_PRO_ACCOUNTS_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_PRO_ACCOUNTS_VISIBLE')
@@ -402,6 +405,7 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     || publicFlagEnabled('EXPO_PUBLIC_PLUS_CUSTOMIZATION_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_SAVED_LIBRARY_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_SAVED_COLLECTIONS_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_AGENDA_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_INVENTORY_FOLDERS_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_PRO_ACCOUNTS_VISIBLE')
@@ -505,6 +509,9 @@ export function validateProductionEnv() {
   if ((publicFlagEnabled('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED')) && !publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED, EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED, and EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED require EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
   if (env.plansVisible && !env.plansEnabled) errors.push('PLANS_VISIBLE=true requires PLANS_ENABLED=true in production.');
   if ((env.plusPublic || env.plusAiAssistEnabled || env.plusCustomizationEnabled || env.plusAdminGrantsEnabled) && !env.plusEnabled) errors.push('Plus public, AI assist, customization, and admin grant flags require PLUS_ENABLED=true.');
+  if (env.agendaEnabled && !env.plusEnabled) errors.push('AGENDA_ENABLED=true requires PLUS_ENABLED=true.');
+  if (publicFlagEnabled('NEXT_PUBLIC_AGENDA_ENABLED') && !publicFlagEnabled('NEXT_PUBLIC_PLUS_ENABLED')) errors.push('NEXT_PUBLIC_AGENDA_ENABLED=true requires NEXT_PUBLIC_PLUS_ENABLED=true.');
+  if (publicFlagEnabled('EXPO_PUBLIC_AGENDA_ENABLED') && !publicFlagEnabled('EXPO_PUBLIC_PLUS_ENABLED')) errors.push('EXPO_PUBLIC_AGENDA_ENABLED=true requires EXPO_PUBLIC_PLUS_ENABLED=true.');
   if (env.plusAiAssistEnabled && !env.aiEnabled) errors.push('AI_ASSIST_ENABLED requires AI_ENABLED=true in production.');
   const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.plusAiAssistEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiModerationSuggestionsEnabled || env.aiDebugPlaceholders;
   const aiSecretsConfigured = hasConfiguredValue(env.openaiApiKey) || hasConfiguredValue(env.geminiApiKey) || hasConfiguredValue(env.groqApiKey);

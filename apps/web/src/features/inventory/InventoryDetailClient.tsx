@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { AddToAgendaButton } from '../../components/AddToAgendaButton';
 import { SavedToggleButton } from '../../components/SavedToggleButton';
 import { api } from '../../lib/api';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
@@ -98,6 +99,7 @@ export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientPro
           <Link href={`${baseHref}/${item.id}/edit`} className="button">{kind === 'need' ? t('inventory.actions.editNeed') : t('inventory.actions.editOffer')}</Link>
           <Link href={kind === 'need' ? `/trades/create?needId=${item.id}` : `/trades/create?offerId=${item.id}`} className="button secondary">{t('inventory.actions.useInTrade')}</Link>
           <SavedToggleButton itemType={kind} itemId={item.id} hidden={isOwner} />
+          <AddToAgendaButton sourceType={kind} sourceId={item.id} itemType={kind} title={item.title} note={item.description} />
         </div>
       </section>
 

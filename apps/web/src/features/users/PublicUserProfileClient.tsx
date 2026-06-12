@@ -5,6 +5,7 @@ import { truncateText } from '@hellowhen/shared';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { WebIcon } from '../../components/WebIcon';
+import { AddToAgendaButton } from '../../components/AddToAgendaButton';
 import { ReportContentButton } from '../../components/ReportContentButton';
 import { SavedToggleButton } from '../../components/SavedToggleButton';
 import { api, resolveWebAssetUrl } from '../../lib/api';
@@ -296,6 +297,7 @@ export function PublicUserProfileClient({ userId, username }: { userId?: string;
           {profile.user.profile?.bio ? <p>{profile.user.profile.bio}</p> : <p className="meta">{t('profile.noBio')}</p>}
           <div className="cta-row">
             <SavedToggleButton itemType="user" itemId={profile.user.id} hidden={auth.user?.id === profile.user.id} />
+            <AddToAgendaButton sourceType="user" sourceId={profile.user.id} itemType="person" title={displayName} note={profile.user.profile?.bio} hidden={auth.user?.id === profile.user.id} />
             <ReportContentButton targetType="profile" targetId={profile.user.id} labelKey="report.profile" helperKey="report.helper.profile" buttonClassName="button secondary danger-text" />
             {auth.isAuthenticated && auth.user?.id !== profile.user.id ? (
               <button type="button" className="button secondary" disabled={blockBusy} onClick={() => void toggleBlock()}>{isBlockedByMe ? t('common.actions.unblockUser') : t('common.actions.blockUser')}</button>

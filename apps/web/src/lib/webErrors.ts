@@ -46,6 +46,9 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
   if (apiError.body?.error === 'plans_hidden') return 'Plans are hidden by the API visibility flag.';
   if (apiError.body?.error === 'saved_library_plus_required' || apiError.body?.error === 'saved_library_limit_reached') return apiError.body.message ?? 'Saved Library is a Plus feature. Upgrade to Plus to save trades, needs, offers, and people.';
   if (apiError.body?.error === 'saved_collections_plus_required') return apiError.body.message ?? 'Saved collections are a Plus feature.';
+  if (apiError.body?.error === 'agenda_disabled') return apiError.body.message ?? 'Agenda is disabled by the API flag.';
+  if (apiError.body?.error === 'agenda_plus_required') return apiError.body.message ?? 'Agenda is a Plus feature.';
+  if (apiError.body?.error === 'agenda_item_not_found' || apiError.body?.error === 'agenda_source_not_found') return apiError.body.message ?? 'That Agenda item could not be found.';
   if (apiError.body?.error === 'not_found') return 'That item could not be found.';
   if (apiError.body?.message) return apiError.body.message;
   if (apiError.status === 401) return 'Please log in again to continue.';

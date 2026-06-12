@@ -72,6 +72,21 @@ export async function requestJson<T>(options: ApiClientOptions, path: string, in
   return response.json() as Promise<T>;
 }
 
+
+export async function requestText(options: ApiClientOptions, path: string, init: RequestInit = {}): Promise<string> {
+  let response: Response;
+  const request = createTimedRequest({ ...init, headers: await makeHeaders(options, init.headers, false) });
+  try {
+    response = await fetch(`${options.baseUrl}${path}`, request.init);
+  } catch (cause) {
+    throwConnectionError(cause, options.baseUrl, request.timedOut());
+  } finally {
+    request.cleanup();
+  }
+  if (!response.ok) await parseErrorResponse(response);
+  return response.text();
+}
+
 export async function requestFormData<T>(options: ApiClientOptions, path: string, formData: FormData, init: RequestInit = {}): Promise<T> {
   let response: Response;
   const request = createTimedRequest({ ...init, method: init.method ?? 'POST', body: formData, headers: await makeHeaders(options, init.headers, false) }, FORM_DATA_REQUEST_TIMEOUT_MS);

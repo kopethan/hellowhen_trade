@@ -6,6 +6,8 @@ export type WebIconName =
   | 'arrow-right'
   | 'back'
   | 'bell'
+  | 'calendar'
+  | 'clock'
   | 'deck-advance'
   | 'deck-back'
   | 'dispute'

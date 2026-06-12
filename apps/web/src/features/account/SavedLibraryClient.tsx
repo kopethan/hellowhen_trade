@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
-import { type SavedCollectionDto, type SavedItemDto, type SavedItemType, type SavedLibrarySort } from '@hellowhen/contracts';
+import { type AgendaItemType, type SavedCollectionDto, type SavedItemDto, type SavedItemType, type SavedLibrarySort } from '@hellowhen/contracts';
+import { AddToAgendaButton } from '../../components/AddToAgendaButton';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
@@ -87,6 +88,12 @@ function itemBody(item: SavedItemDto, t: (key: string) => string) {
       return t('account.saved.itemBodies.user');
     }
   }
+}
+
+
+function savedItemAgendaType(item: SavedItemDto): AgendaItemType {
+  if (item.itemType === 'user') return 'person';
+  return item.itemType;
 }
 
 function itemTypeClass(itemType: SavedItemType) {
@@ -580,6 +587,14 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
                 </div>
                 <div className="saved-library-card__actions">
                   {href ? <Link href={href} className="button secondary">{t('common.actions.open')}</Link> : <span className="saved-library-unavailable-chip">{t('account.saved.unavailable.badge')}</span>}
+                  <AddToAgendaButton
+                    sourceType="saved_item"
+                    sourceId={item.id}
+                    itemType={savedItemAgendaType(item)}
+                    title={itemTitle(item, t)}
+                    note={itemBody(item, t)}
+                    hidden={itemIsUnavailable(item)}
+                  />
                   {collectionsEnabled ? <button className="button secondary" type="button" onClick={() => setManagingItem(item)}>{t('account.saved.collections.manage')}</button> : null}
                   <button className="ghost-button" type="button" disabled={updatingId === item.id} onClick={() => { void removeSavedItem(item.id); }}>
                     {updatingId === item.id ? t('common.states.working') : t('common.actions.remove')}

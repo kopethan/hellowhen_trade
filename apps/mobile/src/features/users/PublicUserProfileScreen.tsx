@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { PublicProfileResponse, PublicProfileTradeSummary, PublicVerificationBadge } from '@hellowhen/contracts';
+import { AddToAgendaButton } from '../../components/AddToAgendaButton';
 import { AppCard } from '../../components/AppCard';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
@@ -297,6 +298,15 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
                 </View>
                 <View style={styles.profileActionRow}>
                   <SavedToggleButton itemType="user" itemId={profile.user.id} hidden={auth.user?.id === profile.user.id} />
+                  <AddToAgendaButton
+                    sourceType="user"
+                    sourceId={profile.user.id}
+                    itemType="person"
+                    title={name}
+                    note={profile.user.profile?.bio}
+                    hidden={auth.user?.id === profile.user.id}
+                    style={styles.profileAgendaButton}
+                  />
                 </View>
                 <ReportContentPanel targetType="profile" targetId={profile.user.id} labelKey="report.profile" helperKey="report.helper.profile" />
                 {auth.isAuthenticated && auth.user?.id !== profile.user.id ? (
@@ -336,6 +346,7 @@ const styles = StyleSheet.create({
   bio: { fontSize: 15, lineHeight: 21, fontWeight: '700' },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
   profileActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
+  profileAgendaButton: { alignSelf: 'flex-start' },
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   statTile: { width: '48%', flexGrow: 1, minHeight: 88, borderWidth: 1, borderRadius: 22, padding: 14, justifyContent: 'center' },

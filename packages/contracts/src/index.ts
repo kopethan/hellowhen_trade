@@ -4,6 +4,7 @@ export * from './settings.js';
 export * from './trade.js';
 export * from './inventoryFolders.js';
 export * from './savedLibrary.js';
+export * from './agenda.js';
 export * from './wallet.js';
 export * from './media.js';
 export * from './credits.js';

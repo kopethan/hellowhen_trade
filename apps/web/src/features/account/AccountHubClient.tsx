@@ -31,6 +31,7 @@ export function AccountHubClient() {
   const accountItems = useMemo<AccountHubItem[]>(() => [
     { href: '/account/profile', titleKey: 'account.items.profile.title', bodyKey: 'account.items.profile.body', icon: 'profile' },
     ...(betaFeatures.savedLibraryEnabled ? [{ href: '/account/saved', titleKey: 'account.items.saved.title', bodyKey: 'account.items.saved.body', icon: 'save' as WebIconName }] : []),
+    ...(betaFeatures.agendaEnabled ? [{ href: '/account/agenda', titleKey: 'account.items.agenda.title', bodyKey: 'account.items.agenda.body', icon: 'calendar' as WebIconName }] : []),
     { href: '/account/notifications', titleKey: 'account.items.notifications.title', bodyKey: 'account.items.notifications.body', icon: 'bell' },
     {
       href: '/onboarding-guide?replay=1&next=/account',

@@ -81,6 +81,7 @@ export type PlusAccessState = {
 
 export type PlusAccessBlocker = 'not_on_plus_tier' | 'subscription_not_active';
 export type PlusGateBlocker = 'plus_disabled' | 'plus_hidden' | PlusAccessBlocker;
+export type PlusPrivateFeatureBlocker = PlusGateBlocker | 'feature_disabled';
 
 export type PlusEntitlements = {
   aiAssist: boolean;
@@ -279,6 +280,41 @@ export function getPlusEntitlements(features: PlusSubscriptionFeatureFlags, stat
     customization: hasAccess && features.customizationEnabled,
     monthlyAiAssistQuota: getPlusAiAssistQuotaForPlan(state, features),
   };
+}
+
+export function canUsePlusPrivateFeature(input: {
+  plusEnabled: boolean;
+  featureEnabled: boolean;
+  state?: Partial<PlusAccessState> | null;
+}): boolean {
+  return Boolean(input.plusEnabled && input.featureEnabled && hasPlusAccess(input.state));
+}
+
+export function canUseAgendaFeature(input: {
+  plusEnabled: boolean;
+  agendaEnabled: boolean;
+  state?: Partial<PlusAccessState> | null;
+}): boolean {
+  return canUsePlusPrivateFeature({
+    plusEnabled: input.plusEnabled,
+    featureEnabled: input.agendaEnabled,
+    state: input.state,
+  });
+}
+
+export function getPlusPrivateFeatureBlockers(input: {
+  plusEnabled: boolean;
+  plusPublic?: boolean;
+  featureEnabled: boolean;
+  state?: Partial<PlusAccessState> | null;
+}): PlusPrivateFeatureBlocker[] {
+  const normalized = normalizePlusAccessState(input.state);
+  const blockers: PlusPrivateFeatureBlocker[] = [];
+  if (!input.plusEnabled) blockers.push('plus_disabled');
+  if (input.plusPublic === false) blockers.push('plus_hidden');
+  if (!input.featureEnabled) blockers.push('feature_disabled');
+  blockers.push(...getPlusAccessBlockers(normalized));
+  return blockers;
 }
 
 export function evaluatePlusGate(features: PlusSubscriptionFeatureFlags, state?: Partial<PlusAccessState> | null): PlusGateState {

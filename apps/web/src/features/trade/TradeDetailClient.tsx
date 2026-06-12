@@ -7,6 +7,7 @@ import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { ReportContentButton } from '../../components/ReportContentButton';
+import { AddToAgendaButton } from '../../components/AddToAgendaButton';
 import { SavedToggleButton } from '../../components/SavedToggleButton';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
@@ -345,6 +346,15 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
             showLabel={false}
             hidden={isOwner}
           />
+          <AddToAgendaButton
+            sourceType="trade"
+            sourceId={currentTrade.id}
+            itemType="trade"
+            title={headline}
+            note={currentTrade.description}
+            className="trade-detail-icon-button"
+            showLabel={false}
+          />
           <button type="button" className="trade-detail-icon-button" onClick={() => void shareTrade()} disabled={shareLoading} aria-label={t('trade.detail.shareTrade')}>
             <WebIcon name="share" size={17} decorative />
             <span>{shareLoading ? t('trade.detail.sharing') : t('trade.detail.shareTrade')}</span>
@@ -376,7 +386,16 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
           <span className="meta">· {formatRelativeExpiry(currentTrade.expiresAt, i18n)}</span>
         </div>
         {shareNotice ? <p className="trade-share-notice" role="status" aria-live="polite">{shareNotice}</p> : null}
-        {!isOwner ? <ReportContentButton targetType="trade" targetId={currentTrade.id} labelKey="report.trade" helperKey="report.helper.trade" buttonClassName="button secondary danger-text trade-detail-report-button" /> : null}
+        <div className="trade-detail-agenda-actions">
+          <AddToAgendaButton
+            sourceType="trade"
+            sourceId={currentTrade.id}
+            itemType="trade"
+            title={headline}
+            note={currentTrade.description}
+          />
+          {!isOwner ? <ReportContentButton targetType="trade" targetId={currentTrade.id} labelKey="report.trade" helperKey="report.helper.trade" buttonClassName="button secondary danger-text trade-detail-report-button" /> : null}
+        </div>
       </section>
 
       {postType !== 'open_offer' ? <SideSection side={needSide} i18n={i18n} /> : null}

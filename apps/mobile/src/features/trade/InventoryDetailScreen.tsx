@@ -11,6 +11,7 @@ import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import { AddToAgendaButton } from '../../components/AddToAgendaButton';
 import { AppConfirmSheet } from '../../components/AppConfirmSheet';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
@@ -638,6 +639,11 @@ export function InventoryDetailScreen({
                   ...chips,
                 ]}
               />
+              {!editing ? (
+                <View style={styles.heroActionRow}>
+                  <AddToAgendaButton sourceType={kind} sourceId={item.id} itemType={kind} title={item.title} note={item.description} style={styles.heroAgendaButton} />
+                </View>
+              ) : null}
             </DetailHero>
 
             {editing ? (
@@ -930,6 +936,8 @@ export function InventoryDetailScreen({
 }
 
 const styles = StyleSheet.create({
+  heroActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
+  heroAgendaButton: { alignSelf: 'flex-start' },
   content: { paddingBottom: 44, gap: 2 },
   form: { gap: 14 },
   imageEmptyState: { marginTop: 0 },
