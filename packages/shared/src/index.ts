@@ -4,6 +4,7 @@ export * from './ads.js';
 export * from './ai.js';
 export * from './subscriptions.js';
 export * from './membership.js';
+export * from './membershipBilling.js';
 export * from './tradePackages.js';
 
 export * from './wizard.js';

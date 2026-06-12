@@ -1,0 +1,455 @@
+diff --git a/docs/product/membership-billing-architecture.md b/docs/product/membership-billing-architecture.md
+new file mode 100644
+index 0000000..1c41144
+--- /dev/null
++++ b/docs/product/membership-billing-architecture.md
+@@ -0,0 +1,449 @@
++# Membership Billing Architecture Decision
++
++## Status
++
++TIERS11 decision document only.
++
++This document is for future implementation planning. It does not enable checkout, billing, Stripe, Airwallex, Apple in-app purchases, Google Play Billing, RevenueCat, entitlement mutation, Pro activation, or Business onboarding.
++
++Current first-launch rule remains:
++
++```txt
++Free first
++No live subscription checkout
++No live native in-app purchases
++No billing provider SDKs in the app
++No user-to-user payments
++No wallet
++No payouts
++No Business public launch
++```
++
++## Decision summary
++
++Use a normalized Hellowhen entitlement layer, with provider-specific billing systems feeding into it.
++
++Recommended first production direction:
++
++```txt
++Web / PWA memberships:
++  Stripe Billing
++
++Native iOS memberships:
++  Apple StoreKit / App Store in-app subscriptions
++
++Native Android memberships:
++  Google Play Billing subscriptions
++
++Backend:
++  Hellowhen entitlement resolver
++  Provider webhooks / notifications update internal status
++```
++
++The Membership UI remains the account-facing explanation surface:
++
++```txt
++/account/membership
++```
++
++The legacy route stays redirected:
++
++```txt
++/account/plans -> /account/membership
++```
++
++## Why this architecture
++
++Hellowhen Plus and Pro are digital membership tiers that unlock app functionality such as Saved Library, Agenda, AI assistance, customization, professional presentation tools, profile improvements, and future Pro utilities.
++
++Because these are digital features inside the app, native apps need store-safe billing behavior. The safest default is:
++
++```txt
++iOS app users buy/restore through Apple.
++Android app users buy/restore through Google Play.
++Web users buy/manage through Stripe.
++```
++
++The backend should not treat Stripe, Apple, or Google as separate products in the product layer. They are provider sources for one internal entitlement state.
++
++## Provider roles
++
++| Provider | Role | First use | Do not use for |
++| --- | --- | --- | --- |
++| Stripe Billing | Web/PWA subscription checkout, subscription lifecycle, invoices, customer portal | Web Plus/Pro subscriptions | Native in-app purchase buttons for digital app features |
++| Apple StoreKit / App Store | iOS subscription purchase, restore, server notifications | iOS Plus/Pro subscriptions | Web checkout replacement |
++| Google Play Billing | Android subscription purchase, restore, server notifications | Android Plus/Pro subscriptions | Web checkout replacement |
++| RevenueCat | Optional future entitlement aggregator | If cross-platform subscription operations become too complex | Required dependency for the first architecture patch |
++| Airwallex | Possible later business/money infrastructure candidate | Business, global payments, KYB, payouts, multi-currency finance later | First Plus/Pro membership launch |
++
++## Stripe vs Airwallex decision
++
++Prefer Stripe first for Membership billing.
++
++Reasons:
++
++- better fit for web SaaS subscriptions
++- mature hosted Checkout and Customer Portal
++- mature subscription lifecycle webhooks
++- simpler test-mode workflow
++- aligns with a web-first Membership launch
++
++Keep Airwallex as a later candidate for:
++
++```txt
++business accounts
++KYB-heavy organization flows
++international money movement
++payouts
++wallet-like infrastructure
++multi-currency business operations
++```
++
++Do not mix Airwallex money-provider work into first Membership billing.
++
++## Apple and Google mobile rule
++
++Do not add Stripe Checkout links/buttons inside the native iOS or Android app for Plus/Pro digital features by default.
++
++Safe native purchase labels later:
++
++```txt
++iOS:
++  Subscribe with Apple
++  Restore purchases
++
++Android:
++  Subscribe with Google Play
++  Restore purchases
++```
++
++Avoid native copy such as:
++
++```txt
++Go to our website to subscribe
++Pay with Stripe from the app
++Open web checkout for Plus
++External checkout for Pro
++```
++
++Policy exceptions and regional alternative billing programs may exist, but they should not be used without a dedicated legal/store-review decision.
++
++## Entitlement model
++
++Keep the app-facing state normalized.
++
++Current app-facing user state can remain:
++
++```txt
++subscriptionTier:
++  free
++  plus
++  pro
++  plus_later
++  business_later
++
++subscriptionStatus:
++  none
++  trialing
++  active
++  past_due
++  canceled
++  expired
++```
++
++Future provider source metadata should be separate from app-facing tier/status.
++
++Recommended provider source values:
++
++```txt
++manual_admin
++stripe
++apple_app_store
++google_play
++promo
++migration
++revenuecat_later
++```
++
++Recommended future entitlement source fields, if/when schema work is needed:
++
++```txt
++providerSource
++providerCustomerId
++providerSubscriptionId
++providerProductId
++providerPriceId
++currentPeriodStart
++currentPeriodEnd
++cancelAtPeriodEnd
++lastProviderEventId
++lastProviderSyncAt
++```
++
++Do not add these fields in TIERS11. This document only defines the direction.
++
++## Entitlement resolution rule
++
++The backend should resolve all provider signals into one account entitlement snapshot.
++
++Recommended priority behavior:
++
++```txt
++1. Admin restrictions and account safety blocks always win.
++2. Active/trialing paid entitlement unlocks the matching tier.
++3. Higher tier beats lower tier if overlapping sources exist.
++4. Canceled-but-valid-until remains active until the paid period ends.
++5. Past-due may enter a grace period only if explicitly configured.
++6. Expired/deleted/refunded/revoked provider state removes entitlement.
++7. Business identity remains separate from personal membership tier.
++```
++
++Important safety rule:
++
++```txt
++Payment never bypasses moderation, account restrictions, identity checks, KYB/KYC, reports, or fraud controls.
++```
++
++## Business identity boundary
++
++Business / organization identity is not a personal Membership tier.
++
++Keep these concepts separate:
++
++```txt
++Personal membership tier:
++  Free / Basic
++  Plus
++  Pro
++
++Account identity type:
++  personal account
++  business / organization account
++```
++
++Future handle namespaces should stay separated:
++
++```txt
++Personal:
++  /u/{handle}
++
++Business / organization:
++  /org/{handle}
++```
++
++Example:
++
++```txt
++/u/apple can be a personal user.
++/org/apple can be an official organization account.
++```
++
++Do not let Membership billing collapse Business into a normal personal tier card.
++
++## Web subscription flow later
++
++Future web flow:
++
++```txt
++/account/membership
++  -> choose Plus or Pro
++  -> backend creates Stripe Checkout session
++  -> Stripe handles payment details
++  -> Stripe webhook confirms subscription
++  -> backend updates entitlement snapshot
++  -> user returns to Membership page
++```
++
++Future management flow:
++
++```txt
++/account/membership
++  -> Manage membership
++  -> backend creates Stripe Customer Portal session
++  -> Stripe handles cancellation/payment method/invoice updates
++  -> Stripe webhook updates entitlement snapshot
++```
++
++Do not store card details in Hellowhen.
++
++## Native subscription flow later
++
++Future iOS flow:
++
++```txt
++Mobile Membership screen
++  -> StoreKit product lookup
++  -> purchase Apple subscription
++  -> app receives transaction
++  -> backend validates transaction / server notification
++  -> entitlement snapshot updates
++  -> app refreshes /plus/me or Membership snapshot
++```
++
++Future Android flow:
++
++```txt
++Mobile Membership screen
++  -> Google Play product lookup
++  -> purchase Play subscription
++  -> app receives purchase token
++  -> backend validates purchase token / real-time developer notification
++  -> entitlement snapshot updates
++  -> app refreshes /plus/me or Membership snapshot
++```
++
++Both platforms must include a restore/sync path.
++
++## RevenueCat option
++
++RevenueCat can be evaluated later if direct Apple + Google + Stripe entitlement handling becomes too costly.
++
++Possible future role:
++
++```txt
++Apple subscriptions -> RevenueCat
++Google subscriptions -> RevenueCat
++Stripe web subscriptions -> RevenueCat or backend bridge
++RevenueCat entitlement -> Hellowhen backend entitlement snapshot
++```
++
++Do not adopt RevenueCat until the team compares:
++
++```txt
++implementation speed
++monthly cost
++vendor lock-in
++web Stripe support needs
++server-side entitlement guarantees
++data export and migration path
++App Store / Play setup complexity
++```
++
++## Product id naming convention
++
++Recommended future product identifiers:
++
++```txt
++hellowhen_plus_monthly
++hellowhen_plus_yearly
++hellowhen_pro_monthly
++hellowhen_pro_yearly
++```
++
++Provider-specific IDs may differ, but map them to these internal product handles.
++
++Stripe price IDs should remain environment variables later:
++
++```txt
++STRIPE_PLUS_MONTHLY_PRICE_ID
++STRIPE_PLUS_YEARLY_PRICE_ID
++STRIPE_PRO_MONTHLY_PRICE_ID
++STRIPE_PRO_YEARLY_PRICE_ID
++```
++
++Apple/Google product ids should be documented in the app-store setup checklist later.
++
++## Environment variable direction later
++
++Do not add these in TIERS11.
++
++Likely future web billing variables:
++
++```env
++STRIPE_SECRET_KEY=
++STRIPE_WEBHOOK_SECRET=
++STRIPE_PLUS_MONTHLY_PRICE_ID=
++STRIPE_PLUS_YEARLY_PRICE_ID=
++STRIPE_PRO_MONTHLY_PRICE_ID=
++STRIPE_PRO_YEARLY_PRICE_ID=
++NEXT_PUBLIC_STRIPE_ENABLED=false
++```
++
++Likely future mobile billing flags:
++
++```env
++EXPO_PUBLIC_IOS_SUBSCRIPTIONS_ENABLED=false
++EXPO_PUBLIC_ANDROID_SUBSCRIPTIONS_ENABLED=false
++```
++
++Provider secrets must never be exposed through `NEXT_PUBLIC_*` or `EXPO_PUBLIC_*` variables.
++
++## Compliance and store-review notes
++
++Before enabling real billing, verify the latest official policies and prepare store-review notes.
++
++Reference pages to re-check before implementation:
++
++```txt
++Apple App Store Review Guidelines:
++https://developer.apple.com/app-store/review/guidelines/
++
++Apple auto-renewable subscriptions:
++https://developer.apple.com/app-store/subscriptions/
++
++Google Play payments policy:
++https://support.google.com/googleplay/android-developer/answer/10281818?hl=en
++
++Google Play billing system:
++https://support.google.com/googleplay/android-developer/answer/1072599?hl=en
++
++Stripe Billing subscriptions:
++https://docs.stripe.com/billing/subscriptions/overview
++
++Stripe Customer Portal:
++https://docs.stripe.com/billing/subscriptions/cancel
++```
++
++App review note should explain:
++
++```txt
++Hellowhen Plus/Pro are digital memberships.
++Web checkout uses Stripe only on the web/PWA.
++Native app purchase flows use Apple/Google where exposed.
++Users can access entitlements across platforms after provider validation.
++Hellowhen does not process user-to-user payments.
++Hellowhen does not provide wallet, escrow, payout, or cash protection.
++Business identity is separate from personal membership.
++```
++
++## Patch sequence after TIERS11
++
++Recommended next patches:
++
++```txt
++TIERS12 — Membership provider constants + entitlement source types
++BILLING1 — Backend subscription entitlement foundation
++BILLING2 — Stripe Billing web checkout foundation
++BILLING3 — Stripe webhook entitlement sync
++BILLING4 — Stripe customer portal
++BILLING5 — Mobile subscription product metadata only
++BILLING6 — iOS StoreKit purchase integration
++BILLING7 — Android Google Play Billing integration
++BILLING8 — Cross-platform entitlement reconciliation
++BILLING9 — Final store review/payment compliance notes
++```
++
++## TIERS11 non-goals
++
++Do not add in this patch:
++
++```txt
++Stripe SDK
++Stripe API routes
++Stripe webhook handler
++Apple StoreKit integration
++Google Play Billing integration
++RevenueCat SDK
++Airwallex SDK
++schema migration
++new env variables
++checkout buttons
++pricing actions
++subscription activation
++mobile Membership screen
++Business onboarding
++identity verification
++wallet
++payouts
++cash promise
++```
