@@ -40,11 +40,11 @@ const themeScript = `
       : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     var language = settings && settings.language ? settings.language : 'system';
     var candidates = Array.isArray(navigator.languages) && navigator.languages.length ? navigator.languages : [navigator.language || 'en'];
-    var resolvedLanguage = language === 'fr' || language === 'en' ? language : 'en';
+    var resolvedLanguage = language === 'fr' || language === 'en' || language === 'es' ? language : 'en';
     if (language === 'system') {
       for (var i = 0; i < candidates.length; i += 1) {
         var base = String(candidates[i] || '').toLowerCase().replace('_', '-').split('-')[0];
-        if (base === 'fr' || base === 'en') { resolvedLanguage = base; break; }
+        if (base === 'fr' || base === 'en' || base === 'es') { resolvedLanguage = base; break; }
       }
     }
     document.documentElement.dataset.theme = theme;

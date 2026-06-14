@@ -8,7 +8,7 @@ export type InventoryKind = 'need' | 'offer';
 export type InventoryItem = NeedDto | OfferDto;
 export type InventoryTranslationFormValues = { languageCode: DiscoveryLanguage; title: string; description: string };
 
-export const inventoryLanguageOptions: DiscoveryLanguage[] = ['en', 'fr'];
+export const inventoryLanguageOptions: DiscoveryLanguage[] = ['en', 'fr', 'es'];
 
 export type InventoryI18n = {
   t?: (key: string, values?: TranslationValues) => string;
@@ -149,6 +149,7 @@ export function durationPresetMinutes(preset?: InventoryDurationPreset | null) {
 
 export function inventoryLanguageLabel(languageCode?: string | null, i18n?: InventoryI18n) {
   if (languageCode === 'fr') return tr(i18n, 'inventory.languages.fr', 'French');
+  if (languageCode === 'es') return tr(i18n, 'inventory.languages.es', 'Spanish');
   return tr(i18n, 'inventory.languages.en', 'English');
 }
 

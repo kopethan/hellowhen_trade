@@ -39,6 +39,7 @@ export const settings = {
       system: { title: 'Par défaut du système', body: 'Utiliser la langue du navigateur ou de l’appareil lorsqu’elle est prise en charge.' },
       en: { title: 'English', body: 'Utiliser l’anglais pour les libellés de l’application.' },
       fr: { title: 'Français', body: 'Utiliser le français pour les libellés de l’application.' },
+      es: { title: 'Español', body: 'Utiliser l’espagnol pour les libellés de l’application.' },
     },
   },
   security: {

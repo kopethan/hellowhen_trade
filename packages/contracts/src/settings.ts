@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const languagePreferenceSchema = z.enum(['system', 'en', 'fr']);
+export const languagePreferenceSchema = z.enum(['system', 'en', 'fr', 'es']);
 export type LanguagePreference = z.infer<typeof languagePreferenceSchema>;
 
 export const updateSettingsRequestSchema = z.object({

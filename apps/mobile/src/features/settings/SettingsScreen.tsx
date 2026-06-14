@@ -32,6 +32,7 @@ const languageOptions: Array<ChoiceOption<LanguagePreference>> = [
   { labelKey: 'settings.language.options.system.title', value: 'system' },
   { labelKey: 'settings.language.options.en.title', value: 'en' },
   { labelKey: 'settings.language.options.fr.title', value: 'fr' },
+  { labelKey: 'settings.language.options.es.title', value: 'es' },
 ];
 
 export function SettingsScreen() {

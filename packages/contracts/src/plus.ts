@@ -85,8 +85,8 @@ export const aiAssistRequestSchema = z.object({
   targetType: aiAssistTargetTypeSchema.optional(),
   text: z.string().trim().min(1).max(4000),
   context: z.string().trim().max(1500).optional(),
-  sourceLanguage: z.enum(['en', 'fr']).optional(),
-  targetLanguage: z.enum(['en', 'fr']).optional(),
+  sourceLanguage: z.enum(['en', 'fr', 'es']).optional(),
+  targetLanguage: z.enum(['en', 'fr', 'es']).optional(),
 }).strict();
 
 export const aiAssistSuggestionSchema = z.object({

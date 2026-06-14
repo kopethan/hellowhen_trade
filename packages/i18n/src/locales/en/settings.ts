@@ -39,6 +39,7 @@ export const settings = {
       system: { title: 'System default', body: 'Use your browser or device language when it is supported.' },
       en: { title: 'English', body: 'Use English for app labels.' },
       fr: { title: 'Français', body: 'Use French for app labels.' },
+      es: { title: 'Español', body: 'Use Spanish for app labels.' },
     },
   },
   security: {

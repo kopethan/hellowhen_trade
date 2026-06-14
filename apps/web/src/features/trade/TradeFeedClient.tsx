@@ -613,7 +613,7 @@ function MyTradesPanel({ createTradeHref }: MyTradesPanelProps) {
   );
 }
 
-function MyTradeRow({ trade, language, busy, onClose, onRenew }: { trade: TradeWithCounts; language: 'en' | 'fr'; busy: boolean; onClose: (trade: TradeWithCounts) => void; onRenew: (trade: TradeWithCounts) => void }) {
+function MyTradeRow({ trade, language, busy, onClose, onRenew }: { trade: TradeWithCounts; language: 'en' | 'fr' | 'es'; busy: boolean; onClose: (trade: TradeWithCounts) => void; onRenew: (trade: TradeWithCounts) => void }) {
   const { t } = useWebTranslation();
   const proposalCount = trade._count?.proposals ?? 0;
   const expiresLabel = trade.expiresAt ? formatWebShortDate(trade.expiresAt, t('trade.mine.noExpiry'), language) : t('trade.mine.noExpiry');
@@ -736,7 +736,7 @@ function InvolvedTradesPanel() {
   );
 }
 
-function InvolvedTradeRow({ trade, language }: { trade: TradeWithViewerProposal; language: 'en' | 'fr' }) {
+function InvolvedTradeRow({ trade, language }: { trade: TradeWithViewerProposal; language: 'en' | 'fr' | 'es' }) {
   const { t } = useWebTranslation();
   const proposal = trade.viewerProposal;
   const proposalDate = proposal?.createdAt ? formatWebShortDate(proposal.createdAt, t('trade.involved.unknownDate'), language) : t('trade.involved.unknownDate');

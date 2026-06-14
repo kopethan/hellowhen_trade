@@ -258,7 +258,7 @@ type FeedRankableTrade = {
 };
 
 type FeedDiscoveryPreferences = {
-  language: 'en' | 'fr';
+  language: 'en' | 'fr' | 'es';
   countryCode?: string;
 };
 
@@ -302,11 +302,11 @@ function seededJitter(seed: string, tradeId: string, spread = 18) {
   return (hashStringToUnit(`${DISCOVERY_SEED_SALT}:${seed}:${tradeId}`) - 0.5) * spread;
 }
 
-function normalizeDiscoveryLanguage(value?: string | null): 'en' | 'fr' | null {
+function normalizeDiscoveryLanguage(value?: string | null): 'en' | 'fr' | 'es' | null {
   const normalized = value?.trim().toLowerCase();
   if (!normalized || normalized === 'system') return null;
   const base = normalized.replace('_', '-').split('-')[0];
-  return base === 'fr' || base === 'en' ? base : null;
+  return base === 'fr' || base === 'en' || base === 'es' ? base : null;
 }
 
 function normalizeCountryCode(value?: string | null) {
@@ -314,7 +314,7 @@ function normalizeCountryCode(value?: string | null) {
   return normalized && /^[A-Z]{2}$/.test(normalized) ? normalized : undefined;
 }
 
-function resolveLanguageFromAcceptLanguage(value: unknown): 'en' | 'fr' | null {
+function resolveLanguageFromAcceptLanguage(value: unknown): 'en' | 'fr' | 'es' | null {
   if (typeof value !== 'string') return null;
   const candidates = value.split(',').map((entry) => entry.split(';')[0]?.trim()).filter(Boolean);
   for (const candidate of candidates) {
@@ -338,7 +338,7 @@ function resolveFeedDiscoveryPreferences(
   };
 }
 
-async function resolveViewerLanguage(actorId: string | undefined, acceptLanguageHeader: unknown): Promise<'en' | 'fr'> {
+async function resolveViewerLanguage(actorId: string | undefined, acceptLanguageHeader: unknown): Promise<'en' | 'fr' | 'es'> {
   const actorPreferences = actorId
     ? await prisma.user.findUnique({ where: { id: actorId }, select: { settings: { select: { language: true } } } })
     : null;

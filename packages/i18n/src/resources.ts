@@ -1,8 +1,9 @@
 import { en } from './locales/en';
 import { fr } from './locales/fr';
+import { es } from './locales/es';
 import type { SupportedLanguage } from './languages';
 
-export const resources = { en, fr } as const;
+export const resources = { en, fr, es } as const;
 export type TranslationResources = typeof en;
 export type TranslationValues = Record<string, string | number | boolean | null | undefined>;
 export type TranslationKey = string;

@@ -8,7 +8,7 @@ import { useTranslation } from '../../../providers/MobileI18nProvider';
 
 export const inventoryItemTypes: InventoryItemType[] = ['service', 'goods', 'other'];
 export const exchangeModes: TradeExchangeMode[] = ['remote', 'local', 'hybrid'];
-export const inventoryLanguageOptions: DiscoveryLanguage[] = ['en', 'fr'];
+export const inventoryLanguageOptions: DiscoveryLanguage[] = ['en', 'fr', 'es'];
 export const inventoryAvailabilityPresetOptions: InventoryAvailabilityPreset[] = ['today', 'this_week', 'this_month', 'flexible', 'custom'];
 export const needDurationPresetOptions: InventoryDurationPreset[] = ['min_15', 'min_30', 'hour_1', 'hour_2', 'half_day', 'day_1', 'flexible', 'not_sure'];
 export const offerDurationPresetOptions: InventoryDurationPreset[] = ['min_15', 'min_30', 'hour_1', 'hour_2', 'half_day', 'day_1', 'flexible', 'depends'];
@@ -51,6 +51,7 @@ export function itemTypePluralLabel(itemType: InventoryItemType | 'all', t?: TFu
 
 export function inventoryLanguageLabel(languageCode: DiscoveryLanguage, t?: TFunction) {
   if (languageCode === 'fr') return t?.('inventory.languages.fr') ?? 'French';
+  if (languageCode === 'es') return t?.('inventory.languages.es') ?? 'Spanish';
   return t?.('inventory.languages.en') ?? 'English';
 }
 

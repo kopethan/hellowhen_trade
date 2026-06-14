@@ -43,7 +43,7 @@ type LibraryFormState = {
   title: string;
   description: string;
   itemType: ItemType;
-  languageCode: 'en' | 'fr';
+  languageCode: 'en' | 'fr' | 'es';
   countryCode: string;
   category: string;
   timing: string;
@@ -88,7 +88,7 @@ function fillForm(template: AdminLibraryTemplateDto): LibraryFormState {
     title: template.title,
     description: template.description,
     itemType: template.itemType,
-    languageCode: template.languageCode === 'fr' ? 'fr' : 'en',
+    languageCode: template.languageCode === 'fr' || template.languageCode === 'es' ? template.languageCode : 'en',
     countryCode: template.countryCode ?? '',
     category: template.category ?? '',
     timing: template.timing ?? '',
@@ -373,7 +373,7 @@ export default function AdminLibraryPage() {
             <div className="admin-template-form__grid">
               <label><span>Item type</span><select value={form.itemType} onChange={(event) => updateForm('itemType', event.target.value as ItemType)}><option value="service">service</option><option value="goods">goods</option><option value="other">other</option></select></label>
               <label><span>Status</span><select value={form.status} onChange={(event) => updateForm('status', event.target.value as TemplateStatus)}><option value="active">active</option><option value="pending_review">pending review</option><option value="draft">draft</option><option value="rejected">rejected</option><option value="archived">hidden</option></select></label>
-              <label><span>Language</span><select value={form.languageCode} onChange={(event) => updateForm('languageCode', event.target.value as 'en' | 'fr')}><option value="en">English</option><option value="fr">French</option></select></label>
+              <label><span>Language</span><select value={form.languageCode} onChange={(event) => updateForm('languageCode', event.target.value as 'en' | 'fr' | 'es')}><option value="en">English</option><option value="fr">French</option><option value="es">Spanish</option></select></label>
               <label><span>Country code</span><input value={form.countryCode} onChange={(event) => updateForm('countryCode', event.target.value.toUpperCase().slice(0, 2))} placeholder="Optional" /></label>
               <label><span>Category</span><input value={form.category} onChange={(event) => updateForm('category', event.target.value)} /></label>
               <label><span>Mode</span><select value={form.mode} onChange={(event) => updateForm('mode', event.target.value as '' | ExchangeMode)}><option value="">none</option><option value="remote">remote</option><option value="local">local</option><option value="hybrid">hybrid</option></select></label>

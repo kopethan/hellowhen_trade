@@ -26,6 +26,7 @@ const languageOptions: Array<ChoiceOption<LanguagePreference>> = [
   { value: 'system', titleKey: 'settings.language.options.system.title', bodyKey: 'settings.language.options.system.body' },
   { value: 'en', titleKey: 'settings.language.options.en.title', bodyKey: 'settings.language.options.en.body' },
   { value: 'fr', titleKey: 'settings.language.options.fr.title', bodyKey: 'settings.language.options.fr.body' },
+  { value: 'es', titleKey: 'settings.language.options.es.title', bodyKey: 'settings.language.options.es.body' },
 ];
 
 function normalizeTwoFactorCode(value: string) {

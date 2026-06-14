@@ -26,7 +26,7 @@ function WalletMetricCard({ metric }: { metric: WalletMetric }) {
   );
 }
 
-function ProviderBalanceRow({ balance, language, t }: { balance: MoneyProviderWalletBalanceDto; language: 'en' | 'fr'; t: (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string }) {
+function ProviderBalanceRow({ balance, language, t }: { balance: MoneyProviderWalletBalanceDto; language: 'en' | 'fr' | 'es'; t: (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string }) {
   return (
     <div className="wallet-ledger-row">
       <span>
@@ -38,7 +38,7 @@ function ProviderBalanceRow({ balance, language, t }: { balance: MoneyProviderWa
   );
 }
 
-function LedgerRow({ entry, language, t }: { entry: LedgerEntryDto; language: 'en' | 'fr'; t: (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string }) {
+function LedgerRow({ entry, language, t }: { entry: LedgerEntryDto; language: 'en' | 'fr' | 'es'; t: (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string }) {
   const cents = entry.amountCents ?? 0;
   const signed = cents > 0 ? `+${formatMoney(cents, entry.currency, language)}` : formatMoney(cents, entry.currency, language);
   return (

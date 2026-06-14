@@ -64,7 +64,7 @@ function postDescription(post: PublicProfileTradeSummary) {
   return post.description;
 }
 
-function postMeta(post: PublicProfileTradeSummary, language: 'en' | 'fr', t: TFunction) {
+function postMeta(post: PublicProfileTradeSummary, language: 'en' | 'fr' | 'es', t: TFunction) {
   const i18n = { t, language };
   const needMeta = post.need ? compactJoin([post.need.category, getNeedTimingBadge(post.need, i18n), getModeLabel(post.need.mode, i18n), post.need.locationLabel]) : '';
   const offerMeta = post.offer ? compactJoin([post.offer.category, getOfferTimingBadge(post.offer, i18n), getModeLabel(post.offer.mode, i18n), post.offer.locationLabel]) : '';

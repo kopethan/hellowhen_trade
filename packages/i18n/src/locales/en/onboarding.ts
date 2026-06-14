@@ -19,6 +19,7 @@ export const onboarding = {
       system: 'System language',
       en: 'English',
       fr: 'Français',
+      es: 'Español',
     },
     appearanceOptions: {
       system: 'System',

@@ -117,7 +117,7 @@ function buildStubSuggestion(taskType: AiAssistTaskType, text: string, input: Re
         text: `Hi! I’m interested in this trade. I can help with ${truncate(base, 220)}. I’m happy to confirm the scope, timing, and next steps here before we start.`,
       };
     case 'translate_text': {
-      const target = input.targetLanguage ?? (input.sourceLanguage === 'fr' ? 'en' : 'fr');
+      const target = input.targetLanguage ?? (input.sourceLanguage === 'en' ? 'fr' : 'en');
       const translatable = parseTranslatableText(text);
       const prefix = `[Stub ${target.toUpperCase()} translation]`;
       return {

@@ -105,6 +105,7 @@ export const inventory = {
   languages: {
     en: 'English',
     fr: 'French',
+    es: 'Spanish',
   },
   categories: {
     design: 'Design',

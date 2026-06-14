@@ -3,6 +3,7 @@ import type { SupportedLanguage } from './languages';
 export const localeForLanguage: Record<SupportedLanguage, string> = {
   en: 'en-US',
   fr: 'fr-FR',
+  es: 'es-ES',
 };
 
 const DEFAULT_TIME_ZONE = 'UTC';

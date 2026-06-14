@@ -18,13 +18,13 @@ const businessProfileSelect = {
 } as const;
 
 type TemplateListInput = ReturnType<typeof listInventoryTemplatesQuerySchema.parse>;
-type TemplateLocalePreferences = { language: 'en' | 'fr'; countryCode?: string };
+type TemplateLocalePreferences = { language: 'en' | 'fr' | 'es'; countryCode?: string };
 
-function normalizeDiscoveryLanguage(value?: string | null): 'en' | 'fr' | null {
+function normalizeDiscoveryLanguage(value?: string | null): 'en' | 'fr' | 'es' | null {
   const normalized = value?.trim().toLowerCase();
   if (!normalized || normalized === 'system') return null;
   const base = normalized.replace('_', '-').split('-')[0];
-  return base === 'fr' || base === 'en' ? base : null;
+  return base === 'fr' || base === 'en' || base === 'es' ? base : null;
 }
 
 function normalizeCountryCode(value?: string | null) {
@@ -32,7 +32,7 @@ function normalizeCountryCode(value?: string | null) {
   return normalized && /^[A-Z]{2}$/.test(normalized) ? normalized : undefined;
 }
 
-function resolveLanguageFromAcceptLanguage(value: unknown): 'en' | 'fr' | null {
+function resolveLanguageFromAcceptLanguage(value: unknown): 'en' | 'fr' | 'es' | null {
   if (typeof value !== 'string') return null;
   const candidates = value.split(',').map((entry) => entry.split(';')[0]?.trim()).filter(Boolean);
   for (const candidate of candidates) {
@@ -79,7 +79,7 @@ function baseTemplateWhere(input: TemplateListInput): Prisma.InventoryTemplateWh
   return { AND: and };
 }
 
-function templateLocaleWhere(preferences: TemplateLocalePreferences, fallbackLanguage?: 'en' | 'fr'): Prisma.InventoryTemplateWhereInput {
+function templateLocaleWhere(preferences: TemplateLocalePreferences, fallbackLanguage?: 'en' | 'fr' | 'es'): Prisma.InventoryTemplateWhereInput {
   const languageCode = fallbackLanguage ?? preferences.language;
   const countryFilter: Prisma.InventoryTemplateWhereInput = preferences.countryCode
     ? { OR: [{ countryCode: null }, { countryCode: preferences.countryCode }] }

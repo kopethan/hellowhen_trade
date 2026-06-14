@@ -54,7 +54,7 @@ type BusinessTemplate = {
   title: string;
   description: string;
   itemType?: 'service' | 'goods' | 'other';
-  languageCode?: 'en' | 'fr';
+  languageCode?: 'en' | 'fr' | 'es';
   status: BusinessTemplateStatus;
   sourceType?: string;
   category?: string | null;
@@ -69,7 +69,7 @@ type BusinessTemplateForm = {
   title: string;
   description: string;
   itemType: 'service' | 'goods' | 'other';
-  languageCode: 'en' | 'fr';
+  languageCode: 'en' | 'fr' | 'es';
   category: string;
   timing: string;
   availability: string;
@@ -866,9 +866,10 @@ export function BusinessAccountsClient() {
                 </select>
               </label>
               <label className="field-label">Language
-                <select value={templateForm.languageCode} onChange={(event) => setTemplateForm((current) => ({ ...current, languageCode: event.target.value as 'en' | 'fr' }))}>
+                <select value={templateForm.languageCode} onChange={(event) => setTemplateForm((current) => ({ ...current, languageCode: event.target.value as 'en' | 'fr' | 'es' }))}>
                   <option value="en">English</option>
                   <option value="fr">French</option>
+                  <option value="es">Spanish</option>
                 </select>
               </label>
             </div>

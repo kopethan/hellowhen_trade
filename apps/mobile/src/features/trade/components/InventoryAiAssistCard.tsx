@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { AiAssistResponse, DiscoveryLanguage, PlusAiAssistQuotaSummary, PlusAiAssistTaskType } from '@hellowhen/contracts';
+import { getAlternateInventoryLanguage } from '@hellowhen/shared';
 import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_TITLE_MAX_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
 import { api } from '../../../lib/api';
 import { betaFeatures } from '../../../lib/betaFeatures';
@@ -59,10 +60,6 @@ function formatResetDate(value?: string | null) {
   }
 }
 
-function alternateLanguage(language: DiscoveryLanguage): DiscoveryLanguage {
-  return language === 'fr' ? 'en' : 'fr';
-}
-
 function compactList(value?: string) {
   return (value ?? '').split(',').map((item) => item.trim()).filter(Boolean).slice(0, 8);
 }
@@ -88,7 +85,7 @@ export function InventoryAiAssistCard({ kind, title, description, defaultLanguag
   const [suggestion, setSuggestion] = useState<PendingSuggestion | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const targetLanguage = alternateLanguage(defaultLanguage);
+  const targetLanguage = getAlternateInventoryLanguage(defaultLanguage) as DiscoveryLanguage;
 
   const quotaLabel = useMemo(() => {
     if (!usage) return t('inventory.aiAssist.quotaUnknown');

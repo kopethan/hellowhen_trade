@@ -11,7 +11,7 @@ import { calculatePayoutFeeCents, fallbackCurrency, formatDateTime, formatLimitC
 
 type T = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
 
-function PayoutFeeBreakdown({ grossAmountCents, currency, platformFeeRateBps, language, t }: { grossAmountCents: number; currency: string; platformFeeRateBps: number; language: 'en' | 'fr'; t: T }) {
+function PayoutFeeBreakdown({ grossAmountCents, currency, platformFeeRateBps, language, t }: { grossAmountCents: number; currency: string; platformFeeRateBps: number; language: 'en' | 'fr' | 'es'; t: T }) {
   const feeCents = calculatePayoutFeeCents(grossAmountCents, platformFeeRateBps);
   const netCents = Math.max(0, grossAmountCents - feeCents);
   const rate = formatPayoutFeeRate(platformFeeRateBps);
@@ -33,7 +33,7 @@ function PayoutFeeBreakdown({ grossAmountCents, currency, platformFeeRateBps, la
   );
 }
 
-function PayoutHistoryRow({ payout, platformFeeRateBps, language, t }: { payout: PayoutRequestDto; platformFeeRateBps: number; language: 'en' | 'fr'; t: T }) {
+function PayoutHistoryRow({ payout, platformFeeRateBps, language, t }: { payout: PayoutRequestDto; platformFeeRateBps: number; language: 'en' | 'fr' | 'es'; t: T }) {
   const grossCents = getPayoutGrossCents(payout);
   const feeCents = getPayoutFeeCents(payout, platformFeeRateBps);
   const netCents = getPayoutNetCents(payout, platformFeeRateBps);

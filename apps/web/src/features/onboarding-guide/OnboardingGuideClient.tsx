@@ -20,6 +20,7 @@ const languageOptions: Array<PreferenceOption<LanguagePreference>> = [
   { value: 'system', labelKey: 'onboarding.preferences.languageOptions.system' },
   { value: 'en', labelKey: 'onboarding.preferences.languageOptions.en' },
   { value: 'fr', labelKey: 'onboarding.preferences.languageOptions.fr' },
+  { value: 'es', labelKey: 'onboarding.preferences.languageOptions.es' },
 ];
 
 const appearanceOptions: Array<PreferenceOption<AppearancePreference>> = [

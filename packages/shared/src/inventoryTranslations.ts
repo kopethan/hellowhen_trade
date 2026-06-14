@@ -1,4 +1,4 @@
-export type InventoryLanguageCode = 'en' | 'fr';
+export type InventoryLanguageCode = 'en' | 'fr' | 'es';
 
 export type InventoryTranslationLike = {
   languageCode?: string | null;
@@ -22,12 +22,14 @@ export type InventoryDisplayCopy = {
 
 export function normalizeInventoryLanguageCode(value?: string | null): InventoryLanguageCode | null {
   const normalized = value?.trim().toLowerCase().replace('_', '-').split('-')[0];
-  if (normalized === 'en' || normalized === 'fr') return normalized;
+  if (normalized === 'en' || normalized === 'fr' || normalized === 'es') return normalized;
   return null;
 }
 
 export function getAlternateInventoryLanguage(languageCode: string): InventoryLanguageCode {
-  return normalizeInventoryLanguageCode(languageCode) === 'fr' ? 'en' : 'fr';
+  const normalized = normalizeInventoryLanguageCode(languageCode);
+  if (normalized === 'fr' || normalized === 'es') return 'en';
+  return 'fr';
 }
 
 export function resolveInventoryDisplayCopy(item: InventoryTranslatableLike, viewerLanguage?: string | null): InventoryDisplayCopy {

@@ -68,7 +68,7 @@ function canUseSearchSuggestions(value: string) {
   return normalizeSearchText(value).length >= minSearchSuggestionLength;
 }
 
-function buildFeedQuery(query: string, modeFilter: ModeFilter, postTypeFilter: PostTypeFilter, category: string, imagesOnly: boolean, moneyOnly: boolean, refreshSeed: string, seenTradeIds: string[], language: 'en' | 'fr', countryCode?: string | null): ListTradesFeedQuery {
+function buildFeedQuery(query: string, modeFilter: ModeFilter, postTypeFilter: PostTypeFilter, category: string, imagesOnly: boolean, moneyOnly: boolean, refreshSeed: string, seenTradeIds: string[], language: 'en' | 'fr' | 'es', countryCode?: string | null): ListTradesFeedQuery {
   return {
     q: normalizeSearchText(query) || undefined,
     mode: modeFilter === 'all' ? undefined : modeFilter,

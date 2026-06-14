@@ -477,7 +477,7 @@ const adminLibraryTemplateBaseSchema = z.object({
   title: z.string().trim().min(3).max(70),
   description: z.string().trim().min(10).max(500),
   itemType: z.enum(['service', 'goods', 'other']).optional().default('service'),
-  languageCode: z.enum(['en', 'fr']).optional().default('en'),
+  languageCode: z.enum(['en', 'fr', 'es']).optional().default('en'),
   countryCode: z.preprocess((value) => {
     if (value === null || value === undefined) return null;
     if (typeof value !== 'string') return value;
@@ -510,7 +510,7 @@ const adminListLibraryQuerySchema = z.object({
   kind: adminLibraryKindFilterSchema,
   status: adminLibraryStatusFilterSchema,
   q: z.string().trim().min(1).max(120).optional(),
-  languageCode: z.enum(['en', 'fr']).optional(),
+  languageCode: z.enum(['en', 'fr', 'es']).optional(),
   countryCode: z.string().trim().length(2).transform((value) => value.toUpperCase()).optional(),
   sourceType: z.enum(['all', 'hellowhen', 'business', 'brand', 'partner']).optional().default('all'),
   businessProfileId: z.string().trim().min(1).optional(),

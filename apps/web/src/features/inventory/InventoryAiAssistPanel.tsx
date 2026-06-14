@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { AiAssistResponse, DiscoveryLanguage, PlusAiAssistQuotaSummary, PlusAiAssistTaskType } from '@hellowhen/contracts';
+import { getAlternateInventoryLanguage } from '@hellowhen/shared';
 import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_TITLE_MAX_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
@@ -57,10 +58,6 @@ function formatResetDate(value?: string | null) {
   }
 }
 
-function alternateLanguage(language: DiscoveryLanguage): DiscoveryLanguage {
-  return language === 'fr' ? 'en' : 'fr';
-}
-
 function compactList(value: string) {
   return value.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 8);
 }
@@ -75,7 +72,7 @@ export function InventoryAiAssistPanel({ kind, title, description, defaultLangua
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const targetLanguage = alternateLanguage(defaultLanguage);
+  const targetLanguage = getAlternateInventoryLanguage(defaultLanguage) as DiscoveryLanguage;
   const quotaLabel = useMemo(() => {
     if (!usage) return t('inventory.aiAssist.quotaUnknown');
     return t('inventory.aiAssist.quotaLabel', { used: usage.used, quota: usage.quota, remaining: usage.remaining, reset: formatResetDate(usage.resetAt) });
