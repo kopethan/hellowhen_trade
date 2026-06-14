@@ -34,6 +34,8 @@ type RequiredProposalSide = 'need' | 'offer' | null;
 type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
 type EntryInfoMode = 'guide' | 'report' | null;
 
+const PROPOSAL_MESSAGE_MIN_LENGTH = 3;
+
 const tradeStatuses: TradeStatus[] = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled'];
 function normalizeStatus(status?: string): TradeStatus { return tradeStatuses.includes(status as TradeStatus) ? status as TradeStatus : 'active'; }
 function fallback(params: RootStackParamList['TradePrivateProposals']): TradeDeckItem { return { id: params.tradeId, ownerId: 'unknown', providerId: null, title: params.title ?? 'Trade', description: '', creditAmount: 0, amountCents: 0, currency: 'eur', status: normalizeStatus(params.status), isPublic: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: null, closedAt: null, postType: 'need_offer', previewTheme: 'default' }; }
@@ -161,6 +163,7 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
   async function createProposal() {
     const trimmed = proposalDraft.trim();
     if (!trimmed && !selectedProposalNeed && !selectedProposalOffer) return;
+    if (trimmed && trimmed.length < PROPOSAL_MESSAGE_MIN_LENGTH) { setError(t('trade.proposals.messageTooShort')); return; }
     if (proposalDraft.length > PROPOSAL_MESSAGE_MAX_LENGTH) { setError(t('trade.proposals.messageTooLong', { max: PROPOSAL_MESSAGE_MAX_LENGTH })); return; }
     const packagePrototypeActive = packagePrototypeEnabled && betaFeatures.proTradePackageFeatures.visible && ['need', 'offer'].includes(requiredSide ?? '');
     if (packagePrototypeActive && requiredSide === 'offer' && supportingProposalOfferIds.length === 0) { setError('Choose at least one supporting Offer for the Pro package.'); return; }
@@ -433,9 +436,11 @@ function CashPromiseProposalSummary({ amountCents, currency, side, note, theme, 
 function ProposalComposer({ requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeed, selectedOffer, selectedCashPromise, onChooseNeed, onChooseOffer, onRemoveNeed, onRemoveOffer, theme, t }: { requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeed: NeedItem | null; selectedOffer: OfferItem | null; selectedCashPromise: Extract<TradeCreateSideSelection, { kind: 'cash_promise' }> | null; onChooseNeed: () => void; onChooseOffer: () => void; onRemoveNeed: () => void; onRemoveOffer: () => void; theme: ThemeTokens; t: TFunction }) {
   const cashPromiseSide = selectedCashPromise?.side ?? null;
   const messageLength = value.length;
+  const trimmedMessageLength = value.trim().length;
+  const messageTooShort = trimmedMessageLength > 0 && trimmedMessageLength < PROPOSAL_MESSAGE_MIN_LENGTH;
   const messageOverLimit = messageLength > PROPOSAL_MESSAGE_MAX_LENGTH;
   const hasContent = value.trim().length > 0 || Boolean(selectedNeed) || Boolean(selectedOffer);
-  const disabled = loading || !hasContent || messageOverLimit;
+  const disabled = loading || !hasContent || messageTooShort || messageOverLimit;
   const placeholder = requiredSide === 'offer' ? t('trade.proposals.placeholderOffer') : requiredSide === 'need' ? t('trade.proposals.placeholderNeed') : t('trade.proposals.placeholderTrade');
   const submitLabel = loading ? t('trade.proposals.sending') : requiredSide === 'offer' ? t('trade.proposals.sendOfferProposal') : requiredSide === 'need' ? t('trade.proposals.sendNeedProposal') : t('trade.proposals.askToTrade');
   const selectedCashText = selectedCashPromise ? `${formatMoney(selectedCashPromise.amountCents, selectedCashPromise.currency)} · ${t('trade.cashPromise.notProcessed')}` : null;
@@ -445,11 +450,12 @@ function ProposalComposer({ requiredSide, value, onChange, onSubmit, loading, si
       <AppText style={styles.composerTitle}>{t('trade.privateProposalsEntry.startTitle')}</AppText>
       <View style={styles.messageComposerBlock}>
         <AppText style={styles.threadLabel}>{t('trade.labels.message')}</AppText>
-        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
+        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit || messageTooShort ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
         <View style={styles.messageCounterRow}>
           <AppText style={[styles.messageLimitText, { color: theme.color.muted }]}>{t('trade.proposals.messageLimitHelper', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
-          <AppText style={[styles.messageCounterText, { color: messageOverLimit ? theme.semantic.danger.text : theme.color.muted }]}>{t('trade.proposals.messageCounter', { count: messageLength, max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
+          <AppText style={[styles.messageCounterText, { color: messageOverLimit || messageTooShort ? theme.semantic.danger.text : theme.color.muted }]}>{t('trade.proposals.messageCounter', { count: messageLength, max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
         </View>
+        {messageTooShort ? <AppText style={[styles.messageErrorText, { color: theme.semantic.danger.text }]}>{t('trade.proposals.messageTooShort')}</AppText> : null}
         {messageOverLimit ? <AppText style={[styles.messageErrorText, { color: theme.semantic.danger.text }]}>{t('trade.proposals.messageTooLong', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText> : null}
       </View>
       {sideLoading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.loadingInventory')}</AppText> : null}

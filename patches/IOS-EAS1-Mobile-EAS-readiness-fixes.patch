@@ -1,0 +1,302 @@
+diff --git a/apps/mobile/package.json b/apps/mobile/package.json
+index a2444ab..60ed141 100644
+--- a/apps/mobile/package.json
++++ b/apps/mobile/package.json
+@@ -8,6 +8,7 @@
+     "android": "expo start --android",
+     "ios": "expo start --ios",
+     "web": "expo start --web",
++    "eas-build-post-install": "cd ../.. && npm run build:packages",
+     "typecheck": "tsc --noEmit -p tsconfig.json"
+   },
+   "dependencies": {
+diff --git a/apps/mobile/src/features/account/AgendaScreen.tsx b/apps/mobile/src/features/account/AgendaScreen.tsx
+index 9630bee..6887297 100644
+--- a/apps/mobile/src/features/account/AgendaScreen.tsx
++++ b/apps/mobile/src/features/account/AgendaScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useMemo, useState } from 'react';
+-import { ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View } from 'react-native';
++import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import { useFocusEffect } from '@react-navigation/native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { AgendaItemDto, AgendaItemStatus, AgendaItemType, PlusSubscriptionSnapshotResponse } from '@hellowhen/contracts';
+@@ -134,49 +134,6 @@ function formatItemDateTime(item: AgendaItemDto) {
+   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(start);
+ }
+ 
+-function agendaIcsFilename(title: string) {
+-  const slug = title
+-    .toLowerCase()
+-    .normalize('NFKD')
+-    .replace(/[\u0300-\u036f]/g, '')
+-    .replace(/[^a-z0-9]+/g, '-')
+-    .replace(/^-+|-+$/g, '')
+-    .slice(0, 48) || 'agenda';
+-  return `hellowhen-agenda-${slug}.ics`;
+-}
+-
+-function toGoogleUtcDate(value: Date) {
+-  return value.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+-}
+-
+-function toGoogleAllDayDate(value: Date) {
+-  return `${value.getFullYear()}${pad(value.getMonth() + 1)}${pad(value.getDate())}`;
+-}
+-
+-function googleCalendarDates(item: AgendaItemDto) {
+-  const start = new Date(item.startAt);
+-  const safeStart = Number.isNaN(start.getTime()) ? new Date() : start;
+-  const parsedEnd = item.endAt ? new Date(item.endAt) : null;
+-  const safeEnd = parsedEnd && !Number.isNaN(parsedEnd.getTime()) ? parsedEnd : null;
+-  if (item.allDay) {
+-    const end = addDays(safeEnd ?? safeStart, 1);
+-    return `${toGoogleAllDayDate(safeStart)}/${toGoogleAllDayDate(end)}`;
+-  }
+-  const end = safeEnd ?? new Date(safeStart.getTime() + 60 * 60 * 1000);
+-  return `${toGoogleUtcDate(safeStart)}/${toGoogleUtcDate(end)}`;
+-}
+-
+-function googleCalendarUrl(item: AgendaItemDto, details: string) {
+-  const entries: [string, string][] = [
+-    ['action', 'TEMPLATE'],
+-    ['text', item.title],
+-    ['dates', googleCalendarDates(item)],
+-    ['details', details],
+-  ];
+-  const params = entries.map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&');
+-  return `https://calendar.google.com/calendar/render?${params}`;
+-}
+-
+ function itemTone(item: AgendaItemDto) {
+   if (item.itemType === 'reminder') return 'instruction' as const;
+   if (item.itemType === 'person') return 'proposal' as const;
+@@ -353,33 +310,6 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+     else if (item.sourceType === 'user') navigation.navigate('UserProfile', { userId: item.sourceId, displayName: item.title });
+   }
+ 
+-  async function exportAgendaItem(item: AgendaItemDto) {
+-    setBusyAction(`export-${item.id}`);
+-    setError(null);
+-    setMessage(null);
+-    try {
+-      const ics = await api.agenda.exportItemIcs(item.id);
+-      await Share.share({ title: agendaIcsFilename(item.title), message: ics });
+-      setMessage(t('account.agenda.export.itemExported', { title: item.title }));
+-    } catch (cause) {
+-      setError(getFriendlyApiErrorMessage(cause, t('account.agenda.export.error')));
+-    } finally {
+-      setBusyAction(null);
+-    }
+-  }
+-
+-  async function openGoogleCalendar(item: AgendaItemDto) {
+-    const details = [
+-      item.note?.trim() || null,
+-      t('account.agenda.export.externalDescription'),
+-    ].filter(Boolean).join('\n\n');
+-    try {
+-      await Linking.openURL(googleCalendarUrl(item, details));
+-    } catch (cause) {
+-      setError(getFriendlyApiErrorMessage(cause, t('account.agenda.export.error')));
+-    }
+-  }
+-
+   async function saveEditor() {
+     if (!editor) return;
+     const title = editor.title.trim();
+@@ -531,7 +461,6 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+           <View style={styles.summaryCopy}>
+             <AppText style={styles.summaryTitle}>{t('account.agenda.summaryTitle')}</AppText>
+             <AppText style={[styles.summaryBody, { color: theme.color.muted }]}>{t('account.agenda.summaryBody')}</AppText>
+-            <AppText style={[styles.exportNote, { color: theme.color.muted }]}>{t('account.agenda.export.privacyNote')}</AppText>
+           </View>
+         </AppCard>
+ 
+@@ -607,7 +536,7 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+         ) : (
+           <View style={styles.itemList}>
+             {primaryItems.map((item) => (
+-              <AgendaItemCard key={item.id} item={item} busyAction={busyAction} onDelete={() => setDeleteTarget(item)} onDone={() => { void markDone(item); }} onEdit={() => openEdit(item)} onExport={() => { void exportAgendaItem(item); }} onGoogle={() => { void openGoogleCalendar(item); }} onOpen={() => openLinkedItem(item)} />
++              <AgendaItemCard key={item.id} item={item} busyAction={busyAction} onDelete={() => setDeleteTarget(item)} onDone={() => { void markDone(item); }} onEdit={() => openEdit(item)} onOpen={() => openLinkedItem(item)} />
+             ))}
+           </View>
+         )}
+@@ -624,7 +553,7 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+         ) : (
+           <View style={styles.itemList}>
+             {upcomingItems.map((item) => (
+-              <AgendaItemCard key={item.id} item={item} compact busyAction={busyAction} onDelete={() => setDeleteTarget(item)} onDone={() => { void markDone(item); }} onEdit={() => openEdit(item)} onExport={() => { void exportAgendaItem(item); }} onGoogle={() => { void openGoogleCalendar(item); }} onOpen={() => openLinkedItem(item)} />
++              <AgendaItemCard key={item.id} item={item} compact busyAction={busyAction} onDelete={() => setDeleteTarget(item)} onDone={() => { void markDone(item); }} onEdit={() => openEdit(item)} onOpen={() => openLinkedItem(item)} />
+             ))}
+           </View>
+         )}
+@@ -676,14 +605,13 @@ function FilterChips<TValue extends string>({ active, labelForValue, onChange, v
+   );
+ }
+ 
+-function AgendaItemCard({ busyAction, compact, item, onDelete, onDone, onEdit, onExport, onGoogle, onOpen }: { busyAction: string | null; compact?: boolean; item: AgendaItemDto; onDelete: () => void; onDone: () => void; onEdit: () => void; onExport: () => void; onGoogle: () => void; onOpen: () => void }) {
++function AgendaItemCard({ busyAction, compact, item, onDelete, onDone, onEdit, onOpen }: { busyAction: string | null; compact?: boolean; item: AgendaItemDto; onDelete: () => void; onDone: () => void; onEdit: () => void; onOpen: () => void }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+   const tone = itemTone(item);
+   const semantic = theme.semantic[tone];
+   const canOpen = Boolean(item.sourceId && ['trade', 'need', 'offer', 'proposal', 'user'].includes(item.sourceType));
+   const doneBusy = busyAction === `done-${item.id}`;
+-  const exportBusy = busyAction === `export-${item.id}`;
+   const overdue = isOverdueItem(item);
+ 
+   return (
+@@ -707,8 +635,6 @@ function AgendaItemCard({ busyAction, compact, item, onDelete, onDone, onEdit, o
+       <View style={styles.itemActions}>
+         {canOpen ? <SmallAction label={t('account.agenda.openLinkedItem')} onPress={onOpen} /> : null}
+         <SmallAction label={t('common.actions.edit')} onPress={onEdit} />
+-        <SmallAction label={exportBusy ? t('account.agenda.export.exporting') : t('account.agenda.export.item')} disabled={exportBusy} onPress={onExport} />
+-        <SmallAction label={t('account.agenda.export.google')} onPress={onGoogle} />
+         {item.status === 'active' ? <SmallAction label={doneBusy ? t('common.states.saving') : t('account.agenda.markDone')} disabled={doneBusy} onPress={onDone} /> : null}
+         <SmallAction label={t('common.actions.remove')} danger onPress={onDelete} />
+       </View>
+diff --git a/apps/mobile/src/features/trade/TradeDetailScreen.tsx b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+index 51d4751..453b10e 100644
+--- a/apps/mobile/src/features/trade/TradeDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+@@ -39,6 +39,8 @@ type OffersResponse = { offers: OfferItem[] };
+ type DetailRole = 'owner' | 'provider' | 'applicant' | 'viewer';
+ type RequiredProposalSide = 'need' | 'offer' | null;
+ 
++const PROPOSAL_MESSAGE_MIN_LENGTH = 3;
++
+ const tradeStatuses: TradeStatus[] = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled'];
+ 
+ function normalizeStatus(status?: string): TradeStatus { return tradeStatuses.includes(status as TradeStatus) ? status as TradeStatus : 'active'; }
+@@ -256,6 +258,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+     if (!auth.isAuthenticated) { navigation.navigate('Login'); return; }
+     const trimmed = proposalDraft.trim();
+     if (!trimmed && !selectedProposalNeed && !selectedProposalOffer) return;
++    if (trimmed && trimmed.length < PROPOSAL_MESSAGE_MIN_LENGTH) { setError(t('trade.proposals.messageTooShort')); return; }
+     if (proposalDraft.length > PROPOSAL_MESSAGE_MAX_LENGTH) { setError(t('trade.proposals.messageTooLong', { max: PROPOSAL_MESSAGE_MAX_LENGTH })); return; }
+     setCreatingProposal(true); setError(null); setMessage(null);
+     try {
+@@ -422,8 +425,10 @@ function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, load
+   const selectedNeed = needs.find((need) => need.id === selectedNeedId) ?? null;
+   const selectedOffer = offers.find((offer) => offer.id === selectedOfferId) ?? null;
+   const messageLength = value.length;
++  const trimmedMessageLength = value.trim().length;
++  const messageTooShort = trimmedMessageLength > 0 && trimmedMessageLength < PROPOSAL_MESSAGE_MIN_LENGTH;
+   const messageOverLimit = messageLength > PROPOSAL_MESSAGE_MAX_LENGTH;
+-  const disabled = loading || (!value.trim() && !selectedNeed && !selectedOffer) || messageOverLimit;
++  const disabled = loading || (!value.trim() && !selectedNeed && !selectedOffer) || messageTooShort || messageOverLimit;
+   const placeholder = requiredSide === 'offer'
+     ? t('trade.proposals.placeholderOffer')
+     : requiredSide === 'need'
+@@ -446,11 +451,12 @@ function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, load
+ 
+       <View style={styles.messageComposerBlock}>
+         <AppText style={styles.threadLabel}>{t('trade.labels.message')}</AppText>
+-        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
++        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit || messageTooShort ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
+         <View style={styles.messageCounterRow}>
+           <AppText style={[styles.messageLimitText, { color: theme.color.muted }]}>{t('trade.proposals.messageLimitHelper', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
+-          <AppText style={[styles.messageCounterText, { color: messageOverLimit ? theme.semantic.danger.text : theme.color.muted }]}>{t('trade.proposals.messageCounter', { count: messageLength, max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
++          <AppText style={[styles.messageCounterText, { color: messageOverLimit || messageTooShort ? theme.semantic.danger.text : theme.color.muted }]}>{t('trade.proposals.messageCounter', { count: messageLength, max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
+         </View>
++        {messageTooShort ? <AppText style={[styles.messageErrorText, { color: theme.semantic.danger.text }]}>{t('trade.proposals.messageTooShort')}</AppText> : null}
+         {messageOverLimit ? <AppText style={[styles.messageErrorText, { color: theme.semantic.danger.text }]}>{t('trade.proposals.messageTooLong', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText> : null}
+       </View>
+ 
+diff --git a/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx b/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
+index 3556ea4..125db63 100644
+--- a/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
++++ b/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
+@@ -34,6 +34,8 @@ type RequiredProposalSide = 'need' | 'offer' | null;
+ type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
+ type EntryInfoMode = 'guide' | 'report' | null;
+ 
++const PROPOSAL_MESSAGE_MIN_LENGTH = 3;
++
+ const tradeStatuses: TradeStatus[] = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled'];
+ function normalizeStatus(status?: string): TradeStatus { return tradeStatuses.includes(status as TradeStatus) ? status as TradeStatus : 'active'; }
+ function fallback(params: RootStackParamList['TradePrivateProposals']): TradeDeckItem { return { id: params.tradeId, ownerId: 'unknown', providerId: null, title: params.title ?? 'Trade', description: '', creditAmount: 0, amountCents: 0, currency: 'eur', status: normalizeStatus(params.status), isPublic: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: null, closedAt: null, postType: 'need_offer', previewTheme: 'default' }; }
+@@ -161,6 +163,7 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
+   async function createProposal() {
+     const trimmed = proposalDraft.trim();
+     if (!trimmed && !selectedProposalNeed && !selectedProposalOffer) return;
++    if (trimmed && trimmed.length < PROPOSAL_MESSAGE_MIN_LENGTH) { setError(t('trade.proposals.messageTooShort')); return; }
+     if (proposalDraft.length > PROPOSAL_MESSAGE_MAX_LENGTH) { setError(t('trade.proposals.messageTooLong', { max: PROPOSAL_MESSAGE_MAX_LENGTH })); return; }
+     const packagePrototypeActive = packagePrototypeEnabled && betaFeatures.proTradePackageFeatures.visible && ['need', 'offer'].includes(requiredSide ?? '');
+     if (packagePrototypeActive && requiredSide === 'offer' && supportingProposalOfferIds.length === 0) { setError('Choose at least one supporting Offer for the Pro package.'); return; }
+@@ -433,9 +436,11 @@ function CashPromiseProposalSummary({ amountCents, currency, side, note, theme,
+ function ProposalComposer({ requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeed, selectedOffer, selectedCashPromise, onChooseNeed, onChooseOffer, onRemoveNeed, onRemoveOffer, theme, t }: { requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeed: NeedItem | null; selectedOffer: OfferItem | null; selectedCashPromise: Extract<TradeCreateSideSelection, { kind: 'cash_promise' }> | null; onChooseNeed: () => void; onChooseOffer: () => void; onRemoveNeed: () => void; onRemoveOffer: () => void; theme: ThemeTokens; t: TFunction }) {
+   const cashPromiseSide = selectedCashPromise?.side ?? null;
+   const messageLength = value.length;
++  const trimmedMessageLength = value.trim().length;
++  const messageTooShort = trimmedMessageLength > 0 && trimmedMessageLength < PROPOSAL_MESSAGE_MIN_LENGTH;
+   const messageOverLimit = messageLength > PROPOSAL_MESSAGE_MAX_LENGTH;
+   const hasContent = value.trim().length > 0 || Boolean(selectedNeed) || Boolean(selectedOffer);
+-  const disabled = loading || !hasContent || messageOverLimit;
++  const disabled = loading || !hasContent || messageTooShort || messageOverLimit;
+   const placeholder = requiredSide === 'offer' ? t('trade.proposals.placeholderOffer') : requiredSide === 'need' ? t('trade.proposals.placeholderNeed') : t('trade.proposals.placeholderTrade');
+   const submitLabel = loading ? t('trade.proposals.sending') : requiredSide === 'offer' ? t('trade.proposals.sendOfferProposal') : requiredSide === 'need' ? t('trade.proposals.sendNeedProposal') : t('trade.proposals.askToTrade');
+   const selectedCashText = selectedCashPromise ? `${formatMoney(selectedCashPromise.amountCents, selectedCashPromise.currency)} · ${t('trade.cashPromise.notProcessed')}` : null;
+@@ -445,11 +450,12 @@ function ProposalComposer({ requiredSide, value, onChange, onSubmit, loading, si
+       <AppText style={styles.composerTitle}>{t('trade.privateProposalsEntry.startTitle')}</AppText>
+       <View style={styles.messageComposerBlock}>
+         <AppText style={styles.threadLabel}>{t('trade.labels.message')}</AppText>
+-        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
++        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit || messageTooShort ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
+         <View style={styles.messageCounterRow}>
+           <AppText style={[styles.messageLimitText, { color: theme.color.muted }]}>{t('trade.proposals.messageLimitHelper', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
+-          <AppText style={[styles.messageCounterText, { color: messageOverLimit ? theme.semantic.danger.text : theme.color.muted }]}>{t('trade.proposals.messageCounter', { count: messageLength, max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
++          <AppText style={[styles.messageCounterText, { color: messageOverLimit || messageTooShort ? theme.semantic.danger.text : theme.color.muted }]}>{t('trade.proposals.messageCounter', { count: messageLength, max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
+         </View>
++        {messageTooShort ? <AppText style={[styles.messageErrorText, { color: theme.semantic.danger.text }]}>{t('trade.proposals.messageTooShort')}</AppText> : null}
+         {messageOverLimit ? <AppText style={[styles.messageErrorText, { color: theme.semantic.danger.text }]}>{t('trade.proposals.messageTooLong', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText> : null}
+       </View>
+       {sideLoading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.loadingInventory')}</AppText> : null}
+diff --git a/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx b/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
+index 303d228..2a55e39 100644
+--- a/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
++++ b/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
+@@ -385,10 +385,14 @@ function PublicThreadGuideScreen({ onClose, t }: { onClose: () => void; t: TFunc
+ }
+ 
+ function PublicThreadReportScreen({ mode, onClose }: { mode: Extract<FullScreenMode, { type: 'report' }>; onClose: () => void }) {
++  const reportPanel = mode.targetType === 'public_message'
++    ? <ReportContentPanel targetType="public_message" targetId={mode.targetId} labelKey={mode.labelKey} helperKey={mode.helperKey} initialOpen />
++    : <ReportContentPanel targetType="trade" targetId={mode.targetId} labelKey={mode.labelKey} helperKey={mode.helperKey} initialOpen />;
++
+   return (
+     <AppFixedHeaderScreen header={<AppHeader title={mode.title} onBack={onClose} />}>
+       <ScrollView contentContainerStyle={styles.infoContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+-        <ReportContentPanel targetType={mode.targetType} targetId={mode.targetId} labelKey={mode.labelKey} helperKey={mode.helperKey} initialOpen />
++        {reportPanel}
+       </ScrollView>
+     </AppFixedHeaderScreen>
+   );
+diff --git a/scripts/mobile-launch-smoke.mjs b/scripts/mobile-launch-smoke.mjs
+index e19c9a3..9f7ca43 100644
+--- a/scripts/mobile-launch-smoke.mjs
++++ b/scripts/mobile-launch-smoke.mjs
+@@ -99,7 +99,7 @@ function runNavigationChecks() {
+   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.walletVisible ? <Stack.Screen name="Wallet"', 'Wallet route must stay hidden behind walletVisible.');
+   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.walletVisible ? <Stack.Screen name="BuyCredits"', 'Buy credits route must stay hidden behind walletVisible.');
+   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.payoutsVisible ? <Stack.Screen name="Payouts"', 'Payouts route must stay hidden behind payoutsVisible.');
+-  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.proSubscriptionFeatures.proAccountsVisible ? <Stack.Screen name="ProPlans"', 'Pro plans route must stay hidden behind proAccountsVisible.');
++  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.plusSubscriptionFeatures.plusPublic ? <Stack.Screen name="ProPlans"', 'Plan selection route must stay hidden behind plusPublic.');
+   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.businessAccountsVisible ? <Stack.Screen name="BusinessAccounts"', 'Business route must stay hidden behind businessAccountsVisible.');
+   assertNotContains('apps/mobile/src/navigation/RootNavigator.tsx', 'wallet, support, and beta account tools', 'Logged-out Account copy must not mention wallet while first-launch money UI is hidden.');
+   console.log('Mobile navigation/privacy gates: PASS');
+@@ -165,9 +165,10 @@ function runFormQualityChecks() {
+   assertContains('apps/mobile/src/features/trade/mediaUpload.ts', 'SelectedImageUploadError', 'Mobile image uploads must identify the failed image.');
+   assertContains('apps/mobile/src/features/trade/components/ImagePickerField.tsx', 'MAX_IMAGE_SIZE_BYTES', 'Image picker must reject oversized images before upload.');
+   assertContains('apps/mobile/src/features/trade/components/ImagePickerField.tsx', 'ALLOWED_IMAGE_MIME_TYPES', 'Image picker must restrict images to safe supported formats.');
+-  assertContains('apps/mobile/src/features/trade/CreateNeedScreen.tsx', 'uploadProgress', 'Create Need must show upload progress while saving images.');
+-  assertContains('apps/mobile/src/features/trade/CreateOfferScreen.tsx', 'uploadProgress', 'Create Offer must show upload progress while saving images.');
+-  assertContains('apps/mobile/src/features/trade/CreateProposalScreen.tsx', 'messageError', 'Create Proposal must show a validation error for short messages.');
++  assertContains('apps/mobile/src/features/trade/CreateNeedScreen.tsx', 'InventoryCreateWizardScreen', 'Create Need must use the shared wizard that shows upload progress while saving images.');
++  assertContains('apps/mobile/src/features/trade/CreateOfferScreen.tsx', 'InventoryCreateWizardScreen', 'Create Offer must use the shared wizard that shows upload progress while saving images.');
++  assertContains('apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx', 'uploadProgress', 'Create Need/Offer wizard must show upload progress while saving images.');
++  assertContains('apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx', 'messageTooShort', 'Create Proposal must show a validation error for short messages.');
+   console.log('Mobile form/upload quality guards: PASS');
+ }
+ 

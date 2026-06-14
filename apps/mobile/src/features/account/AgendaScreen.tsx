@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AgendaItemDto, AgendaItemStatus, AgendaItemType, PlusSubscriptionSnapshotResponse } from '@hellowhen/contracts';
@@ -132,49 +132,6 @@ function formatItemDateTime(item: AgendaItemDto) {
   if (Number.isNaN(start.getTime())) return item.startAt;
   if (item.allDay) return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(start);
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(start);
-}
-
-function agendaIcsFilename(title: string) {
-  const slug = title
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48) || 'agenda';
-  return `hellowhen-agenda-${slug}.ics`;
-}
-
-function toGoogleUtcDate(value: Date) {
-  return value.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-}
-
-function toGoogleAllDayDate(value: Date) {
-  return `${value.getFullYear()}${pad(value.getMonth() + 1)}${pad(value.getDate())}`;
-}
-
-function googleCalendarDates(item: AgendaItemDto) {
-  const start = new Date(item.startAt);
-  const safeStart = Number.isNaN(start.getTime()) ? new Date() : start;
-  const parsedEnd = item.endAt ? new Date(item.endAt) : null;
-  const safeEnd = parsedEnd && !Number.isNaN(parsedEnd.getTime()) ? parsedEnd : null;
-  if (item.allDay) {
-    const end = addDays(safeEnd ?? safeStart, 1);
-    return `${toGoogleAllDayDate(safeStart)}/${toGoogleAllDayDate(end)}`;
-  }
-  const end = safeEnd ?? new Date(safeStart.getTime() + 60 * 60 * 1000);
-  return `${toGoogleUtcDate(safeStart)}/${toGoogleUtcDate(end)}`;
-}
-
-function googleCalendarUrl(item: AgendaItemDto, details: string) {
-  const entries: [string, string][] = [
-    ['action', 'TEMPLATE'],
-    ['text', item.title],
-    ['dates', googleCalendarDates(item)],
-    ['details', details],
-  ];
-  const params = entries.map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&');
-  return `https://calendar.google.com/calendar/render?${params}`;
 }
 
 function itemTone(item: AgendaItemDto) {
@@ -353,33 +310,6 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
     else if (item.sourceType === 'user') navigation.navigate('UserProfile', { userId: item.sourceId, displayName: item.title });
   }
 
-  async function exportAgendaItem(item: AgendaItemDto) {
-    setBusyAction(`export-${item.id}`);
-    setError(null);
-    setMessage(null);
-    try {
-      const ics = await api.agenda.exportItemIcs(item.id);
-      await Share.share({ title: agendaIcsFilename(item.title), message: ics });
-      setMessage(t('account.agenda.export.itemExported', { title: item.title }));
-    } catch (cause) {
-      setError(getFriendlyApiErrorMessage(cause, t('account.agenda.export.error')));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function openGoogleCalendar(item: AgendaItemDto) {
-    const details = [
-      item.note?.trim() || null,
-      t('account.agenda.export.externalDescription'),
-    ].filter(Boolean).join('\n\n');
-    try {
-      await Linking.openURL(googleCalendarUrl(item, details));
-    } catch (cause) {
-      setError(getFriendlyApiErrorMessage(cause, t('account.agenda.export.error')));
-    }
-  }
-
   async function saveEditor() {
     if (!editor) return;
     const title = editor.title.trim();
@@ -531,7 +461,6 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
           <View style={styles.summaryCopy}>
             <AppText style={styles.summaryTitle}>{t('account.agenda.summaryTitle')}</AppText>
             <AppText style={[styles.summaryBody, { color: theme.color.muted }]}>{t('account.agenda.summaryBody')}</AppText>
-            <AppText style={[styles.exportNote, { color: theme.color.muted }]}>{t('account.agenda.export.privacyNote')}</AppText>
           </View>
         </AppCard>
 
@@ -607,7 +536,7 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
         ) : (
           <View style={styles.itemList}>
             {primaryItems.map((item) => (
-              <AgendaItemCard key={item.id} item={item} busyAction={busyAction} onDelete={() => setDeleteTarget(item)} onDone={() => { void markDone(item); }} onEdit={() => openEdit(item)} onExport={() => { void exportAgendaItem(item); }} onGoogle={() => { void openGoogleCalendar(item); }} onOpen={() => openLinkedItem(item)} />
+              <AgendaItemCard key={item.id} item={item} busyAction={busyAction} onDelete={() => setDeleteTarget(item)} onDone={() => { void markDone(item); }} onEdit={() => openEdit(item)} onOpen={() => openLinkedItem(item)} />
             ))}
           </View>
         )}
@@ -624,7 +553,7 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
         ) : (
           <View style={styles.itemList}>
             {upcomingItems.map((item) => (
-              <AgendaItemCard key={item.id} item={item} compact busyAction={busyAction} onDelete={() => setDeleteTarget(item)} onDone={() => { void markDone(item); }} onEdit={() => openEdit(item)} onExport={() => { void exportAgendaItem(item); }} onGoogle={() => { void openGoogleCalendar(item); }} onOpen={() => openLinkedItem(item)} />
+              <AgendaItemCard key={item.id} item={item} compact busyAction={busyAction} onDelete={() => setDeleteTarget(item)} onDone={() => { void markDone(item); }} onEdit={() => openEdit(item)} onOpen={() => openLinkedItem(item)} />
             ))}
           </View>
         )}
@@ -676,14 +605,13 @@ function FilterChips<TValue extends string>({ active, labelForValue, onChange, v
   );
 }
 
-function AgendaItemCard({ busyAction, compact, item, onDelete, onDone, onEdit, onExport, onGoogle, onOpen }: { busyAction: string | null; compact?: boolean; item: AgendaItemDto; onDelete: () => void; onDone: () => void; onEdit: () => void; onExport: () => void; onGoogle: () => void; onOpen: () => void }) {
+function AgendaItemCard({ busyAction, compact, item, onDelete, onDone, onEdit, onOpen }: { busyAction: string | null; compact?: boolean; item: AgendaItemDto; onDelete: () => void; onDone: () => void; onEdit: () => void; onOpen: () => void }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
   const tone = itemTone(item);
   const semantic = theme.semantic[tone];
   const canOpen = Boolean(item.sourceId && ['trade', 'need', 'offer', 'proposal', 'user'].includes(item.sourceType));
   const doneBusy = busyAction === `done-${item.id}`;
-  const exportBusy = busyAction === `export-${item.id}`;
   const overdue = isOverdueItem(item);
 
   return (
@@ -707,8 +635,6 @@ function AgendaItemCard({ busyAction, compact, item, onDelete, onDone, onEdit, o
       <View style={styles.itemActions}>
         {canOpen ? <SmallAction label={t('account.agenda.openLinkedItem')} onPress={onOpen} /> : null}
         <SmallAction label={t('common.actions.edit')} onPress={onEdit} />
-        <SmallAction label={exportBusy ? t('account.agenda.export.exporting') : t('account.agenda.export.item')} disabled={exportBusy} onPress={onExport} />
-        <SmallAction label={t('account.agenda.export.google')} onPress={onGoogle} />
         {item.status === 'active' ? <SmallAction label={doneBusy ? t('common.states.saving') : t('account.agenda.markDone')} disabled={doneBusy} onPress={onDone} /> : null}
         <SmallAction label={t('common.actions.remove')} danger onPress={onDelete} />
       </View>

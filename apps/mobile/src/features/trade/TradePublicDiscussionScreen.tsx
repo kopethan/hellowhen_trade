@@ -385,10 +385,14 @@ function PublicThreadGuideScreen({ onClose, t }: { onClose: () => void; t: TFunc
 }
 
 function PublicThreadReportScreen({ mode, onClose }: { mode: Extract<FullScreenMode, { type: 'report' }>; onClose: () => void }) {
+  const reportPanel = mode.targetType === 'public_message'
+    ? <ReportContentPanel targetType="public_message" targetId={mode.targetId} labelKey={mode.labelKey} helperKey={mode.helperKey} initialOpen />
+    : <ReportContentPanel targetType="trade" targetId={mode.targetId} labelKey={mode.labelKey} helperKey={mode.helperKey} initialOpen />;
+
   return (
     <AppFixedHeaderScreen header={<AppHeader title={mode.title} onBack={onClose} />}>
       <ScrollView contentContainerStyle={styles.infoContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        <ReportContentPanel targetType={mode.targetType} targetId={mode.targetId} labelKey={mode.labelKey} helperKey={mode.helperKey} initialOpen />
+        {reportPanel}
       </ScrollView>
     </AppFixedHeaderScreen>
   );

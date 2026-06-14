@@ -99,7 +99,7 @@ function runNavigationChecks() {
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.walletVisible ? <Stack.Screen name="Wallet"', 'Wallet route must stay hidden behind walletVisible.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.walletVisible ? <Stack.Screen name="BuyCredits"', 'Buy credits route must stay hidden behind walletVisible.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.payoutsVisible ? <Stack.Screen name="Payouts"', 'Payouts route must stay hidden behind payoutsVisible.');
-  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.proSubscriptionFeatures.proAccountsVisible ? <Stack.Screen name="ProPlans"', 'Pro plans route must stay hidden behind proAccountsVisible.');
+  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.plusSubscriptionFeatures.plusPublic ? <Stack.Screen name="ProPlans"', 'Plan selection route must stay hidden behind plusPublic.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.businessAccountsVisible ? <Stack.Screen name="BusinessAccounts"', 'Business route must stay hidden behind businessAccountsVisible.');
   assertNotContains('apps/mobile/src/navigation/RootNavigator.tsx', 'wallet, support, and beta account tools', 'Logged-out Account copy must not mention wallet while first-launch money UI is hidden.');
   console.log('Mobile navigation/privacy gates: PASS');
@@ -165,9 +165,10 @@ function runFormQualityChecks() {
   assertContains('apps/mobile/src/features/trade/mediaUpload.ts', 'SelectedImageUploadError', 'Mobile image uploads must identify the failed image.');
   assertContains('apps/mobile/src/features/trade/components/ImagePickerField.tsx', 'MAX_IMAGE_SIZE_BYTES', 'Image picker must reject oversized images before upload.');
   assertContains('apps/mobile/src/features/trade/components/ImagePickerField.tsx', 'ALLOWED_IMAGE_MIME_TYPES', 'Image picker must restrict images to safe supported formats.');
-  assertContains('apps/mobile/src/features/trade/CreateNeedScreen.tsx', 'uploadProgress', 'Create Need must show upload progress while saving images.');
-  assertContains('apps/mobile/src/features/trade/CreateOfferScreen.tsx', 'uploadProgress', 'Create Offer must show upload progress while saving images.');
-  assertContains('apps/mobile/src/features/trade/CreateProposalScreen.tsx', 'messageError', 'Create Proposal must show a validation error for short messages.');
+  assertContains('apps/mobile/src/features/trade/CreateNeedScreen.tsx', 'InventoryCreateWizardScreen', 'Create Need must use the shared wizard that shows upload progress while saving images.');
+  assertContains('apps/mobile/src/features/trade/CreateOfferScreen.tsx', 'InventoryCreateWizardScreen', 'Create Offer must use the shared wizard that shows upload progress while saving images.');
+  assertContains('apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx', 'uploadProgress', 'Create Need/Offer wizard must show upload progress while saving images.');
+  assertContains('apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx', 'messageTooShort', 'Create Proposal must show a validation error for short messages.');
   console.log('Mobile form/upload quality guards: PASS');
 }
 

@@ -39,6 +39,8 @@ type OffersResponse = { offers: OfferItem[] };
 type DetailRole = 'owner' | 'provider' | 'applicant' | 'viewer';
 type RequiredProposalSide = 'need' | 'offer' | null;
 
+const PROPOSAL_MESSAGE_MIN_LENGTH = 3;
+
 const tradeStatuses: TradeStatus[] = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled'];
 
 function normalizeStatus(status?: string): TradeStatus { return tradeStatuses.includes(status as TradeStatus) ? status as TradeStatus : 'active'; }
@@ -256,6 +258,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
     if (!auth.isAuthenticated) { navigation.navigate('Login'); return; }
     const trimmed = proposalDraft.trim();
     if (!trimmed && !selectedProposalNeed && !selectedProposalOffer) return;
+    if (trimmed && trimmed.length < PROPOSAL_MESSAGE_MIN_LENGTH) { setError(t('trade.proposals.messageTooShort')); return; }
     if (proposalDraft.length > PROPOSAL_MESSAGE_MAX_LENGTH) { setError(t('trade.proposals.messageTooLong', { max: PROPOSAL_MESSAGE_MAX_LENGTH })); return; }
     setCreatingProposal(true); setError(null); setMessage(null);
     try {
@@ -422,8 +425,10 @@ function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, load
   const selectedNeed = needs.find((need) => need.id === selectedNeedId) ?? null;
   const selectedOffer = offers.find((offer) => offer.id === selectedOfferId) ?? null;
   const messageLength = value.length;
+  const trimmedMessageLength = value.trim().length;
+  const messageTooShort = trimmedMessageLength > 0 && trimmedMessageLength < PROPOSAL_MESSAGE_MIN_LENGTH;
   const messageOverLimit = messageLength > PROPOSAL_MESSAGE_MAX_LENGTH;
-  const disabled = loading || (!value.trim() && !selectedNeed && !selectedOffer) || messageOverLimit;
+  const disabled = loading || (!value.trim() && !selectedNeed && !selectedOffer) || messageTooShort || messageOverLimit;
   const placeholder = requiredSide === 'offer'
     ? t('trade.proposals.placeholderOffer')
     : requiredSide === 'need'
@@ -446,11 +451,12 @@ function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, load
 
       <View style={styles.messageComposerBlock}>
         <AppText style={styles.threadLabel}>{t('trade.labels.message')}</AppText>
-        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
+        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit || messageTooShort ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
         <View style={styles.messageCounterRow}>
           <AppText style={[styles.messageLimitText, { color: theme.color.muted }]}>{t('trade.proposals.messageLimitHelper', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
-          <AppText style={[styles.messageCounterText, { color: messageOverLimit ? theme.semantic.danger.text : theme.color.muted }]}>{t('trade.proposals.messageCounter', { count: messageLength, max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
+          <AppText style={[styles.messageCounterText, { color: messageOverLimit || messageTooShort ? theme.semantic.danger.text : theme.color.muted }]}>{t('trade.proposals.messageCounter', { count: messageLength, max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
         </View>
+        {messageTooShort ? <AppText style={[styles.messageErrorText, { color: theme.semantic.danger.text }]}>{t('trade.proposals.messageTooShort')}</AppText> : null}
         {messageOverLimit ? <AppText style={[styles.messageErrorText, { color: theme.semantic.danger.text }]}>{t('trade.proposals.messageTooLong', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText> : null}
       </View>
 
