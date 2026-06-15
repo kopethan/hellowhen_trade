@@ -56,6 +56,7 @@ export const inventory = {
     allFolders: 'Todo',
     folderFilter: 'Filtro de carpeta',
     folderItemCount: '{{count}} elementos',
+    starterPack: 'Pack inicial',
   },
   permissions: {
     ...enInventory.permissions,
@@ -73,6 +74,14 @@ export const inventory = {
     services: 'Servicios',
     goods: 'Bienes',
     other: 'Otro',
+  },
+  starterPacks: {
+    all: 'Todas las ideas',
+    creative: 'Ayuda creativa',
+    startup: 'Startup / proyecto',
+    languageAdmin: 'Idioma / admin',
+    local: 'Ayuda local',
+    objectsAccess: 'Objetos / acceso',
   },
   modes: {
     remote: 'Remoto',

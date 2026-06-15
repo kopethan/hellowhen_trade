@@ -11,6 +11,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { getInventoryMetadata, itemTypeLabel, mediaSrc, normalizeInventoryList } from '../inventory/inventoryPresentation';
+import { STARTER_PACK_FILTERS, matchesStarterPackFilter, type StarterPackFilter } from '../inventory/starterTemplateFilters';
 
 type Side = 'need' | 'offer';
 type Inventory = NeedDto | OfferDto;
@@ -235,6 +236,7 @@ export function ProposalSideChoosePage({
   const [templates, setTemplates] = useState<InventoryTemplateDto[]>([]);
   const [query, setQuery] = useState('');
   const [itemTypeFilter, setItemTypeFilter] = useState<ItemTypeFilter>('all');
+  const [starterPackFilter, setStarterPackFilter] = useState<StarterPackFilter>('all');
   const [loadState, setLoadState] = useState<LoadState>('idle');
   const [templateLoading, setTemplateLoading] = useState(false);
   const [notice, setNotice] = useState('');
@@ -319,11 +321,12 @@ export function ProposalSideChoosePage({
   const filteredTemplates = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return templates.filter((template) => {
+      const matchesPack = matchesStarterPackFilter(template, starterPackFilter);
       const matchesType = itemTypeFilter === 'all' || (template.itemType ?? 'service') === itemTypeFilter;
       const matchesSearch = !needle || templateSearchText(template).includes(needle);
-      return matchesType && matchesSearch;
+      return matchesPack && matchesType && matchesSearch;
     });
-  }, [itemTypeFilter, query, templates]);
+  }, [itemTypeFilter, query, starterPackFilter, templates]);
   const templateSections = useMemo(() => groupTemplates(filteredTemplates), [filteredTemplates]);
 
   async function handleUseTemplate(template: InventoryTemplateDto) {
@@ -486,12 +489,21 @@ export function ProposalSideChoosePage({
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('trade.sidePicker.searchStarter', { items: pluralLabel })} type="search" autoFocus />
           </label>
 
-          <div className="inventory-type-filters trade-side-template-filters" aria-label={t('inventory.labels.type')}>
-            {ITEM_TYPE_FILTERS.map((filter) => (
-              <button key={filter.value} type="button" className={itemTypeFilter === filter.value ? 'is-active' : ''} onClick={() => setItemTypeFilter(filter.value)}>
-                {t(filter.key)}
-              </button>
-            ))}
+          <div className="inventory-starter-filter-stack trade-side-template-filter-stack">
+            <div className="inventory-type-filters trade-side-template-filters" aria-label={t('inventory.labels.starterPack')}>
+              {STARTER_PACK_FILTERS.map((filter) => (
+                <button key={filter.value} type="button" className={starterPackFilter === filter.value ? 'is-active' : ''} onClick={() => setStarterPackFilter(filter.value)}>
+                  {t(filter.key)}
+                </button>
+              ))}
+            </div>
+            <div className="inventory-type-filters trade-side-template-filters" aria-label={t('inventory.labels.type')}>
+              {ITEM_TYPE_FILTERS.map((filter) => (
+                <button key={filter.value} type="button" className={itemTypeFilter === filter.value ? 'is-active' : ''} onClick={() => setItemTypeFilter(filter.value)}>
+                  {t(filter.key)}
+                </button>
+              ))}
+            </div>
           </div>
 
           {templateError ? <p className="notice-box danger inventory-library-notice">{templateError}</p> : null}

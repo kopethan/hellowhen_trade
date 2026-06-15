@@ -52,6 +52,7 @@ export const inventory = {
     allFolders: 'Tous',
     folderFilter: 'Filtre de dossier',
     folderItemCount: '{{count}} éléments',
+    starterPack: 'Pack de départ',
   },
   permissions: {
     imagePickerTitle: 'Choisir des images',
@@ -68,6 +69,14 @@ export const inventory = {
     services: 'Services',
     goods: 'Biens',
     other: 'Autre',
+  },
+  starterPacks: {
+    all: 'Toutes les idées',
+    creative: 'Aide créative',
+    startup: 'Startup / projet',
+    languageAdmin: 'Langue / admin',
+    local: 'Aide locale',
+    objectsAccess: 'Objets / accès',
   },
   modes: {
     remote: 'À distance',

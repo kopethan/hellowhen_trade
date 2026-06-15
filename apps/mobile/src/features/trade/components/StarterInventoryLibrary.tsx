@@ -9,6 +9,7 @@ import { InfoNotice, SemanticBadge } from '../../../components/SemanticUI';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { useTranslation } from '../../../providers/MobileI18nProvider';
 import { itemTypeLabel, itemTypePluralLabel, modeLabel } from './InventoryFormFields';
+import { STARTER_PACK_FILTERS, matchesStarterPackFilter, type StarterPackFilter } from './starterTemplateFilters';
 import { resolveMediaUrl } from '../mediaUrls';
 
 type TemplateKind = 'need' | 'offer';
@@ -94,16 +95,18 @@ export function StarterInventoryLibrary({
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [itemTypeFilter, setItemTypeFilter] = useState<ItemTypeFilter>('all');
+  const [starterPackFilter, setStarterPackFilter] = useState<StarterPackFilter>('all');
   const plural = kind === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
   const defaultActionLabel = kind === 'need' ? t('inventory.actions.useThisNeed') : t('inventory.actions.useThisOffer');
   const filteredTemplates = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return templates.filter((template) => {
+      const matchesPack = matchesStarterPackFilter(template, starterPackFilter);
       const matchesType = itemTypeFilter === 'all' || (template.itemType ?? 'service') === itemTypeFilter;
       const matchesSearch = !needle || templateSearchText(template, t).includes(needle);
-      return matchesType && matchesSearch;
+      return matchesPack && matchesType && matchesSearch;
     });
-  }, [itemTypeFilter, query, t, templates]);
+  }, [itemTypeFilter, query, starterPackFilter, t, templates]);
   const sections = useMemo(() => groupedTemplates(filteredTemplates, t), [filteredTemplates, t]);
 
   return (
@@ -122,25 +125,47 @@ export function StarterInventoryLibrary({
         />
       </View>
 
-      <View style={styles.filterRow}>
-        {itemTypeFilters.map((filter) => {
-          const selected = itemTypeFilter === filter;
-          return (
-            <Pressable
-              key={filter}
-              accessibilityRole="button"
-              onPress={() => setItemTypeFilter(filter)}
-              style={({ pressed }) => [
-                styles.filterChip,
-                { backgroundColor: theme.color.surface, borderColor: theme.color.border },
-                selected && { backgroundColor: theme.color.text, borderColor: theme.color.text },
-                pressed && styles.pressed,
-              ]}
-            >
-              <AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{itemTypePluralLabel(filter, t)}</AppText>
-            </Pressable>
-          );
-        })}
+      <View style={styles.filterStack}>
+        <View style={styles.filterRow}>
+          {STARTER_PACK_FILTERS.map((filter) => {
+            const selected = starterPackFilter === filter.value;
+            return (
+              <Pressable
+                key={filter.value}
+                accessibilityRole="button"
+                onPress={() => setStarterPackFilter(filter.value)}
+                style={({ pressed }) => [
+                  styles.filterChip,
+                  { backgroundColor: theme.color.surface, borderColor: theme.color.border },
+                  selected && { backgroundColor: theme.color.text, borderColor: theme.color.text },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{t(filter.key)}</AppText>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={styles.filterRow}>
+          {itemTypeFilters.map((filter) => {
+            const selected = itemTypeFilter === filter;
+            return (
+              <Pressable
+                key={filter}
+                accessibilityRole="button"
+                onPress={() => setItemTypeFilter(filter)}
+                style={({ pressed }) => [
+                  styles.filterChip,
+                  { backgroundColor: theme.color.surface, borderColor: theme.color.border },
+                  selected && { backgroundColor: theme.color.text, borderColor: theme.color.text },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{itemTypePluralLabel(filter, t)}</AppText>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
 
       {error ? <InfoNotice tone="danger" title={t('inventory.errors.starterLibraryError')} body={error} /> : null}
@@ -250,6 +275,7 @@ const styles = StyleSheet.create({
   wrapper: { gap: 12 },
   searchBox: { minHeight: 48, borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
   searchInput: { flex: 1, fontSize: 15, fontWeight: '800', paddingVertical: 0 },
+  filterStack: { gap: 8 },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   filterChip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
   filterChipText: { fontSize: 13, fontWeight: '900' },

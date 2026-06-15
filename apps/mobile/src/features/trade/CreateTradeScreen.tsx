@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, type CashPromiseInput, type TradeExchangeMode, type TradePostType } from '@hellowhen/contracts';
+import { CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, type CashPromiseInput, type InventoryTemplateDto, type TradeExchangeMode, type TradePostType } from '@hellowhen/contracts';
 import { buildGeneratedTradeDisplay, formatMoney, getNextWizardStepId, getPreviousWizardStepId, type GeneratedTradeDisplayLabels, type WizardStepDefinition } from '@hellowhen/shared';
 import type { ThemeTokens } from '@hellowhen/theme';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -25,6 +25,7 @@ import { categoryLabel, itemTypeLabel, modeLabel } from './components/InventoryF
 import { TradeSquareDeck } from './components/TradeSquareDeck';
 import { buildTradeSquareDeckCards } from './components/TradeSquareDeckCards';
 import { buildMobileWizardDraftKey, useMobileWizardDraft, WizardFooter, WizardShell } from './create';
+import { feedTradeIdeas, getLocalizedTemplateKeyCandidates, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
 import type { NeedItem, OfferItem, TradeDeckItem } from './types';
 
 export type TradeCreateSide = 'need' | 'offer';
@@ -47,12 +48,34 @@ export type TradeSidePickerParams = {
   proposalOfferId?: string;
   initialSourceMode?: InlineSourceMode;
 };
-export type TradeCreateReturnParams = { selectedTradeSide?: TradeCreateSideSelection; initialPostType?: TradePostType | null; initialNeedSelection?: TradeCreateSideSelection | null; initialOfferSelection?: TradeCreateSideSelection | null; initialExpiryDays?: number | null } | undefined;
+export type TradeCreateReturnParams = { selectedTradeSide?: TradeCreateSideSelection; initialPostType?: TradePostType | null; initialNeedSelection?: TradeCreateSideSelection | null; initialOfferSelection?: TradeCreateSideSelection | null; initialExpiryDays?: number | null; initialIdeaKey?: FeedTradeIdeaKey | null } | undefined;
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateTrade'>;
 type NeedsResponse = { needs: NeedItem[] };
 type OffersResponse = { offers: OfferItem[] };
 type CreateTradeResponse = { trade: TradeDeckItem };
+
+type InventoryTemplatesResponse = { templates?: InventoryTemplateDto[] };
+type CloneInventoryTemplateResponse = { need?: NeedItem; offer?: OfferItem };
+
+function normalizeTemplateResponse(value: unknown): InventoryTemplateDto[] {
+  if (!value || typeof value !== 'object') return [];
+  const templates = (value as InventoryTemplatesResponse).templates;
+  return Array.isArray(templates) ? templates : [];
+}
+
+function clonedNeedFromResponse(value: unknown): NeedItem | null {
+  if (!value || typeof value !== 'object') return null;
+  const need = (value as CloneInventoryTemplateResponse).need;
+  return need && typeof need.id === 'string' ? need : null;
+}
+
+function clonedOfferFromResponse(value: unknown): OfferItem | null {
+  if (!value || typeof value !== 'object') return null;
+  const offer = (value as CloneInventoryTemplateResponse).offer;
+  return offer && typeof offer.id === 'string' ? offer : null;
+}
+
 
 type PostTypeOption = { value: TradePostType; labelKey: string; badgeKey: string; titleKey: string; bodyKey: string; icon: 'trade' | 'need' | 'offer'; tone: 'trade' | 'need' | 'offer' };
 type TradeWizardStepId = 'type' | 'exchange' | 'details' | 'review';
@@ -169,6 +192,8 @@ export function CreateTradeScreen({ route, navigation }: Props) {
   const [menuSheetVisible, setMenuSheetVisible] = useState(false);
   const [helpSheetVisible, setHelpSheetVisible] = useState(false);
   const [sourceSheetSide, setSourceSheetSide] = useState<TradeCreateSide | null>(null);
+  const [applyingIdea, setApplyingIdea] = useState<FeedTradeIdeaKey | null>(null);
+  const [appliedIdeaKey, setAppliedIdeaKey] = useState<FeedTradeIdeaKey | null>(null);
   const processedSelectionRef = useRef<TradeCreateSideSelection | null>(null);
 
   const usableNeeds = useMemo(() => needs.filter(isNeedAvailable), [needs]);
@@ -194,7 +219,8 @@ export function CreateTradeScreen({ route, navigation }: Props) {
     && !route.params?.initialPostType
     && !route.params?.initialNeedSelection
     && !route.params?.initialOfferSelection
-    && route.params?.initialExpiryDays === undefined;
+    && route.params?.initialExpiryDays === undefined
+    && !route.params?.initialIdeaKey;
   const restoreDraft = useCallback((savedDraft: TradeCreateWizardPersistedDraft) => {
     if (!shouldRestoreStoredDraft) return;
     setPostType(savedDraft.postType ?? null);
@@ -214,6 +240,9 @@ export function CreateTradeScreen({ route, navigation }: Props) {
   const needStepComplete = !needsNeedSide || Boolean(needSelection);
   const offerStepComplete = !needsOfferSide || Boolean(offerSelection);
   const publishButtonLabel = postType === 'open_need' ? t('trade.create.publishOpenNeed') : postType === 'open_offer' ? t('trade.create.publishOpenOffer') : t('trade.create.publishTrade');
+  const routeIdeaKey = parseFeedTradeIdeaKey(route.params?.initialIdeaKey);
+  const selectedFeedIdea = routeIdeaKey ? feedTradeIdeas[routeIdeaKey] : null;
+  const showFeedIdeaPanel = Boolean(routeIdeaKey && selectedFeedIdea && appliedIdeaKey !== routeIdeaKey);
 
   const steps = useMemo<WizardStepDefinition<TradeWizardStepId>[]>(() => [
     {
@@ -297,6 +326,46 @@ export function CreateTradeScreen({ route, navigation }: Props) {
   }, []);
 
   useFocusEffect(useCallback(() => { void loadResources(); }, [loadResources]));
+
+  async function applyFeedIdeaToDraft(ideaKey: FeedTradeIdeaKey) {
+    const idea = feedTradeIdeas[ideaKey];
+    if (!auth.isAuthenticated) {
+      setError(t('trade.create.validationSignedOut'));
+      return;
+    }
+    setApplyingIdea(ideaKey);
+    setError(null);
+    try {
+      const templatesResponse = await api.inventoryTemplates.list({ sourceType: 'hellowhen', language, take: 100 });
+      const templates = normalizeTemplateResponse(templatesResponse);
+      const needTemplateKeys = getLocalizedTemplateKeyCandidates(idea.needTemplateKey);
+      const offerTemplateKeys = getLocalizedTemplateKeyCandidates(idea.offerTemplateKey);
+      const needTemplate = templates.find((template) => needTemplateKeys.includes(template.key) && template.kind === 'need');
+      const offerTemplate = templates.find((template) => offerTemplateKeys.includes(template.key) && template.kind === 'offer');
+      if (!needTemplate) throw new Error(t('trade.feedIdeas.applyMissingNeed'));
+      if (!offerTemplate) throw new Error(t('trade.feedIdeas.applyMissingOffer'));
+
+      const [needResponse, offerResponse] = await Promise.all([
+        api.inventoryTemplates.clone(needTemplate.id, { status: 'active' }),
+        api.inventoryTemplates.clone(offerTemplate.id, { status: 'active' }),
+      ]);
+      const clonedNeed = clonedNeedFromResponse(needResponse);
+      const clonedOffer = clonedOfferFromResponse(offerResponse);
+      if (!clonedNeed || !clonedOffer) throw new Error(t('trade.feedIdeas.applyError'));
+
+      setNeeds((current) => [clonedNeed, ...current.filter((need) => need.id !== clonedNeed.id)]);
+      setOffers((current) => [clonedOffer, ...current.filter((offer) => offer.id !== clonedOffer.id)]);
+      setPostType('need_offer');
+      setNeedSelection({ side: 'need', kind: 'need', id: clonedNeed.id });
+      setOfferSelection({ side: 'offer', kind: 'offer', id: clonedOffer.id });
+      setActiveStepId('details');
+      setAppliedIdeaKey(ideaKey);
+    } catch (caughtError) {
+      setError(getFriendlyApiErrorMessage(caughtError));
+    } finally {
+      setApplyingIdea(null);
+    }
+  }
 
   function choosePostType(nextPostType: TradePostType) {
     setPostType(nextPostType);
@@ -541,6 +610,28 @@ export function CreateTradeScreen({ route, navigation }: Props) {
       )}
     >
       {tradeWizardDraft.restored && shouldRestoreStoredDraft ? <InfoNotice tone="info" title={t('inventory.wizard.draftRestoredTitle')} body={t('inventory.wizard.draftRestoredBody')} /> : null}
+      {showFeedIdeaPanel && routeIdeaKey ? (
+        <AppCard style={[styles.feedIdeaPrefillCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+          <View style={styles.feedIdeaPrefillHeader}>
+            <SemanticBadge label={t('trade.feedIdeas.badge')} tone="instruction" />
+            <AppText style={styles.feedIdeaPrefillTitle}>{t('trade.feedIdeas.createFromIdeaTitle')}</AppText>
+            <AppText style={[styles.feedIdeaPrefillBody, { color: theme.color.muted }]}>{t('trade.feedIdeas.createFromIdeaBody')}</AppText>
+          </View>
+          <View style={styles.feedIdeaPrefillSides} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
+            <View style={[styles.feedIdeaPrefillSide, { borderColor: theme.semantic.need.border }]}>
+              <AppText style={[styles.feedIdeaPrefillSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iNeed')}</AppText>
+              <AppText style={styles.feedIdeaPrefillSideTitle}>{t(`trade.feedIdeas.items.${routeIdeaKey}.need`)}</AppText>
+            </View>
+            <View style={[styles.feedIdeaPrefillSide, { borderColor: theme.semantic.offer.border }]}>
+              <AppText style={[styles.feedIdeaPrefillSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iOffer')}</AppText>
+              <AppText style={styles.feedIdeaPrefillSideTitle}>{t(`trade.feedIdeas.items.${routeIdeaKey}.offer`)}</AppText>
+            </View>
+          </View>
+          <Pressable accessibilityRole="button" disabled={Boolean(applyingIdea)} onPress={() => void applyFeedIdeaToDraft(routeIdeaKey)} style={({ pressed }) => [styles.feedIdeaPrefillAction, { backgroundColor: theme.semantic.trade.bg }, pressed && styles.pressed, applyingIdea && styles.disabled]}>
+            <AppText style={[styles.feedIdeaPrefillActionText, { color: theme.color.inverseText }]}>{applyingIdea === routeIdeaKey ? t('trade.feedIdeas.applySaving') : t('trade.feedIdeas.applyAction')}</AppText>
+          </Pressable>
+        </AppCard>
+      ) : null}
       {error ? <InfoNotice tone="danger" title={t('trade.create.couldNotPublish')} body={error} /> : null}
       {activeStepId === 'type' ? (
         <PostTypeStep theme={theme} postType={postType} onChoose={choosePostType} />
@@ -828,6 +919,16 @@ const styles = StyleSheet.create({
   previewDeckStage: { alignItems: 'center', justifyContent: 'center', marginHorizontal: -8 },
   previewSummaryBar: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, flexWrap: 'wrap' },
   previewSummaryText: { fontSize: 11, fontWeight: '900', letterSpacing: 0.2 },
+  feedIdeaPrefillCard: { gap: 14 },
+  feedIdeaPrefillHeader: { gap: 6 },
+  feedIdeaPrefillTitle: { fontSize: 17, fontWeight: '900', letterSpacing: -0.15 },
+  feedIdeaPrefillBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
+  feedIdeaPrefillSides: { gap: 8 },
+  feedIdeaPrefillSide: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 4 },
+  feedIdeaPrefillSideLabel: { fontSize: 10, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' },
+  feedIdeaPrefillSideTitle: { fontSize: 13, lineHeight: 18, fontWeight: '900' },
+  feedIdeaPrefillAction: { borderRadius: 16, alignItems: 'center', justifyContent: 'center', paddingVertical: 12, paddingHorizontal: 14 },
+  feedIdeaPrefillActionText: { fontSize: 13, fontWeight: '900' },
   disabled: { opacity: 0.55 },
   pressed: { opacity: 0.78 },
 });

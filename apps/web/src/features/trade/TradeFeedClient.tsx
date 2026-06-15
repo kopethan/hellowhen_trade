@@ -14,6 +14,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { formatWebShortDate } from '../../lib/webFormat';
 import { TradeDeckGrid } from './TradeDeckGrid';
+import { createFeedIdeaTradeHref, feedTradeIdeaKeys, getInlineFeedIdeaKey, shouldShowFeedIdeaRail, type FeedTradeIdeaKey } from './tradeFeedIdeas';
 import { getExchangeLabel, getStatusLabel, getTradeHeadline } from './tradePresentation';
 
 type FeedFilters = {
@@ -111,6 +112,11 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   const demoDataEnabled = isWebDemoDataEnabled();
   const auth = useWebAuth();
   const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
+  const createTradeIdeaHref = useCallback((ideaKey: FeedTradeIdeaKey) => {
+    const ideaHref = createFeedIdeaTradeHref(ideaKey);
+    if (!auth.hydrated || !auth.isAuthenticated) return `/auth?next=${encodeURIComponent(ideaHref)}`;
+    return ideaHref;
+  }, [auth.hydrated, auth.isAuthenticated]);
   const shouldShowHomeIntro = showHomeIntro && homeIntroReady && auth.hydrated && !auth.isAuthenticated && !homeIntroDismissed;
 
   const queueSearchKeywordRecord = useCallback((q: string, source: TradeSearchKeywordSource) => {
@@ -212,6 +218,8 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   const filteredTrades = useMemo(() => usingFallback ? localFilter(trades, appliedFilters) : trades, [appliedFilters, trades, usingFallback]);
   const hasAppliedFilters = Boolean(appliedFilters.q.trim() || appliedFilters.mode || appliedFilters.hasImages || appliedFilters.hasMoney || appliedFilters.postType);
   const shouldShowSuggestions = canUseSearchSuggestions(filters.q) && activeToolPanel === 'filter';
+  const shouldShowIdeaRail = !loading && !loadError && !hasAppliedFilters && shouldShowFeedIdeaRail(filteredTrades.length);
+  const shouldShowInlineIdeas = !loading && !loadError && !hasAppliedFilters && !shouldShowIdeaRail;
 
   useEffect(() => {
     const q = normalizeSearchText(filters.q);
@@ -374,6 +382,8 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
         />
       ) : null}
 
+      {shouldShowIdeaRail ? <TradeFeedIdeaRail createIdeaHref={createTradeIdeaHref} /> : null}
+
       <section className="feed-status-row" aria-live="polite">
         <p>{loading ? t('trade.filters.loadingTrades') : filteredTrades.length === 1 ? t('trade.filters.activeTradeOne') : t('trade.filters.activeTrades', { count: filteredTrades.length })}</p>
         <div className="feed-status-actions">
@@ -387,7 +397,10 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
           <h3>{t('trade.filters.couldNotLoadTrades')}</h3>
           <p>{loadError}</p>
         </section>
-      ) : loading ? <TradeFeedSkeleton /> : <TradeDeckGrid trades={filteredTrades} />}
+      ) : loading ? <TradeFeedSkeleton /> : <TradeDeckGrid trades={filteredTrades} renderAfterTrade={shouldShowInlineIdeas ? (index, tradeCount) => {
+        const ideaKey = getInlineFeedIdeaKey(index, tradeCount);
+        return ideaKey ? <TradeFeedInlineIdeaCard ideaKey={ideaKey} createIdeaHref={createTradeIdeaHref} /> : null;
+      } : undefined} />}
 
       {!loading && !loadError && !filteredTrades.length ? (
         hasAppliedFilters ? (
@@ -434,6 +447,64 @@ function TradeSearchSuggestionList({ visible, suggestions, loading, query, onSel
           <small>{getSuggestionSourceLabel(suggestion.source, t)}</small>
         </button>
       ))}
+    </div>
+  );
+}
+
+
+type TradeFeedIdeaRailProps = {
+  createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string;
+};
+
+function TradeFeedIdeaRail({ createIdeaHref }: TradeFeedIdeaRailProps) {
+  const { t } = useWebTranslation();
+
+  return (
+    <section className="trade-feed-ideas" aria-labelledby="trade-feed-ideas-title">
+      <div className="trade-feed-ideas__header">
+        <span className="semantic-badge instruction">{t('trade.feedIdeas.badge')}</span>
+        <div>
+          <h2 id="trade-feed-ideas-title">{t('trade.feedIdeas.title')}</h2>
+          <p>{t('trade.feedIdeas.body')}</p>
+        </div>
+      </div>
+      <div className="trade-feed-ideas__list">
+        {feedTradeIdeaKeys.map((key) => <TradeFeedIdeaCard key={key} ideaKey={key} createIdeaHref={createIdeaHref} />)}
+      </div>
+    </section>
+  );
+}
+
+function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: { ideaKey: FeedTradeIdeaKey; createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string; inline?: boolean }) {
+  const { t } = useWebTranslation();
+
+  return (
+    <article className={`trade-feed-idea-card${inline ? ' trade-feed-idea-card--inline' : ''}`}>
+      <div className="trade-feed-idea-card__topline">
+        <span>{t('trade.feedIdeas.ideaLabel')}</span>
+        <strong>{t(`trade.feedIdeas.items.${ideaKey}.pack`)}</strong>
+      </div>
+      <div className="trade-feed-idea-card__sides" aria-label={t('trade.feedIdeas.sidesLabel')}>
+        <div>
+          <span>{t('trade.labels.iNeed')}</span>
+          <h3>{t(`trade.feedIdeas.items.${ideaKey}.need`)}</h3>
+        </div>
+        <i aria-hidden="true">↔</i>
+        <div>
+          <span>{t('trade.labels.iOffer')}</span>
+          <h3>{t(`trade.feedIdeas.items.${ideaKey}.offer`)}</h3>
+        </div>
+      </div>
+      <p>{t(`trade.feedIdeas.items.${ideaKey}.body`)}</p>
+      <Link href={createIdeaHref(ideaKey)} className="button secondary trade-feed-idea-card__action">{t('trade.feedIdeas.action')}</Link>
+    </article>
+  );
+}
+
+function TradeFeedInlineIdeaCard({ ideaKey, createIdeaHref }: { ideaKey: FeedTradeIdeaKey; createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string }) {
+  return (
+    <div className="trade-feed-inline-idea">
+      <TradeFeedIdeaCard ideaKey={ideaKey} createIdeaHref={createIdeaHref} inline />
     </div>
   );
 }

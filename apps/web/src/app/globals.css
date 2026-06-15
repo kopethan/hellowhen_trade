@@ -975,6 +975,7 @@ html.trade-tools-open, html.trade-tools-open body { overflow: hidden; }
 .inventory-controls { position: relative; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; margin: 0; padding: 0 0 4px; background: transparent; }
 .inventory-controls .trade-create-pill { flex: 0 0 46px; width: 46px; height: 46px; min-height: 46px; padding: 0; }
 .inventory-controls .trade-create-pill .web-icon { color: currentColor; }
+.inventory-starter-filter-stack { display: grid; gap: 8px; }
 .inventory-type-filters { display: flex; gap: 8px; overflow-x: auto; padding: 0 1px 2px; scrollbar-width: none; }
 .inventory-type-filters::-webkit-scrollbar { display: none; }
 .inventory-type-filters button { flex: 0 0 auto; min-height: 38px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text-muted); padding: 0 14px; font-size: 12px; font-weight: 950; cursor: pointer; box-shadow: var(--app-control-shadow); }
@@ -8305,4 +8306,200 @@ html[data-theme="dark"] .onboarding-guide-primary {
   .membership-upgrade-card { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
   .membership-upgrade-card__action { grid-column: 1 / -1; justify-content: flex-start; min-width: 0; }
   .membership-upgrade-card__action .button { width: 100%; }
+}
+
+/* STARTER6A: transparent feed trade idea cards */
+.trade-feed-ideas {
+  display: grid;
+  gap: 12px;
+  width: min(880px, 100%);
+  margin: 0 auto;
+  border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--app-surface) 94%, transparent);
+  padding: 14px;
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--app-shadow) 22%, transparent);
+}
+
+.trade-feed-ideas__header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.trade-feed-ideas__header h2,
+.trade-feed-ideas__header p,
+.trade-feed-idea-card h3,
+.trade-feed-idea-card p {
+  margin: 0;
+}
+
+.trade-feed-ideas__header h2 {
+  font-size: 17px;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.trade-feed-ideas__header p {
+  color: var(--app-text-muted);
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.4;
+}
+
+.trade-feed-ideas__list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.trade-feed-idea-card {
+  display: grid;
+  gap: 11px;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--app-border) 80%, transparent);
+  border-radius: 21px;
+  background: color-mix(in srgb, var(--app-bg-muted) 72%, transparent);
+  padding: 13px;
+}
+
+
+.trade-feed-inline-idea {
+  display: block;
+}
+
+.trade-feed-idea-card--inline {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--app-surface) 88%, transparent);
+}
+
+.trade-feed-idea-card--inline .trade-feed-idea-card__sides h3 {
+  min-height: 0;
+}
+
+.trade-feed-idea-card__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--app-text-muted);
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.trade-feed-idea-card__topline strong {
+  overflow: hidden;
+  color: var(--proposal-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trade-feed-idea-card__sides {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 8px;
+}
+
+.trade-feed-idea-card__sides > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--app-border) 74%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--app-surface) 80%, transparent);
+  padding: 10px;
+}
+
+.trade-feed-idea-card__sides > div:first-child {
+  border-color: color-mix(in srgb, var(--need-border) 44%, var(--app-border));
+}
+
+.trade-feed-idea-card__sides > div:last-child {
+  border-color: color-mix(in srgb, var(--offer-border) 44%, var(--app-border));
+}
+
+.trade-feed-idea-card__sides span {
+  color: var(--app-text-muted);
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.trade-feed-idea-card__sides h3 {
+  display: -webkit-box;
+  min-height: 36px;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.25;
+  font-weight: 920;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.trade-feed-idea-card__sides i {
+  align-self: center;
+  color: var(--app-text-muted);
+  font-style: normal;
+  font-weight: 950;
+}
+
+.trade-feed-idea-card > p {
+  display: -webkit-box;
+  min-height: 34px;
+  overflow: hidden;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.4;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.trade-feed-idea-card__action {
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+@media (max-width: 860px) {
+  .trade-feed-ideas__list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .trade-feed-ideas {
+    border-radius: 20px;
+    padding: 12px;
+  }
+
+  .trade-feed-ideas__header {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-feed-idea-card__sides {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-feed-idea-card__sides i {
+    display: none;
+  }
+}
+.trade-create-idea-prefill { display: grid; gap: 14px; }
+.trade-create-idea-prefill h3,
+.trade-create-idea-prefill p { margin: 0; }
+.trade-create-idea-prefill > div:first-child { display: grid; gap: 8px; }
+.trade-create-idea-prefill > .button { justify-self: start; }
+.trade-create-idea-prefill__sides { display: grid; gap: 8px; }
+.trade-create-idea-prefill__sides span { display: grid; gap: 4px; border: 1px solid var(--app-border); border-radius: 16px; background: var(--app-surface); padding: 10px 12px; font-size: 13px; font-weight: 820; line-height: 1.35; }
+.trade-create-idea-prefill__sides strong { color: var(--app-text-muted); font-size: 10px; font-weight: 950; letter-spacing: 0.5px; text-transform: uppercase; }
+@media (min-width: 720px) {
+  .trade-create-idea-prefill { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .trade-create-idea-prefill__sides { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

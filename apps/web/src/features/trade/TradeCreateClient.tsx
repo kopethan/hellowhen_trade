@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, type CreateTradeRequest, type NeedDto, type OfferDto, type TradeDto, type TradeNeedSideKind, type TradeOfferSideKind, type TradePostType, type WalletLimitsDto } from '@hellowhen/contracts';
+import { CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, type CreateTradeRequest, type InventoryTemplateDto, type NeedDto, type OfferDto, type TradeDto, type TradeNeedSideKind, type TradeOfferSideKind, type TradePostType, type WalletLimitsDto } from '@hellowhen/contracts';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { buildGeneratedTradeDisplay, getNextWizardStepId, getPreviousWizardStepId, type GeneratedTradeDisplayLabels, type WizardStepDefinition } from '@hellowhen/shared';
 import { buildWebWizardDraftKey, useWebWizardDraft, WizardFooter, WizardShell } from '../wizard';
@@ -18,6 +18,7 @@ import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { normalizeInventoryList, toIsoDate } from '../inventory/inventoryPresentation';
 import { TradeSidePicker } from './TradeSidePicker';
 import { TradeStackDeck } from './TradeStackDeck';
+import { feedTradeIdeas, getLocalizedTemplateKeyCandidates, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
 
 type CreateTradeResponse = { trade?: unknown; id?: unknown };
 type DuplicateTradeSummary = Pick<TradeDto, 'id' | 'status' | 'title'> & { postType?: TradePostType };
@@ -55,6 +56,25 @@ function normalizeCreatedTradeId(value: unknown) {
   if (response.trade && typeof response.trade === 'object' && typeof (response.trade as { id?: unknown }).id === 'string') return (response.trade as { id: string }).id;
   return null;
 }
+
+function normalizeTemplateResponse(value: unknown): InventoryTemplateDto[] {
+  if (!value || typeof value !== 'object') return [];
+  const templates = (value as { templates?: unknown }).templates;
+  return Array.isArray(templates) ? templates as InventoryTemplateDto[] : [];
+}
+
+function clonedNeedFromResponse(value: unknown): NeedDto | null {
+  if (!value || typeof value !== 'object') return null;
+  const need = (value as { need?: unknown }).need;
+  return need && typeof need === 'object' && typeof (need as { id?: unknown }).id === 'string' ? need as NeedDto : null;
+}
+
+function clonedOfferFromResponse(value: unknown): OfferDto | null {
+  if (!value || typeof value !== 'object') return null;
+  const offer = (value as { offer?: unknown }).offer;
+  return offer && typeof offer === 'object' && typeof (offer as { id?: unknown }).id === 'string' ? offer as OfferDto : null;
+}
+
 
 function parseMoneyToCents(value: string) {
   const normalized = value.trim().replace(',', '.');
@@ -340,14 +360,15 @@ function buildPreviewTrade(input: {
   };
 }
 
-export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', initialPostType = '' }: { initialNeedId?: string; initialOfferId?: string; initialPostType?: string }) {
+export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', initialPostType = '', initialIdea = '' }: { initialNeedId?: string; initialOfferId?: string; initialPostType?: string; initialIdea?: string }) {
   const auth = useWebAuth();
   const { t, language } = useWebTranslation();
   const router = useRouter();
   const searchParams = useSearchParams();
   const routeNeedId = searchParams.get('needId') ?? initialNeedId;
   const routeOfferId = searchParams.get('offerId') ?? initialOfferId;
-  const routePostType = parseTradePostType(searchParams.get('postType') ?? initialPostType) || (routeNeedId || routeOfferId ? 'need_offer' : '');
+  const routeIdeaKey = parseFeedTradeIdeaKey(searchParams.get('idea') ?? initialIdea);
+  const routePostType = parseTradePostType(searchParams.get('postType') ?? initialPostType) || (routeNeedId || routeOfferId || routeIdeaKey ? 'need_offer' : '');
   const preferredCurrency = getPreferredCurrency(auth.user?.profile?.preferredCurrency);
   const demoDataEnabled = isWebDemoDataEnabled();
   const [needs, setNeeds] = useState<NeedDto[]>(() => demoDataEnabled ? mockNeeds : []);
@@ -377,6 +398,8 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
   const [expiryHelpOpen, setExpiryHelpOpen] = useState(false);
   const [wizardMenuOpen, setWizardMenuOpen] = useState(false);
   const [wizardHelpOpen, setWizardHelpOpen] = useState(false);
+  const [applyingIdea, setApplyingIdea] = useState<FeedTradeIdeaKey | null>(null);
+  const [appliedIdeaKey, setAppliedIdeaKey] = useState<FeedTradeIdeaKey | null>(null);
 
   const persistedDraft = useMemo<TradeCreateWizardPersistedDraft>(() => ({
     activeStepId,
@@ -625,6 +648,61 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
     }
   }
 
+  const selectedFeedIdea = routeIdeaKey ? feedTradeIdeas[routeIdeaKey] : null;
+  const showFeedIdeaPanel = Boolean(routeIdeaKey && selectedFeedIdea && appliedIdeaKey !== routeIdeaKey);
+
+  async function applyFeedIdeaToDraft(ideaKey: FeedTradeIdeaKey) {
+    const idea = feedTradeIdeas[ideaKey];
+    if (!auth.isAuthenticated) {
+      setError(t('trade.create.validationSignedOut'));
+      return;
+    }
+    setApplyingIdea(ideaKey);
+    setError('');
+    setNotice('');
+    try {
+      const templatesResponse = await api.inventoryTemplates.list({ sourceType: 'hellowhen', language, take: 100 });
+      const templates = normalizeTemplateResponse(templatesResponse);
+      const needTemplateKeys = getLocalizedTemplateKeyCandidates(idea.needTemplateKey);
+      const offerTemplateKeys = getLocalizedTemplateKeyCandidates(idea.offerTemplateKey);
+      const needTemplate = templates.find((template) => needTemplateKeys.includes(template.key) && template.kind === 'need');
+      const offerTemplate = templates.find((template) => offerTemplateKeys.includes(template.key) && template.kind === 'offer');
+      if (!needTemplate) throw new Error(t('trade.feedIdeas.applyMissingNeed'));
+      if (!offerTemplate) throw new Error(t('trade.feedIdeas.applyMissingOffer'));
+
+      const [needResponse, offerResponse] = await Promise.all([
+        api.inventoryTemplates.clone(needTemplate.id, { status: 'active' }),
+        api.inventoryTemplates.clone(offerTemplate.id, { status: 'active' }),
+      ]);
+      const clonedNeed = clonedNeedFromResponse(needResponse);
+      const clonedOffer = clonedOfferFromResponse(offerResponse);
+      if (!clonedNeed || !clonedOffer) throw new Error(t('trade.feedIdeas.applyError'));
+
+      setNeeds((current) => [clonedNeed, ...current.filter((need) => need.id !== clonedNeed.id)]);
+      setOffers((current) => [clonedOffer, ...current.filter((offer) => offer.id !== clonedOffer.id)]);
+      setValues((current) => ({
+        ...current,
+        postType: 'need_offer',
+        needMode: 'saved',
+        offerMode: 'saved',
+        needId: clonedNeed.id,
+        offerId: clonedOffer.id,
+        amount: '',
+        cashPromiseAmount: '',
+        cashPromiseNote: '',
+        cashPromiseAcknowledged: false,
+      }));
+      setActiveStepId('details');
+      setAppliedIdeaKey(ideaKey);
+      setNotice(t('trade.feedIdeas.applySuccess'));
+      router.replace('/trades/create', { scroll: false });
+    } catch (caughtError) {
+      setError(getFriendlyApiErrorMessage(caughtError, t('trade.feedIdeas.applyError')));
+    } finally {
+      setApplyingIdea(null);
+    }
+  }
+
   const amountPreview = usesMoney && Number.isFinite(amountCents) && amountCents > 0 ? formatWebMoney(amountCents, values.currency) : usesCashPromise && Number.isFinite(cashPromiseAmountCents) && cashPromiseAmountCents > 0 ? formatWebMoney(cashPromiseAmountCents, values.cashPromiseCurrency) : null;
   const hasRequiredSides = values.postType === 'need_offer'
     ? (values.needMode === 'money' || values.needMode === 'cash_promise' || Boolean(selectedNeed)) && (values.offerMode === 'money' || values.offerMode === 'cash_promise' || Boolean(selectedOffer))
@@ -869,6 +947,23 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
         ) : null}
 
         {tradeWizardDraft.restored ? <p className="form-message">{t('inventory.wizard.draftRestoredTitle')} · {t('inventory.wizard.draftRestoredBody')}</p> : null}
+
+        {showFeedIdeaPanel && routeIdeaKey ? (
+          <section className="mobile-card mobile-card--soft trade-create-idea-prefill">
+            <div>
+              <span className="semantic-badge instruction">{t('trade.feedIdeas.badge')}</span>
+              <h3>{t('trade.feedIdeas.createFromIdeaTitle')}</h3>
+              <p>{t('trade.feedIdeas.createFromIdeaBody')}</p>
+              <div className="trade-create-idea-prefill__sides" aria-label={t('trade.feedIdeas.sidesLabel')}>
+                <span><strong>{t('trade.labels.iNeed')}</strong>{t(`trade.feedIdeas.items.${routeIdeaKey}.need`)}</span>
+                <span><strong>{t('trade.labels.iOffer')}</strong>{t(`trade.feedIdeas.items.${routeIdeaKey}.offer`)}</span>
+              </div>
+            </div>
+            <button type="button" className="button primary" disabled={Boolean(applyingIdea)} onClick={() => void applyFeedIdeaToDraft(routeIdeaKey)}>
+              {applyingIdea === routeIdeaKey ? t('trade.feedIdeas.applySaving') : t('trade.feedIdeas.applyAction')}
+            </button>
+          </section>
+        ) : null}
 
         <div className="trade-create-status-row">
           <span className="semantic-badge trade">{values.postType ? postTypeLabel(values.postType, t) : t('trade.create.choosePublishType')}</span>

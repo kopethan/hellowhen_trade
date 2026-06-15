@@ -1,0 +1,196 @@
+diff --git a/packages/shared/src/chainMatchDemoIdeas.ts b/packages/shared/src/chainMatchDemoIdeas.ts
+new file mode 100644
+index 0000000..5ea2a2d
+--- /dev/null
++++ b/packages/shared/src/chainMatchDemoIdeas.ts
+@@ -0,0 +1,181 @@
++export const CHAIN_MATCH_DEMO_IDEAS_PUBLICLY_VISIBLE = false;
++
++export type ChainMatchDemoParticipantRef = 'A' | 'B' | 'C';
++
++export type ChainMatchDemoParticipant = {
++  ref: ChainMatchDemoParticipantRef;
++  needTemplateKey: string;
++  offerTemplateKey: string;
++};
++
++export type ChainMatchDemoEdge = {
++  from: ChainMatchDemoParticipantRef;
++  to: ChainMatchDemoParticipantRef;
++  satisfiesNeedTemplateKey: string;
++  withOfferTemplateKey: string;
++};
++
++export type ChainMatchDemoIdea = {
++  id: string;
++  title: string;
++  summary: string;
++  status: 'internal_demo';
++  publiclyVisible: false;
++  participants: readonly ChainMatchDemoParticipant[];
++  edges: readonly ChainMatchDemoEdge[];
++  notes: readonly string[];
++};
++
++export const hiddenChainMatchDemoIdeas = [
++  {
++    id: 'chain-demo-app-photos-french',
++    title: 'App testing, product photos, and French correction',
++    summary: 'A three-person cycle where each person gives one useful starter offer and receives one starter need.',
++    status: 'internal_demo',
++    publiclyVisible: false,
++    participants: [
++      {
++        ref: 'A',
++        needTemplateKey: 'starter-need-app-flow-normal-user-test',
++        offerTemplateKey: 'starter-offer-edit-product-portfolio-photos',
++      },
++      {
++        ref: 'B',
++        needTemplateKey: 'starter-need-product-photos-small-project',
++        offerTemplateKey: 'starter-offer-translate-french-english-text',
++      },
++      {
++        ref: 'C',
++        needTemplateKey: 'starter-need-french-correction-profile-offer',
++        offerTemplateKey: 'starter-offer-real-user-app-test',
++      },
++    ],
++    edges: [
++      {
++        from: 'C',
++        to: 'A',
++        satisfiesNeedTemplateKey: 'starter-need-app-flow-normal-user-test',
++        withOfferTemplateKey: 'starter-offer-real-user-app-test',
++      },
++      {
++        from: 'A',
++        to: 'B',
++        satisfiesNeedTemplateKey: 'starter-need-product-photos-small-project',
++        withOfferTemplateKey: 'starter-offer-edit-product-portfolio-photos',
++      },
++      {
++        from: 'B',
++        to: 'C',
++        satisfiesNeedTemplateKey: 'starter-need-french-correction-profile-offer',
++        withOfferTemplateKey: 'starter-offer-translate-french-english-text',
++      },
++    ],
++    notes: [
++      'Hidden demo only: do not show in the public feed.',
++      'Use as a future Chain Lab seed, not as real user activity.',
++      'All participants must give and receive before this becomes a product flow.',
++    ],
++  },
++  {
++    id: 'chain-demo-french-video-bike',
++    title: 'French practice, short video editing, and bike pickup',
++    summary: 'A local/social cycle that combines language practice, creative help, and a small real-world favor.',
++    status: 'internal_demo',
++    publiclyVisible: false,
++    participants: [
++      {
++        ref: 'A',
++        needTemplateKey: 'starter-need-practice-french-phone-call',
++        offerTemplateKey: 'starter-offer-short-video-reel-edit',
++      },
++      {
++        ref: 'B',
++        needTemplateKey: 'starter-need-short-intro-video-edit',
++        offerTemplateKey: 'starter-offer-small-bike-pickup',
++      },
++      {
++        ref: 'C',
++        needTemplateKey: 'starter-need-bike-small-pickup',
++        offerTemplateKey: 'starter-offer-french-call-roleplay',
++      },
++    ],
++    edges: [
++      {
++        from: 'C',
++        to: 'A',
++        satisfiesNeedTemplateKey: 'starter-need-practice-french-phone-call',
++        withOfferTemplateKey: 'starter-offer-french-call-roleplay',
++      },
++      {
++        from: 'A',
++        to: 'B',
++        satisfiesNeedTemplateKey: 'starter-need-short-intro-video-edit',
++        withOfferTemplateKey: 'starter-offer-short-video-reel-edit',
++      },
++      {
++        from: 'B',
++        to: 'C',
++        satisfiesNeedTemplateKey: 'starter-need-bike-small-pickup',
++        withOfferTemplateKey: 'starter-offer-small-bike-pickup',
++      },
++    ],
++    notes: [
++      'Hidden demo only: do not create real multi-person trades from this data.',
++      'Useful for testing circular matching language and future confirmation flows.',
++    ],
++  },
++  {
++    id: 'chain-demo-paris-names-table',
++    title: 'Paris tips, brand names, and a quiet work table',
++    summary: 'A lightweight access/feedback cycle designed for early Paris community testing.',
++    status: 'internal_demo',
++    publiclyVisible: false,
++    participants: [
++      {
++        ref: 'A',
++        needTemplateKey: 'starter-need-local-paris-recommendations',
++        offerTemplateKey: 'starter-offer-brand-name-ideas',
++      },
++      {
++        ref: 'B',
++        needTemplateKey: 'starter-need-brand-name-brainstorm',
++        offerTemplateKey: 'starter-offer-quiet-table-work-call',
++      },
++      {
++        ref: 'C',
++        needTemplateKey: 'starter-need-quiet-table-video-call',
++        offerTemplateKey: 'starter-offer-local-paris-tips',
++      },
++    ],
++    edges: [
++      {
++        from: 'C',
++        to: 'A',
++        satisfiesNeedTemplateKey: 'starter-need-local-paris-recommendations',
++        withOfferTemplateKey: 'starter-offer-local-paris-tips',
++      },
++      {
++        from: 'A',
++        to: 'B',
++        satisfiesNeedTemplateKey: 'starter-need-brand-name-brainstorm',
++        withOfferTemplateKey: 'starter-offer-brand-name-ideas',
++      },
++      {
++        from: 'B',
++        to: 'C',
++        satisfiesNeedTemplateKey: 'starter-need-quiet-table-video-call',
++        withOfferTemplateKey: 'starter-offer-quiet-table-work-call',
++      },
++    ],
++    notes: [
++      'Hidden demo only: this should stay behind labs/internal tooling.',
++      'Good candidate for later Chain Lab visualization because it is easy to understand.',
++    ],
++  },
++] as const satisfies readonly ChainMatchDemoIdea[];
++
++export type HiddenChainMatchDemoIdeaId = typeof hiddenChainMatchDemoIdeas[number]['id'];
++
++export function getHiddenChainMatchDemoIdeas(options?: { includeHidden?: boolean }): readonly ChainMatchDemoIdea[] {
++  return options?.includeHidden === true ? hiddenChainMatchDemoIdeas : [];
++}
+diff --git a/packages/shared/src/index.ts b/packages/shared/src/index.ts
+index 5a77182..e421124 100644
+--- a/packages/shared/src/index.ts
++++ b/packages/shared/src/index.ts
+@@ -20,3 +20,4 @@ export * from './usernames.js';
+ export * from './businessHandles.js';
+ export * from './verificationBadges.js';
+ export * from './previewThemes.js';
++export * from './chainMatchDemoIdeas.js';

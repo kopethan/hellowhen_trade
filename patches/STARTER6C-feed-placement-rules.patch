@@ -1,0 +1,271 @@
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index 0fdad83..3f0dab9 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -19,7 +19,7 @@ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useAuth } from '../../providers/AuthProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { TradeSquareDeck } from './components/TradeSquareDeck';
+-import { feedTradeIdeaKeys, type FeedTradeIdeaKey } from './tradeFeedIdeas';
++import { feedTradeIdeaKeys, getInlineFeedIdeaKey, shouldShowFeedIdeaRail, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+ import type { TradeDeckItem } from './types';
+ 
+ type FeedResponse = { trades: TradeDeckItem[] };
+@@ -255,6 +255,8 @@ export function TradeDeckFeedScreen() {
+   const hasTrades = trades.length > 0;
+   const hasVisibleTrades = visibleTrades.length > 0;
+   const hasFilters = activeFilterCount > 0;
++  const shouldShowIdeaRail = !loading && !error && !hasFilters && shouldShowFeedIdeaRail(visibleTrades.length);
++  const shouldShowInlineIdeas = !loading && !error && !hasFilters && !shouldShowIdeaRail;
+ 
+   const header = (
+     <View style={styles.fixedHeaderStack}>
+@@ -282,10 +284,18 @@ export function TradeDeckFeedScreen() {
+         <>
+           <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshDiscoveryOrder} />}>
+             {error ? <InfoNotice tone="danger" title={t('trade.filters.couldNotLoadTrades')} body={error} /> : null}
+-            {!loading && !error && !hasFilters ? <TradeFeedIdeaRail onCreate={createTrade} /> : null}
++            {shouldShowIdeaRail ? <TradeFeedIdeaRail onCreate={createTrade} /> : null}
+             {hasVisibleTrades ? (
+               <View style={styles.feedList}>
+-                {visibleTrades.map((trade, index) => <TradeDeckSection key={trade.id} trade={trade} index={index} total={visibleTrades.length} onOpen={() => openTrade(trade)} />)}
++                {visibleTrades.map((trade, index) => {
++                  const ideaKey = shouldShowInlineIdeas ? getInlineFeedIdeaKey(index, visibleTrades.length) : null;
++                  return (
++                    <React.Fragment key={trade.id}>
++                      <TradeDeckSection trade={trade} index={index} total={visibleTrades.length} onOpen={() => openTrade(trade)} />
++                      {ideaKey ? <TradeFeedInlineIdeaCard ideaKey={ideaKey} onCreate={createTrade} /> : null}
++                    </React.Fragment>
++                  );
++                })}
+               </View>
+             ) : (
+               <EmptyTradesState loading={loading} hasTrades={hasTrades} hasFilters={hasFilters} onCreate={createTrade} onRefresh={refreshDiscoveryOrder} onClear={clearFilters} />
+@@ -353,12 +363,12 @@ function TradeFeedIdeaRail({ onCreate }: { onCreate: (ideaKey: FeedTradeIdeaKey)
+   );
+ }
+ 
+-function TradeFeedIdeaCard({ ideaKey, onCreate }: { ideaKey: FeedTradeIdeaKey; onCreate: (ideaKey: FeedTradeIdeaKey) => void }) {
++function TradeFeedIdeaCard({ ideaKey, onCreate, inline = false }: { ideaKey: FeedTradeIdeaKey; onCreate: (ideaKey: FeedTradeIdeaKey) => void; inline?: boolean }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+ 
+   return (
+-    <View style={[styles.feedIdeaCard, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
++    <View style={[styles.feedIdeaCard, inline && styles.feedIdeaCardInline, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
+       <View style={styles.feedIdeaTopline}>
+         <AppText style={[styles.feedIdeaEyebrow, { color: theme.color.muted }]}>{t('trade.feedIdeas.ideaLabel')}</AppText>
+         <AppText numberOfLines={1} style={[styles.feedIdeaPack, { color: theme.semantic.info.text }]}>{t(`trade.feedIdeas.items.${ideaKey}.pack`)}</AppText>
+@@ -381,6 +391,11 @@ function TradeFeedIdeaCard({ ideaKey, onCreate }: { ideaKey: FeedTradeIdeaKey; o
+   );
+ }
+ 
++
++function TradeFeedInlineIdeaCard({ ideaKey, onCreate }: { ideaKey: FeedTradeIdeaKey; onCreate: (ideaKey: FeedTradeIdeaKey) => void }) {
++  return <TradeFeedIdeaCard ideaKey={ideaKey} onCreate={onCreate} inline />;
++}
++
+ type TradeActivityModalProps = {
+   activeTab: TradeActivityTab;
+   visible: boolean;
+@@ -1023,6 +1038,7 @@ const styles = StyleSheet.create({
+   feedIdeasBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
+   feedIdeasList: { gap: 10, paddingRight: 18 },
+   feedIdeaCard: { width: 284, borderRadius: 22, borderWidth: 1, padding: 12, gap: 10 },
++  feedIdeaCardInline: { width: '100%', borderStyle: 'dashed' },
+   feedIdeaTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+   feedIdeaEyebrow: { fontSize: 10, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
+   feedIdeaPack: { flexShrink: 1, fontSize: 10, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
+diff --git a/apps/mobile/src/features/trade/tradeFeedIdeas.ts b/apps/mobile/src/features/trade/tradeFeedIdeas.ts
+index 60caa57..c170d55 100644
+--- a/apps/mobile/src/features/trade/tradeFeedIdeas.ts
++++ b/apps/mobile/src/features/trade/tradeFeedIdeas.ts
+@@ -22,6 +22,28 @@ export const feedTradeIdeas: Record<FeedTradeIdeaKey, FeedTradeIdeaTemplatePair>
+   },
+ };
+ 
++
++export const feedTradeIdeaPlacement = {
++  sparseFeedThreshold: 4,
++  firstInlineAfterIndex: 2,
++  repeatEvery: 8,
++  maxInlineIdeas: 1,
++} as const;
++
++export function shouldShowFeedIdeaRail(tradeCount: number) {
++  return tradeCount < feedTradeIdeaPlacement.sparseFeedThreshold;
++}
++
++export function getInlineFeedIdeaKey(index: number, tradeCount: number): FeedTradeIdeaKey | null {
++  if (tradeCount < feedTradeIdeaPlacement.sparseFeedThreshold) return null;
++  if (index < feedTradeIdeaPlacement.firstInlineAfterIndex) return null;
++  const slot = index - feedTradeIdeaPlacement.firstInlineAfterIndex;
++  if (slot % feedTradeIdeaPlacement.repeatEvery !== 0) return null;
++  const ideaIndex = slot / feedTradeIdeaPlacement.repeatEvery;
++  if (ideaIndex >= feedTradeIdeaPlacement.maxInlineIdeas) return null;
++  return feedTradeIdeaKeys[ideaIndex % feedTradeIdeaKeys.length] ?? null;
++}
++
+ export function parseFeedTradeIdeaKey(value?: string | null): FeedTradeIdeaKey | null {
+   return feedTradeIdeaKeys.includes(value as FeedTradeIdeaKey) ? value as FeedTradeIdeaKey : null;
+ }
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index a0bcb4c..30401c0 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -8364,6 +8364,20 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   padding: 13px;
+ }
+ 
++
++.trade-feed-inline-idea {
++  display: block;
++}
++
++.trade-feed-idea-card--inline {
++  border-style: dashed;
++  background: color-mix(in srgb, var(--app-surface) 88%, transparent);
++}
++
++.trade-feed-idea-card--inline .trade-feed-idea-card__sides h3 {
++  min-height: 0;
++}
++
+ .trade-feed-idea-card__topline {
+   display: flex;
+   align-items: center;
+diff --git a/apps/web/src/features/trade/TradeDeckGrid.tsx b/apps/web/src/features/trade/TradeDeckGrid.tsx
+index 0016666..98eed94 100644
+--- a/apps/web/src/features/trade/TradeDeckGrid.tsx
++++ b/apps/web/src/features/trade/TradeDeckGrid.tsx
+@@ -1,13 +1,22 @@
++import { Fragment, type ReactNode } from 'react';
+ import type { TradeDto } from '@hellowhen/contracts';
+ import { TradeStackDeck } from './TradeStackDeck';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ 
+-export function TradeDeckGrid({ trades }: { trades: TradeDto[] }) {
++type TradeDeckGridProps = {
++  trades: TradeDto[];
++  renderAfterTrade?: (index: number, tradeCount: number) => ReactNode;
++};
++
++export function TradeDeckGrid({ trades, renderAfterTrade }: TradeDeckGridProps) {
+   const { t } = useWebTranslation();
+   return (
+     <div className="trade-deck-grid" aria-label={t('trade.filters.controls')}>
+-      {trades.map((trade) => (
+-        <TradeStackDeck key={trade.id} trade={trade} />
++      {trades.map((trade, index) => (
++        <Fragment key={trade.id}>
++          <TradeStackDeck trade={trade} />
++          {renderAfterTrade?.(index, trades.length)}
++        </Fragment>
+       ))}
+     </div>
+   );
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index 553d0ef..3308a7a 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -14,7 +14,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { formatWebShortDate } from '../../lib/webFormat';
+ import { TradeDeckGrid } from './TradeDeckGrid';
+-import { createFeedIdeaTradeHref, feedTradeIdeaKeys, type FeedTradeIdeaKey } from './tradeFeedIdeas';
++import { createFeedIdeaTradeHref, feedTradeIdeaKeys, getInlineFeedIdeaKey, shouldShowFeedIdeaRail, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+ import { getExchangeLabel, getStatusLabel, getTradeHeadline } from './tradePresentation';
+ 
+ type FeedFilters = {
+@@ -218,6 +218,8 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+   const filteredTrades = useMemo(() => usingFallback ? localFilter(trades, appliedFilters) : trades, [appliedFilters, trades, usingFallback]);
+   const hasAppliedFilters = Boolean(appliedFilters.q.trim() || appliedFilters.mode || appliedFilters.hasImages || appliedFilters.hasMoney || appliedFilters.postType);
+   const shouldShowSuggestions = canUseSearchSuggestions(filters.q) && activeToolPanel === 'filter';
++  const shouldShowIdeaRail = !loading && !loadError && !hasAppliedFilters && shouldShowFeedIdeaRail(filteredTrades.length);
++  const shouldShowInlineIdeas = !loading && !loadError && !hasAppliedFilters && !shouldShowIdeaRail;
+ 
+   useEffect(() => {
+     const q = normalizeSearchText(filters.q);
+@@ -380,7 +382,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+         />
+       ) : null}
+ 
+-      {!loading && !loadError && !hasAppliedFilters ? <TradeFeedIdeaRail createIdeaHref={createTradeIdeaHref} /> : null}
++      {shouldShowIdeaRail ? <TradeFeedIdeaRail createIdeaHref={createTradeIdeaHref} /> : null}
+ 
+       <section className="feed-status-row" aria-live="polite">
+         <p>{loading ? t('trade.filters.loadingTrades') : filteredTrades.length === 1 ? t('trade.filters.activeTradeOne') : t('trade.filters.activeTrades', { count: filteredTrades.length })}</p>
+@@ -395,7 +397,10 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+           <h3>{t('trade.filters.couldNotLoadTrades')}</h3>
+           <p>{loadError}</p>
+         </section>
+-      ) : loading ? <TradeFeedSkeleton /> : <TradeDeckGrid trades={filteredTrades} />}
++      ) : loading ? <TradeFeedSkeleton /> : <TradeDeckGrid trades={filteredTrades} renderAfterTrade={shouldShowInlineIdeas ? (index, tradeCount) => {
++        const ideaKey = getInlineFeedIdeaKey(index, tradeCount);
++        return ideaKey ? <TradeFeedInlineIdeaCard ideaKey={ideaKey} createIdeaHref={createTradeIdeaHref} /> : null;
++      } : undefined} />}
+ 
+       {!loading && !loadError && !filteredTrades.length ? (
+         hasAppliedFilters ? (
+@@ -470,11 +475,11 @@ function TradeFeedIdeaRail({ createIdeaHref }: TradeFeedIdeaRailProps) {
+   );
+ }
+ 
+-function TradeFeedIdeaCard({ ideaKey, createIdeaHref }: { ideaKey: FeedTradeIdeaKey; createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string }) {
++function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: { ideaKey: FeedTradeIdeaKey; createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string; inline?: boolean }) {
+   const { t } = useWebTranslation();
+ 
+   return (
+-    <article className="trade-feed-idea-card">
++    <article className={`trade-feed-idea-card${inline ? ' trade-feed-idea-card--inline' : ''}`}>
+       <div className="trade-feed-idea-card__topline">
+         <span>{t('trade.feedIdeas.ideaLabel')}</span>
+         <strong>{t(`trade.feedIdeas.items.${ideaKey}.pack`)}</strong>
+@@ -496,6 +501,14 @@ function TradeFeedIdeaCard({ ideaKey, createIdeaHref }: { ideaKey: FeedTradeIdea
+   );
+ }
+ 
++function TradeFeedInlineIdeaCard({ ideaKey, createIdeaHref }: { ideaKey: FeedTradeIdeaKey; createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string }) {
++  return (
++    <div className="trade-feed-inline-idea">
++      <TradeFeedIdeaCard ideaKey={ideaKey} createIdeaHref={createIdeaHref} inline />
++    </div>
++  );
++}
++
+ type HomeTradeIntroBannerProps = {
+   onDismiss: () => void;
+ };
+diff --git a/apps/web/src/features/trade/tradeFeedIdeas.ts b/apps/web/src/features/trade/tradeFeedIdeas.ts
+index 60caa57..c170d55 100644
+--- a/apps/web/src/features/trade/tradeFeedIdeas.ts
++++ b/apps/web/src/features/trade/tradeFeedIdeas.ts
+@@ -22,6 +22,28 @@ export const feedTradeIdeas: Record<FeedTradeIdeaKey, FeedTradeIdeaTemplatePair>
+   },
+ };
+ 
++
++export const feedTradeIdeaPlacement = {
++  sparseFeedThreshold: 4,
++  firstInlineAfterIndex: 2,
++  repeatEvery: 8,
++  maxInlineIdeas: 1,
++} as const;
++
++export function shouldShowFeedIdeaRail(tradeCount: number) {
++  return tradeCount < feedTradeIdeaPlacement.sparseFeedThreshold;
++}
++
++export function getInlineFeedIdeaKey(index: number, tradeCount: number): FeedTradeIdeaKey | null {
++  if (tradeCount < feedTradeIdeaPlacement.sparseFeedThreshold) return null;
++  if (index < feedTradeIdeaPlacement.firstInlineAfterIndex) return null;
++  const slot = index - feedTradeIdeaPlacement.firstInlineAfterIndex;
++  if (slot % feedTradeIdeaPlacement.repeatEvery !== 0) return null;
++  const ideaIndex = slot / feedTradeIdeaPlacement.repeatEvery;
++  if (ideaIndex >= feedTradeIdeaPlacement.maxInlineIdeas) return null;
++  return feedTradeIdeaKeys[ideaIndex % feedTradeIdeaKeys.length] ?? null;
++}
++
+ export function parseFeedTradeIdeaKey(value?: string | null): FeedTradeIdeaKey | null {
+   return feedTradeIdeaKeys.includes(value as FeedTradeIdeaKey) ? value as FeedTradeIdeaKey : null;
+ }

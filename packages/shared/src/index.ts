@@ -20,3 +20,4 @@ export * from './usernames.js';
 export * from './businessHandles.js';
 export * from './verificationBadges.js';
 export * from './previewThemes.js';
+export * from './chainMatchDemoIdeas.js';

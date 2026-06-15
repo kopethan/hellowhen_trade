@@ -14,6 +14,7 @@ import { mockNeeds, mockOffers } from '../../lib/mockData';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { durationPresetLabel, formatInventoryDate, getInventoryMetadata, getInventoryTags, inventoryStatusLabel, itemTypeLabel, itemTypePluralLabel, kindLabel, kindPluralLabel, mediaSrc, modeLabel, normalizeInventoryList, sideClassName, sideLabel, type InventoryI18n, type InventoryItem, type InventoryKind } from './inventoryPresentation';
+import { STARTER_PACK_FILTERS, matchesStarterPackFilter, type StarterPackFilter } from './starterTemplateFilters';
 
 type InventoryListClientProps = {
   kind: InventoryKind;
@@ -224,6 +225,7 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
   const [query, setQuery] = useState('');
   const [sourceTab, setSourceTab] = useState<SourceTab>(() => searchParams.get('source') === 'starter' ? 'starter' : 'mine');
   const [itemTypeFilter, setItemTypeFilter] = useState<ItemTypeFilter>('all');
+  const [starterPackFilter, setStarterPackFilter] = useState<StarterPackFilter>('all');
   const [selectedFolderId, setSelectedFolderId] = useState<'all' | string>('all');
   const [folderMode, setFolderMode] = useState<FolderMode>('create');
   const [folderTitle, setFolderTitle] = useState('');
@@ -363,11 +365,12 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
   const filteredTemplates = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return templates.filter((template) => {
+      const matchesPack = matchesStarterPackFilter(template, starterPackFilter);
       const matchesType = itemTypeFilter === 'all' || (template.itemType ?? 'service') === itemTypeFilter;
       const matchesSearch = !needle || templateSearchText(template, i18n).includes(needle);
-      return matchesType && matchesSearch;
+      return matchesPack && matchesType && matchesSearch;
     });
-  }, [i18n, itemTypeFilter, query, templates]);
+  }, [i18n, itemTypeFilter, query, starterPackFilter, templates]);
 
   const templateSections = useMemo(() => groupTemplates(filteredTemplates, i18n), [filteredTemplates, i18n]);
 
@@ -534,12 +537,21 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
       </div>
 
       {isStarterTab ? (
-        <div className="inventory-type-filters" aria-label={t('inventory.labels.type')}>
-          {ITEM_TYPE_FILTERS.map((filter) => (
-            <button key={filter} type="button" className={itemTypeFilter === filter ? 'is-active' : ''} onClick={() => setItemTypeFilter(filter)}>
-              {itemTypePluralLabel(filter, i18n)}
-            </button>
-          ))}
+        <div className="inventory-starter-filter-stack">
+          <div className="inventory-type-filters inventory-starter-pack-filters" aria-label={t('inventory.labels.starterPack')}>
+            {STARTER_PACK_FILTERS.map((filter) => (
+              <button key={filter.value} type="button" className={starterPackFilter === filter.value ? 'is-active' : ''} onClick={() => setStarterPackFilter(filter.value)}>
+                {t(filter.key)}
+              </button>
+            ))}
+          </div>
+          <div className="inventory-type-filters" aria-label={t('inventory.labels.type')}>
+            {ITEM_TYPE_FILTERS.map((filter) => (
+              <button key={filter} type="button" className={itemTypeFilter === filter ? 'is-active' : ''} onClick={() => setItemTypeFilter(filter)}>
+                {itemTypePluralLabel(filter, i18n)}
+              </button>
+            ))}
+          </div>
         </div>
       ) : null}
 
