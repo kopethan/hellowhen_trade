@@ -1,0 +1,12 @@
+diff --git a/apps/api/src/modules/moderation/moderation.provider.ts b/apps/api/src/modules/moderation/moderation.provider.ts
+index 38cb6c0..58fb9e9 100644
+--- a/apps/api/src/modules/moderation/moderation.provider.ts
++++ b/apps/api/src/modules/moderation/moderation.provider.ts
+@@ -45,6 +45,7 @@ export function getModerationFeatureFlags(): ModerationFeatureFlags {
+     textReviewPublicMessagesEnabled: env.aiTextReviewPublicMessagesEnabled,
+     textReviewProfileEnabled: env.aiTextReviewProfileEnabled,
+     textReviewPrivateMessagesEnabled: env.aiTextReviewPrivateMessagesEnabled,
++    textReviewEnforcementEnabled: env.aiTextReviewEnforcementEnabled,
+     textFailMode: env.moderationTextFailMode,
+   };
+ }

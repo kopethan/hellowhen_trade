@@ -46,6 +46,9 @@
         {
           "android": {
             "targetSdkVersion": 35
+          },
+          "ios": {
+            "deploymentTarget": "15.0"
           }
         }
       ],

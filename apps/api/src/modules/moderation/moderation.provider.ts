@@ -45,6 +45,7 @@ export function getModerationFeatureFlags(): ModerationFeatureFlags {
     textReviewPublicMessagesEnabled: env.aiTextReviewPublicMessagesEnabled,
     textReviewProfileEnabled: env.aiTextReviewProfileEnabled,
     textReviewPrivateMessagesEnabled: env.aiTextReviewPrivateMessagesEnabled,
+    textReviewEnforcementEnabled: env.aiTextReviewEnforcementEnabled,
     textFailMode: env.moderationTextFailMode,
   };
 }

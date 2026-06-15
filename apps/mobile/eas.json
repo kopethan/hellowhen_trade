@@ -6,7 +6,10 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "ios": {
+        "image": "macos-sequoia-15.6-xcode-26.0"
+      }
     },
     "preview": {
       "distribution": "internal",
@@ -17,6 +20,9 @@
         "EXPO_PUBLIC_API_URL": "https://api.hellowhen.com",
         "EXPO_PUBLIC_CASH_PROMISE_ENABLED": "false",
         "EXPO_PUBLIC_CASH_PROMISE_VISIBLE": "false"
+      },
+      "ios": {
+        "image": "macos-sequoia-15.6-xcode-26.0"
       }
     },
     "production": {
@@ -28,6 +34,9 @@
         "EXPO_PUBLIC_API_URL": "https://api.hellowhen.com",
         "EXPO_PUBLIC_CASH_PROMISE_ENABLED": "false",
         "EXPO_PUBLIC_CASH_PROMISE_VISIBLE": "false"
+      },
+      "ios": {
+        "image": "macos-sequoia-15.6-xcode-26.0"
       }
     }
   },
