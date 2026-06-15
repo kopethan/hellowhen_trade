@@ -1,0 +1,839 @@
+diff --git a/.env.example b/.env.example
+index ae2c783..f7db51e 100644
+--- a/.env.example
++++ b/.env.example
+@@ -222,7 +222,9 @@ AI_TEXT_REVIEW_ON_EDIT_ENABLED=false
+ AI_TEXT_REVIEW_PUBLIC_MESSAGES_ENABLED=false
+ AI_TEXT_REVIEW_PROFILE_ENABLED=false
+ AI_TEXT_REVIEW_PRIVATE_MESSAGES_ENABLED=false
+-# allow_with_case | hold_pending | reject. Enforcement is added later; SAFETY7 only records the decision.
++# SAFETY8 route enforcement. When true, hold/reject decisions can keep public content pending, hidden, or unpublished.
++AI_TEXT_REVIEW_ENFORCEMENT_ENABLED=false
++# allow_with_case | hold_pending | reject. With SAFETY8 enforcement enabled, provider failures follow this mode.
+ MODERATION_TEXT_FAIL_MODE=allow_with_case
+ 
+ # Hidden AI foundation. Keep disabled for the first public launch.
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 7bd9be7..0a8915c 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -254,6 +254,7 @@ export const env = {
+   aiTextReviewPublicMessagesEnabled: enabled(process.env.AI_TEXT_REVIEW_PUBLIC_MESSAGES_ENABLED),
+   aiTextReviewProfileEnabled: enabled(process.env.AI_TEXT_REVIEW_PROFILE_ENABLED),
+   aiTextReviewPrivateMessagesEnabled: enabled(process.env.AI_TEXT_REVIEW_PRIVATE_MESSAGES_ENABLED),
++  aiTextReviewEnforcementEnabled: enabled(process.env.AI_TEXT_REVIEW_ENFORCEMENT_ENABLED),
+   moderationTextFailMode: parseModerationTextFailMode(process.env.MODERATION_TEXT_FAIL_MODE),
+   contentIntelligenceEnabled: enabled(process.env.CONTENT_INTELLIGENCE_ENABLED),
+   contentClassificationEnabled: enabled(process.env.CONTENT_CLASSIFICATION_ENABLED),
+@@ -513,7 +514,8 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
+     || env.aiTextReviewOnEditEnabled
+     || env.aiTextReviewPublicMessagesEnabled
+     || env.aiTextReviewProfileEnabled
+-    || env.aiTextReviewPrivateMessagesEnabled;
++    || env.aiTextReviewPrivateMessagesEnabled
++    || env.aiTextReviewEnforcementEnabled;
+   if (env.moderationProvider !== 'none' || env.moderationTextEnabled || env.moderationImageEnabled || env.moderationPrivateMessageScanEnabled || aiTextReviewRuntimeEnabled || hasConfiguredValue(env.moderationProviderApiKey) || hasConfiguredValue(env.moderationProviderEndpoint)) {
+     errors.push('External moderation providers and automated scans must stay disabled for first launch. The provider-neutral moderation foundation may exist, but MODERATION_PROVIDER must remain none and scan flags false.');
+   }
+@@ -603,7 +605,8 @@ export function validateProductionEnv() {
+     || env.aiTextReviewOnEditEnabled
+     || env.aiTextReviewPublicMessagesEnabled
+     || env.aiTextReviewProfileEnabled
+-    || env.aiTextReviewPrivateMessagesEnabled;
++    || env.aiTextReviewPrivateMessagesEnabled
++    || env.aiTextReviewEnforcementEnabled;
+   const moderationConfigured = env.moderationProvider !== 'none'
+     || env.moderationTextEnabled
+     || env.moderationImageEnabled
+@@ -615,6 +618,7 @@ export function validateProductionEnv() {
+   if (textReviewConfigured && !env.moderationTextEnabled) errors.push('AI text review flags require MODERATION_TEXT_ENABLED=true.');
+   if (textReviewConfigured && env.moderationProvider === 'none') errors.push('AI text review flags require MODERATION_PROVIDER=mock or a later real provider.');
+   if (env.aiTextReviewPrivateMessagesEnabled && !env.moderationPrivateMessageScanEnabled) errors.push('AI_TEXT_REVIEW_PRIVATE_MESSAGES_ENABLED=true requires MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED=true.');
++  if (env.aiTextReviewEnforcementEnabled && !env.aiTextReviewOnCreateEnabled && !env.aiTextReviewOnEditEnabled) errors.push('AI_TEXT_REVIEW_ENFORCEMENT_ENABLED=true requires AI_TEXT_REVIEW_ON_CREATE_ENABLED=true or AI_TEXT_REVIEW_ON_EDIT_ENABLED=true.');
+   if (env.moderationPrivateMessageScanEnabled && !env.moderationTextEnabled && !env.moderationImageEnabled) errors.push('MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED=true requires text or image moderation to be enabled.');
+   if (env.moderationProviderMaxRetries > 0 && env.moderationProvider === 'none') errors.push('MODERATION_PROVIDER_MAX_RETRIES requires MODERATION_PROVIDER to be mock or a later real provider.');
+   if (env.publicImageReviewEnabled && !env.moderationEnabled) errors.push('PUBLIC_IMAGE_REVIEW_ENABLED=true requires MODERATION_ENABLED=true so image review cases are explicit and auditable.');
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index edca4ad..8deb7cd 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -17,6 +17,7 @@ import { MoneyProviderError } from '../money/providers/moneyProvider.types.js';
+ import { withOneSupportMessageMedia, withOneSupportTicketMedia, withSupportTicketMedia } from '../support/support.routes.js';
+ import { findReportTarget, hydrateReports, moderateReportedTarget } from '../reports/reports.routes.js';
+ import { applyMediaStatusFromModerationCaseAction, syncMediaModerationCasesFromAdminStatus } from '../moderation/moderation.mediaPipeline.js';
++import { applyTextReviewModerationCaseAction } from '../moderation/moderation.textEnforcement.js';
+ import { publicTradeVisibilityWhere, refundHeldWalletMoney, releaseHeldWalletMoney, tradeInclude, withOneTradeDeckMedia } from '../trades/trades.routes.js';
+ import { buildAiSuggestionProviderStatus, classifyContentWithAiSuggestions, ContentAiSuggestionError } from '../content-intelligence/contentIntelligence.ai.js';
+ import { assertContentPlacementSignalsEnabled, buildContentPlacementSignalData, buildContentPlacementSignalStatus } from '../content-intelligence/contentIntelligence.signals.js';
+@@ -892,7 +893,15 @@ adminRoutes.patch('/moderation/cases/:caseId/action', asyncRoute(async (req, res
+     adminId: req.user!.id,
+     note,
+   });
+-  targetActionApplied = targetActionApplied || mediaStatusApplied;
++  const textReviewStatusApplied = await applyTextReviewModerationCaseAction({
++    contentType: existing.contentType,
++    contentId: existing.contentId,
++    action: input.action,
++    source: existing.source,
++    adminId: req.user!.id,
++    note,
++  });
++  targetActionApplied = targetActionApplied || mediaStatusApplied || textReviewStatusApplied;
+ 
+   const nextStatus = moderationCaseStatusByAction[input.action] ?? existing.status;
+   const now = new Date();
+diff --git a/apps/api/src/modules/moderation/moderation.textEnforcement.ts b/apps/api/src/modules/moderation/moderation.textEnforcement.ts
+new file mode 100644
+index 0000000..7123587
+--- /dev/null
++++ b/apps/api/src/modules/moderation/moderation.textEnforcement.ts
+@@ -0,0 +1,199 @@
++import type { ModerationContentType, ModerationTextReviewResult } from '@hellowhen/contracts';
++import { env } from '../../config/env.js';
++import { prisma } from '../../lib/prisma.js';
++
++export type AiTextReviewRouteOutcome = {
++  action: 'hold_pending' | 'reject';
++  status: 202 | 409;
++  error?: 'content_text_review_pending' | 'content_text_review_rejected';
++  message: string;
++  moderation: ReturnType<typeof summarizeAiTextReviewForResponse>;
++};
++
++export function summarizeAiTextReviewForResponse(review: ModerationTextReviewResult) {
++  return {
++    textReview: {
++      enabled: review.enabled,
++      caseId: review.caseId ?? null,
++      status: review.decision.status,
++      contentAction: review.decision.contentAction,
++      highestSeverity: review.decision.highestSeverity,
++      suggestedAction: review.decision.suggestedAction,
++    },
++  };
++}
++
++export function buildAiTextReviewRouteOutcome(
++  review: ModerationTextReviewResult,
++  options: { enforceWhen?: boolean; blockHoldPending?: boolean } = {},
++): AiTextReviewRouteOutcome | null {
++  if (!env.aiTextReviewEnforcementEnabled) return null;
++  if (!review.enabled) return null;
++  if (options.enforceWhen === false) return null;
++
++  if (review.decision.contentAction === 'reject') {
++    return {
++      action: 'reject',
++      status: 409,
++      error: 'content_text_review_rejected',
++      message: 'This content cannot be published because it may break our safety rules. Please edit it and try again.',
++      moderation: summarizeAiTextReviewForResponse(review),
++    };
++  }
++
++  if (review.decision.contentAction === 'hold_pending') {
++    return {
++      action: 'hold_pending',
++      status: options.blockHoldPending ? 409 : 202,
++      error: options.blockHoldPending ? 'content_text_review_pending' : undefined,
++      message: options.blockHoldPending
++        ? 'This content needs review before it can be published. Please edit it or try again later.'
++        : 'This content needs review before it can be public.',
++      moderation: summarizeAiTextReviewForResponse(review),
++    };
++  }
++
++  return null;
++}
++
++export async function applyTextReviewContentActionToTarget(input: {
++  contentType: ModerationContentType;
++  contentId: string;
++  action: 'hold_pending' | 'reject';
++  actorId?: string | null;
++  note?: string | null;
++}) {
++  const note = input.note?.trim() || 'AI text review route enforcement.';
++  const now = new Date();
++
++  if (input.contentType === 'trade') {
++    const updated = await prisma.trade.updateMany({
++      where: { id: input.contentId },
++      data: input.action === 'reject'
++        ? { isPublic: false, status: 'closed', closedAt: now }
++        : { isPublic: false },
++    });
++    return updated.count > 0;
++  }
++
++  if (input.contentType === 'need') {
++    const updated = await prisma.need.updateMany({
++      where: { id: input.contentId, status: { in: ['active', 'pending_review'] } },
++      data: { status: input.action === 'reject' ? 'rejected' : 'pending_review' },
++    });
++    return updated.count > 0;
++  }
++
++  if (input.contentType === 'offer') {
++    const updated = await prisma.offer.updateMany({
++      where: { id: input.contentId, status: { in: ['active', 'pending_review'] } },
++      data: { status: input.action === 'reject' ? 'rejected' : 'pending_review' },
++    });
++    return updated.count > 0;
++  }
++
++  if (input.contentType === 'public_message') {
++    const updated = await prisma.tradePublicMessage.updateMany({
++      where: { id: input.contentId, status: { not: 'deleted' } },
++      data: {
++        status: 'hidden',
++        hiddenAt: now,
++        hiddenById: null,
++        moderationNote: note,
++      },
++    });
++    return updated.count > 0;
++  }
++
++  return false;
++}
++
++export async function applyTextReviewModerationCaseAction(input: {
++  contentType: ModerationContentType;
++  contentId: string;
++  action: 'mark_needs_review' | 'approve' | 'reject' | 'limit' | 'remove' | 'restore' | 'resolve' | 'add_note';
++  source?: string | null;
++  adminId: string;
++  note?: string | null;
++}) {
++  if (input.action === 'add_note' || input.action === 'resolve') return false;
++  const automaticTextCase = input.source === 'automatic';
++  if (!automaticTextCase) return false;
++  const now = new Date();
++  const reason = input.note?.trim() || 'Admin moderation queue text review action.';
++
++  if (input.contentType === 'trade') {
++    if (input.action === 'approve' || input.action === 'restore') {
++      const updated = await prisma.trade.updateMany({
++        where: { id: input.contentId },
++        data: { isPublic: true, status: 'active', closedAt: null },
++      });
++      return updated.count > 0;
++    }
++    if (input.action === 'mark_needs_review' || input.action === 'limit') {
++      const updated = await prisma.trade.updateMany({ where: { id: input.contentId }, data: { isPublic: false } });
++      return updated.count > 0;
++    }
++    if (input.action === 'reject' || input.action === 'remove') {
++      const updated = await prisma.trade.updateMany({ where: { id: input.contentId }, data: { isPublic: false, status: 'closed', closedAt: now } });
++      return updated.count > 0;
++    }
++  }
++
++  if (input.contentType === 'need') {
++    if (input.action === 'approve' || input.action === 'restore') {
++      const updated = await prisma.need.updateMany({ where: { id: input.contentId, status: { in: ['pending_review', 'rejected', 'closed'] } }, data: { status: 'active' } });
++      return updated.count > 0;
++    }
++    if (input.action === 'mark_needs_review') {
++      const updated = await prisma.need.updateMany({ where: { id: input.contentId, status: { in: ['active', 'rejected'] } }, data: { status: 'pending_review' } });
++      return updated.count > 0;
++    }
++    if (input.action === 'reject') {
++      const updated = await prisma.need.updateMany({ where: { id: input.contentId, status: { not: 'fulfilled' } }, data: { status: 'rejected' } });
++      return updated.count > 0;
++    }
++    if (input.action === 'limit' || input.action === 'remove') {
++      const updated = await prisma.need.updateMany({ where: { id: input.contentId, status: { notIn: ['fulfilled', 'closed'] } }, data: { status: 'closed' } });
++      return updated.count > 0;
++    }
++  }
++
++  if (input.contentType === 'offer') {
++    if (input.action === 'approve' || input.action === 'restore') {
++      const updated = await prisma.offer.updateMany({ where: { id: input.contentId, status: { in: ['pending_review', 'rejected', 'closed'] } }, data: { status: 'active' } });
++      return updated.count > 0;
++    }
++    if (input.action === 'mark_needs_review') {
++      const updated = await prisma.offer.updateMany({ where: { id: input.contentId, status: { in: ['active', 'rejected'] } }, data: { status: 'pending_review' } });
++      return updated.count > 0;
++    }
++    if (input.action === 'reject') {
++      const updated = await prisma.offer.updateMany({ where: { id: input.contentId, status: { not: 'accepted' } }, data: { status: 'rejected' } });
++      return updated.count > 0;
++    }
++    if (input.action === 'limit' || input.action === 'remove') {
++      const updated = await prisma.offer.updateMany({ where: { id: input.contentId, status: { notIn: ['accepted', 'closed'] } }, data: { status: 'closed' } });
++      return updated.count > 0;
++    }
++  }
++
++  if (input.contentType === 'public_message') {
++    if (input.action === 'approve' || input.action === 'restore') {
++      const updated = await prisma.tradePublicMessage.updateMany({
++        where: { id: input.contentId, status: { not: 'deleted' } },
++        data: { status: 'visible', hiddenAt: null, hiddenById: null, moderationNote: null },
++      });
++      return updated.count > 0;
++    }
++    if (input.action === 'mark_needs_review' || input.action === 'reject' || input.action === 'limit' || input.action === 'remove') {
++      const updated = await prisma.tradePublicMessage.updateMany({
++        where: { id: input.contentId, status: { not: 'deleted' } },
++        data: { status: 'hidden', hiddenAt: now, hiddenById: input.adminId, moderationNote: reason },
++      });
++      return updated.count > 0;
++    }
++  }
++
++  return false;
++}
+diff --git a/apps/api/src/modules/needs/needs.routes.ts b/apps/api/src/modules/needs/needs.routes.ts
+index 9797544..3c8b2d8 100644
+--- a/apps/api/src/modules/needs/needs.routes.ts
++++ b/apps/api/src/modules/needs/needs.routes.ts
+@@ -7,6 +7,8 @@ import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '.
+ import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
+ import { inventoryTranslationExtraText, syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
+ import { resolvePlusPreviewThemeForCreate, resolvePlusPreviewThemeForUpdate, userCanUsePlusCustomization } from '../subscriptions/plusCustomization.js';
++import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
++import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
+ 
+ export const needsRoutes = Router();
+ needsRoutes.use(requireAuth);
+@@ -43,6 +45,10 @@ function cleanList(value: unknown) {
+   return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean).slice(0, 8) : undefined;
+ }
+ 
++function moderationLocale(value: string | null | undefined): 'en' | 'fr' | 'es' | undefined {
++  return value === 'en' || value === 'fr' || value === 'es' ? value : undefined;
++}
++
+ function buildNeedUpdateData(input: ReturnType<typeof updateNeedRequestSchema.parse>) {
+   return {
+     ...(input.title !== undefined ? { title: input.title } : {}),
+@@ -100,6 +106,7 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+     userCanUsePlusCustomization(req.user!.id),
+   ]);
+   if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_need_status', message: 'Review-only statuses are available only through Business review flows.' });
++  const intendedActive = (input.status ?? 'draft') === 'active';
+   let need = await prisma.need.create({
+     data: {
+       ownerId: req.user!.id,
+@@ -140,6 +147,36 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+   if (gateDecision.shouldGate && need.status === 'active') {
+     need = await prisma.need.update({ where: { id: need.id }, data: { status: 'pending_review' } });
+   }
++
++  const textReview = await runAiTextReview({
++    contentType: 'need',
++    contentId: need.id,
++    contentOwnerId: req.user!.id,
++    visibility: 'public',
++    mode: 'create',
++    title: need.title,
++    description: need.description,
++    message: [need.itemType, need.category, need.timing, need.availabilityPreset, need.estimatedDurationPreset, need.mode, need.locationLabel, ...(need.tags ?? []), ...inventoryTranslationExtraText(input.translations)].filter(Boolean).join('\n'),
++    locale: moderationLocale(need.defaultLanguage),
++    actorId: req.user!.id,
++    appArea: 'need_create',
++  });
++  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview, { enforceWhen: intendedActive });
++  if (textReviewOutcome) {
++    await applyTextReviewContentActionToTarget({
++      contentType: 'need',
++      contentId: need.id,
++      action: textReviewOutcome.action,
++      actorId: req.user!.id,
++      note: textReviewOutcome.message,
++    });
++    need = await prisma.need.findUniqueOrThrow({ where: { id: need.id } });
++    const withTranslations = await withOneInventoryTranslation(prisma, 'need', need);
++    const body = { need: await withOneMedia('need', withTranslations), moderation: textReviewOutcome.moderation, message: textReviewOutcome.message };
++    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, ...body });
++    return res.status(textReviewOutcome.status).json(body);
++  }
++
+   const withTranslations = await withOneInventoryTranslation(prisma, 'need', need);
+   res.status(201).json({ need: await withOneMedia('need', withTranslations) });
+ }));
+@@ -153,6 +190,7 @@ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res)
+   if (active.activeTradeCount > 0) {
+     return res.status(409).json(linkedNeedBlockedPayload(active.activeTradeCount, active.activeTrades, 'edit'));
+   }
++  const intendedActive = input.status === 'active' || (input.status === undefined && existing.status === 'active');
+   const [previewTheme, canCustomizeMedia] = await Promise.all([
+     resolvePlusPreviewThemeForUpdate(req.user!.id, input.previewTheme),
+     userCanUsePlusCustomization(req.user!.id),
+@@ -177,6 +215,36 @@ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res)
+   if (gateDecision.shouldGate && need.status === 'active') {
+     need = await prisma.need.update({ where: { id: need.id }, data: { status: 'pending_review' } });
+   }
++
++  const textReview = await runAiTextReview({
++    contentType: 'need',
++    contentId: need.id,
++    contentOwnerId: req.user!.id,
++    visibility: 'public',
++    mode: 'edit',
++    title: need.title,
++    description: need.description,
++    message: [need.itemType, need.category, need.timing, need.availabilityPreset, need.estimatedDurationPreset, need.mode, need.locationLabel, ...(need.tags ?? []), ...inventoryTranslationExtraText(input.translations)].filter(Boolean).join('\n'),
++    locale: moderationLocale(need.defaultLanguage),
++    actorId: req.user!.id,
++    appArea: 'need_edit',
++  });
++  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview, { enforceWhen: intendedActive });
++  if (textReviewOutcome) {
++    await applyTextReviewContentActionToTarget({
++      contentType: 'need',
++      contentId: need.id,
++      action: textReviewOutcome.action,
++      actorId: req.user!.id,
++      note: textReviewOutcome.message,
++    });
++    need = await prisma.need.findUniqueOrThrow({ where: { id: need.id } });
++    const withTranslations = await withOneInventoryTranslation(prisma, 'need', need);
++    const body = { need: await withOneMedia('need', withTranslations), moderation: textReviewOutcome.moderation, message: textReviewOutcome.message };
++    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, ...body });
++    return res.status(textReviewOutcome.status).json(body);
++  }
++
+   const withTranslations = await withOneInventoryTranslation(prisma, 'need', need);
+   res.json({ need: await withOneMedia('need', withTranslations) });
+ }));
+diff --git a/apps/api/src/modules/offers/offers.routes.ts b/apps/api/src/modules/offers/offers.routes.ts
+index d73df63..814e629 100644
+--- a/apps/api/src/modules/offers/offers.routes.ts
++++ b/apps/api/src/modules/offers/offers.routes.ts
+@@ -7,6 +7,8 @@ import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '.
+ import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
+ import { inventoryTranslationExtraText, syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
+ import { resolvePlusPreviewThemeForCreate, resolvePlusPreviewThemeForUpdate, userCanUsePlusCustomization } from '../subscriptions/plusCustomization.js';
++import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
++import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
+ 
+ export const offersRoutes = Router();
+ offersRoutes.use(requireAuth);
+@@ -43,6 +45,10 @@ function cleanList(value: unknown) {
+   return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean).slice(0, 8) : undefined;
+ }
+ 
++function moderationLocale(value: string | null | undefined): 'en' | 'fr' | 'es' | undefined {
++  return value === 'en' || value === 'fr' || value === 'es' ? value : undefined;
++}
++
+ function buildOfferUpdateData(input: ReturnType<typeof updateOfferRequestSchema.parse>) {
+   return {
+     ...(input.title !== undefined ? { title: input.title } : {}),
+@@ -101,6 +107,7 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+     userCanUsePlusCustomization(req.user!.id),
+   ]);
+   if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_offer_status', message: 'Review-only statuses are available only through Business review flows.' });
++  const intendedActive = (input.status ?? 'draft') === 'active';
+   let offer = await prisma.offer.create({
+     data: {
+       ownerId: req.user!.id,
+@@ -142,6 +149,36 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+   if (gateDecision.shouldGate && offer.status === 'active') {
+     offer = await prisma.offer.update({ where: { id: offer.id }, data: { status: 'pending_review' } });
+   }
++
++  const textReview = await runAiTextReview({
++    contentType: 'offer',
++    contentId: offer.id,
++    contentOwnerId: req.user!.id,
++    visibility: 'public',
++    mode: 'create',
++    title: offer.title,
++    description: offer.description,
++    message: [offer.itemType, offer.category, offer.availability, offer.availabilityPreset, offer.typicalDurationPreset, offer.mode, offer.locationLabel, ...(offer.includes ?? []), ...(offer.tags ?? []), ...inventoryTranslationExtraText(input.translations)].filter(Boolean).join('\n'),
++    locale: moderationLocale(offer.defaultLanguage),
++    actorId: req.user!.id,
++    appArea: 'offer_create',
++  });
++  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview, { enforceWhen: intendedActive });
++  if (textReviewOutcome) {
++    await applyTextReviewContentActionToTarget({
++      contentType: 'offer',
++      contentId: offer.id,
++      action: textReviewOutcome.action,
++      actorId: req.user!.id,
++      note: textReviewOutcome.message,
++    });
++    offer = await prisma.offer.findUniqueOrThrow({ where: { id: offer.id } });
++    const withTranslations = await withOneInventoryTranslation(prisma, 'offer', offer);
++    const body = { offer: await withOneMedia('offer', withTranslations), moderation: textReviewOutcome.moderation, message: textReviewOutcome.message };
++    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, ...body });
++    return res.status(textReviewOutcome.status).json(body);
++  }
++
+   const withTranslations = await withOneInventoryTranslation(prisma, 'offer', offer);
+   res.status(201).json({ offer: await withOneMedia('offer', withTranslations) });
+ }));
+@@ -155,6 +192,7 @@ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res
+   if (active.activeTradeCount > 0) {
+     return res.status(409).json(linkedOfferBlockedPayload(active.activeTradeCount, active.activeTrades, 'edit'));
+   }
++  const intendedActive = input.status === 'active' || (input.status === undefined && existing.status === 'active');
+   const [previewTheme, canCustomizeMedia] = await Promise.all([
+     resolvePlusPreviewThemeForUpdate(req.user!.id, input.previewTheme),
+     userCanUsePlusCustomization(req.user!.id),
+@@ -179,6 +217,36 @@ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res
+   if (gateDecision.shouldGate && offer.status === 'active') {
+     offer = await prisma.offer.update({ where: { id: offer.id }, data: { status: 'pending_review' } });
+   }
++
++  const textReview = await runAiTextReview({
++    contentType: 'offer',
++    contentId: offer.id,
++    contentOwnerId: req.user!.id,
++    visibility: 'public',
++    mode: 'edit',
++    title: offer.title,
++    description: offer.description,
++    message: [offer.itemType, offer.category, offer.availability, offer.availabilityPreset, offer.typicalDurationPreset, offer.mode, offer.locationLabel, ...(offer.includes ?? []), ...(offer.tags ?? []), ...inventoryTranslationExtraText(input.translations)].filter(Boolean).join('\n'),
++    locale: moderationLocale(offer.defaultLanguage),
++    actorId: req.user!.id,
++    appArea: 'offer_edit',
++  });
++  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview, { enforceWhen: intendedActive });
++  if (textReviewOutcome) {
++    await applyTextReviewContentActionToTarget({
++      contentType: 'offer',
++      contentId: offer.id,
++      action: textReviewOutcome.action,
++      actorId: req.user!.id,
++      note: textReviewOutcome.message,
++    });
++    offer = await prisma.offer.findUniqueOrThrow({ where: { id: offer.id } });
++    const withTranslations = await withOneInventoryTranslation(prisma, 'offer', offer);
++    const body = { offer: await withOneMedia('offer', withTranslations), moderation: textReviewOutcome.moderation, message: textReviewOutcome.message };
++    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, ...body });
++    return res.status(textReviewOutcome.status).json(body);
++  }
++
+   const withTranslations = await withOneInventoryTranslation(prisma, 'offer', offer);
+   res.json({ offer: await withOneMedia('offer', withTranslations) });
+ }));
+diff --git a/apps/api/src/modules/profile/profile.routes.ts b/apps/api/src/modules/profile/profile.routes.ts
+index 9ef7206..3163ca6 100644
+--- a/apps/api/src/modules/profile/profile.routes.ts
++++ b/apps/api/src/modules/profile/profile.routes.ts
+@@ -4,6 +4,8 @@ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
+ import { enqueuePublicImageReview } from '../moderation/moderation.mediaPipeline.js';
++import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
++import { buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
+ import { assertUsernameChangeAllowed, buildUsernameHistoryData, ensureUsernameAvailable, normalizeProfileHandle, usernameErrorPayload } from './profileUsernames.js';
+ 
+ export const profileRoutes = Router();
+@@ -62,6 +64,27 @@ profileRoutes.patch('/me', asyncRoute(async (req, res) => {
+       await ensureUsernameAvailable(patch.handle, { ownerProfileId: currentProfile?.id ?? null, now });
+     }
+ 
++    const textReview = await runAiTextReview({
++      contentType: 'profile',
++      contentId: currentProfile?.id ?? userId,
++      contentOwnerId: userId,
++      visibility: 'public',
++      mode: 'edit',
++      title: typeof patch.displayName === 'string' ? patch.displayName : undefined,
++      description: typeof patch.bio === 'string' ? patch.bio : undefined,
++      message: typeof patch.handle === 'string' ? patch.handle : undefined,
++      actorId: userId,
++      appArea: 'profile_edit',
++    });
++    const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview, { blockHoldPending: true });
++    if (textReviewOutcome) {
++      return res.status(textReviewOutcome.status).json({
++        error: textReviewOutcome.error ?? 'content_text_review_pending',
++        message: textReviewOutcome.message,
++        moderation: textReviewOutcome.moderation,
++      });
++    }
++
+     profile = await prisma.$transaction(async (tx: any) => {
+       const updated = await tx.profile.upsert({
+         where: { userId },
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+index f37cdaf..cf64777 100644
+--- a/apps/api/src/modules/trades/trades.routes.ts
++++ b/apps/api/src/modules/trades/trades.routes.ts
+@@ -19,6 +19,8 @@ import { notifyTradeProposalReceived, notifyTradeStatusUpdated } from '../notifi
+ import { createAcceptedDealSnapshot } from '../proposals/dealSnapshots.js';
+ import { validateCashPromiseInput } from '../cash-promise/cashPromise.js';
+ import { resolvePlusPreviewThemeForCreate } from '../subscriptions/plusCustomization.js';
++import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
++import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
+ 
+ export const tradesRoutes = Router();
+ export const tradeInclude = { owner: { select: publicUserPreviewSelect }, provider: { select: publicUserPreviewSelect }, need: true, offer: true, payment: true, escrow: true, cashPromise: true } as const;
+@@ -708,10 +710,37 @@ tradesRoutes.post('/:tradeId/public-messages', requireAuth, requireActiveAccount
+     return res.status(409).json({ error: 'public_discussion_closed', message: 'Public discussion is closed for this trade.' });
+   }
+ 
+-  const message = await prisma.tradePublicMessage.create({
++  let message = await prisma.tradePublicMessage.create({
+     data: { tradeId: trade.id, authorId: actorId, body: input.body },
+     select: publicDiscussionMessageSelect(),
+   });
++
++  const textReview = await runAiTextReview({
++    contentType: 'public_message',
++    contentId: message.id,
++    contentOwnerId: actorId,
++    visibility: 'public',
++    mode: 'create',
++    message: input.body,
++    actorId,
++    appArea: 'trade_public_discussion_create',
++    relatedTradeId: trade.id,
++  });
++  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview);
++  if (textReviewOutcome) {
++    await applyTextReviewContentActionToTarget({
++      contentType: 'public_message',
++      contentId: message.id,
++      action: textReviewOutcome.action,
++      actorId,
++      note: textReviewOutcome.message,
++    });
++    message = await prisma.tradePublicMessage.findUniqueOrThrow({ where: { id: message.id }, select: publicDiscussionMessageSelect() });
++    const body = { message, moderation: textReviewOutcome.moderation, moderationMessage: textReviewOutcome.message };
++    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, message: textReviewOutcome.message, publicMessage: message, moderation: textReviewOutcome.moderation });
++    return res.status(textReviewOutcome.status).json(body);
++  }
++
+   return res.status(201).json({ message });
+ }));
+ 
+@@ -731,11 +760,38 @@ tradesRoutes.patch('/:tradeId/public-messages/:messageId', requireAuth, requireA
+     return res.status(409).json({ error: 'message_deleted', message: 'Deleted messages cannot be edited.' });
+   }
+ 
+-  const message = await prisma.tradePublicMessage.update({
++  let message = await prisma.tradePublicMessage.update({
+     where: { id: existing.id },
+     data: { body: input.body, status: 'visible', editedAt: new Date(), editCount: { increment: 1 }, deletedAt: null },
+     select: publicDiscussionMessageSelect(),
+   });
++
++  const textReview = await runAiTextReview({
++    contentType: 'public_message',
++    contentId: message.id,
++    contentOwnerId: actorId,
++    visibility: 'public',
++    mode: 'edit',
++    message: input.body,
++    actorId,
++    appArea: 'trade_public_discussion_edit',
++    relatedTradeId: trade.id,
++  });
++  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview);
++  if (textReviewOutcome) {
++    await applyTextReviewContentActionToTarget({
++      contentType: 'public_message',
++      contentId: message.id,
++      action: textReviewOutcome.action,
++      actorId,
++      note: textReviewOutcome.message,
++    });
++    message = await prisma.tradePublicMessage.findUniqueOrThrow({ where: { id: message.id }, select: publicDiscussionMessageSelect() });
++    const body = { message, moderation: textReviewOutcome.moderation, moderationMessage: textReviewOutcome.message };
++    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, message: textReviewOutcome.message, publicMessage: message, moderation: textReviewOutcome.moderation });
++    return res.status(textReviewOutcome.status).json(body);
++  }
++
+   return res.json({ message });
+ }));
+ 
+@@ -1019,6 +1075,51 @@ tradesRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req,
+     trade = await prisma.trade.update({ where: { id: trade.id }, data: { isPublic: false }, include: tradeInclude });
+   }
+ 
++  const textReview = await runAiTextReview({
++    contentType: 'trade',
++    contentId: trade.id,
++    contentOwnerId: actorId,
++    visibility: 'public',
++    mode: 'create',
++    title: trade.title,
++    description: trade.description,
++    message: [
++      postType,
++      need?.title,
++      need?.description,
++      need?.timing,
++      need?.availabilityPreset,
++      need?.estimatedDurationPreset,
++      need?.mode,
++      need?.locationLabel,
++      offer?.title,
++      offer?.description,
++      offer?.availability,
++      offer?.availabilityPreset,
++      offer?.typicalDurationPreset,
++      offer?.mode,
++      offer?.locationLabel,
++      ...(offer?.includes ?? []),
++    ].filter(Boolean).join('\n'),
++    actorId,
++    appArea: 'trade_create',
++  });
++  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview);
++  if (textReviewOutcome) {
++    await applyTextReviewContentActionToTarget({
++      contentType: 'trade',
++      contentId: trade.id,
++      action: textReviewOutcome.action,
++      actorId,
++      note: textReviewOutcome.message,
++    });
++    trade = await prisma.trade.findUniqueOrThrow({ where: { id: trade.id }, include: tradeInclude });
++    const hydratedTrade = await withOneTradeDeckMedia(trade, 'owner');
++    const body = { trade: hydratedTrade, moderation: textReviewOutcome.moderation, message: textReviewOutcome.message };
++    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, ...body });
++    return res.status(textReviewOutcome.status).json(body);
++  }
++
+   // Trade-level media is intentionally no longer attached here. The new deck design
+   // renders media from the selected Need and Offer, which keeps admin review scoped
+   // to reusable user inventory instead of one-off public trades.
+diff --git a/docs/product/safety-review-text-enforcement.md b/docs/product/safety-review-text-enforcement.md
+new file mode 100644
+index 0000000..7818ff2
+--- /dev/null
++++ b/docs/product/safety-review-text-enforcement.md
+@@ -0,0 +1,95 @@
++# SAFETY8 — Text review enforcement on create/edit
++
++SAFETY8 connects the SAFETY7 provider-neutral AI text review pipeline to selected create/edit routes.
++
++The default configuration remains fully disabled. No external provider is connected by this patch.
++
++## Goals
++
++- Keep public text surfaces auditable through `ModerationCase`, `ModerationResult`, and `ModerationAction`.
++- Allow safe route-level enforcement when text review flags are intentionally enabled.
++- Keep private proposal messages out of default scanning/enforcement.
++- Keep Hellowhen as the final decision layer: provider results become Hellowhen decisions, then route actions.
++
++## New flag
++
++```env
++AI_TEXT_REVIEW_ENFORCEMENT_ENABLED=false
++```
++
++This flag is separate from the SAFETY7 review flags so the app can run text review in record-only mode first.
++
++A local mock test setup can use:
++
++```env
++MODERATION_ENABLED=true
++MODERATION_PROVIDER=mock
++MODERATION_TEXT_ENABLED=true
++AI_TEXT_REVIEW_ON_CREATE_ENABLED=true
++AI_TEXT_REVIEW_ON_EDIT_ENABLED=true
++AI_TEXT_REVIEW_PUBLIC_MESSAGES_ENABLED=true
++AI_TEXT_REVIEW_PROFILE_ENABLED=true
++AI_TEXT_REVIEW_ENFORCEMENT_ENABLED=true
++MODERATION_TEXT_FAIL_MODE=allow_with_case
++```
++
++Production first-launch guards still block automated moderation/provider flags until a dedicated launch decision is made.
++
++## Enforced surfaces
++
++SAFETY8 wires route-level text review for:
++
++- trade creation
++- need creation/edit when the item is intended to be active
++- offer creation/edit when the item is intended to be active
++- profile edit
++- public discussion message creation/edit
++
++Private proposal messages are intentionally not wired in this patch.
++
++## Decision behavior
++
++| Text decision | Route behavior |
++| --- | --- |
++| `allow` | Normal create/edit response. |
++| `hold_pending` | Public content is kept out of public visibility and returned with `202` where a pending state exists. |
++| `reject` | Public content is kept out of public visibility and the route returns a safe `409` response. |
++| `provider_failed` | Uses `MODERATION_TEXT_FAIL_MODE`: `allow_with_case`, `hold_pending`, or `reject`. |
++| `skipped` | No enforcement. |
++
++## Content state mapping
++
++| Surface | Hold pending | Reject |
++| --- | --- | --- |
++| Trade | `isPublic=false` | `status=closed`, `isPublic=false` |
++| Need | `status=pending_review` | `status=rejected` |
++| Offer | `status=pending_review` | `status=rejected` |
++| Public message | `status=hidden` | `status=hidden` |
++| Profile | update blocked with a safe response | update blocked with a safe response |
++
++Trade does not currently have a `pending_review` or `rejected` status. Hold-pending unpublishes it through `isPublic=false`; rejected trade text closes the hidden trade so the user can create a corrected version.
++
++## Admin queue behavior
++
++The admin moderation queue can now sync automatic text-review actions back to target content:
++
++- approve/restore automatic trade cases republishes the trade
++- approve/restore need/offer cases moves them back to `active`
++- approve/restore public message cases makes them `visible`
++- mark/reject/limit/remove keeps the target hidden, pending, rejected, or closed depending on the target type
++
++## User-facing copy
++
++Routes return safe, generic copy such as:
++
++- `This content needs review before it can be public.`
++- `This content cannot be published because it may break our safety rules. Please edit it and try again.`
++
++Do not expose raw provider labels or provider names to users.
++
++## Out of scope
++
++- No real OpenAI/AWS/Google/Azure moderation adapter.
++- No image/video AI moderation.
++- No default private-message scanning.
++- No public “AI moderation” wording.
+diff --git a/packages/contracts/src/moderation.js b/packages/contracts/src/moderation.js
+index 762cc29..6d0665a 100644
+--- a/packages/contracts/src/moderation.js
++++ b/packages/contracts/src/moderation.js
+@@ -134,6 +134,7 @@ export const moderationFeatureFlagsSchema = z.object({
+   textReviewPublicMessagesEnabled: z.boolean().optional().default(false),
+   textReviewProfileEnabled: z.boolean().optional().default(false),
+   textReviewPrivateMessagesEnabled: z.boolean().optional().default(false),
++  textReviewEnforcementEnabled: z.boolean().optional().default(false),
+   textFailMode: moderationTextFailModeSchema.optional().default('allow_with_case'),
+ }).strict();
+ 
+diff --git a/packages/contracts/src/moderation.ts b/packages/contracts/src/moderation.ts
+index bd8274d..d4d16e9 100644
+--- a/packages/contracts/src/moderation.ts
++++ b/packages/contracts/src/moderation.ts
+@@ -134,6 +134,7 @@ export const moderationFeatureFlagsSchema = z.object({
+   textReviewPublicMessagesEnabled: z.boolean().optional().default(false),
+   textReviewProfileEnabled: z.boolean().optional().default(false),
+   textReviewPrivateMessagesEnabled: z.boolean().optional().default(false),
++  textReviewEnforcementEnabled: z.boolean().optional().default(false),
+   textFailMode: moderationTextFailModeSchema.optional().default('allow_with_case'),
+ }).strict();
+ 
+diff --git a/packages/shared/src/moderation.ts b/packages/shared/src/moderation.ts
+index c60b632..0353c55 100644
+--- a/packages/shared/src/moderation.ts
++++ b/packages/shared/src/moderation.ts
+@@ -38,6 +38,7 @@ export type ModerationFeatureFlags = {
+   textReviewPublicMessagesEnabled?: boolean;
+   textReviewProfileEnabled?: boolean;
+   textReviewPrivateMessagesEnabled?: boolean;
++  textReviewEnforcementEnabled?: boolean;
+   textFailMode?: ModerationTextFailMode;
+ };
+ 

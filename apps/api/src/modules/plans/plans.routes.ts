@@ -13,6 +13,7 @@ import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { optionalAuth, requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { attachUploadedMediaToEntity, withMedia } from '../media/media.helpers.js';
+import { stripAnonymousPublicProfileMedia } from '../users/publicUser.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
 
 export const plansRoutes = Router();
@@ -57,15 +58,17 @@ async function syncPlanCapacityStatus(planId: string) {
 }
 
 async function decoratePlan(plan: any, viewerId?: string | null) {
-  const [withPlanMedia] = await withMedia('plan' as any, [plan], 'public');
-  const places = await withMedia('plan_place' as any, plan.places ?? [], 'public');
+  const publicMediaVisibility = viewerId ? 'public' : 'public_anonymous';
+  const [withPlanMedia] = await withMedia('plan' as any, [plan], publicMediaVisibility);
+  const places = await withMedia('plan_place' as any, plan.places ?? [], publicMediaVisibility);
   return serializePlan({ ...withPlanMedia, places }, viewerId ?? null);
 }
 
 async function decoratePlans(plans: any[], viewerId?: string | null) {
-  const planMediaMap = await withMedia('plan' as any, plans, 'public');
+  const publicMediaVisibility = viewerId ? 'public' : 'public_anonymous';
+  const planMediaMap = await withMedia('plan' as any, plans, publicMediaVisibility);
   const allPlaces = plans.flatMap((plan) => plan.places ?? []);
-  const placeMedia = await withMedia('plan_place' as any, allPlaces, 'public');
+  const placeMedia = await withMedia('plan_place' as any, allPlaces, publicMediaVisibility);
   const placeById = new Map(placeMedia.map((place: any) => [place.id, place]));
   return planMediaMap.map((plan: any) => serializePlan({ ...plan, places: (plan.places ?? []).map((place: any) => placeById.get(place.id) ?? place) }, viewerId ?? null));
 }
@@ -190,7 +193,7 @@ plansRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
     orderBy: [{ startsAt: 'asc' }, { createdAt: 'desc' }],
     take: input.take ?? 50,
   });
-  res.json({ plans: await decoratePlans(plans, req.user?.id ?? null) });
+  res.json(stripAnonymousPublicProfileMedia({ plans: await decoratePlans(plans, req.user?.id ?? null) }, req.user?.id));
 }));
 
 plansRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
@@ -317,5 +320,5 @@ plansRoutes.get('/:planId', optionalAuth, asyncRoute(async (req, res) => {
   if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
   const plan = await loadPlanForViewer(planId, req.user?.id ?? null);
   if (!plan) return res.status(404).json({ error: 'not_found' });
-  res.json({ plan });
+  res.json(stripAnonymousPublicProfileMedia({ plan }, req.user?.id));
 }));

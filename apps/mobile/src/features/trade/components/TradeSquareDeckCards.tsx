@@ -18,10 +18,11 @@ export type TradeSquareDeckCard = {
   tradeIndex: number;
   tradeTotal: number;
   media?: MediaAssetDto;
+  hiddenImageCount?: number;
 };
 
 type TradeSummaryCardProps = { trade: TradeDeckItem; tradeIndex: number; tradeTotal: number; onOpen: () => void; };
-type TradeImageCardProps = { trade: TradeDeckItem; kind: 'needImage' | 'offerImage'; media?: MediaAssetDto; onOpen: () => void; };
+type TradeImageCardProps = { trade: TradeDeckItem; kind: 'needImage' | 'offerImage'; media?: MediaAssetDto; hiddenImageCount?: number; onOpen: () => void; };
 type TFunction = ReturnType<typeof useTranslation>['t'];
 type CountdownState = { label: string; tone: TradePosterCardStatusTone };
 
@@ -34,6 +35,10 @@ function activeMediaUrl(media?: MediaAssetDto | null) {
   return resolveMediaUrl(media.url);
 }
 
+function hiddenMediaCount(side: { mediaAccess?: { requiresAuth?: boolean; hiddenCount?: number } } | null | undefined) {
+  return side?.mediaAccess?.requiresAuth && (side.mediaAccess.hiddenCount ?? 0) > 0 ? side.mediaAccess.hiddenCount ?? 0 : 0;
+}
+
 function firstDeckImage(trade: TradeDeckItem) {
   return activeMediaUrl(deckMedia(trade.need?.media)[0]) ?? activeMediaUrl(deckMedia(trade.offer?.media)[0]);
 }
@@ -41,13 +46,17 @@ function firstDeckImage(trade: TradeDeckItem) {
 export function buildTradeSquareDeckCards(trade: TradeDeckItem, tradeIndex = 0, tradeTotal = 1): TradeSquareDeckCard[] {
   const cards: TradeSquareDeckCard[] = [{ id: `${trade.id}:summary`, kind: 'summary', trade, tradeIndex, tradeTotal }];
   for (const [index, media] of deckMedia(trade.need?.media).entries()) cards.push({ id: `${trade.id}:need:${media.id}:${index}`, kind: 'needImage', trade, tradeIndex, tradeTotal, media });
+  const hiddenNeedCount = hiddenMediaCount(trade.need);
+  if (hiddenNeedCount > 0) cards.push({ id: `${trade.id}:need:auth-required`, kind: 'needImage', trade, tradeIndex, tradeTotal, hiddenImageCount: hiddenNeedCount });
   for (const [index, media] of deckMedia(trade.offer?.media).entries()) cards.push({ id: `${trade.id}:offer:${media.id}:${index}`, kind: 'offerImage', trade, tradeIndex, tradeTotal, media });
+  const hiddenOfferCount = hiddenMediaCount(trade.offer);
+  if (hiddenOfferCount > 0) cards.push({ id: `${trade.id}:offer:auth-required`, kind: 'offerImage', trade, tradeIndex, tradeTotal, hiddenImageCount: hiddenOfferCount });
   return cards;
 }
 
 export function renderTradeSquareDeckCard(card: TradeSquareDeckCard, _index: number, _total: number, onOpen: () => void) {
   if (card.kind === 'summary') return <TradeSummaryCard trade={card.trade} tradeIndex={card.tradeIndex} tradeTotal={card.tradeTotal} onOpen={onOpen} />;
-  return <TradeImageCard trade={card.trade} kind={card.kind} media={card.media} onOpen={onOpen} />;
+  return <TradeImageCard trade={card.trade} kind={card.kind} media={card.media} hiddenImageCount={card.hiddenImageCount} onOpen={onOpen} />;
 }
 
 
@@ -108,7 +117,7 @@ function summaryBadge(trade: TradeDeckItem, tradeIndex: number, tradeTotal: numb
   const prefix = tradePostType(trade) === 'open_need' ? t('trade.labels.openNeed') : tradePostType(trade) === 'open_offer' ? t('trade.labels.openOffer') : t('trade.labels.trade');
   return `${prefix} · ${getTradeCounter(tradeIndex, tradeTotal)}`;
 }
-function imagePlaceholderLabel(_media: MediaAssetDto | undefined, t: TFunction) { return t('trade.labels.imageUnavailable'); }
+function imagePlaceholderLabel(media: MediaAssetDto | undefined, hiddenImageCount: number | undefined, t: TFunction) { if (hiddenImageCount) return t('media.authRequired.title'); return media ? t('trade.labels.imageUnavailable') : t('media.empty.noImagesYet'); }
 function starterChips(trade: TradeDeckItem) { return [...(trade.need?.tags ?? []), ...(trade.offer?.tags ?? [])].filter((chip): chip is string => Boolean(chip)).slice(0, 3); }
 export function needMeta(need: NeedItem | null | undefined, trade: TradeDeckItem | undefined, t: TFunction) { if (trade && cashPromiseSide(trade) === 'need') return `${cashPromiseLabel(trade)} · ${t('trade.cashPromise.notProcessed')}`; if (trade && moneySide(trade) === 'need') return moneyLabel(trade); return need ? compactJoin([need.category, needTimingBadge(need, t), modeLabel(need.mode, t), need.locationLabel], 2) || t('trade.labels.needDetails') : t('trade.labels.needDetails'); }
 export function offerMeta(offer: OfferItem | null | undefined, trade: TradeDeckItem | undefined, t: TFunction) { if (trade && cashPromiseSide(trade) === 'offer') return `${cashPromiseLabel(trade)} · ${t('trade.cashPromise.notProcessed')}`; if (trade && moneySide(trade) === 'offer') return moneyLabel(trade); return offer ? compactJoin([offer.includes?.[0], offerTimingBadge(offer, t), modeLabel(offer.mode, t), offer.locationLabel], 2) || t('trade.labels.offerDetails') : t('trade.labels.offerDetails'); }
@@ -223,7 +232,7 @@ export function TradeSummaryCard(props: TradeSummaryCardProps) {
   return tradePostType(props.trade) === 'need_offer' ? <CompleteTradeSummaryCard {...props} /> : <OpenTradeSummaryCard {...props} />;
 }
 
-function SimpleImageCard({ kind, media, onOpen }: TradeImageCardProps) {
+function SimpleImageCard({ kind, media, hiddenImageCount, onOpen }: TradeImageCardProps) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
   const isNeed = kind === 'needImage';
@@ -233,16 +242,16 @@ function SimpleImageCard({ kind, media, onOpen }: TradeImageCardProps) {
 
   return (
     <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.imageCard, { backgroundColor: theme.color.elevated }, pressed && styles.pressed]}>
-      {imageUrl && !imageFailed ? <Image source={{ uri: imageUrl }} onError={() => setImageFailed(true)} style={styles.fullBleedImage} resizeMode="cover" /> : <View style={[styles.imagePlaceholder, { backgroundColor: theme.color.surface }]}><AppText style={[styles.imagePlaceholderText, { color: theme.color.muted }]}>{imagePlaceholderLabel(media, t)}</AppText></View>}
+      {imageUrl && !imageFailed ? <Image source={{ uri: imageUrl }} onError={() => setImageFailed(true)} style={styles.fullBleedImage} resizeMode="cover" /> : <View style={[styles.imagePlaceholder, { backgroundColor: theme.color.surface }]}><AppText style={[styles.imagePlaceholderText, { color: theme.color.muted }]}>{imagePlaceholderLabel(media, hiddenImageCount, t)}</AppText>{hiddenImageCount ? <AppText style={[styles.imagePlaceholderBody, { color: theme.color.muted }]}>{t('media.authRequired.body', { count: hiddenImageCount })}</AppText> : null}</View>}
       <View style={styles.floatingBadge}><AppText style={styles.floatingBadgeText}>{isNeed ? t('trade.labels.needReference') : t('trade.labels.offerSample')}</AppText></View>
     </Pressable>
   );
 }
 
-export function TradeImageCard({ trade, kind, media, onOpen }: TradeImageCardProps) {
+export function TradeImageCard({ trade, kind, media, hiddenImageCount, onOpen }: TradeImageCardProps) {
   const { t } = useTranslation();
   const isCompleteTrade = tradePostType(trade) === 'need_offer';
-  if (isCompleteTrade) return <SimpleImageCard trade={trade} kind={kind} media={media} onOpen={onOpen} />;
+  if (isCompleteTrade) return <SimpleImageCard trade={trade} kind={kind} media={media} hiddenImageCount={hiddenImageCount} onOpen={onOpen} />;
 
   const isNeed = kind === 'needImage';
   const side = isNeed ? trade.need : trade.offer;
@@ -253,11 +262,11 @@ export function TradeImageCard({ trade, kind, media, onOpen }: TradeImageCardPro
   return (
     <TradePosterCard
       id={`${trade.id}:${kind}:${media?.id ?? 'fallback'}`}
-      imageUrl={activeMediaUrl(media)}
+      imageUrl={hiddenImageCount ? null : activeMediaUrl(media)}
       badge={isNeed ? t('trade.labels.needReference') : t('trade.labels.offerSample')}
       eyebrow={isNeed ? t('trade.labels.iNeed') : t('trade.labels.iOffer')}
       title={sideTitle}
-      subtitle={compactSideMeta(sideMeta, sideDescription)}
+      subtitle={hiddenImageCount ? t('media.authRequired.body', { count: hiddenImageCount }) : compactSideMeta(sideMeta, sideDescription)}
       chips={(side?.tags ?? []).slice(0, 3)}
       variant={isNeed ? 'need' : 'offer'}
       onPress={onOpen}
@@ -290,7 +299,8 @@ const styles = StyleSheet.create({
   imageCard: { flex: 1, overflow: 'hidden' },
   fullBleedImage: { width: '100%', height: '100%' },
   imagePlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 18 },
-  imagePlaceholderText: { fontWeight: '900' },
+  imagePlaceholderText: { fontWeight: '900', textAlign: 'center' },
+  imagePlaceholderBody: { marginTop: 8, fontSize: 12, lineHeight: 16, fontWeight: '700', textAlign: 'center' },
   floatingBadge: { position: 'absolute', left: 14, top: 14, borderRadius: 999, backgroundColor: 'rgba(15, 23, 42, 0.72)', paddingHorizontal: 10, paddingVertical: 6 },
   floatingBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900', letterSpacing: 0.35 },
   pressed: { opacity: 0.82 },

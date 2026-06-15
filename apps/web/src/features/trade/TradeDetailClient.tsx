@@ -101,7 +101,7 @@ function SideSection({ side, i18n }: { side: TradeSide; i18n?: TradeI18n }) {
           {side.tags.slice(0, 8).map((tag) => <span key={tag}>{tag}</span>)}
         </div>
       ) : null}
-      <TradeImageGrid images={side.media} title={side.title} kind={side.kind === 'need' ? 'need' : side.kind === 'offer' ? 'offer' : undefined} badge={side.kind === 'need' ? i18n?.t?.('trade.labels.needReference') ?? 'Need reference' : side.kind === 'offer' ? i18n?.t?.('trade.labels.offerSample') ?? 'Offer sample' : undefined} />
+      <TradeImageGrid images={side.media} mediaAccess={side.mediaAccess} title={side.title} kind={side.kind === 'need' ? 'need' : side.kind === 'offer' ? 'offer' : undefined} badge={side.kind === 'need' ? i18n?.t?.('trade.labels.needReference') ?? 'Need reference' : side.kind === 'offer' ? i18n?.t?.('trade.labels.offerSample') ?? 'Offer sample' : undefined} />
     </section>
   );
 }

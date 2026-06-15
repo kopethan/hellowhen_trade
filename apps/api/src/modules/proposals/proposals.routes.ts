@@ -9,6 +9,7 @@ import { usersHaveBlockBetween } from '../users/userBlocks.js';
 import { hasProposalPackageInput, resolveProposalPackagePayload, toProposalPackageItemCreateManyRows } from './proposalPackages.js';
 import { notifyProposalDecision, notifyProposalMessageReceived, notifyProposalWithdrawn, notifyTradeStatusUpdated } from '../notifications/notifications.service.js';
 import { validateCashPromiseInput } from '../cash-promise/cashPromise.js';
+import { createModerationCaseForReport } from '../moderation/moderation.reportCases.js';
 
 export const proposalsRoutes = Router();
 proposalsRoutes.use(requireAuth);
@@ -161,11 +162,29 @@ proposalsRoutes.post('/:proposalId/problem-report', requireActiveAccount, asyncR
         include: { reporter: { select: publicUserPreviewSelect }, reviewer: { select: publicUserPreviewSelect } },
       });
 
+    let reportWithModerationCase = report;
+    if (!report.moderationCaseId) {
+      const moderationCase = await createModerationCaseForReport(tx, {
+        reportId: report.id,
+        reporterId: actorId,
+        targetType: 'proposal',
+        targetId: proposal.id,
+        targetOwnerId: counterpartyId,
+        reason: input.reason,
+        details,
+      });
+      reportWithModerationCase = await tx.report.update({
+        where: { id: report.id },
+        data: { moderationCaseId: moderationCase.id },
+        include: { reporter: { select: publicUserPreviewSelect }, reviewer: { select: publicUserPreviewSelect } },
+      });
+    }
+
     const trade = proposal.trade.status === 'disputed'
       ? proposal.trade
       : await tx.trade.update({ where: { id: proposal.tradeId }, data: { status: 'disputed', isPublic: false, disputedById: actorId, disputedAt: now }, include: tradeInclude });
     const updatedProposal = await tx.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
-    return { report, proposal: updatedProposal, trade, duplicate: Boolean(existingReport) };
+    return { report: reportWithModerationCase, proposal: updatedProposal, trade, duplicate: Boolean(existingReport) };
   });
 
   try {

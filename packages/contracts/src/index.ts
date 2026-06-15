@@ -13,6 +13,7 @@ export * from './business.js';
 export * from './users.js';
 export * from './admin.js';
 export * from './reports.js';
+export * from './moderation.js';
 export * from './account.js';
 export * from './plans.js';
 export * from './usage.js';

@@ -572,6 +572,114 @@ enum ReportStatus {
   dismissed
 }
 
+
+enum ModerationContentType {
+  user
+  profile
+  trade
+  need
+  offer
+  proposal
+  message
+  public_message
+  media
+  plan
+  plan_place
+  profile_image
+  trade_image
+  need_image
+  offer_image
+  support_ticket
+  support_message
+}
+
+enum ModerationContentVisibility {
+  public
+  private
+  reported_private
+  admin_internal
+}
+
+enum ModerationCaseSource {
+  upload
+  report
+  automatic
+  admin
+  backfill
+}
+
+enum ModerationCaseStatus {
+  pending
+  approved
+  rejected
+  needs_review
+  limited
+  removed
+  skipped
+  failed
+}
+
+enum ModerationProviderName {
+  none
+  mock
+  openai
+  aws_rekognition
+  google_vision
+  azure_content_safety
+  human_review
+}
+
+enum ModerationScanType {
+  text
+  image
+  combined
+}
+
+enum ModerationLabelCategory {
+  safe
+  adult
+  sexual
+  violence
+  hate_or_harassment
+  self_harm
+  illegal_or_regulated
+  spam_or_scam
+  personal_data
+  unknown
+}
+
+enum ModerationSeverity {
+  none
+  low
+  medium
+  high
+  critical
+}
+
+enum ModerationSuggestedAction {
+  allow
+  review
+  limit
+  reject
+  remove
+  no_action
+}
+
+enum ModerationActionType {
+  case_created
+  provider_scan_skipped
+  provider_scan_failed
+  provider_result_stored
+  mark_needs_review
+  approve
+  reject
+  limit
+  remove
+  restore
+  resolve
+  admin_note
+}
+
 enum AccountDeletionRequestStatus {
   requested
   in_review
@@ -791,6 +899,9 @@ model User {
   reviewedIdentityVerificationStates IdentityVerificationState[] @relation("ReviewedIdentityVerificationStates")
   reportsMade Report[] @relation("UserReportsMade")
   reviewedReports Report[] @relation("ReviewedReports")
+  moderationCasesOwned ModerationCase[] @relation("ModerationCaseOwner")
+  moderationCasesResolved ModerationCase[] @relation("ModerationCaseResolver")
+  moderationActions ModerationAction[] @relation("ModerationActionActor")
   accountDeletionRequests AccountDeletionRequest[]
   blocksCreated UserBlock[] @relation("UserBlocksCreated")
   blocksReceived UserBlock[] @relation("UserBlocksReceived")
@@ -2379,6 +2490,78 @@ model MoneyProviderEvent {
 }
 
 
+
+model ModerationCase {
+  id             String                      @id @default(cuid())
+  contentType    ModerationContentType
+  contentId      String
+  contentOwnerId String?
+  status         ModerationCaseStatus        @default(pending)
+  source         ModerationCaseSource        @default(automatic)
+  priority       Int                         @default(0)
+  visibility     ModerationContentVisibility @default(public)
+  reason         String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+
+  contentOwner User? @relation("ModerationCaseOwner", fields: [contentOwnerId], references: [id], onDelete: SetNull)
+  resolvedBy   User? @relation("ModerationCaseResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  results      ModerationResult[]
+  actions      ModerationAction[]
+  report       Report?
+
+  @@index([status, priority, createdAt])
+  @@index([contentType, contentId])
+  @@index([contentOwnerId, status])
+  @@index([source, createdAt])
+  @@index([resolvedById, resolvedAt])
+}
+
+model ModerationResult {
+  id              String                     @id @default(cuid())
+  caseId          String
+  provider        ModerationProviderName     @default(none)
+  scanType        ModerationScanType
+  status          String                     @default("skipped")
+  labelsJson      Json?
+  scoresJson      Json?
+  highestSeverity ModerationSeverity         @default(none)
+  suggestedAction ModerationSuggestedAction  @default(no_action)
+  reason          String?
+  rawJson         Json?
+  errorCode       String?
+  errorMessage    String?
+  createdAt       DateTime                   @default(now())
+
+  moderationCase ModerationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId, createdAt])
+  @@index([provider, createdAt])
+  @@index([highestSeverity, suggestedAction])
+}
+
+model ModerationAction {
+  id             String                @id @default(cuid())
+  caseId         String
+  action         ModerationActionType
+  actorType      String                @default("system")
+  actorId        String?
+  note           String?
+  previousStatus ModerationCaseStatus?
+  nextStatus     ModerationCaseStatus?
+  metadata       Json?
+  createdAt      DateTime              @default(now())
+
+  moderationCase ModerationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  actor User?          @relation("ModerationActionActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([caseId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+}
+
 model AccountDeletionRequest {
   id              String                       @id @default(cuid())
   userId          String
@@ -2488,25 +2671,27 @@ model PlanParticipant {
 }
 
 model Report {
-  id            String           @id @default(cuid())
-  reporterId    String
-  targetType    ReportTargetType
-  targetId      String
-  targetOwnerId String?
-  reason        ReportReason
-  details       String?
-  status        ReportStatus     @default(pending)
-  reviewedById  String?
-  reviewedAt    DateTime?
-  resolutionNote String?
+  id                       String       @id @default(cuid())
+  reporterId               String
+  targetType               ReportTargetType
+  targetId                 String
+  targetOwnerId            String?
+  moderationCaseId         String?      @unique
+  reason                   ReportReason
+  details                  String?
+  status                   ReportStatus @default(pending)
+  reviewedById             String?
+  reviewedAt               DateTime?
+  resolutionNote           String?
   escalatedSupportTicketId String?
-  escalatedAt   DateTime?
-  escalatedById String?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  escalatedAt              DateTime?
+  escalatedById            String?
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
 
   reporter User @relation("UserReportsMade", fields: [reporterId], references: [id], onDelete: Cascade)
-  reviewer User? @relation("ReviewedReports", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewer       User? @relation("ReviewedReports", fields: [reviewedById], references: [id], onDelete: SetNull)
+  moderationCase ModerationCase? @relation(fields: [moderationCaseId], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt])
   @@index([targetType, targetId])

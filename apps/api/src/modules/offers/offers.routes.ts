@@ -7,6 +7,8 @@ import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '.
 import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
 import { inventoryTranslationExtraText, syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
 import { resolvePlusPreviewThemeForCreate, resolvePlusPreviewThemeForUpdate, userCanUsePlusCustomization } from '../subscriptions/plusCustomization.js';
+import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
+import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
 
 export const offersRoutes = Router();
 offersRoutes.use(requireAuth);
@@ -41,6 +43,10 @@ function linkedOfferBlockedPayload(activeTradeCount: number, activeTrades: Array
 
 function cleanList(value: unknown) {
   return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean).slice(0, 8) : undefined;
+}
+
+function moderationLocale(value: string | null | undefined): 'en' | 'fr' | 'es' | undefined {
+  return value === 'en' || value === 'fr' || value === 'es' ? value : undefined;
 }
 
 function buildOfferUpdateData(input: ReturnType<typeof updateOfferRequestSchema.parse>) {
@@ -101,6 +107,7 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
     userCanUsePlusCustomization(req.user!.id),
   ]);
   if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_offer_status', message: 'Review-only statuses are available only through Business review flows.' });
+  const intendedActive = (input.status ?? 'draft') === 'active';
   let offer = await prisma.offer.create({
     data: {
       ownerId: req.user!.id,
@@ -142,6 +149,36 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
   if (gateDecision.shouldGate && offer.status === 'active') {
     offer = await prisma.offer.update({ where: { id: offer.id }, data: { status: 'pending_review' } });
   }
+
+  const textReview = await runAiTextReview({
+    contentType: 'offer',
+    contentId: offer.id,
+    contentOwnerId: req.user!.id,
+    visibility: 'public',
+    mode: 'create',
+    title: offer.title,
+    description: offer.description,
+    message: [offer.itemType, offer.category, offer.availability, offer.availabilityPreset, offer.typicalDurationPreset, offer.mode, offer.locationLabel, ...(offer.includes ?? []), ...(offer.tags ?? []), ...inventoryTranslationExtraText(input.translations)].filter(Boolean).join('\n'),
+    locale: moderationLocale(offer.defaultLanguage),
+    actorId: req.user!.id,
+    appArea: 'offer_create',
+  });
+  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview, { enforceWhen: intendedActive });
+  if (textReviewOutcome) {
+    await applyTextReviewContentActionToTarget({
+      contentType: 'offer',
+      contentId: offer.id,
+      action: textReviewOutcome.action,
+      actorId: req.user!.id,
+      note: textReviewOutcome.message,
+    });
+    offer = await prisma.offer.findUniqueOrThrow({ where: { id: offer.id } });
+    const withTranslations = await withOneInventoryTranslation(prisma, 'offer', offer);
+    const body = { offer: await withOneMedia('offer', withTranslations), moderation: textReviewOutcome.moderation, message: textReviewOutcome.message };
+    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, ...body });
+    return res.status(textReviewOutcome.status).json(body);
+  }
+
   const withTranslations = await withOneInventoryTranslation(prisma, 'offer', offer);
   res.status(201).json({ offer: await withOneMedia('offer', withTranslations) });
 }));
@@ -155,6 +192,7 @@ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res
   if (active.activeTradeCount > 0) {
     return res.status(409).json(linkedOfferBlockedPayload(active.activeTradeCount, active.activeTrades, 'edit'));
   }
+  const intendedActive = input.status === 'active' || (input.status === undefined && existing.status === 'active');
   const [previewTheme, canCustomizeMedia] = await Promise.all([
     resolvePlusPreviewThemeForUpdate(req.user!.id, input.previewTheme),
     userCanUsePlusCustomization(req.user!.id),
@@ -179,6 +217,36 @@ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res
   if (gateDecision.shouldGate && offer.status === 'active') {
     offer = await prisma.offer.update({ where: { id: offer.id }, data: { status: 'pending_review' } });
   }
+
+  const textReview = await runAiTextReview({
+    contentType: 'offer',
+    contentId: offer.id,
+    contentOwnerId: req.user!.id,
+    visibility: 'public',
+    mode: 'edit',
+    title: offer.title,
+    description: offer.description,
+    message: [offer.itemType, offer.category, offer.availability, offer.availabilityPreset, offer.typicalDurationPreset, offer.mode, offer.locationLabel, ...(offer.includes ?? []), ...(offer.tags ?? []), ...inventoryTranslationExtraText(input.translations)].filter(Boolean).join('\n'),
+    locale: moderationLocale(offer.defaultLanguage),
+    actorId: req.user!.id,
+    appArea: 'offer_edit',
+  });
+  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview, { enforceWhen: intendedActive });
+  if (textReviewOutcome) {
+    await applyTextReviewContentActionToTarget({
+      contentType: 'offer',
+      contentId: offer.id,
+      action: textReviewOutcome.action,
+      actorId: req.user!.id,
+      note: textReviewOutcome.message,
+    });
+    offer = await prisma.offer.findUniqueOrThrow({ where: { id: offer.id } });
+    const withTranslations = await withOneInventoryTranslation(prisma, 'offer', offer);
+    const body = { offer: await withOneMedia('offer', withTranslations), moderation: textReviewOutcome.moderation, message: textReviewOutcome.message };
+    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, ...body });
+    return res.status(textReviewOutcome.status).json(body);
+  }
+
   const withTranslations = await withOneInventoryTranslation(prisma, 'offer', offer);
   res.json({ offer: await withOneMedia('offer', withTranslations) });
 }));

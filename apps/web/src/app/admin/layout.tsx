@@ -25,6 +25,7 @@ const adminNavItems = [
   { href: '/admin/content', label: 'Content' },
   { href: '/admin/content-intelligence', label: 'Intelligence' },
   { href: '/admin/reports', label: 'Reports' },
+  { href: '/admin/moderation', label: 'Moderation' },
   { href: '/admin/support', label: 'Support' },
   { href: '/admin/media', label: 'Media' },
   { href: '/admin/safety', label: 'Safety' },

@@ -1,4 +1,4 @@
-import type { MediaAssetDto, NeedDto, OfferDto, TradeDto } from '@hellowhen/contracts';
+import type { MediaAssetDto, NeedDto, OfferDto, PublicMediaAccessDto, TradeDto } from '@hellowhen/contracts';
 import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
 import { resolveWebAssetUrl } from '../../lib/api';
 import { formatWebMoney, formatWebShortDate } from '../../lib/webFormat';
@@ -24,6 +24,7 @@ export type TradeSide = {
   metadata: string;
   tags: string[];
   media: MediaAssetDto[];
+  mediaAccess?: PublicMediaAccessDto;
 };
 
 export type DeckImage = {
@@ -33,6 +34,8 @@ export type DeckImage = {
   badge: string;
   kind: 'need' | 'offer';
   status?: MediaAssetDto['status'];
+  isAuthPlaceholder?: boolean;
+  hiddenCount?: number;
 };
 
 type NeedDurationSource = Pick<NeedDto, 'estimatedDurationPreset'> | null | undefined;
@@ -209,6 +212,7 @@ export function needToSide(need: NeedDto | null | undefined, label: string, i18n
     metadata: compactJoin([need.category, getNeedTimingBadge(need, i18n), getModeLabel(need.mode, i18n), need.locationLabel]),
     tags: need.tags ?? [],
     media: need.media ?? [],
+    mediaAccess: need.mediaAccess,
   };
 }
 
@@ -233,6 +237,24 @@ export function offerToSide(offer: OfferDto | null | undefined, label: string, i
     metadata: compactJoin([offer.category, getOfferTimingBadge(offer, i18n), getModeLabel(offer.mode, i18n), offer.locationLabel]),
     tags: [...(offer.includes ?? []), ...(offer.tags ?? [])],
     media: offer.media ?? [],
+    mediaAccess: offer.mediaAccess,
+  };
+}
+
+
+function hiddenMediaCount(access: PublicMediaAccessDto | null | undefined) {
+  return access?.requiresAuth && (access.hiddenCount ?? 0) > 0 ? access.hiddenCount : 0;
+}
+
+function authRequiredDeckImage(kind: 'need' | 'offer', count: number, badge: string, i18n?: TradeI18n): DeckImage {
+  return {
+    id: `${kind}-auth-required-${count}`,
+    url: '',
+    alt: tr(i18n, 'media.authRequired.title', 'Log in to view images'),
+    badge,
+    kind,
+    isAuthPlaceholder: true,
+    hiddenCount: count,
   };
 }
 
@@ -241,7 +263,7 @@ export function getDeckImages(trade: TradeDto, i18n?: TradeI18n): DeckImage[] {
   const offerBadge = tr(i18n, 'trade.labels.offerSample', 'Offer sample');
   const needFallback = tr(i18n, 'inventory.labels.need', 'Need');
   const offerFallback = tr(i18n, 'inventory.labels.offer', 'Offer');
-  const needImages = deckMedia(trade.need?.media).map((media, index) => ({
+  const needImages: DeckImage[] = deckMedia(trade.need?.media).map((media, index) => ({
     id: `need-${media.id}`,
     url: resolveTradeMediaUrl(media.url, media.storageKey),
     alt: `${trade.need?.title ?? needFallback} ${needBadge.toLowerCase()} ${index + 1}`,
@@ -249,7 +271,7 @@ export function getDeckImages(trade: TradeDto, i18n?: TradeI18n): DeckImage[] {
     kind: 'need' as const,
     status: media.status,
   }));
-  const offerImages = deckMedia(trade.offer?.media).map((media, index) => ({
+  const offerImages: DeckImage[] = deckMedia(trade.offer?.media).map((media, index) => ({
     id: `offer-${media.id}`,
     url: resolveTradeMediaUrl(media.url, media.storageKey),
     alt: `${trade.offer?.title ?? offerFallback} ${offerBadge.toLowerCase()} ${index + 1}`,
@@ -257,7 +279,14 @@ export function getDeckImages(trade: TradeDto, i18n?: TradeI18n): DeckImage[] {
     kind: 'offer' as const,
     status: media.status,
   }));
-  return [...needImages, ...offerImages];
+  const needHiddenCount = hiddenMediaCount(trade.need?.mediaAccess);
+  const offerHiddenCount = hiddenMediaCount(trade.offer?.mediaAccess);
+  return [
+    ...needImages,
+    ...(needHiddenCount > 0 ? [authRequiredDeckImage('need', needHiddenCount, needBadge, i18n)] : []),
+    ...offerImages,
+    ...(offerHiddenCount > 0 ? [authRequiredDeckImage('offer', offerHiddenCount, offerBadge, i18n)] : []),
+  ];
 }
 
 export function formatDateLabel(value?: string | null, i18n?: TradeI18n) {

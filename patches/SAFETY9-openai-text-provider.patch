@@ -1,0 +1,308 @@
+diff --git a/.env.example b/.env.example
+index f7db51e..333ac18 100644
+--- a/.env.example
++++ b/.env.example
+@@ -212,8 +212,11 @@ NEXT_PUBLIC_PUBLIC_MEDIA_REQUIRES_AUTH=false
+ EXPO_PUBLIC_PUBLIC_MEDIA_REQUIRES_AUTH=false
+ MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED=false
+ MODERATION_STORE_RAW_PROVIDER_RESULT=false
++# For MODERATION_PROVIDER=openai, set MODERATION_PROVIDER_API_KEY to your OpenAI API key.
++# MODERATION_PROVIDER_ENDPOINT is optional; leave empty to use https://api.openai.com/v1/moderations.
+ MODERATION_PROVIDER_API_KEY=
+ MODERATION_PROVIDER_ENDPOINT=
++OPENAI_MODERATION_MODEL=omni-moderation-latest
+ MODERATION_PROVIDER_TIMEOUT_MS=10000
+ MODERATION_PROVIDER_MAX_RETRIES=0
+ # SAFETY7 text-review pipeline. Keep disabled until a mock or real moderation provider is intentionally enabled.
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 0a8915c..9c24768 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -247,6 +247,7 @@ export const env = {
+   moderationStoreRawProviderResult: enabled(process.env.MODERATION_STORE_RAW_PROVIDER_RESULT),
+   moderationProviderApiKey: process.env.MODERATION_PROVIDER_API_KEY ?? '',
+   moderationProviderEndpoint: process.env.MODERATION_PROVIDER_ENDPOINT ?? '',
++  openaiModerationModel: process.env.OPENAI_MODERATION_MODEL ?? 'omni-moderation-latest',
+   moderationProviderTimeoutMs: boundedInt(process.env.MODERATION_PROVIDER_TIMEOUT_MS, 10000, 1000, 60000),
+   moderationProviderMaxRetries: boundedInt(process.env.MODERATION_PROVIDER_MAX_RETRIES, 0, 0, 3),
+   aiTextReviewOnCreateEnabled: enabled(process.env.AI_TEXT_REVIEW_ON_CREATE_ENABLED),
+@@ -621,6 +622,8 @@ export function validateProductionEnv() {
+   if (env.aiTextReviewEnforcementEnabled && !env.aiTextReviewOnCreateEnabled && !env.aiTextReviewOnEditEnabled) errors.push('AI_TEXT_REVIEW_ENFORCEMENT_ENABLED=true requires AI_TEXT_REVIEW_ON_CREATE_ENABLED=true or AI_TEXT_REVIEW_ON_EDIT_ENABLED=true.');
+   if (env.moderationPrivateMessageScanEnabled && !env.moderationTextEnabled && !env.moderationImageEnabled) errors.push('MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED=true requires text or image moderation to be enabled.');
+   if (env.moderationProviderMaxRetries > 0 && env.moderationProvider === 'none') errors.push('MODERATION_PROVIDER_MAX_RETRIES requires MODERATION_PROVIDER to be mock or a later real provider.');
++  if (env.moderationProvider === 'openai' && !hasConfiguredValue(env.moderationProviderApiKey)) errors.push('MODERATION_PROVIDER=openai requires MODERATION_PROVIDER_API_KEY to be set.');
++  if (env.moderationProvider === 'openai' && env.moderationImageEnabled) errors.push('SAFETY9 OpenAI moderation adapter is text-only; keep MODERATION_IMAGE_ENABLED=false until an image provider patch is added.');
+   if (env.publicImageReviewEnabled && !env.moderationEnabled) errors.push('PUBLIC_IMAGE_REVIEW_ENABLED=true requires MODERATION_ENABLED=true so image review cases are explicit and auditable.');
+ 
+   const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.plusAiAssistEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiModerationSuggestionsEnabled || env.aiDebugPlaceholders;
+diff --git a/apps/api/src/modules/moderation/moderation.provider.ts b/apps/api/src/modules/moderation/moderation.provider.ts
+index acf3b35..38cb6c0 100644
+--- a/apps/api/src/modules/moderation/moderation.provider.ts
++++ b/apps/api/src/modules/moderation/moderation.provider.ts
+@@ -120,6 +120,159 @@ function createMockModerationProvider(): ModerationProviderAdapter {
+   };
+ }
+ 
++
++function textForOpenAiModeration(payload: ModerationProviderPayload) {
++  const parts = [
++    `Content type: ${payload.contentType}`,
++    `Visibility: ${payload.visibility}`,
++    payload.context?.country ? `Country: ${payload.context.country}` : null,
++    payload.context?.appArea ? `App area: ${payload.context.appArea}` : null,
++    payload.text?.locale ? `Locale: ${payload.text.locale}` : null,
++    payload.text?.title ? `Title:\n${payload.text.title}` : null,
++    payload.text?.description ? `Description:\n${payload.text.description}` : null,
++    payload.text?.message ? `Message:\n${payload.text.message}` : null,
++  ].filter(Boolean);
++
++  return parts.join('\n\n').slice(0, 8000);
++}
++
++type OpenAiModerationCategoryResult = {
++  flagged?: boolean;
++  categories?: Record<string, boolean>;
++  category_scores?: Record<string, number>;
++};
++
++type OpenAiModerationResponse = {
++  id?: string;
++  model?: string;
++  results?: OpenAiModerationCategoryResult[];
++  error?: {
++    message?: string;
++    type?: string;
++    code?: string;
++  };
++};
++
++function openAiCategoryToModerationCategory(sourceLabel: string): ModerationProviderLabel['category'] {
++  if (sourceLabel.startsWith('sexual')) return sourceLabel.includes('minors') ? 'sexual' : 'adult';
++  if (sourceLabel.startsWith('harassment') || sourceLabel.startsWith('hate')) return 'hate_or_harassment';
++  if (sourceLabel.startsWith('self-harm')) return 'self_harm';
++  if (sourceLabel.startsWith('violence')) return 'violence';
++  if (sourceLabel.startsWith('illicit')) return 'illegal_or_regulated';
++  return 'unknown';
++}
++
++function openAiSeverityForCategory(sourceLabel: string, score: number, flagged: boolean): ModerationSeverity {
++  if (sourceLabel === 'sexual/minors' || sourceLabel === 'self-harm/instructions' || sourceLabel === 'self-harm/intent') return flagged || score >= 0.5 ? 'critical' : 'high';
++  if (sourceLabel === 'violence/graphic' || sourceLabel === 'illicit/violent') return flagged || score >= 0.5 ? 'high' : 'medium';
++  if (flagged) return score >= 0.92 ? 'critical' : 'high';
++  if (score >= 0.85) return 'high';
++  if (score >= 0.5) return 'medium';
++  return 'low';
++}
++
++function buildOpenAiLabels(result: OpenAiModerationCategoryResult): ModerationProviderLabel[] {
++  const categories = result.categories ?? {};
++  const scores = result.category_scores ?? {};
++  const labels = Object.entries(scores)
++    .filter(([sourceLabel, score]) => Boolean(categories[sourceLabel]) || score >= 0.35)
++    .map(([sourceLabel, score]) => ({
++      category: openAiCategoryToModerationCategory(sourceLabel),
++      severity: openAiSeverityForCategory(sourceLabel, Number(score), Boolean(categories[sourceLabel])),
++      confidence: Math.max(0, Math.min(1, Number(score))),
++      sourceLabel,
++    } satisfies ModerationProviderLabel));
++
++  if (!labels.length) labels.push({ category: 'safe', severity: 'none', confidence: 0.99, sourceLabel: 'openai_safe' });
++  return labels;
++}
++
++function openAiModerationEndpoint() {
++  return env.moderationProviderEndpoint.trim() || 'https://api.openai.com/v1/moderations';
++}
++
++function createOpenAiModerationProvider(): ModerationProviderAdapter {
++  async function scanText(payload: ModerationProviderPayload): Promise<ModerationProviderResult> {
++    if (!env.moderationProviderApiKey) {
++      return createFailedModerationResult('openai', payload.scanType, {
++        reason: 'OpenAI moderation provider is configured but MODERATION_PROVIDER_API_KEY is missing.',
++        errorCode: 'missing_provider_api_key',
++        errorMessage: 'Set MODERATION_PROVIDER_API_KEY to an OpenAI API key before enabling MODERATION_PROVIDER=openai.',
++        retriable: false,
++      });
++    }
++
++    const input = textForOpenAiModeration(payload);
++    if (!input.trim()) return createSkippedModerationResult('openai', payload.scanType, 'OpenAI text moderation skipped because no text input was present.');
++
++    const response = await fetch(openAiModerationEndpoint(), {
++      method: 'POST',
++      headers: {
++        'Authorization': `Bearer ${env.moderationProviderApiKey}`,
++        'Content-Type': 'application/json',
++      },
++      body: JSON.stringify({
++        model: env.openaiModerationModel,
++        input,
++      }),
++    });
++
++    let body: OpenAiModerationResponse | null = null;
++    try {
++      body = await response.json() as OpenAiModerationResponse;
++    } catch {
++      body = null;
++    }
++
++    if (!response.ok) {
++      const message = body?.error?.message || `OpenAI moderation request failed with status ${response.status}.`;
++      if (response.status === 429 || response.status >= 500) throw new Error(message);
++      return createFailedModerationResult('openai', payload.scanType, {
++        reason: 'OpenAI moderation request failed.',
++        errorCode: body?.error?.code || body?.error?.type || `http_${response.status}`,
++        errorMessage: message,
++        retriable: false,
++      });
++    }
++
++    const firstResult = body?.results?.[0];
++    if (!firstResult) {
++      return createFailedModerationResult('openai', payload.scanType, {
++        reason: 'OpenAI moderation response did not include a result.',
++        errorCode: 'missing_provider_result',
++        errorMessage: 'No first moderation result was returned by OpenAI.',
++        retriable: true,
++      });
++    }
++
++    const labels = buildOpenAiLabels(firstResult);
++    const highestSeverity = highestModerationSeverity(labels.map((label) => label.severity));
++
++    return moderationProviderResultSchema.parse({
++      provider: 'openai',
++      scanType: payload.scanType,
++      status: 'completed',
++      labels,
++      highestSeverity,
++      suggestedAction: suggestedActionForSeverity(highestSeverity),
++      reason: firstResult.flagged ? 'OpenAI moderation flagged text for safety review.' : 'OpenAI moderation did not flag this text.',
++      providerRequestId: body?.id,
++      retriable: false,
++      raw: {
++        model: body?.model,
++        flagged: Boolean(firstResult.flagged),
++        categories: firstResult.categories ?? {},
++        category_scores: firstResult.category_scores ?? {},
++      },
++    });
++  }
++
++  return {
++    name: 'openai',
++    scanText,
++  };
++}
++
+ function createUnimplementedExternalProvider(name: ModerationProviderName): ModerationProviderAdapter {
+   async function scan(payload: ModerationProviderPayload) {
+     return createFailedModerationResult(name, payload.scanType, {
+@@ -140,6 +293,7 @@ function createUnimplementedExternalProvider(name: ModerationProviderName): Mode
+ 
+ export function getModerationProviderAdapter(provider: ModerationProviderName = env.moderationProvider): ModerationProviderAdapter {
+   if (provider === 'mock') return createMockModerationProvider();
++  if (provider === 'openai') return createOpenAiModerationProvider();
+   if (provider === 'none') return createNoopModerationProvider('none', 'No moderation provider is configured.');
+   return createUnimplementedExternalProvider(provider);
+ }
+diff --git a/docs/product/safety-review-openai-text-provider.md b/docs/product/safety-review-openai-text-provider.md
+new file mode 100644
+index 0000000..063e314
+--- /dev/null
++++ b/docs/product/safety-review-openai-text-provider.md
+@@ -0,0 +1,93 @@
++# SAFETY9 — First real AI text provider
++
++SAFETY9 connects the provider-neutral moderation adapter from SAFETY5 to OpenAI's standalone moderation endpoint for **text-only** scans.
++
++This patch does not add image or video moderation. Public image handling remains covered by the manual/public-image pipeline and logged-out media visibility flags.
++
++## Provider
++
++Use:
++
++```env
++MODERATION_ENABLED=true
++MODERATION_PROVIDER=openai
++MODERATION_TEXT_ENABLED=true
++MODERATION_IMAGE_ENABLED=false
++MODERATION_PROVIDER_API_KEY=your_openai_api_key
++OPENAI_MODERATION_MODEL=omni-moderation-latest
++```
++
++`MODERATION_PROVIDER_ENDPOINT` is optional. Leave it empty to use:
++
++```txt
++https://api.openai.com/v1/moderations
++```
++
++Use a custom endpoint only for proxies, local tests, or future provider-compatible gateways.
++
++## Recommended local text-review test flags
++
++```env
++MODERATION_ENABLED=true
++MODERATION_PROVIDER=openai
++MODERATION_TEXT_ENABLED=true
++MODERATION_IMAGE_ENABLED=false
++MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED=false
++MODERATION_PROVIDER_API_KEY=your_openai_api_key
++OPENAI_MODERATION_MODEL=omni-moderation-latest
++AI_TEXT_REVIEW_ON_CREATE_ENABLED=true
++AI_TEXT_REVIEW_ON_EDIT_ENABLED=true
++AI_TEXT_REVIEW_PUBLIC_MESSAGES_ENABLED=true
++AI_TEXT_REVIEW_PROFILE_ENABLED=true
++AI_TEXT_REVIEW_PRIVATE_MESSAGES_ENABLED=false
++AI_TEXT_REVIEW_ENFORCEMENT_ENABLED=false
++MODERATION_TEXT_FAIL_MODE=allow_with_case
++```
++
++Then turn enforcement on only after reviewing mock and OpenAI results in the admin queue:
++
++```env
++AI_TEXT_REVIEW_ENFORCEMENT_ENABLED=true
++MODERATION_TEXT_FAIL_MODE=hold_pending
++```
++
++## What is sent
++
++The OpenAI adapter sends only minimal content/context:
++
++```txt
++Content type
++Visibility
++Country/app area when present
++Locale when present
++Title/description/message text
++```
++
++It does not send email, phone, IP address, real name, full profile history, wallet/payment data, or unrelated private messages.
++
++## Result mapping
++
++OpenAI category scores are mapped into Hellowhen's shared moderation labels:
++
++```txt
++sexual / sexual-minors      -> adult / sexual
++harassment / hate           -> hate_or_harassment
++self-harm                   -> self_harm
++violence                    -> violence
++illicit                     -> illegal_or_regulated
++```
++
++The shared decision helper still makes the final Hellowhen decision:
++
++```txt
++low / none       -> allow
++medium           -> needs_review / hold_pending
++high / critical  -> rejected / needs_review
++provider failure -> follows MODERATION_TEXT_FAIL_MODE
++```
++
++## Important launch note
++
++The first-launch production guard still blocks external moderation providers by default. To test this in production later, intentionally plan that as a separate launch step and review production flags first.
++
++Do not enable private message scanning by default. Keep private messages scanned only when reported or when a later explicit policy requires it.

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mediaAssetSchema } from './media.js';
+import { mediaAssetSchema, publicMediaAccessSchema } from './media.js';
 import { tradePostTypeSchema, tradeStatusSchema, needStatusSchema, offerStatusSchema, tradeExchangeModeSchema, inventoryAvailabilityPresetSchema, inventoryDurationPresetSchema, inventoryItemTypeSchema } from './trade.js';
 
 export const publicVerificationBadgeSchema = z.object({
@@ -45,6 +45,7 @@ const publicNeedSummarySchema = z.object({
   updatedAt: z.string(),
   expiresAt: z.string().nullable().optional(),
   media: z.array(mediaAssetSchema).optional(),
+  mediaAccess: publicMediaAccessSchema.optional(),
 });
 
 const publicOfferSummarySchema = z.object({
@@ -69,6 +70,7 @@ const publicOfferSummarySchema = z.object({
   updatedAt: z.string(),
   expiresAt: z.string().nullable().optional(),
   media: z.array(mediaAssetSchema).optional(),
+  mediaAccess: publicMediaAccessSchema.optional(),
 });
 
 export const publicProfileTradeSummarySchema = z.object({
@@ -91,6 +93,7 @@ export const publicProfileTradeSummarySchema = z.object({
   need: publicNeedSummarySchema.nullable().optional(),
   offer: publicOfferSummarySchema.nullable().optional(),
   media: z.array(mediaAssetSchema).optional(),
+  mediaAccess: publicMediaAccessSchema.optional(),
 });
 
 export const publicProfileStatsSchema = z.object({

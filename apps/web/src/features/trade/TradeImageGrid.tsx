@@ -1,6 +1,6 @@
 'use client';
 
-import type { MediaAssetDto } from '@hellowhen/contracts';
+import type { MediaAssetDto, PublicMediaAccessDto } from '@hellowhen/contracts';
 import { useState } from 'react';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { resolveTradeMediaUrl } from './tradePresentation';
@@ -10,6 +10,7 @@ type TradeImageGridProps = {
   title: string;
   badge?: string;
   kind?: 'need' | 'offer';
+  mediaAccess?: PublicMediaAccessDto;
 };
 
 function statusLabel(status: MediaAssetDto['status'] | undefined, t: (key: string) => string) {
@@ -42,15 +43,16 @@ function TradeImageGridItem({ image, index, title, badge, kind = 'offer', extra 
   );
 }
 
-export function TradeImageGrid({ images, title, badge, kind }: TradeImageGridProps) {
+export function TradeImageGrid({ images, title, badge, kind, mediaAccess }: TradeImageGridProps) {
   const { t } = useWebTranslation();
   const visibleImages = images.filter((image) => image.status === 'active');
+  const hiddenCount = mediaAccess?.requiresAuth ? mediaAccess.hiddenCount : 0;
 
   if (!visibleImages.length) {
     return (
       <div className="trade-image-empty-state">
-        <strong>{t('media.empty.noImagesYet')}</strong>
-        <span>{t('media.empty.sideImagesAppearHere')}</span>
+        <strong>{hiddenCount > 0 ? t('media.authRequired.title') : t('media.empty.noImagesYet')}</strong>
+        <span>{hiddenCount > 0 ? t('media.authRequired.body', { count: hiddenCount }) : t('media.empty.sideImagesAppearHere')}</span>
       </div>
     );
   }

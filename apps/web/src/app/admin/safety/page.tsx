@@ -104,6 +104,7 @@ export default function AdminSafetyPage() {
           <button type="button" className="secondary" onClick={() => { void loadModerationSmoke(); }} disabled={loading || !token}>Moderation smoke</button>
           <Link className="button secondary" href="/admin/content">Review content</Link>
           <Link className="button secondary" href="/admin/reports">Review reports</Link>
+          <Link className="button secondary" href="/admin/moderation">Moderation queue</Link>
         </div>
         {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
       </section>

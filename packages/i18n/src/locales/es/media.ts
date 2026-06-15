@@ -11,10 +11,20 @@ export const media = {
     uploading: 'Subiendo...',
     uploadingImage: 'Subiendo imagen {{current}} de {{total}}...',
   },
+  statuses: {
+    active: 'Aprobada',
+    pending_review: 'Pendiente de revisión',
+    flagged: 'Marcada',
+    removed: 'Eliminada',
+  },
   empty: {
     ...enMedia.empty,
     noImagesYet: 'Sin imágenes todavía',
     sideImagesAppearHere: 'Las imágenes adjuntas a este lado aparecerán aquí.',
+  },
+  authRequired: {
+    title: 'Inicia sesión para ver las imágenes',
+    body: '{{count}} imagen(es) están ocultas para visitantes sin sesión por seguridad y privacidad.',
   },
   errors: {
     ...enMedia.errors,

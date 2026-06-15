@@ -7,6 +7,8 @@ import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '.
 import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
 import { inventoryTranslationExtraText, syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
 import { resolvePlusPreviewThemeForCreate, resolvePlusPreviewThemeForUpdate, userCanUsePlusCustomization } from '../subscriptions/plusCustomization.js';
+import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
+import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
 
 export const needsRoutes = Router();
 needsRoutes.use(requireAuth);
@@ -41,6 +43,10 @@ function linkedNeedBlockedPayload(activeTradeCount: number, activeTrades: Array<
 
 function cleanList(value: unknown) {
   return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean).slice(0, 8) : undefined;
+}
+
+function moderationLocale(value: string | null | undefined): 'en' | 'fr' | 'es' | undefined {
+  return value === 'en' || value === 'fr' || value === 'es' ? value : undefined;
 }
 
 function buildNeedUpdateData(input: ReturnType<typeof updateNeedRequestSchema.parse>) {
@@ -100,6 +106,7 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
     userCanUsePlusCustomization(req.user!.id),
   ]);
   if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_need_status', message: 'Review-only statuses are available only through Business review flows.' });
+  const intendedActive = (input.status ?? 'draft') === 'active';
   let need = await prisma.need.create({
     data: {
       ownerId: req.user!.id,
@@ -140,6 +147,36 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
   if (gateDecision.shouldGate && need.status === 'active') {
     need = await prisma.need.update({ where: { id: need.id }, data: { status: 'pending_review' } });
   }
+
+  const textReview = await runAiTextReview({
+    contentType: 'need',
+    contentId: need.id,
+    contentOwnerId: req.user!.id,
+    visibility: 'public',
+    mode: 'create',
+    title: need.title,
+    description: need.description,
+    message: [need.itemType, need.category, need.timing, need.availabilityPreset, need.estimatedDurationPreset, need.mode, need.locationLabel, ...(need.tags ?? []), ...inventoryTranslationExtraText(input.translations)].filter(Boolean).join('\n'),
+    locale: moderationLocale(need.defaultLanguage),
+    actorId: req.user!.id,
+    appArea: 'need_create',
+  });
+  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview, { enforceWhen: intendedActive });
+  if (textReviewOutcome) {
+    await applyTextReviewContentActionToTarget({
+      contentType: 'need',
+      contentId: need.id,
+      action: textReviewOutcome.action,
+      actorId: req.user!.id,
+      note: textReviewOutcome.message,
+    });
+    need = await prisma.need.findUniqueOrThrow({ where: { id: need.id } });
+    const withTranslations = await withOneInventoryTranslation(prisma, 'need', need);
+    const body = { need: await withOneMedia('need', withTranslations), moderation: textReviewOutcome.moderation, message: textReviewOutcome.message };
+    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, ...body });
+    return res.status(textReviewOutcome.status).json(body);
+  }
+
   const withTranslations = await withOneInventoryTranslation(prisma, 'need', need);
   res.status(201).json({ need: await withOneMedia('need', withTranslations) });
 }));
@@ -153,6 +190,7 @@ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res) 
   if (active.activeTradeCount > 0) {
     return res.status(409).json(linkedNeedBlockedPayload(active.activeTradeCount, active.activeTrades, 'edit'));
   }
+  const intendedActive = input.status === 'active' || (input.status === undefined && existing.status === 'active');
   const [previewTheme, canCustomizeMedia] = await Promise.all([
     resolvePlusPreviewThemeForUpdate(req.user!.id, input.previewTheme),
     userCanUsePlusCustomization(req.user!.id),
@@ -177,6 +215,36 @@ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res) 
   if (gateDecision.shouldGate && need.status === 'active') {
     need = await prisma.need.update({ where: { id: need.id }, data: { status: 'pending_review' } });
   }
+
+  const textReview = await runAiTextReview({
+    contentType: 'need',
+    contentId: need.id,
+    contentOwnerId: req.user!.id,
+    visibility: 'public',
+    mode: 'edit',
+    title: need.title,
+    description: need.description,
+    message: [need.itemType, need.category, need.timing, need.availabilityPreset, need.estimatedDurationPreset, need.mode, need.locationLabel, ...(need.tags ?? []), ...inventoryTranslationExtraText(input.translations)].filter(Boolean).join('\n'),
+    locale: moderationLocale(need.defaultLanguage),
+    actorId: req.user!.id,
+    appArea: 'need_edit',
+  });
+  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview, { enforceWhen: intendedActive });
+  if (textReviewOutcome) {
+    await applyTextReviewContentActionToTarget({
+      contentType: 'need',
+      contentId: need.id,
+      action: textReviewOutcome.action,
+      actorId: req.user!.id,
+      note: textReviewOutcome.message,
+    });
+    need = await prisma.need.findUniqueOrThrow({ where: { id: need.id } });
+    const withTranslations = await withOneInventoryTranslation(prisma, 'need', need);
+    const body = { need: await withOneMedia('need', withTranslations), moderation: textReviewOutcome.moderation, message: textReviewOutcome.message };
+    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, ...body });
+    return res.status(textReviewOutcome.status).json(body);
+  }
+
   const withTranslations = await withOneInventoryTranslation(prisma, 'need', need);
   res.json({ need: await withOneMedia('need', withTranslations) });
 }));

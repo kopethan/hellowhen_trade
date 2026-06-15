@@ -10,15 +10,17 @@ import { buildLaunchLimits, limitExceeded } from '../limits/launchLimits.js';
 import { buildMoneySafetyStatus, getMoneySafetyBlock } from '../money/moneySafety.js';
 import { mirrorProviderTradeHold, mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
 import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '../content-intelligence/contentIntelligence.classifier.js';
-import { loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
+import { loadMediaAccessByEntityIds, loadMediaByEntityIds, type MediaVisibility, type PublicMediaAccess } from '../media/media.helpers.js';
 import { applyInventoryDisplayLanguageToTrade, applyInventoryDisplayLanguageToTrades, loadInventoryTranslationsByTargetIds } from '../inventoryTranslations.js';
-import { publicUserPreviewSelect } from '../users/publicUser.js';
+import { publicUserPreviewSelect, stripAnonymousPublicProfileMedia } from '../users/publicUser.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
 import { hasProposalPackageInput, resolveProposalPackagePayload, toProposalPackageItemCreateManyRows } from '../proposals/proposalPackages.js';
 import { notifyTradeProposalReceived, notifyTradeStatusUpdated } from '../notifications/notifications.service.js';
 import { createAcceptedDealSnapshot } from '../proposals/dealSnapshots.js';
 import { validateCashPromiseInput } from '../cash-promise/cashPromise.js';
 import { resolvePlusPreviewThemeForCreate } from '../subscriptions/plusCustomization.js';
+import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
+import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
 
 export const tradesRoutes = Router();
 export const tradeInclude = { owner: { select: publicUserPreviewSelect }, provider: { select: publicUserPreviewSelect }, need: true, offer: true, payment: true, escrow: true, cashPromise: true } as const;
@@ -37,8 +39,9 @@ type DeckRelatedEntity = { id: string } | null | undefined;
 type TradeWithDeckRelations = { id: string; ownerId?: string; need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
 type TradeDeckHydrated<T extends TradeWithDeckRelations> = Omit<T, 'need' | 'offer'> & {
   media: MediaAsset[];
-  need: (NonNullable<T['need']> & { media: MediaAsset[]; translations?: InventoryTranslationLike[] }) | null;
-  offer: (NonNullable<T['offer']> & { media: MediaAsset[]; translations?: InventoryTranslationLike[] }) | null;
+  mediaAccess?: PublicMediaAccess;
+  need: (NonNullable<T['need']> & { media: MediaAsset[]; mediaAccess?: PublicMediaAccess; translations?: InventoryTranslationLike[] }) | null;
+  offer: (NonNullable<T['offer']> & { media: MediaAsset[]; mediaAccess?: PublicMediaAccess; translations?: InventoryTranslationLike[] }) | null;
 };
 type ProposalPackageItemWithDeckRelations = { need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
 type ProposalWithTrade = { trade?: TradeWithDeckRelations | null; proposedNeed?: DeckRelatedEntity; proposedOffer?: DeckRelatedEntity; packageItems?: ProposalPackageItemWithDeckRelations[] };
@@ -48,10 +51,13 @@ export async function withTradeDeckMedia<T extends TradeWithDeckRelations>(trade
   const needIds = trades.map((trade) => trade.need?.id).filter((id): id is string => Boolean(id));
   const offerIds = trades.map((trade) => trade.offer?.id).filter((id): id is string => Boolean(id));
 
-  const [tradeMedia, needMedia, offerMedia, needTranslations, offerTranslations] = await Promise.all([
+  const [tradeMedia, needMedia, offerMedia, tradeAccess, needAccess, offerAccess, needTranslations, offerTranslations] = await Promise.all([
     loadMediaByEntityIds('trade', tradeIds, visibility),
     loadMediaByEntityIds('need', needIds, visibility),
     loadMediaByEntityIds('offer', offerIds, visibility),
+    loadMediaAccessByEntityIds('trade', tradeIds, visibility),
+    loadMediaAccessByEntityIds('need', needIds, visibility),
+    loadMediaAccessByEntityIds('offer', offerIds, visibility),
     loadInventoryTranslationsByTargetIds(prisma, 'need', needIds),
     loadInventoryTranslationsByTargetIds(prisma, 'offer', offerIds)
   ]);
@@ -59,8 +65,9 @@ export async function withTradeDeckMedia<T extends TradeWithDeckRelations>(trade
   return trades.map((trade) => ({
     ...trade,
     media: tradeMedia.get(trade.id) ?? [],
-    need: trade.need ? { ...trade.need, media: needMedia.get(trade.need.id) ?? [], translations: needTranslations.get(trade.need.id) ?? [] } : null,
-    offer: trade.offer ? { ...trade.offer, media: offerMedia.get(trade.offer.id) ?? [], translations: offerTranslations.get(trade.offer.id) ?? [] } : null
+    ...(tradeAccess.get(trade.id) ? { mediaAccess: tradeAccess.get(trade.id) } : {}),
+    need: trade.need ? { ...trade.need, media: needMedia.get(trade.need.id) ?? [], ...(needAccess.get(trade.need.id) ? { mediaAccess: needAccess.get(trade.need.id) } : {}), translations: needTranslations.get(trade.need.id) ?? [] } : null,
+    offer: trade.offer ? { ...trade.offer, media: offerMedia.get(trade.offer.id) ?? [], ...(offerAccess.get(trade.offer.id) ? { mediaAccess: offerAccess.get(trade.offer.id) } : {}), translations: offerTranslations.get(trade.offer.id) ?? [] } : null
   })) as Array<TradeDeckHydrated<T>>;
 }
 
@@ -70,7 +77,7 @@ export async function withOneTradeDeckMedia<T extends TradeWithDeckRelations>(tr
 }
 
 export async function withTradeDeckMediaForActor<T extends TradeWithDeckRelations>(trades: T[], actorId?: string): Promise<Array<TradeDeckHydrated<T>>> {
-  if (!actorId) return withTradeDeckMedia(trades, 'trade_public');
+  if (!actorId) return withTradeDeckMedia(trades, 'public_anonymous');
 
   const ownerTrades = trades.filter((trade) => trade.ownerId === actorId);
   const publicTrades = trades.filter((trade) => trade.ownerId !== actorId);
@@ -105,6 +112,16 @@ export async function withProposalTradeMedia<T extends ProposalWithTrade>(propos
       offer: item.offer ? { ...item.offer, media: proposedOfferMedia.get(item.offer.id) ?? [], translations: proposedOfferTranslations.get(item.offer.id) ?? [] } : item.offer,
     })),
   })) as T[];
+}
+
+
+function tradePublicMediaCount(trade: { media?: unknown[] | null; mediaAccess?: { hiddenCount?: number | null } | null; need?: { media?: unknown[] | null; mediaAccess?: { hiddenCount?: number | null } | null } | null; offer?: { media?: unknown[] | null; mediaAccess?: { hiddenCount?: number | null } | null } | null }) {
+  return (trade.media?.length ?? 0)
+    + (trade.mediaAccess?.hiddenCount ?? 0)
+    + (trade.need?.media?.length ?? 0)
+    + (trade.need?.mediaAccess?.hiddenCount ?? 0)
+    + (trade.offer?.media?.length ?? 0)
+    + (trade.offer?.mediaAccess?.hiddenCount ?? 0);
 }
 
 function containsText(value: string) {
@@ -653,10 +670,10 @@ tradesRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
   const blockFilteredTrades = actorId ? trades.filter((trade) => !blockedUserIds.has(trade.ownerId) && (!trade.providerId || !blockedUserIds.has(trade.providerId))) : trades;
   const hydratedTrades = await withTradeDeckMediaForActor(blockFilteredTrades, actorId);
   const filteredTrades = input.hasImages
-    ? hydratedTrades.filter((trade) => (trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0) > 0)
+    ? hydratedTrades.filter((trade) => tradePublicMediaCount(trade) > 0)
     : hydratedTrades;
   const sortedTrades = sortTradesForDiscovery(filteredTrades, input, actorId, preferences).slice(0, requestedTake).map(stripFeedRankingOnlyFields);
-  res.json({ trades: applyInventoryDisplayLanguageToTrades(sortedTrades, preferences.language) });
+  res.json(stripAnonymousPublicProfileMedia({ trades: applyInventoryDisplayLanguageToTrades(sortedTrades, preferences.language) }, actorId));
 }));
 
 tradesRoutes.get('/:tradeId/public-messages', requireAuth, asyncRoute(async (req, res) => {
@@ -693,10 +710,37 @@ tradesRoutes.post('/:tradeId/public-messages', requireAuth, requireActiveAccount
     return res.status(409).json({ error: 'public_discussion_closed', message: 'Public discussion is closed for this trade.' });
   }
 
-  const message = await prisma.tradePublicMessage.create({
+  let message = await prisma.tradePublicMessage.create({
     data: { tradeId: trade.id, authorId: actorId, body: input.body },
     select: publicDiscussionMessageSelect(),
   });
+
+  const textReview = await runAiTextReview({
+    contentType: 'public_message',
+    contentId: message.id,
+    contentOwnerId: actorId,
+    visibility: 'public',
+    mode: 'create',
+    message: input.body,
+    actorId,
+    appArea: 'trade_public_discussion_create',
+    relatedTradeId: trade.id,
+  });
+  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview);
+  if (textReviewOutcome) {
+    await applyTextReviewContentActionToTarget({
+      contentType: 'public_message',
+      contentId: message.id,
+      action: textReviewOutcome.action,
+      actorId,
+      note: textReviewOutcome.message,
+    });
+    message = await prisma.tradePublicMessage.findUniqueOrThrow({ where: { id: message.id }, select: publicDiscussionMessageSelect() });
+    const body = { message, moderation: textReviewOutcome.moderation, moderationMessage: textReviewOutcome.message };
+    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, message: textReviewOutcome.message, publicMessage: message, moderation: textReviewOutcome.moderation });
+    return res.status(textReviewOutcome.status).json(body);
+  }
+
   return res.status(201).json({ message });
 }));
 
@@ -716,11 +760,38 @@ tradesRoutes.patch('/:tradeId/public-messages/:messageId', requireAuth, requireA
     return res.status(409).json({ error: 'message_deleted', message: 'Deleted messages cannot be edited.' });
   }
 
-  const message = await prisma.tradePublicMessage.update({
+  let message = await prisma.tradePublicMessage.update({
     where: { id: existing.id },
     data: { body: input.body, status: 'visible', editedAt: new Date(), editCount: { increment: 1 }, deletedAt: null },
     select: publicDiscussionMessageSelect(),
   });
+
+  const textReview = await runAiTextReview({
+    contentType: 'public_message',
+    contentId: message.id,
+    contentOwnerId: actorId,
+    visibility: 'public',
+    mode: 'edit',
+    message: input.body,
+    actorId,
+    appArea: 'trade_public_discussion_edit',
+    relatedTradeId: trade.id,
+  });
+  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview);
+  if (textReviewOutcome) {
+    await applyTextReviewContentActionToTarget({
+      contentType: 'public_message',
+      contentId: message.id,
+      action: textReviewOutcome.action,
+      actorId,
+      note: textReviewOutcome.message,
+    });
+    message = await prisma.tradePublicMessage.findUniqueOrThrow({ where: { id: message.id }, select: publicDiscussionMessageSelect() });
+    const body = { message, moderation: textReviewOutcome.moderation, moderationMessage: textReviewOutcome.message };
+    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, message: textReviewOutcome.message, publicMessage: message, moderation: textReviewOutcome.moderation });
+    return res.status(textReviewOutcome.status).json(body);
+  }
+
   return res.json({ message });
 }));
 
@@ -793,10 +864,10 @@ tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
   if (!trade) return res.status(404).json({ error: 'not_found' });
   if (actorId && ![trade.ownerId, trade.providerId].includes(actorId) && await usersHaveBlockBetween(actorId, trade.ownerId)) return res.status(404).json({ error: 'not_found' });
   const isParticipant = actorId && (trade.ownerId === actorId || trade.providerId === actorId);
-  const visibility: MediaVisibility = isParticipant ? 'owner' : trade.isPublic && trade.status === 'active' ? 'trade_public' : 'public';
+  const visibility: MediaVisibility = isParticipant ? 'owner' : trade.isPublic && trade.status === 'active' ? (actorId ? 'trade_public' : 'public_anonymous') : (actorId ? 'public' : 'public_anonymous');
   const viewerLanguage = await resolveViewerLanguage(actorId, req.headers['accept-language']);
   const hydratedTrade = await withOneTradeDeckMedia(trade, visibility);
-  res.json({ trade: applyInventoryDisplayLanguageToTrade(hydratedTrade, viewerLanguage) });
+  res.json(stripAnonymousPublicProfileMedia({ trade: applyInventoryDisplayLanguageToTrade(hydratedTrade, viewerLanguage) }, actorId));
 }));
 
 const tradeDeleteAllowedStatuses = ['draft', 'active', 'expired', 'cancelled', 'closed'] as const;
@@ -1002,6 +1073,51 @@ tradesRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req,
   const gateDecision = buildContentReviewGateDecision(classification);
   if (gateDecision.shouldGate && trade.isPublic) {
     trade = await prisma.trade.update({ where: { id: trade.id }, data: { isPublic: false }, include: tradeInclude });
+  }
+
+  const textReview = await runAiTextReview({
+    contentType: 'trade',
+    contentId: trade.id,
+    contentOwnerId: actorId,
+    visibility: 'public',
+    mode: 'create',
+    title: trade.title,
+    description: trade.description,
+    message: [
+      postType,
+      need?.title,
+      need?.description,
+      need?.timing,
+      need?.availabilityPreset,
+      need?.estimatedDurationPreset,
+      need?.mode,
+      need?.locationLabel,
+      offer?.title,
+      offer?.description,
+      offer?.availability,
+      offer?.availabilityPreset,
+      offer?.typicalDurationPreset,
+      offer?.mode,
+      offer?.locationLabel,
+      ...(offer?.includes ?? []),
+    ].filter(Boolean).join('\n'),
+    actorId,
+    appArea: 'trade_create',
+  });
+  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview);
+  if (textReviewOutcome) {
+    await applyTextReviewContentActionToTarget({
+      contentType: 'trade',
+      contentId: trade.id,
+      action: textReviewOutcome.action,
+      actorId,
+      note: textReviewOutcome.message,
+    });
+    trade = await prisma.trade.findUniqueOrThrow({ where: { id: trade.id }, include: tradeInclude });
+    const hydratedTrade = await withOneTradeDeckMedia(trade, 'owner');
+    const body = { trade: hydratedTrade, moderation: textReviewOutcome.moderation, message: textReviewOutcome.message };
+    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, ...body });
+    return res.status(textReviewOutcome.status).json(body);
   }
 
   // Trade-level media is intentionally no longer attached here. The new deck design

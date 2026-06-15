@@ -3,6 +3,12 @@ import { z } from 'zod';
 export const mediaEntityTypeSchema = z.enum(['need', 'offer', 'trade', 'inventory_template', 'profile', 'support_ticket', 'support_message', 'plan', 'plan_place']);
 export const mediaAssetStatusSchema = z.enum(['active', 'flagged', 'removed', 'pending_review']);
 
+export const publicMediaAccessSchema = z.object({
+  requiresAuth: z.boolean(),
+  hiddenCount: z.number().int().nonnegative(),
+  reason: z.enum(['auth_required']).optional(),
+});
+
 export const mediaAssetSchema = z.object({
   id: z.string(),
   ownerId: z.string(),
@@ -50,6 +56,7 @@ export const updateMediaStatusRequestSchema = z.object({
 
 export type MediaEntityType = z.infer<typeof mediaEntityTypeSchema>;
 export type MediaAssetStatus = z.infer<typeof mediaAssetStatusSchema>;
+export type PublicMediaAccessDto = z.infer<typeof publicMediaAccessSchema>;
 export type MediaAssetDto = z.infer<typeof mediaAssetSchema>;
 export type ListMyMediaQuery = z.infer<typeof listMyMediaQuerySchema>;
 export type AdminListMediaQuery = z.infer<typeof adminListMediaQuerySchema>;

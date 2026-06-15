@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mediaAssetSchema } from './media.js';
+import { mediaAssetSchema, publicMediaAccessSchema } from './media.js';
 import {
   INVENTORY_DESCRIPTION_MAX_LENGTH,
   INVENTORY_DESCRIPTION_MIN_LENGTH,
@@ -362,7 +362,8 @@ export const needSchema = z.object({
   updatedAt: z.string(),
   expiresAt: z.string().nullable().optional(),
   previewTheme: previewCardThemeSchema.optional().default('default'),
-  media: z.array(mediaAssetSchema).optional()
+  media: z.array(mediaAssetSchema).optional(),
+  mediaAccess: publicMediaAccessSchema.optional()
 });
 
 export const offerSchema = z.object({
@@ -391,7 +392,8 @@ export const offerSchema = z.object({
   updatedAt: z.string(),
   expiresAt: z.string().nullable().optional(),
   previewTheme: previewCardThemeSchema.optional().default('default'),
-  media: z.array(mediaAssetSchema).optional()
+  media: z.array(mediaAssetSchema).optional(),
+  mediaAccess: publicMediaAccessSchema.optional()
 });
 
 export const cashPromiseSchema = z.object({
@@ -585,7 +587,8 @@ export const tradeSchema = z.object({
   viewerProposal: tradeViewerProposalSchema.nullable().optional(),
   cashPromise: cashPromiseSchema.nullable().optional(),
   // Deprecated. Kept for legacy trades/admin compatibility; new deck UI should use need.media and offer.media.
-  media: z.array(mediaAssetSchema).optional()
+  media: z.array(mediaAssetSchema).optional(),
+  mediaAccess: publicMediaAccessSchema.optional()
 });
 export const proposalMessageSchema = z.object({ id: z.string(), proposalId: z.string(), senderId: z.string(), body: z.string(), createdAt: z.string(), updatedAt: z.string().optional(), editedAt: z.string().nullable().optional(), editCount: z.number().int().optional().default(0), deletedAt: z.string().nullable().optional(), sender: userPreviewSchema.optional() });
 export const tradePublicMessageStatusSchema = z.enum(['visible', 'hidden', 'deleted']);

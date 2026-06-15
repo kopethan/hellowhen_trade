@@ -44,12 +44,13 @@ import {
 import { getBusinessVerificationBadges } from '@hellowhen/shared';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
-import { requireAuth, requireFreshSensitiveAction } from '../../middleware/auth.js';
+import { optionalAuth, requireAuth, requireFreshSensitiveAction } from '../../middleware/auth.js';
 import { requireBusinessBudgetsEnabled, requireBusinessCampaignsEnabled, requireBusinessSponsoredContentEnabled } from '../../middleware/featureGates.js';
 import { getActiveMoneyProvider } from '../money/providers/moneyProviderRegistry.js';
 import { MoneyProviderError } from '../money/providers/moneyProvider.types.js';
 import { withMedia, withOneMedia } from '../media/media.helpers.js';
 import { publicTradeVisibilityWhere, withTradeDeckMedia } from '../trades/trades.routes.js';
+import { stripAnonymousPublicProfileMedia } from '../users/publicUser.js';
 import { businessSlugErrorPayload, ensureBusinessSlugAvailable, normalizeBusinessProfileHandle } from './businessHandles.js';
 
 export const businessRoutes = Router();
@@ -606,7 +607,7 @@ async function writeTeamAuditLog(client: unknown, input: {
 }
 
 
-async function getPublicBusinessProfileResponse(slug: string) {
+async function getPublicBusinessProfileResponse(slug: string, viewerId?: string) {
   const businessProfile = await prisma.businessProfile.findFirst({
     where: {
       handle: slug,
@@ -626,10 +627,11 @@ async function getPublicBusinessProfileResponse(slug: string) {
     prisma.offer.findMany({ where: { businessProfileId: businessProfile.id, status: 'active' }, orderBy: { createdAt: 'desc' }, take: 12 }),
   ]);
 
+  const publicMediaVisibility = viewerId ? 'trade_public' : 'public_anonymous';
   const [activeTradesWithMedia, openNeedsWithMedia, openOffersWithMedia] = await Promise.all([
-    withTradeDeckMedia(activeTrades, 'trade_public'),
-    withMedia('need', openNeeds, 'trade_public'),
-    withMedia('offer', openOffers, 'trade_public'),
+    withTradeDeckMedia(activeTrades, publicMediaVisibility),
+    withMedia('need', openNeeds, publicMediaVisibility),
+    withMedia('offer', openOffers, publicMediaVisibility),
   ]);
 
   return {
@@ -668,7 +670,7 @@ async function getPublicBusinessProfileResponse(slug: string) {
   };
 }
 
-businessRoutes.get('/by-slug/:slug/public-profile', asyncRoute(async (req, res) => {
+businessRoutes.get('/by-slug/:slug/public-profile', optionalAuth, asyncRoute(async (req, res) => {
   let slug: string;
   try {
     slug = normalizeBusinessProfileHandle(req.params.slug) ?? '';
@@ -679,9 +681,9 @@ businessRoutes.get('/by-slug/:slug/public-profile', asyncRoute(async (req, res) 
   }
   if (!slug) return res.status(400).json({ error: 'missing_business_slug' });
 
-  const response = await getPublicBusinessProfileResponse(slug);
+  const response = await getPublicBusinessProfileResponse(slug, req.user?.id);
   if (!response) return res.status(404).json({ error: 'not_found', message: 'Business profile not found.' });
-  res.json(response);
+  res.json(stripAnonymousPublicProfileMedia(response, req.user?.id));
 }));
 
 businessRoutes.use(requireAuth);

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mediaAssetSchema } from './media.js';
+import { mediaAssetSchema, publicMediaAccessSchema } from './media.js';
 import { tradePostTypeSchema, tradeStatusSchema, needStatusSchema, offerStatusSchema, tradeExchangeModeSchema, inventoryItemTypeSchema } from './trade.js';
 export const publicVerificationBadgeSchema = z.object({
     kind: z.enum(['email_verified', 'professional', 'trusted', 'business', 'verified_business', 'brand', 'agency', 'enterprise']),
@@ -36,6 +36,7 @@ const publicNeedSummarySchema = z.object({
     updatedAt: z.string(),
     expiresAt: z.string().nullable().optional(),
     media: z.array(mediaAssetSchema).optional(),
+    mediaAccess: publicMediaAccessSchema.optional(),
 });
 const publicOfferSummarySchema = z.object({
     id: z.string(),
@@ -54,6 +55,7 @@ const publicOfferSummarySchema = z.object({
     updatedAt: z.string(),
     expiresAt: z.string().nullable().optional(),
     media: z.array(mediaAssetSchema).optional(),
+    mediaAccess: publicMediaAccessSchema.optional(),
 });
 export const publicProfileTradeSummarySchema = z.object({
     id: z.string(),
@@ -75,6 +77,7 @@ export const publicProfileTradeSummarySchema = z.object({
     need: publicNeedSummarySchema.nullable().optional(),
     offer: publicOfferSummarySchema.nullable().optional(),
     media: z.array(mediaAssetSchema).optional(),
+    mediaAccess: publicMediaAccessSchema.optional(),
 });
 export const publicProfileStatsSchema = z.object({
     completedTradesCount: z.number().int().nonnegative(),

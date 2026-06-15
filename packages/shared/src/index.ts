@@ -2,6 +2,7 @@ export * from './format.js';
 
 export * from './ads.js';
 export * from './ai.js';
+export * from './moderation.js';
 export * from './subscriptions.js';
 export * from './membership.js';
 export * from './membershipBilling.js';

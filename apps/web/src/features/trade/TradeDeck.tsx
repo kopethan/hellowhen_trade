@@ -61,8 +61,15 @@ export function TradeDeck({ trade }: { trade: TradeDto }) {
         </article>
 
         {images.map((image) => (
-          <Link key={image.id} href={`/trades/${trade.id}`} className="trade-deck-card trade-deck-card--image" aria-label={`${t('common.actions.open')} ${trade.title}`}>
-            <img src={image.url} alt={image.alt} loading="lazy" />
+          <Link key={image.id} href={`/trades/${trade.id}`} className={`trade-deck-card trade-deck-card--image${image.isAuthPlaceholder ? ' is-broken' : ''}`} aria-label={`${t('common.actions.open')} ${trade.title}`}>
+            {image.isAuthPlaceholder ? (
+              <div className="trade-stack-card__image-fallback">
+                <strong>{t('media.authRequired.title')}</strong>
+                <span>{t('media.authRequired.body', { count: image.hiddenCount ?? 1 })}</span>
+              </div>
+            ) : (
+              <img src={image.url} alt={image.alt} loading="lazy" />
+            )}
             <span className={image.kind === 'need' ? 'semantic-badge need' : 'semantic-badge offer'}>{image.badge}</span>
           </Link>
         ))}

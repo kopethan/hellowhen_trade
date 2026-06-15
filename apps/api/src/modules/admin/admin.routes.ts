@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
-import { adminBusinessProfileActionRequestSchema, adminBusinessBudgetActionRequestSchema, adminBusinessBudgetListQuerySchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminContentClassificationActionRequestSchema, adminContentClassificationAiSuggestionRequestSchema, adminListContentClassificationsQuerySchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateUsernameRequestSchema, adminPlusGrantRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
+import { adminBusinessProfileActionRequestSchema, adminBusinessBudgetActionRequestSchema, adminBusinessBudgetListQuerySchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminContentClassificationActionRequestSchema, adminContentClassificationAiSuggestionRequestSchema, adminListContentClassificationsQuerySchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminListModerationCasesQuerySchema, adminModerationCaseActionRequestSchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateUsernameRequestSchema, adminPlusGrantRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema, type ModerationCaseStatus, type ModerationContentType, type ReportTargetType } from '@hellowhen/contracts';
 import { AI_ASSIST_TASK_TYPES, AI_ASSIST_USAGE_STATUSES, buildAiAssistPeriodKey, evaluatePlusGate, hasProAccess } from '@hellowhen/shared';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
@@ -16,6 +16,8 @@ import { buildMoneyProviderStatus, getActiveMoneyProvider, getMoneyProvider } fr
 import { MoneyProviderError } from '../money/providers/moneyProvider.types.js';
 import { withOneSupportMessageMedia, withOneSupportTicketMedia, withSupportTicketMedia } from '../support/support.routes.js';
 import { findReportTarget, hydrateReports, moderateReportedTarget } from '../reports/reports.routes.js';
+import { applyMediaStatusFromModerationCaseAction, syncMediaModerationCasesFromAdminStatus } from '../moderation/moderation.mediaPipeline.js';
+import { applyTextReviewModerationCaseAction } from '../moderation/moderation.textEnforcement.js';
 import { publicTradeVisibilityWhere, refundHeldWalletMoney, releaseHeldWalletMoney, tradeInclude, withOneTradeDeckMedia } from '../trades/trades.routes.js';
 import { buildAiSuggestionProviderStatus, classifyContentWithAiSuggestions, ContentAiSuggestionError } from '../content-intelligence/contentIntelligence.ai.js';
 import { assertContentPlacementSignalsEnabled, buildContentPlacementSignalData, buildContentPlacementSignalStatus } from '../content-intelligence/contentIntelligence.signals.js';
@@ -762,6 +764,209 @@ adminRoutes.get('/audit-log', asyncRoute(async (req, res) => {
   res.json({ logs });
 }));
 
+
+
+type AdminModerationCaseActionInput = {
+  action: 'mark_needs_review' | 'approve' | 'reject' | 'limit' | 'remove' | 'restore' | 'resolve' | 'add_note';
+  note?: string;
+};
+
+const adminModerationCaseInclude = {
+  contentOwner: { select: adminOverviewUserSelect },
+  resolvedBy: { select: adminOverviewUserSelect },
+  report: { include: { reporter: { select: adminOverviewUserSelect }, reviewer: { select: adminOverviewUserSelect } } },
+  results: { orderBy: { createdAt: 'desc' as const }, take: 5 },
+  actions: { orderBy: { createdAt: 'desc' as const }, take: 10, include: { actor: { select: adminOverviewUserSelect } } },
+  _count: { select: { results: true, actions: true } },
+} as const;
+
+const moderationCaseStatusByAction: Record<AdminModerationCaseActionInput['action'], ModerationCaseStatus | null> = {
+  mark_needs_review: 'needs_review',
+  approve: 'approved',
+  reject: 'rejected',
+  limit: 'limited',
+  remove: 'removed',
+  restore: 'approved',
+  resolve: 'approved',
+  add_note: null,
+};
+
+function reportTargetTypeForModerationContentType(contentType: ModerationContentType): ReportTargetType | null {
+  if (contentType === 'user' || contentType === 'profile' || contentType === 'trade' || contentType === 'need' || contentType === 'offer' || contentType === 'proposal' || contentType === 'message' || contentType === 'public_message' || contentType === 'media' || contentType === 'plan' || contentType === 'plan_place') return contentType;
+  if (contentType === 'profile_image' || contentType === 'trade_image' || contentType === 'need_image' || contentType === 'offer_image') return 'media';
+  return null;
+}
+
+function reportStatusForModerationAction(action: AdminModerationCaseActionInput['action']) {
+  if (action === 'mark_needs_review') return 'reviewing';
+  if (action === 'add_note') return null;
+  return 'resolved';
+}
+
+function targetActionForModerationAction(action: AdminModerationCaseActionInput['action']) {
+  if (action === 'remove') return 'hide_target' as const;
+  if (action === 'restore') return 'restore_target' as const;
+  return null;
+}
+
+function hydrateModerationResult(result: any) {
+  if (!result) return null;
+  const scores = result.scoresJson && typeof result.scoresJson === 'object' ? result.scoresJson : {};
+  return {
+    ...result,
+    providerRequestId: scores.providerRequestId ?? null,
+    durationMs: scores.durationMs ?? null,
+    attemptCount: scores.attemptCount ?? null,
+    retriable: scores.retriable ?? null,
+  };
+}
+
+async function hydrateAdminModerationCases(cases: any[]) {
+  const targets = await Promise.all(cases.map((item) => {
+    const targetType = reportTargetTypeForModerationContentType(item.contentType);
+    return targetType ? findReportTarget(targetType, item.contentId) : Promise.resolve(null);
+  }));
+  return cases.map((item, index) => ({
+    ...item,
+    target: targets[index] ?? null,
+    latestResult: hydrateModerationResult(item.results?.[0] ?? null),
+    recentResults: (item.results ?? []).map(hydrateModerationResult),
+    recentActions: item.actions ?? [],
+    resultCount: item._count?.results ?? item.results?.length ?? 0,
+    actionCount: item._count?.actions ?? item.actions?.length ?? 0,
+  }));
+}
+
+adminRoutes.get('/moderation/cases', asyncRoute(async (req, res) => {
+  const input = adminListModerationCasesQuerySchema.parse(req.query);
+  const moderationCaseClient = (prisma as any).moderationCase;
+  if (!moderationCaseClient) return res.json({ cases: [] });
+  const cases = await moderationCaseClient.findMany({
+    where: {
+      ...(input.status && input.status !== 'all' ? { status: input.status } : {}),
+      ...(input.contentType ? { contentType: input.contentType } : {}),
+      ...(input.source ? { source: input.source } : {}),
+      ...(input.q ? {
+        OR: [
+          { contentId: { contains: input.q, mode: 'insensitive' as const } },
+          { reason: { contains: input.q, mode: 'insensitive' as const } },
+          { contentOwner: { is: { email: { contains: input.q, mode: 'insensitive' as const } } } },
+          { contentOwner: { is: { profile: { is: { displayName: { contains: input.q, mode: 'insensitive' as const } } } } } },
+          { contentOwner: { is: { profile: { is: { handle: { contains: input.q, mode: 'insensitive' as const } } } } } },
+          { report: { is: { details: { contains: input.q, mode: 'insensitive' as const } } } },
+          { report: { is: { id: { contains: input.q, mode: 'insensitive' as const } } } },
+        ],
+      } : {}),
+    },
+    orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+    take: input.take ?? 100,
+    include: adminModerationCaseInclude,
+  });
+  res.json({ cases: await hydrateAdminModerationCases(cases) });
+}));
+
+adminRoutes.patch('/moderation/cases/:caseId/action', asyncRoute(async (req, res) => {
+  const input = adminModerationCaseActionRequestSchema.parse(req.body ?? {}) as AdminModerationCaseActionInput;
+  const moderationCaseClient = (prisma as any).moderationCase;
+  if (!moderationCaseClient) return res.status(404).json({ error: 'moderation_unavailable' });
+  const existing = await moderationCaseClient.findUnique({ where: { id: req.params.caseId }, include: adminModerationCaseInclude });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+
+  const note = input.note?.trim();
+  if (input.action !== 'mark_needs_review' && !note) {
+    return res.status(400).json({ error: 'admin_note_required', message: 'Add an internal note before changing a moderation case decision.' });
+  }
+
+  const targetAction = targetActionForModerationAction(input.action);
+  let targetActionApplied = false;
+  if (targetAction) {
+    const targetType = reportTargetTypeForModerationContentType(existing.contentType);
+    if (targetType) {
+      const moderated = await moderateReportedTarget(targetType, existing.contentId, targetAction, req.user!.id, note);
+      targetActionApplied = Boolean(moderated);
+    }
+  }
+  const mediaStatusApplied = await applyMediaStatusFromModerationCaseAction({
+    contentType: existing.contentType,
+    contentId: existing.contentId,
+    action: input.action,
+    adminId: req.user!.id,
+    note,
+  });
+  const textReviewStatusApplied = await applyTextReviewModerationCaseAction({
+    contentType: existing.contentType,
+    contentId: existing.contentId,
+    action: input.action,
+    source: existing.source,
+    adminId: req.user!.id,
+    note,
+  });
+  targetActionApplied = targetActionApplied || mediaStatusApplied || textReviewStatusApplied;
+
+  const nextStatus = moderationCaseStatusByAction[input.action] ?? existing.status;
+  const now = new Date();
+  const updated = await prisma.$transaction(async (tx: any) => {
+    const caseData = input.action === 'add_note'
+      ? {}
+      : {
+          status: nextStatus,
+          resolvedById: nextStatus === 'needs_review' ? null : req.user!.id,
+          resolvedAt: nextStatus === 'needs_review' ? null : now,
+        };
+    const moderationCase = await tx.moderationCase.update({
+      where: { id: existing.id },
+      data: caseData,
+      include: adminModerationCaseInclude,
+    });
+
+    await tx.moderationAction.create({
+      data: {
+        caseId: existing.id,
+        action: input.action === 'add_note' ? 'admin_note' : input.action,
+        actorType: 'admin',
+        actorId: req.user!.id,
+        note: note ?? null,
+        previousStatus: existing.status,
+        nextStatus: input.action === 'add_note' ? existing.status : nextStatus,
+        metadata: {
+          contentType: existing.contentType,
+          contentId: existing.contentId,
+          targetActionApplied,
+          reportId: existing.report?.id ?? null,
+        },
+      },
+    });
+
+    const linkedReportStatus = reportStatusForModerationAction(input.action);
+    if (linkedReportStatus && existing.report?.id) {
+      await tx.report.update({
+        where: { id: existing.report.id },
+        data: {
+          status: linkedReportStatus,
+          reviewedById: req.user!.id,
+          reviewedAt: now,
+          resolutionNote: note ?? existing.report.resolutionNote ?? null,
+        },
+      });
+    }
+
+    await recordAdminAuditLog(tx, req.user!.id, {
+      action: `moderation.case.${input.action}`,
+      targetType: 'moderation_case',
+      targetId: existing.id,
+      reason: note,
+      previousValue: { status: existing.status, resolvedById: existing.resolvedById, resolvedAt: existing.resolvedAt },
+      nextValue: { status: input.action === 'add_note' ? existing.status : nextStatus, resolvedById: input.action === 'add_note' ? existing.resolvedById : req.user!.id, targetActionApplied },
+      metadata: { contentType: existing.contentType, contentId: existing.contentId, reportId: existing.report?.id ?? null },
+    });
+
+    return moderationCase;
+  });
+
+  const refreshed = await moderationCaseClient.findUnique({ where: { id: updated.id }, include: adminModerationCaseInclude });
+  const [hydrated] = await hydrateAdminModerationCases(refreshed ? [refreshed] : [updated]);
+  res.json({ case: hydrated, targetActionApplied });
+}));
 
 adminRoutes.get('/reports', asyncRoute(async (req, res) => {
   const input = adminListReportsQuerySchema.parse(req.query);
@@ -4122,6 +4327,11 @@ adminRoutes.patch('/media/:mediaId/status', asyncRoute(async (req, res) => {
   if (updated.entityType === 'profile' && updated.entityId && input.status === 'removed') {
     await prisma.profile.updateMany({ where: { id: updated.entityId, avatarMediaId: updated.id }, data: { avatarUrl: null, avatarMediaId: null } });
   }
+  await syncMediaModerationCasesFromAdminStatus(updated, {
+    nextStatus: updated.status,
+    adminId: req.user!.id,
+    note: input.reviewNote,
+  });
   await recordAdminAuditLog(prisma, req.user!.id, {
     action: 'media.status.update',
     targetType: 'media',

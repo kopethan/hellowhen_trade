@@ -2,10 +2,10 @@ import { Router } from 'express';
 import { createUserBlockRequestSchema } from '@hellowhen/contracts';
 import { getUserVerificationBadges } from '@hellowhen/shared';
 import { asyncRoute } from '../../lib/asyncRoute.js';
-import { optionalAuth, requireAuth } from '../../middleware/auth.js';
+import { optionalAuth, requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { prisma } from '../../lib/prisma.js';
 import { publicTradeVisibilityWhere, withTradeDeckMedia } from '../trades/trades.routes.js';
-import { publicUserProfileSelect } from './publicUser.js';
+import { publicUserProfileSelect, stripAnonymousPublicProfileMedia } from './publicUser.js';
 import { normalizeProfileHandle, usernameErrorPayload } from '../profile/profileUsernames.js';
 import { userBlockState } from './userBlocks.js';
 
@@ -30,7 +30,7 @@ usersRoutes.get('/blocked', requireAuth, asyncRoute(async (req, res) => {
   res.json({ blocks });
 }));
 
-usersRoutes.post('/:userId/block', requireAuth, asyncRoute(async (req, res) => {
+usersRoutes.post('/:userId/block', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createUserBlockRequestSchema.parse(req.body ?? {});
   const actorId = req.user!.id;
   const targetId = req.params.userId;
@@ -45,7 +45,7 @@ usersRoutes.post('/:userId/block', requireAuth, asyncRoute(async (req, res) => {
   res.json({ blocked: true, block });
 }));
 
-usersRoutes.delete('/:userId/block', requireAuth, asyncRoute(async (req, res) => {
+usersRoutes.delete('/:userId/block', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
   const targetId = req.params.userId;
   if (!targetId || targetId === actorId) return res.status(400).json({ error: 'invalid_block_target' });
@@ -75,10 +75,11 @@ async function getPublicProfileResponse(userId: string, viewerId?: string) {
     prisma.trade.findMany({ where: { ...publicPostWhereBase(userId), postType: 'open_offer' }, include: publicTradeSummaryInclude, orderBy: { createdAt: 'desc' }, take: 12 }),
   ]);
 
+  const publicMediaVisibility = viewerId ? 'trade_public' : 'public_anonymous';
   const [activeTradesWithMedia, openNeedsWithMedia, openOffersWithMedia] = await Promise.all([
-    withTradeDeckMedia(activeTrades, 'trade_public'),
-    withTradeDeckMedia(openNeeds, 'trade_public'),
-    withTradeDeckMedia(openOffers, 'trade_public'),
+    withTradeDeckMedia(activeTrades, publicMediaVisibility),
+    withTradeDeckMedia(openNeeds, publicMediaVisibility),
+    withTradeDeckMedia(openOffers, publicMediaVisibility),
   ]);
 
   return {
@@ -123,7 +124,7 @@ usersRoutes.get('/by-username/:username/public-profile', optionalAuth, asyncRout
 
   const response = await getPublicProfileResponse(profile.userId, req.user?.id);
   if (!response) return res.status(404).json({ error: 'not_found' });
-  res.json(response);
+  res.json(stripAnonymousPublicProfileMedia(response, req.user?.id));
 }));
 
 usersRoutes.get('/:userId/public-profile', optionalAuth, asyncRoute(async (req, res) => {
@@ -132,5 +133,5 @@ usersRoutes.get('/:userId/public-profile', optionalAuth, asyncRoute(async (req, 
 
   const response = await getPublicProfileResponse(userId, req.user?.id);
   if (!response) return res.status(404).json({ error: 'not_found' });
-  res.json(response);
+  res.json(stripAnonymousPublicProfileMedia(response, req.user?.id));
 }));

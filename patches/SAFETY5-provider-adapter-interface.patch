@@ -1,0 +1,707 @@
+diff --git a/.env.example b/.env.example
+index 78ea751..2dce610 100644
+--- a/.env.example
++++ b/.env.example
+@@ -211,6 +211,7 @@ MODERATION_STORE_RAW_PROVIDER_RESULT=false
+ MODERATION_PROVIDER_API_KEY=
+ MODERATION_PROVIDER_ENDPOINT=
+ MODERATION_PROVIDER_TIMEOUT_MS=10000
++MODERATION_PROVIDER_MAX_RETRIES=0
+ 
+ # Hidden AI foundation. Keep disabled for the first public launch.
+ # No SDKs, external calls, tracking, or private-message AI are wired in this foundation.
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 8564cd4..df42f2c 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -21,6 +21,12 @@ function disabled(value: string | undefined, defaultValue = false) {
+   return raw === 'false' || raw === '0' || raw === 'no';
+ }
+ 
++function boundedInt(value: string | undefined, defaultValue: number, min: number, max: number) {
++  const parsed = Number(value ?? defaultValue);
++  if (!Number.isFinite(parsed)) return defaultValue;
++  return Math.min(max, Math.max(min, Math.trunc(parsed)));
++}
++
+ const moneyProviders = new Set(['none', 'stripe', 'airwallex']);
+ const adsProviders = new Set(['none', 'adsense', 'admob']);
+ const aiProviders = new Set(['none', 'openai', 'gemini', 'groq']);
+@@ -234,7 +240,8 @@ export const env = {
+   moderationStoreRawProviderResult: enabled(process.env.MODERATION_STORE_RAW_PROVIDER_RESULT),
+   moderationProviderApiKey: process.env.MODERATION_PROVIDER_API_KEY ?? '',
+   moderationProviderEndpoint: process.env.MODERATION_PROVIDER_ENDPOINT ?? '',
+-  moderationProviderTimeoutMs: Number(process.env.MODERATION_PROVIDER_TIMEOUT_MS ?? 10000),
++  moderationProviderTimeoutMs: boundedInt(process.env.MODERATION_PROVIDER_TIMEOUT_MS, 10000, 1000, 60000),
++  moderationProviderMaxRetries: boundedInt(process.env.MODERATION_PROVIDER_MAX_RETRIES, 0, 0, 3),
+   contentIntelligenceEnabled: enabled(process.env.CONTENT_INTELLIGENCE_ENABLED),
+   contentClassificationEnabled: enabled(process.env.CONTENT_CLASSIFICATION_ENABLED),
+   contentPlacementSignalsEnabled: enabled(process.env.CONTENT_PLACEMENT_SIGNALS_ENABLED),
+@@ -582,6 +589,7 @@ export function validateProductionEnv() {
+     || hasConfiguredValue(env.moderationProviderEndpoint);
+   if (moderationConfigured && !env.moderationEnabled) errors.push('Moderation provider settings require MODERATION_ENABLED=true.');
+   if (env.moderationPrivateMessageScanEnabled && !env.moderationTextEnabled && !env.moderationImageEnabled) errors.push('MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED=true requires text or image moderation to be enabled.');
++  if (env.moderationProviderMaxRetries > 0 && env.moderationProvider === 'none') errors.push('MODERATION_PROVIDER_MAX_RETRIES requires MODERATION_PROVIDER to be mock or a later real provider.');
+   if (env.publicImageReviewEnabled && !env.moderationEnabled) errors.push('PUBLIC_IMAGE_REVIEW_ENABLED=true requires MODERATION_ENABLED=true so image review cases are explicit and auditable.');
+ 
+   const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.plusAiAssistEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiModerationSuggestionsEnabled || env.aiDebugPlaceholders;
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index 9230e03..edca4ad 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -808,6 +808,18 @@ function targetActionForModerationAction(action: AdminModerationCaseActionInput[
+   return null;
+ }
+ 
++function hydrateModerationResult(result: any) {
++  if (!result) return null;
++  const scores = result.scoresJson && typeof result.scoresJson === 'object' ? result.scoresJson : {};
++  return {
++    ...result,
++    providerRequestId: scores.providerRequestId ?? null,
++    durationMs: scores.durationMs ?? null,
++    attemptCount: scores.attemptCount ?? null,
++    retriable: scores.retriable ?? null,
++  };
++}
++
+ async function hydrateAdminModerationCases(cases: any[]) {
+   const targets = await Promise.all(cases.map((item) => {
+     const targetType = reportTargetTypeForModerationContentType(item.contentType);
+@@ -816,8 +828,8 @@ async function hydrateAdminModerationCases(cases: any[]) {
+   return cases.map((item, index) => ({
+     ...item,
+     target: targets[index] ?? null,
+-    latestResult: item.results?.[0] ?? null,
+-    recentResults: item.results ?? [],
++    latestResult: hydrateModerationResult(item.results?.[0] ?? null),
++    recentResults: (item.results ?? []).map(hydrateModerationResult),
+     recentActions: item.actions ?? [],
+     resultCount: item._count?.results ?? item.results?.length ?? 0,
+     actionCount: item._count?.actions ?? item.actions?.length ?? 0,
+diff --git a/apps/api/src/modules/moderation/moderation.mediaPipeline.ts b/apps/api/src/modules/moderation/moderation.mediaPipeline.ts
+index 6553417..cb8c60d 100644
+--- a/apps/api/src/modules/moderation/moderation.mediaPipeline.ts
++++ b/apps/api/src/modules/moderation/moderation.mediaPipeline.ts
+@@ -1,9 +1,9 @@
+ import type { MediaAsset, MediaEntityType, MediaAssetStatus, ModerationCaseStatus, ModerationContentType } from '@prisma/client';
+-import type { ModerationProviderResult } from '@hellowhen/contracts';
+ import { env } from '../../config/env.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { buildMinimalModerationPayload } from './moderation.payloads.js';
+ import { scanWithConfiguredModerationProvider } from './moderation.provider.js';
++import { storeModerationProviderResult } from './moderation.results.js';
+ 
+ const publicImageEntityTypes = new Set<MediaEntityType>(['need', 'offer', 'trade', 'profile']);
+ const imageModerationContentTypes = new Set<ModerationContentType>(['media', 'profile_image', 'trade_image', 'need_image', 'offer_image']);
+@@ -46,47 +46,6 @@ export function moderationCaseStatusForMediaStatus(status: MediaAssetStatus): Mo
+   return 'removed';
+ }
+ 
+-function moderationActionForProviderResult(result: ModerationProviderResult) {
+-  if (result.status === 'failed') return 'provider_scan_failed' as const;
+-  if (result.status === 'skipped') return 'provider_scan_skipped' as const;
+-  return 'provider_result_stored' as const;
+-}
+-
+-async function storeProviderResult(tx: any, caseId: string, result: ModerationProviderResult) {
+-  await tx.moderationResult.create({
+-    data: {
+-      caseId,
+-      provider: result.provider,
+-      scanType: result.scanType,
+-      status: result.status,
+-      labelsJson: result.labels ?? [],
+-      scoresJson: { highestSeverity: result.highestSeverity, suggestedAction: result.suggestedAction },
+-      highestSeverity: result.highestSeverity,
+-      suggestedAction: result.suggestedAction,
+-      reason: result.reason ?? null,
+-      rawJson: env.moderationStoreRawProviderResult ? (result.raw ?? null) : null,
+-      errorCode: result.errorCode ?? null,
+-      errorMessage: result.errorMessage ?? null,
+-    },
+-  });
+-
+-  await tx.moderationAction.create({
+-    data: {
+-      caseId,
+-      action: moderationActionForProviderResult(result),
+-      actorType: 'system',
+-      note: result.reason ?? 'Image moderation provider result stored.',
+-      metadata: {
+-        provider: result.provider,
+-        scanType: result.scanType,
+-        status: result.status,
+-        highestSeverity: result.highestSeverity,
+-        suggestedAction: result.suggestedAction,
+-      },
+-    },
+-  });
+-}
+-
+ export async function enqueuePublicImageReview(mediaId: string, options: { actorId?: string | null; reason?: string | null } = {}) {
+   if (!isPublicImageReviewEnabled()) return null;
+ 
+@@ -175,7 +134,7 @@ export async function enqueuePublicImageReview(mediaId: string, options: { actor
+   });
+   const providerResult = await scanWithConfiguredModerationProvider(payload);
+   await prisma.$transaction(async (tx: any) => {
+-    await storeProviderResult(tx, moderationCase.id, providerResult);
++    await storeModerationProviderResult(tx, moderationCase.id, providerResult);
+   });
+ 
+   return moderationCase;
+diff --git a/apps/api/src/modules/moderation/moderation.provider.ts b/apps/api/src/modules/moderation/moderation.provider.ts
+index 2afb604..dbac493 100644
+--- a/apps/api/src/modules/moderation/moderation.provider.ts
++++ b/apps/api/src/modules/moderation/moderation.provider.ts
+@@ -1,12 +1,35 @@
+-import type { ModerationFeatureFlags, ModerationProviderName, ModerationProviderPayload, ModerationProviderResult } from '@hellowhen/contracts';
+-import { createSkippedModerationResult, shouldRunModerationProvider } from '@hellowhen/shared';
++import type {
++  ModerationFeatureFlags,
++  ModerationProviderLabel,
++  ModerationProviderName,
++  ModerationProviderPayload,
++  ModerationProviderResult,
++  ModerationScanType,
++  ModerationSeverity,
++} from '@hellowhen/contracts';
++import { moderationProviderPayloadSchema, moderationProviderResultSchema } from '@hellowhen/contracts';
++import { createFailedModerationResult, createSkippedModerationResult, highestModerationSeverity, shouldRunModerationProvider, suggestedActionForSeverity } from '@hellowhen/shared';
+ import { env } from '../../config/env.js';
+ 
+ export type ModerationProviderAdapter = {
+   name: ModerationProviderName;
+-  scan(payload: ModerationProviderPayload): Promise<ModerationProviderResult>;
++  scanText?(payload: ModerationProviderPayload): Promise<ModerationProviderResult>;
++  scanImage?(payload: ModerationProviderPayload): Promise<ModerationProviderResult>;
++  scanCombined?(payload: ModerationProviderPayload): Promise<ModerationProviderResult>;
+ };
+ 
++type ScanAttemptOptions = {
++  timeoutMs: number;
++  maxRetries: number;
++};
++
++class ModerationProviderTimeoutError extends Error {
++  constructor(timeoutMs: number) {
++    super(`Moderation provider scan timed out after ${timeoutMs}ms.`);
++    this.name = 'ModerationProviderTimeoutError';
++  }
++}
++
+ export function getModerationFeatureFlags(): ModerationFeatureFlags {
+   return {
+     enabled: env.moderationEnabled,
+@@ -15,28 +38,186 @@ export function getModerationFeatureFlags(): ModerationFeatureFlags {
+     imageEnabled: env.moderationImageEnabled,
+     privateMessageScanEnabled: env.moderationPrivateMessageScanEnabled,
+     storeRawProviderResult: env.moderationStoreRawProviderResult,
++    providerTimeoutMs: env.moderationProviderTimeoutMs,
++    providerMaxRetries: env.moderationProviderMaxRetries,
+   };
+ }
+ 
+-function createNoopModerationProvider(name: ModerationProviderName): ModerationProviderAdapter {
++function createNoopModerationProvider(name: ModerationProviderName, reason: string): ModerationProviderAdapter {
++  async function scan(payload: ModerationProviderPayload) {
++    return createSkippedModerationResult(name, payload.scanType, reason);
++  }
+   return {
+     name,
+-    async scan(payload) {
+-      const flags = getModerationFeatureFlags();
+-      if (!shouldRunModerationProvider(flags, payload.scanType)) {
+-        return createSkippedModerationResult(name, payload.scanType, 'Moderation provider scan is disabled by feature flags.');
+-      }
+-
+-      return createSkippedModerationResult(name, payload.scanType, 'No external moderation provider is connected in this foundation patch.');
+-    },
++    scanText: scan,
++    scanImage: scan,
++    scanCombined: scan,
+   };
+ }
+ 
+-export function getModerationProviderAdapter(): ModerationProviderAdapter {
+-  return createNoopModerationProvider(env.moderationProvider);
++function keywordLabel(text: string, category: ModerationProviderLabel['category'], severity: ModerationSeverity, keywords: string[]): ModerationProviderLabel | null {
++  const normalized = text.toLowerCase();
++  const sourceLabel = keywords.find((keyword) => normalized.includes(keyword));
++  if (!sourceLabel) return null;
++  return { category, severity, confidence: severity === 'high' || severity === 'critical' ? 0.92 : 0.74, sourceLabel };
++}
++
++function buildMockLabels(payload: ModerationProviderPayload): ModerationProviderLabel[] {
++  const textParts = [payload.text?.title, payload.text?.description, payload.text?.message, payload.image?.temporaryUrl, payload.image?.mimeType].filter(Boolean).join(' ');
++  const labels = [
++    keywordLabel(textParts, 'adult', 'high', ['adult', 'nude', 'nudity', 'porn', 'sexual']),
++    keywordLabel(textParts, 'violence', 'high', ['violence', 'blood', 'gore', 'weapon']),
++    keywordLabel(textParts, 'hate_or_harassment', 'high', ['hate', 'harass', 'slur']),
++    keywordLabel(textParts, 'self_harm', 'critical', ['self-harm', 'suicide', 'kill myself']),
++    keywordLabel(textParts, 'illegal_or_regulated', 'medium', ['drug', 'cocaine', 'fake id', 'counterfeit']),
++    keywordLabel(textParts, 'spam_or_scam', 'medium', ['scam', 'phishing', 'free money', 'guaranteed profit']),
++    keywordLabel(textParts, 'personal_data', 'medium', ['passport', 'bank card', 'credit card', 'social security']),
++  ].filter(Boolean) as ModerationProviderLabel[];
++
++  if (payload.scanType === 'image' && payload.image?.mimeType && !payload.image.mimeType.toLowerCase().startsWith('image/')) {
++    labels.push({ category: 'unknown', severity: 'medium', confidence: 0.86, sourceLabel: 'unsupported_image_mime_type' });
++  }
++
++  if (!labels.length) labels.push({ category: 'safe', severity: 'none', confidence: 0.99, sourceLabel: 'mock_safe' });
++  return labels;
++}
++
++function createMockModerationProvider(): ModerationProviderAdapter {
++  async function scan(payload: ModerationProviderPayload): Promise<ModerationProviderResult> {
++    const labels = buildMockLabels(payload);
++    const highestSeverity = highestModerationSeverity(labels.map((label) => label.severity));
++    return moderationProviderResultSchema.parse({
++      provider: 'mock',
++      scanType: payload.scanType,
++      status: 'completed',
++      labels,
++      highestSeverity,
++      suggestedAction: suggestedActionForSeverity(highestSeverity),
++      reason: highestSeverity === 'none' ? 'Mock moderation found no risky labels.' : 'Mock moderation matched deterministic safety keywords.',
++      providerRequestId: `mock_${Date.now()}`,
++      attemptCount: 1,
++      retriable: false,
++      raw: {
++        mock: true,
++        contentType: payload.contentType,
++        visibility: payload.visibility,
++        labelCount: labels.length,
++      },
++    });
++  }
++
++  return {
++    name: 'mock',
++    scanText: scan,
++    scanImage: scan,
++    scanCombined: scan,
++  };
++}
++
++function createUnimplementedExternalProvider(name: ModerationProviderName): ModerationProviderAdapter {
++  async function scan(payload: ModerationProviderPayload) {
++    return createFailedModerationResult(name, payload.scanType, {
++      reason: 'Moderation provider adapter exists, but this external provider is not implemented or connected yet.',
++      errorCode: 'provider_not_implemented',
++      errorMessage: `${name} is reserved for a later provider-specific integration patch.`,
++      retriable: false,
++    });
++  }
++
++  return {
++    name,
++    scanText: scan,
++    scanImage: scan,
++    scanCombined: scan,
++  };
++}
++
++export function getModerationProviderAdapter(provider: ModerationProviderName = env.moderationProvider): ModerationProviderAdapter {
++  if (provider === 'mock') return createMockModerationProvider();
++  if (provider === 'none') return createNoopModerationProvider('none', 'No moderation provider is configured.');
++  return createUnimplementedExternalProvider(provider);
++}
++
++function getScanFunction(adapter: ModerationProviderAdapter, scanType: ModerationScanType) {
++  if (scanType === 'text') return adapter.scanText?.bind(adapter);
++  if (scanType === 'image') return adapter.scanImage?.bind(adapter);
++  return adapter.scanCombined?.bind(adapter) ?? adapter.scanText?.bind(adapter) ?? adapter.scanImage?.bind(adapter);
++}
++
++async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
++  let timer: ReturnType<typeof setTimeout> | undefined;
++  const timeout = new Promise<never>((_, reject) => {
++    timer = setTimeout(() => reject(new ModerationProviderTimeoutError(timeoutMs)), timeoutMs);
++  });
++  try {
++    return await Promise.race([promise, timeout]);
++  } finally {
++    if (timer) clearTimeout(timer);
++  }
++}
++
++function normalizeProviderResult(result: ModerationProviderResult, input: { provider: ModerationProviderName; scanType: ModerationScanType; durationMs: number; attemptCount: number }) {
++  return moderationProviderResultSchema.parse({
++    ...result,
++    provider: result.provider ?? input.provider,
++    scanType: result.scanType ?? input.scanType,
++    durationMs: result.durationMs ?? input.durationMs,
++    attemptCount: result.attemptCount ?? input.attemptCount,
++  });
++}
++
++function errorMessage(error: unknown) {
++  if (error instanceof Error) return error.message;
++  return String(error || 'Unknown moderation provider error.');
++}
++
++async function runProviderScanWithRetry(adapter: ModerationProviderAdapter, payload: ModerationProviderPayload, options: ScanAttemptOptions): Promise<ModerationProviderResult> {
++  const scan = getScanFunction(adapter, payload.scanType);
++  if (!scan) {
++    return createFailedModerationResult(adapter.name, payload.scanType, {
++      reason: 'Configured moderation provider does not support this scan type.',
++      errorCode: 'scan_type_not_supported',
++      errorMessage: `${adapter.name} does not support ${payload.scanType} scans in this adapter.`,
++      retriable: false,
++    });
++  }
++
++  const startedAt = Date.now();
++  let lastError: unknown;
++  const maxAttempts = Math.max(1, options.maxRetries + 1);
++  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
++    try {
++      const result = await withTimeout(scan(payload), options.timeoutMs);
++      return normalizeProviderResult(result, { provider: adapter.name, scanType: payload.scanType, durationMs: Date.now() - startedAt, attemptCount: attempt });
++    } catch (error) {
++      lastError = error;
++      const isLastAttempt = attempt >= maxAttempts;
++      if (isLastAttempt) break;
++    }
++  }
++
++  const timedOut = lastError instanceof ModerationProviderTimeoutError;
++  return createFailedModerationResult(adapter.name, payload.scanType, {
++    reason: timedOut ? 'Moderation provider scan timed out.' : 'Moderation provider scan failed after retry handling.',
++    errorCode: timedOut ? 'provider_timeout' : 'provider_scan_failed',
++    errorMessage: errorMessage(lastError),
++    durationMs: Date.now() - startedAt,
++    attemptCount: maxAttempts,
++    retriable: true,
++  });
+ }
+ 
+ export async function scanWithConfiguredModerationProvider(payload: ModerationProviderPayload): Promise<ModerationProviderResult> {
+-  const adapter = getModerationProviderAdapter();
+-  return adapter.scan(payload);
++  const parsedPayload = moderationProviderPayloadSchema.parse(payload);
++  const flags = getModerationFeatureFlags();
++  const adapter = getModerationProviderAdapter(flags.provider);
++
++  if (!shouldRunModerationProvider(flags, parsedPayload.scanType)) {
++    return moderationProviderResultSchema.parse(createSkippedModerationResult(adapter.name, parsedPayload.scanType, 'Moderation provider scan is disabled by feature flags.'));
++  }
++
++  return runProviderScanWithRetry(adapter, parsedPayload, {
++    timeoutMs: flags.providerTimeoutMs ?? 10000,
++    maxRetries: flags.providerMaxRetries ?? 0,
++  });
+ }
+diff --git a/apps/api/src/modules/moderation/moderation.results.ts b/apps/api/src/modules/moderation/moderation.results.ts
+new file mode 100644
+index 0000000..d065d31
+--- /dev/null
++++ b/apps/api/src/modules/moderation/moderation.results.ts
+@@ -0,0 +1,68 @@
++import type { ModerationProviderResult } from '@hellowhen/contracts';
++import { env } from '../../config/env.js';
++
++type TransactionClient = {
++  moderationResult: { create(input: { data: Record<string, unknown> }): Promise<unknown> };
++  moderationAction: { create(input: { data: Record<string, unknown> }): Promise<unknown> };
++};
++
++export function moderationActionForProviderResult(result: ModerationProviderResult) {
++  if (result.status === 'failed') return 'provider_scan_failed' as const;
++  if (result.status === 'skipped') return 'provider_scan_skipped' as const;
++  return 'provider_result_stored' as const;
++}
++
++export function moderationScoresForProviderResult(result: ModerationProviderResult) {
++  return {
++    highestSeverity: result.highestSeverity,
++    suggestedAction: result.suggestedAction,
++    providerRequestId: result.providerRequestId ?? null,
++    durationMs: result.durationMs ?? null,
++    attemptCount: result.attemptCount ?? null,
++    retriable: result.retriable ?? null,
++  };
++}
++
++export function moderationProviderResultMetadata(result: ModerationProviderResult) {
++  return {
++    provider: result.provider,
++    scanType: result.scanType,
++    status: result.status,
++    highestSeverity: result.highestSeverity,
++    suggestedAction: result.suggestedAction,
++    providerRequestId: result.providerRequestId ?? null,
++    durationMs: result.durationMs ?? null,
++    attemptCount: result.attemptCount ?? null,
++    retriable: result.retriable ?? null,
++    errorCode: result.errorCode ?? null,
++  };
++}
++
++export async function storeModerationProviderResult(tx: TransactionClient, caseId: string, result: ModerationProviderResult) {
++  await tx.moderationResult.create({
++    data: {
++      caseId,
++      provider: result.provider,
++      scanType: result.scanType,
++      status: result.status,
++      labelsJson: result.labels ?? [],
++      scoresJson: moderationScoresForProviderResult(result),
++      highestSeverity: result.highestSeverity,
++      suggestedAction: result.suggestedAction,
++      reason: result.reason ?? null,
++      rawJson: env.moderationStoreRawProviderResult ? (result.raw ?? null) : null,
++      errorCode: result.errorCode ?? null,
++      errorMessage: result.errorMessage ?? null,
++    },
++  });
++
++  await tx.moderationAction.create({
++    data: {
++      caseId,
++      action: moderationActionForProviderResult(result),
++      actorType: 'system',
++      note: result.reason ?? 'Moderation provider result stored.',
++      metadata: moderationProviderResultMetadata(result),
++    },
++  });
++}
+diff --git a/apps/web/src/app/admin/moderation/page.tsx b/apps/web/src/app/admin/moderation/page.tsx
+index fe5c604..94873f4 100644
+--- a/apps/web/src/app/admin/moderation/page.tsx
++++ b/apps/web/src/app/admin/moderation/page.tsx
+@@ -235,6 +235,9 @@ export default function AdminModerationQueuePage() {
+                       <strong>Latest provider result</strong>
+                       <small>{selectedCase.latestResult.provider} · {selectedCase.latestResult.status} · {labelize(selectedCase.latestResult.highestSeverity)} · suggested {labelize(selectedCase.latestResult.suggestedAction)}</small>
+                       {selectedCase.latestResult.reason ? <small>{selectedCase.latestResult.reason}</small> : null}
++                      {selectedCase.latestResult.attemptCount || selectedCase.latestResult.durationMs != null ? (
++                        <small>Attempts: {selectedCase.latestResult.attemptCount ?? '—'} · Duration: {selectedCase.latestResult.durationMs != null ? `${selectedCase.latestResult.durationMs}ms` : '—'} · Retryable: {selectedCase.latestResult.retriable ? 'yes' : 'no'}</small>
++                      ) : null}
+                     </span>
+                   </article>
+                 ) : <p className="notice-box admin">No provider result yet. This is expected while MODERATION_PROVIDER=none.</p>}
+diff --git a/docs/product/safety-review-provider-adapter-interface.md b/docs/product/safety-review-provider-adapter-interface.md
+new file mode 100644
+index 0000000..b40883a
+--- /dev/null
++++ b/docs/product/safety-review-provider-adapter-interface.md
+@@ -0,0 +1,79 @@
++# SAFETY5 — Provider adapter interface
++
++SAFETY5 turns the SAFETY1 no-provider moderation foundation into a real adapter layer without connecting any external moderation service yet.
++
++## What this patch adds
++
++- A provider-neutral adapter interface for text, image, and combined scans.
++- A deterministic `mock` provider for local/manual testing.
++- Placeholder adapters for later real providers:
++  - `openai`
++  - `aws_rekognition`
++  - `google_vision`
++  - `azure_content_safety`
++  - `human_review`
++- Timeout and retry wrapping for provider scans.
++- Structured provider-result metadata storage:
++  - provider request id
++  - duration in milliseconds
++  - attempt count
++  - retryable flag
++  - highest severity
++  - suggested action
++- Shared provider-result persistence helper reused by the public image review pipeline.
++- Admin moderation queue displays scan attempts and duration when present.
++
++## What this patch does not add
++
++- No OpenAI/AWS/Google/Azure SDK.
++- No external network call.
++- No provider credentials are required.
++- No automatic moderation enforcement.
++- No private-message scanning change.
++
++## Provider behavior
++
++### `none`
++
++Returns a skipped provider result.
++
++### `mock`
++
++Returns deterministic local results based on safety keywords in the payload text, image URL, or MIME type. This is only for testing the pipeline.
++
++Example local test flags:
++
++```env
++MODERATION_ENABLED=true
++PUBLIC_IMAGE_REVIEW_ENABLED=true
++MODERATION_PROVIDER=mock
++MODERATION_IMAGE_ENABLED=true
++MODERATION_TEXT_ENABLED=false
++MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED=false
++MODERATION_PROVIDER_MAX_RETRIES=0
++```
++
++### Future real providers
++
++The external provider names are registered, but they return a structured failure with `provider_not_implemented` until a later provider-specific patch connects one of them.
++
++This makes accidental early activation obvious without sending user content outside Hellowhen.
++
++## Retry and timeout settings
++
++```env
++MODERATION_PROVIDER_TIMEOUT_MS=10000
++MODERATION_PROVIDER_MAX_RETRIES=0
++```
++
++Rules:
++
++- Timeout is bounded by the API config parser.
++- Retries are bounded from `0` to `3`.
++- A timeout or thrown provider error is stored as a failed provider result instead of crashing the review pipeline.
++
++## Privacy rule
++
++The adapter receives the provider-neutral moderation payload only. It should not receive email, phone number, legal name, exact address, payment information, or unrelated private messages.
++
++Hellowhen stays the decision-maker. Providers only return classification evidence.
+diff --git a/packages/contracts/src/moderation.js b/packages/contracts/src/moderation.js
+index a1ad028..577308c 100644
+--- a/packages/contracts/src/moderation.js
++++ b/packages/contracts/src/moderation.js
+@@ -109,6 +109,10 @@ export const moderationProviderResultSchema = z.object({
+   raw: z.unknown().optional(),
+   errorCode: z.string().trim().max(120).optional(),
+   errorMessage: z.string().trim().max(500).optional(),
++  providerRequestId: z.string().trim().max(180).optional(),
++  durationMs: z.number().int().nonnegative().optional(),
++  attemptCount: z.number().int().min(1).max(10).optional(),
++  retriable: z.boolean().optional(),
+ }).strict();
+ 
+ export const moderationFeatureFlagsSchema = z.object({
+@@ -118,6 +122,8 @@ export const moderationFeatureFlagsSchema = z.object({
+   imageEnabled: z.boolean(),
+   privateMessageScanEnabled: z.boolean(),
+   storeRawProviderResult: z.boolean(),
++  providerTimeoutMs: z.number().int().positive(),
++  providerMaxRetries: z.number().int().min(0).max(3),
+ }).strict();
+ 
+ export const moderationCaseSchema = z.object({
+@@ -173,6 +179,10 @@ export const adminModerationResultSchema = z.object({
+   reason: z.string().nullable().optional(),
+   errorCode: z.string().nullable().optional(),
+   errorMessage: z.string().nullable().optional(),
++  providerRequestId: z.string().nullable().optional(),
++  durationMs: z.number().int().nonnegative().nullable().optional(),
++  attemptCount: z.number().int().nullable().optional(),
++  retriable: z.boolean().nullable().optional(),
+   createdAt: z.string(),
+ }).passthrough();
+ 
+diff --git a/packages/contracts/src/moderation.ts b/packages/contracts/src/moderation.ts
+index b2d31df..f4f21e7 100644
+--- a/packages/contracts/src/moderation.ts
++++ b/packages/contracts/src/moderation.ts
+@@ -109,6 +109,10 @@ export const moderationProviderResultSchema = z.object({
+   raw: z.unknown().optional(),
+   errorCode: z.string().trim().max(120).optional(),
+   errorMessage: z.string().trim().max(500).optional(),
++  providerRequestId: z.string().trim().max(180).optional(),
++  durationMs: z.number().int().nonnegative().optional(),
++  attemptCount: z.number().int().min(1).max(10).optional(),
++  retriable: z.boolean().optional(),
+ }).strict();
+ 
+ export const moderationFeatureFlagsSchema = z.object({
+@@ -118,6 +122,8 @@ export const moderationFeatureFlagsSchema = z.object({
+   imageEnabled: z.boolean(),
+   privateMessageScanEnabled: z.boolean(),
+   storeRawProviderResult: z.boolean(),
++  providerTimeoutMs: z.number().int().positive(),
++  providerMaxRetries: z.number().int().min(0).max(3),
+ }).strict();
+ 
+ export const moderationCaseSchema = z.object({
+@@ -173,6 +179,10 @@ export const adminModerationResultSchema = z.object({
+   reason: z.string().nullable().optional(),
+   errorCode: z.string().nullable().optional(),
+   errorMessage: z.string().nullable().optional(),
++  providerRequestId: z.string().nullable().optional(),
++  durationMs: z.number().int().nonnegative().nullable().optional(),
++  attemptCount: z.number().int().nullable().optional(),
++  retriable: z.boolean().nullable().optional(),
+   createdAt: z.string(),
+ }).passthrough();
+ 
+diff --git a/packages/shared/src/moderation.ts b/packages/shared/src/moderation.ts
+index 4a72ee0..366600f 100644
+--- a/packages/shared/src/moderation.ts
++++ b/packages/shared/src/moderation.ts
+@@ -3,6 +3,9 @@ export const MODERATION_EXTERNAL_PROVIDERS = ['openai', 'aws_rekognition', 'goog
+ 
+ export type ModerationProviderName = typeof MODERATION_PROVIDERS[number];
+ export type ModerationScanType = 'text' | 'image' | 'combined';
++export type ModerationProviderStatus = 'skipped' | 'completed' | 'failed';
++export type ModerationSeverity = 'none' | 'low' | 'medium' | 'high' | 'critical';
++export type ModerationSuggestedAction = 'allow' | 'review' | 'limit' | 'reject' | 'remove' | 'no_action';
+ export type ModerationFeatureFlags = {
+   enabled: boolean;
+   provider: ModerationProviderName;
+@@ -10,6 +13,8 @@ export type ModerationFeatureFlags = {
+   imageEnabled: boolean;
+   privateMessageScanEnabled: boolean;
+   storeRawProviderResult: boolean;
++  providerTimeoutMs?: number;
++  providerMaxRetries?: number;
+ };
+ 
+ export function normalizeModerationProvider(value: string | undefined | null): ModerationProviderName {
+@@ -37,5 +42,44 @@ export function createSkippedModerationResult(provider: ModerationProviderName,
+     highestSeverity: 'none' as const,
+     suggestedAction: 'no_action' as const,
+     reason,
++    attemptCount: 1,
++    retriable: false,
+   };
+ }
++
++export function createFailedModerationResult(provider: ModerationProviderName, scanType: ModerationScanType, input: {
++  reason: string;
++  errorCode?: string;
++  errorMessage?: string;
++  durationMs?: number;
++  attemptCount?: number;
++  retriable?: boolean;
++}) {
++  return {
++    provider,
++    scanType,
++    status: 'failed' as const,
++    labels: [],
++    highestSeverity: 'none' as const,
++    suggestedAction: 'review' as const,
++    reason: input.reason,
++    errorCode: input.errorCode,
++    errorMessage: input.errorMessage,
++    durationMs: input.durationMs,
++    attemptCount: input.attemptCount ?? 1,
++    retriable: input.retriable ?? true,
++  };
++}
++
++export function highestModerationSeverity(severities: ModerationSeverity[]) {
++  const order: Record<ModerationSeverity, number> = { none: 0, low: 1, medium: 2, high: 3, critical: 4 };
++  return severities.reduce<ModerationSeverity>((highest, next) => order[next] > order[highest] ? next : highest, 'none');
++}
++
++export function suggestedActionForSeverity(severity: ModerationSeverity): ModerationSuggestedAction {
++  if (severity === 'critical') return 'remove';
++  if (severity === 'high') return 'reject';
++  if (severity === 'medium') return 'review';
++  if (severity === 'low') return 'allow';
++  return 'allow';
++}

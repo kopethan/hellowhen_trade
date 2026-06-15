@@ -1,0 +1,472 @@
+diff --git a/apps/api/prisma/migrations/20260615103000_reports_blocking_foundation/migration.sql b/apps/api/prisma/migrations/20260615103000_reports_blocking_foundation/migration.sql
+new file mode 100644
+index 0000000..6d36127
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260615103000_reports_blocking_foundation/migration.sql
+@@ -0,0 +1,6 @@
++ALTER TYPE "ModerationContentType" ADD VALUE IF NOT EXISTS 'plan';
++ALTER TYPE "ModerationContentType" ADD VALUE IF NOT EXISTS 'plan_place';
++
++ALTER TABLE "Report" ADD COLUMN "moderationCaseId" TEXT;
++CREATE UNIQUE INDEX "Report_moderationCaseId_key" ON "Report"("moderationCaseId");
++ALTER TABLE "Report" ADD CONSTRAINT "Report_moderationCaseId_fkey" FOREIGN KEY ("moderationCaseId") REFERENCES "ModerationCase"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index d919105..424a52e 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -583,6 +583,8 @@ enum ModerationContentType {
+   message
+   public_message
+   media
++  plan
++  plan_place
+   profile_image
+   trade_image
+   need_image
+@@ -2508,6 +2510,7 @@ model ModerationCase {
+   resolvedBy   User? @relation("ModerationCaseResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+   results      ModerationResult[]
+   actions      ModerationAction[]
++  report       Report?
+ 
+   @@index([status, priority, createdAt])
+   @@index([contentType, contentId])
+@@ -2668,25 +2671,27 @@ model PlanParticipant {
+ }
+ 
+ model Report {
+-  id            String           @id @default(cuid())
+-  reporterId    String
+-  targetType    ReportTargetType
+-  targetId      String
+-  targetOwnerId String?
+-  reason        ReportReason
+-  details       String?
+-  status        ReportStatus     @default(pending)
+-  reviewedById  String?
+-  reviewedAt    DateTime?
+-  resolutionNote String?
++  id                       String       @id @default(cuid())
++  reporterId               String
++  targetType               ReportTargetType
++  targetId                 String
++  targetOwnerId            String?
++  moderationCaseId         String?      @unique
++  reason                   ReportReason
++  details                  String?
++  status                   ReportStatus @default(pending)
++  reviewedById             String?
++  reviewedAt               DateTime?
++  resolutionNote           String?
+   escalatedSupportTicketId String?
+-  escalatedAt   DateTime?
+-  escalatedById String?
+-  createdAt     DateTime         @default(now())
+-  updatedAt     DateTime         @updatedAt
++  escalatedAt              DateTime?
++  escalatedById            String?
++  createdAt                DateTime     @default(now())
++  updatedAt                DateTime     @updatedAt
+ 
+   reporter User @relation("UserReportsMade", fields: [reporterId], references: [id], onDelete: Cascade)
+-  reviewer User? @relation("ReviewedReports", fields: [reviewedById], references: [id], onDelete: SetNull)
++  reviewer       User? @relation("ReviewedReports", fields: [reviewedById], references: [id], onDelete: SetNull)
++  moderationCase ModerationCase? @relation(fields: [moderationCaseId], references: [id], onDelete: SetNull)
+ 
+   @@index([status, createdAt])
+   @@index([targetType, targetId])
+diff --git a/apps/api/src/modules/moderation/moderation.reportCases.ts b/apps/api/src/modules/moderation/moderation.reportCases.ts
+new file mode 100644
+index 0000000..fbc7b86
+--- /dev/null
++++ b/apps/api/src/modules/moderation/moderation.reportCases.ts
+@@ -0,0 +1,89 @@
++import type { ModerationContentType, ModerationContentVisibility, ReportReason, ReportTargetType } from '@hellowhen/contracts';
++import { prisma } from '../../lib/prisma.js';
++
++type ReportCaseInput = {
++  reportId: string;
++  reporterId: string;
++  targetType: ReportTargetType;
++  targetId: string;
++  targetOwnerId?: string | null;
++  reason: ReportReason;
++  details?: string | null;
++};
++
++export function moderationContentTypeForReportTarget(targetType: ReportTargetType): ModerationContentType {
++  if (targetType === 'user') return 'user';
++  if (targetType === 'profile') return 'profile';
++  if (targetType === 'trade') return 'trade';
++  if (targetType === 'need') return 'need';
++  if (targetType === 'offer') return 'offer';
++  if (targetType === 'proposal') return 'proposal';
++  if (targetType === 'message') return 'message';
++  if (targetType === 'public_message') return 'public_message';
++  if (targetType === 'media') return 'media';
++  if (targetType === 'plan') return 'plan';
++  return 'plan_place';
++}
++
++export function moderationVisibilityForReportTarget(targetType: ReportTargetType): ModerationContentVisibility {
++  if (targetType === 'message' || targetType === 'proposal') return 'reported_private';
++  return 'public';
++}
++
++export function moderationPriorityForReportReason(reason: ReportReason) {
++  if (reason === 'illegal_unsafe') return 90;
++  if (reason === 'scam' || reason === 'impersonation') return 80;
++  if (reason === 'harassment') return 70;
++  if (reason === 'inappropriate_image' || reason === 'fake_profile') return 60;
++  if (reason === 'spam') return 40;
++  return 30;
++}
++
++function reportCaseReason(input: ReportCaseInput) {
++  const details = input.details?.trim();
++  return details ? `User report: ${input.reason}\n\n${details}` : `User report: ${input.reason}`;
++}
++
++export async function createModerationCaseForReport(tx: any, input: ReportCaseInput) {
++  const moderationCase = await tx.moderationCase.create({
++    data: {
++      contentType: moderationContentTypeForReportTarget(input.targetType),
++      contentId: input.targetId,
++      contentOwnerId: input.targetOwnerId ?? null,
++      source: 'report',
++      status: 'needs_review',
++      priority: moderationPriorityForReportReason(input.reason),
++      visibility: moderationVisibilityForReportTarget(input.targetType),
++      reason: reportCaseReason(input),
++    },
++  });
++
++  await tx.moderationAction.create({
++    data: {
++      caseId: moderationCase.id,
++      action: 'case_created',
++      actorType: 'user',
++      actorId: input.reporterId,
++      nextStatus: 'needs_review',
++      note: `Report ${input.reportId} created this moderation case.`,
++      metadata: {
++        reportId: input.reportId,
++        targetType: input.targetType,
++        targetId: input.targetId,
++        reason: input.reason,
++      },
++    },
++  });
++
++  return moderationCase;
++}
++
++export async function ensureReportModerationCase(report: ReportCaseInput & { moderationCaseId?: string | null }) {
++  if (report.moderationCaseId) return report.moderationCaseId;
++  const moderationCase = await prisma.$transaction(async (tx: any) => {
++    const created = await createModerationCaseForReport(tx, report);
++    await tx.report.update({ where: { id: report.reportId }, data: { moderationCaseId: created.id } });
++    return created;
++  });
++  return moderationCase.id;
++}
+diff --git a/apps/api/src/modules/proposals/proposals.routes.ts b/apps/api/src/modules/proposals/proposals.routes.ts
+index 035c09f..963667f 100644
+--- a/apps/api/src/modules/proposals/proposals.routes.ts
++++ b/apps/api/src/modules/proposals/proposals.routes.ts
+@@ -9,6 +9,7 @@ import { usersHaveBlockBetween } from '../users/userBlocks.js';
+ import { hasProposalPackageInput, resolveProposalPackagePayload, toProposalPackageItemCreateManyRows } from './proposalPackages.js';
+ import { notifyProposalDecision, notifyProposalMessageReceived, notifyProposalWithdrawn, notifyTradeStatusUpdated } from '../notifications/notifications.service.js';
+ import { validateCashPromiseInput } from '../cash-promise/cashPromise.js';
++import { createModerationCaseForReport } from '../moderation/moderation.reportCases.js';
+ 
+ export const proposalsRoutes = Router();
+ proposalsRoutes.use(requireAuth);
+@@ -161,11 +162,29 @@ proposalsRoutes.post('/:proposalId/problem-report', requireActiveAccount, asyncR
+         include: { reporter: { select: publicUserPreviewSelect }, reviewer: { select: publicUserPreviewSelect } },
+       });
+ 
++    let reportWithModerationCase = report;
++    if (!report.moderationCaseId) {
++      const moderationCase = await createModerationCaseForReport(tx, {
++        reportId: report.id,
++        reporterId: actorId,
++        targetType: 'proposal',
++        targetId: proposal.id,
++        targetOwnerId: counterpartyId,
++        reason: input.reason,
++        details,
++      });
++      reportWithModerationCase = await tx.report.update({
++        where: { id: report.id },
++        data: { moderationCaseId: moderationCase.id },
++        include: { reporter: { select: publicUserPreviewSelect }, reviewer: { select: publicUserPreviewSelect } },
++      });
++    }
++
+     const trade = proposal.trade.status === 'disputed'
+       ? proposal.trade
+       : await tx.trade.update({ where: { id: proposal.tradeId }, data: { status: 'disputed', isPublic: false, disputedById: actorId, disputedAt: now }, include: tradeInclude });
+     const updatedProposal = await tx.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
+-    return { report, proposal: updatedProposal, trade, duplicate: Boolean(existingReport) };
++    return { report: reportWithModerationCase, proposal: updatedProposal, trade, duplicate: Boolean(existingReport) };
+   });
+ 
+   try {
+diff --git a/apps/api/src/modules/reports/reports.routes.ts b/apps/api/src/modules/reports/reports.routes.ts
+index 7c0786f..477457e 100644
+--- a/apps/api/src/modules/reports/reports.routes.ts
++++ b/apps/api/src/modules/reports/reports.routes.ts
+@@ -3,9 +3,10 @@ import { createReportRequestSchema, type ReportTargetType } from '@hellowhen/con
+ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+-import { requireAuth } from '../../middleware/auth.js';
++import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { usersHaveBlockBetween } from '../users/userBlocks.js';
+ import { publicTradeVisibilityWhere } from '../trades/trades.routes.js';
++import { createModerationCaseForReport, ensureReportModerationCase } from '../moderation/moderation.reportCases.js';
+ 
+ export const reportsRoutes = Router();
+ 
+@@ -18,6 +19,7 @@ type ReportRecord = {
+   targetType: ReportTargetType;
+   targetId: string;
+   targetOwnerId?: string | null;
++  moderationCaseId?: string | null;
+   reason: string;
+   details?: string | null;
+   status: string;
+@@ -314,6 +316,7 @@ function publicReportResponse<T extends ReportRecord & { target?: ReportTargetSu
+     targetType: report.targetType,
+     targetId: report.targetId,
+     targetOwnerId: report.targetOwnerId ?? null,
++    moderationCaseId: report.moderationCaseId ?? null,
+     reason: report.reason,
+     details: report.details ?? null,
+     status: report.status,
+@@ -410,6 +413,7 @@ export async function moderateReportedTarget(targetType: ReportTargetType, targe
+ }
+ 
+ reportsRoutes.use(requireAuth);
++reportsRoutes.use(requireActiveAccount);
+ 
+ reportsRoutes.post('/', asyncRoute(async (req, res) => {
+   const input = createReportRequestSchema.parse(req.body ?? {});
+@@ -424,21 +428,50 @@ reportsRoutes.post('/', asyncRoute(async (req, res) => {
+     include: { reporter: { select: reportUserSelect }, reviewer: { select: reportUserSelect } },
+   });
+   if (existing) {
+-    const [report] = await hydrateReports([existing]);
++    const moderationCaseId = await ensureReportModerationCase({
++      reportId: existing.id,
++      reporterId: actorId,
++      targetType: input.targetType,
++      targetId: input.targetId,
++      targetOwnerId: target.ownerId ?? null,
++      moderationCaseId: existing.moderationCaseId ?? null,
++      reason: input.reason,
++      details: input.details?.trim() || existing.details || null,
++    });
++    const [report] = await hydrateReports([{ ...existing, moderationCaseId }]);
+     return res.json({ report: publicReportResponse(report), duplicate: true });
+   }
+ 
+-  const report = await (prisma as any).report.create({
+-    data: {
++  const report = await prisma.$transaction(async (tx: any) => {
++    const createdReport = await tx.report.create({
++      data: {
++        reporterId: actorId,
++        targetType: input.targetType,
++        targetId: input.targetId,
++        targetOwnerId: target.ownerId ?? null,
++        reason: input.reason,
++        details: input.details?.trim() || null,
++      },
++      include: { reporter: { select: reportUserSelect }, reviewer: { select: reportUserSelect } },
++    });
++
++    const moderationCase = await createModerationCaseForReport(tx, {
++      reportId: createdReport.id,
+       reporterId: actorId,
+       targetType: input.targetType,
+       targetId: input.targetId,
+       targetOwnerId: target.ownerId ?? null,
+       reason: input.reason,
+       details: input.details?.trim() || null,
+-    },
+-    include: { reporter: { select: reportUserSelect }, reviewer: { select: reportUserSelect } },
++    });
++
++    return tx.report.update({
++      where: { id: createdReport.id },
++      data: { moderationCaseId: moderationCase.id },
++      include: { reporter: { select: reportUserSelect }, reviewer: { select: reportUserSelect } },
++    });
+   });
++
+   const [hydrated] = await hydrateReports([report]);
+   return res.status(201).json({ report: publicReportResponse(hydrated), duplicate: false });
+ }));
+diff --git a/apps/api/src/modules/users/users.routes.ts b/apps/api/src/modules/users/users.routes.ts
+index 8ed50f8..12faead 100644
+--- a/apps/api/src/modules/users/users.routes.ts
++++ b/apps/api/src/modules/users/users.routes.ts
+@@ -2,7 +2,7 @@ import { Router } from 'express';
+ import { createUserBlockRequestSchema } from '@hellowhen/contracts';
+ import { getUserVerificationBadges } from '@hellowhen/shared';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+-import { optionalAuth, requireAuth } from '../../middleware/auth.js';
++import { optionalAuth, requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { publicTradeVisibilityWhere, withTradeDeckMedia } from '../trades/trades.routes.js';
+ import { publicUserProfileSelect } from './publicUser.js';
+@@ -30,7 +30,7 @@ usersRoutes.get('/blocked', requireAuth, asyncRoute(async (req, res) => {
+   res.json({ blocks });
+ }));
+ 
+-usersRoutes.post('/:userId/block', requireAuth, asyncRoute(async (req, res) => {
++usersRoutes.post('/:userId/block', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = createUserBlockRequestSchema.parse(req.body ?? {});
+   const actorId = req.user!.id;
+   const targetId = req.params.userId;
+@@ -45,7 +45,7 @@ usersRoutes.post('/:userId/block', requireAuth, asyncRoute(async (req, res) => {
+   res.json({ blocked: true, block });
+ }));
+ 
+-usersRoutes.delete('/:userId/block', requireAuth, asyncRoute(async (req, res) => {
++usersRoutes.delete('/:userId/block', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+   const actorId = req.user!.id;
+   const targetId = req.params.userId;
+   if (!targetId || targetId === actorId) return res.status(400).json({ error: 'invalid_block_target' });
+diff --git a/docs/product/safety-reports-blocking-foundation.md b/docs/product/safety-reports-blocking-foundation.md
+new file mode 100644
+index 0000000..338a723
+--- /dev/null
++++ b/docs/product/safety-reports-blocking-foundation.md
+@@ -0,0 +1,65 @@
++# SAFETY2 — Reports + blocking foundation
++
++SAFETY2 connects the existing report/block user flows to the provider-neutral moderation foundation from SAFETY1.
++
++## What this phase does
++
++- Keeps the existing `/reports` API and report UI intact.
++- Keeps the existing user block APIs intact.
++- Requires active, non-restricted accounts for creating reports and changing block state.
++- Creates a `ModerationCase` whenever a new user report is created.
++- Backfills a moderation case for an unresolved duplicate report if the report predates SAFETY2.
++- Links `Report.moderationCaseId` to the created moderation case.
++- Records a `ModerationAction` with the reporter as the actor.
++
++## What this phase does not do
++
++- No external moderation provider is called.
++- No automatic image/text scan is introduced.
++- No admin moderation queue redesign is included.
++- No new public report UI is introduced.
++- No private message scanning policy is changed.
++
++## Report to moderation mapping
++
++| Report target | Moderation content type | Visibility |
++| --- | --- | --- |
++| `user` | `user` | `public` |
++| `profile` | `profile` | `public` |
++| `trade` | `trade` | `public` |
++| `need` | `need` | `public` |
++| `offer` | `offer` | `public` |
++| `proposal` | `proposal` | `reported_private` |
++| `message` | `message` | `reported_private` |
++| `public_message` | `public_message` | `public` |
++| `media` | `media` | `public` |
++| `plan` | `plan` | `public` |
++| `plan_place` | `plan_place` | `public` |
++
++## Priority rules
++
++SAFETY2 assigns moderation case priority from the report reason:
++
++- `illegal_unsafe`: 90
++- `scam`, `impersonation`: 80
++- `harassment`: 70
++- `inappropriate_image`, `fake_profile`: 60
++- `spam`: 40
++- `other`: 30
++
++These are queue-priority hints only. They do not remove content automatically.
++
++## Blocking rule
++
++Blocking remains user-controlled and relationship-based. Existing runtime filters and guard checks continue to hide profiles, trade surfaces, saved items, plans, and proposal conversations where a block exists between two users.
++
++SAFETY2 only tightens write access for block changes by requiring an active account. Restricted accounts can still contact support, but they cannot create new reports or change block relationships through these marketplace endpoints.
++
++## Next phase
++
++SAFETY3 should use the moderation case link in the admin review queue so admins can see:
++
++- the original report,
++- the linked `ModerationCase`,
++- the case action history,
++- and later provider results from SAFETY5/SAFETY6.
+diff --git a/packages/contracts/src/moderation.ts b/packages/contracts/src/moderation.ts
+index 23b9f9a..9f182f9 100644
+--- a/packages/contracts/src/moderation.ts
++++ b/packages/contracts/src/moderation.ts
+@@ -14,6 +14,8 @@ export const moderationContentTypeSchema = z.enum([
+   'message',
+   'public_message',
+   'media',
++  'plan',
++  'plan_place',
+   'profile_image',
+   'trade_image',
+   'need_image',
+diff --git a/packages/contracts/src/reports.js b/packages/contracts/src/reports.js
+index 1c9721d..8429dfe 100644
+--- a/packages/contracts/src/reports.js
++++ b/packages/contracts/src/reports.js
+@@ -16,8 +16,8 @@ export const reportUserPreviewSchema = z.object({
+     createdAt: z.string().optional(),
+     profile: reportUserProfilePreviewSchema,
+ }).passthrough();
+-export const reportTargetTypeSchema = z.enum(['user', 'profile', 'trade', 'need', 'offer', 'proposal', 'message', 'media', 'plan', 'plan_place']);
+-export const reportReasonSchema = z.enum(['spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'inappropriate_image', 'other']);
++export const reportTargetTypeSchema = z.enum(['user', 'profile', 'trade', 'need', 'offer', 'proposal', 'message', 'public_message', 'media', 'plan', 'plan_place']);
++export const reportReasonSchema = z.enum(['spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'impersonation', 'inappropriate_image', 'other']);
+ export const reportStatusSchema = z.enum(['pending', 'reviewing', 'resolved', 'dismissed']);
+ export const createReportRequestSchema = z.object({
+     targetType: reportTargetTypeSchema,
+@@ -25,6 +25,10 @@ export const createReportRequestSchema = z.object({
+     reason: reportReasonSchema,
+     details: z.string().trim().min(3).max(2000).optional(),
+ });
++export const createDealProblemReportRequestSchema = z.object({
++    reason: reportReasonSchema.optional().default('other'),
++    details: z.string().trim().min(3).max(2000),
++});
+ export const reportTargetSummarySchema = z.object({
+     type: reportTargetTypeSchema,
+     id: z.string(),
+@@ -41,6 +45,7 @@ export const reportSchema = z.object({
+     targetType: reportTargetTypeSchema,
+     targetId: z.string(),
+     targetOwnerId: z.string().nullable().optional(),
++    moderationCaseId: z.string().nullable().optional(),
+     reason: reportReasonSchema,
+     details: z.string().nullable().optional(),
+     status: reportStatusSchema,
+diff --git a/packages/contracts/src/reports.ts b/packages/contracts/src/reports.ts
+index 80958cc..155d70b 100644
+--- a/packages/contracts/src/reports.ts
++++ b/packages/contracts/src/reports.ts
+@@ -51,6 +51,7 @@ export const reportSchema = z.object({
+   targetType: reportTargetTypeSchema,
+   targetId: z.string(),
+   targetOwnerId: z.string().nullable().optional(),
++  moderationCaseId: z.string().nullable().optional(),
+   reason: reportReasonSchema,
+   details: z.string().nullable().optional(),
+   status: reportStatusSchema,

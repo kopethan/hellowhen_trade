@@ -21,9 +21,16 @@ function disabled(value: string | undefined, defaultValue = false) {
   return raw === 'false' || raw === '0' || raw === 'no';
 }
 
+function boundedInt(value: string | undefined, defaultValue: number, min: number, max: number) {
+  const parsed = Number(value ?? defaultValue);
+  if (!Number.isFinite(parsed)) return defaultValue;
+  return Math.min(max, Math.max(min, Math.trunc(parsed)));
+}
+
 const moneyProviders = new Set(['none', 'stripe', 'airwallex']);
 const adsProviders = new Set(['none', 'adsense', 'admob']);
 const aiProviders = new Set(['none', 'openai', 'gemini', 'groq']);
+const moderationProviders = new Set(['none', 'mock', 'openai', 'aws_rekognition', 'google_vision', 'azure_content_safety', 'human_review']);
 const airwallexEnvironments = new Set(['demo', 'production']);
 
 function parseMoneyProvider(value: string | undefined) {
@@ -44,6 +51,17 @@ function parseAdsProvider(value: string | undefined) {
 function parseAiProvider(value: string | undefined) {
   const raw = String(value ?? 'none').toLowerCase();
   return aiProviders.has(raw) ? raw as 'none' | 'openai' | 'gemini' | 'groq' : 'none';
+}
+
+function parseModerationProvider(value: string | undefined) {
+  const raw = String(value ?? 'none').trim().toLowerCase();
+  return moderationProviders.has(raw) ? raw as 'none' | 'mock' | 'openai' | 'aws_rekognition' | 'google_vision' | 'azure_content_safety' | 'human_review' : 'none';
+}
+
+function parseModerationTextFailMode(value: string | undefined) {
+  const raw = String(value ?? 'allow_with_case').trim().toLowerCase();
+  if (raw === 'hold_pending' || raw === 'reject') return raw as 'hold_pending' | 'reject';
+  return 'allow_with_case' as const;
 }
 
 export const env = {
@@ -219,6 +237,26 @@ export const env = {
   groqApiKey: process.env.GROQ_API_KEY ?? process.env.AI_API_KEY ?? '',
   groqContentSuggestionModel: process.env.GROQ_CONTENT_SUGGESTION_MODEL ?? 'llama-3.1-8b-instant',
   aiContentSuggestionTimeoutMs: Number(process.env.AI_CONTENT_SUGGESTION_TIMEOUT_MS ?? 12000),
+  moderationEnabled: enabled(process.env.MODERATION_ENABLED),
+  moderationProvider: parseModerationProvider(process.env.MODERATION_PROVIDER),
+  moderationTextEnabled: enabled(process.env.MODERATION_TEXT_ENABLED),
+  moderationImageEnabled: enabled(process.env.MODERATION_IMAGE_ENABLED),
+  publicImageReviewEnabled: enabled(process.env.PUBLIC_IMAGE_REVIEW_ENABLED),
+  publicMediaRequiresAuth: enabled(process.env.PUBLIC_MEDIA_REQUIRES_AUTH),
+  moderationPrivateMessageScanEnabled: enabled(process.env.MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED),
+  moderationStoreRawProviderResult: enabled(process.env.MODERATION_STORE_RAW_PROVIDER_RESULT),
+  moderationProviderApiKey: process.env.MODERATION_PROVIDER_API_KEY ?? '',
+  moderationProviderEndpoint: process.env.MODERATION_PROVIDER_ENDPOINT ?? '',
+  openaiModerationModel: process.env.OPENAI_MODERATION_MODEL ?? 'omni-moderation-latest',
+  moderationProviderTimeoutMs: boundedInt(process.env.MODERATION_PROVIDER_TIMEOUT_MS, 10000, 1000, 60000),
+  moderationProviderMaxRetries: boundedInt(process.env.MODERATION_PROVIDER_MAX_RETRIES, 0, 0, 3),
+  aiTextReviewOnCreateEnabled: enabled(process.env.AI_TEXT_REVIEW_ON_CREATE_ENABLED),
+  aiTextReviewOnEditEnabled: enabled(process.env.AI_TEXT_REVIEW_ON_EDIT_ENABLED),
+  aiTextReviewPublicMessagesEnabled: enabled(process.env.AI_TEXT_REVIEW_PUBLIC_MESSAGES_ENABLED),
+  aiTextReviewProfileEnabled: enabled(process.env.AI_TEXT_REVIEW_PROFILE_ENABLED),
+  aiTextReviewPrivateMessagesEnabled: enabled(process.env.AI_TEXT_REVIEW_PRIVATE_MESSAGES_ENABLED),
+  aiTextReviewEnforcementEnabled: enabled(process.env.AI_TEXT_REVIEW_ENFORCEMENT_ENABLED),
+  moderationTextFailMode: parseModerationTextFailMode(process.env.MODERATION_TEXT_FAIL_MODE),
   contentIntelligenceEnabled: enabled(process.env.CONTENT_INTELLIGENCE_ENABLED),
   contentClassificationEnabled: enabled(process.env.CONTENT_CLASSIFICATION_ENABLED),
   contentPlacementSignalsEnabled: enabled(process.env.CONTENT_PLACEMENT_SIGNALS_ENABLED),
@@ -473,6 +511,16 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     || env.contentReviewGateCategoryMismatchEnabled
     || env.contentReviewGateSuggestedHideEnabled
     || env.contentReviewGateClassifierFailureEnabled;
+  const aiTextReviewRuntimeEnabled = env.aiTextReviewOnCreateEnabled
+    || env.aiTextReviewOnEditEnabled
+    || env.aiTextReviewPublicMessagesEnabled
+    || env.aiTextReviewProfileEnabled
+    || env.aiTextReviewPrivateMessagesEnabled
+    || env.aiTextReviewEnforcementEnabled;
+  if (env.moderationProvider !== 'none' || env.moderationTextEnabled || env.moderationImageEnabled || env.moderationPrivateMessageScanEnabled || aiTextReviewRuntimeEnabled || hasConfiguredValue(env.moderationProviderApiKey) || hasConfiguredValue(env.moderationProviderEndpoint)) {
+    errors.push('External moderation providers and automated scans must stay disabled for first launch. The provider-neutral moderation foundation may exist, but MODERATION_PROVIDER must remain none and scan flags false.');
+  }
+
   if (env.contentPlacementSignalsEnabled || env.businessContextualSignalsEnabled || env.contextualAdSignalsEnabled) {
     errors.push('Contextual placement/ad signals must stay disabled for first launch. Content Intelligence may store admin-reviewed classifications only.');
   }
@@ -554,6 +602,30 @@ export function validateProductionEnv() {
   if (env.googlePlayMembershipPurchaseSyncEnabled && !env.plusEnabled) errors.push('GOOGLE_PLAY_MEMBERSHIP_PURCHASE_SYNC_ENABLED=true requires PLUS_ENABLED=true.');
   if (env.googlePlayMembershipPurchaseSyncEnabled && !env.googlePlayMembershipServerValidationEnabled) errors.push('GOOGLE_PLAY_MEMBERSHIP_PURCHASE_SYNC_ENABLED=true requires GOOGLE_PLAY_MEMBERSHIP_SERVER_VALIDATION_ENABLED=true in production.');
   if (env.googlePlayMembershipServerValidationEnabled && (!env.googlePlayMembershipPackageName || !env.googlePlayMembershipServiceAccountEmail || !env.googlePlayMembershipServiceAccountPrivateKey)) errors.push('Google Play server validation requires GOOGLE_PLAY_MEMBERSHIP_PACKAGE_NAME, GOOGLE_PLAY_MEMBERSHIP_SERVICE_ACCOUNT_EMAIL, and GOOGLE_PLAY_MEMBERSHIP_SERVICE_ACCOUNT_PRIVATE_KEY.');
+  const textReviewConfigured = env.aiTextReviewOnCreateEnabled
+    || env.aiTextReviewOnEditEnabled
+    || env.aiTextReviewPublicMessagesEnabled
+    || env.aiTextReviewProfileEnabled
+    || env.aiTextReviewPrivateMessagesEnabled
+    || env.aiTextReviewEnforcementEnabled;
+  const moderationConfigured = env.moderationProvider !== 'none'
+    || env.moderationTextEnabled
+    || env.moderationImageEnabled
+    || env.moderationPrivateMessageScanEnabled
+    || textReviewConfigured
+    || hasConfiguredValue(env.moderationProviderApiKey)
+    || hasConfiguredValue(env.moderationProviderEndpoint);
+  if (moderationConfigured && !env.moderationEnabled) errors.push('Moderation provider settings require MODERATION_ENABLED=true.');
+  if (textReviewConfigured && !env.moderationTextEnabled) errors.push('AI text review flags require MODERATION_TEXT_ENABLED=true.');
+  if (textReviewConfigured && env.moderationProvider === 'none') errors.push('AI text review flags require MODERATION_PROVIDER=mock or a later real provider.');
+  if (env.aiTextReviewPrivateMessagesEnabled && !env.moderationPrivateMessageScanEnabled) errors.push('AI_TEXT_REVIEW_PRIVATE_MESSAGES_ENABLED=true requires MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED=true.');
+  if (env.aiTextReviewEnforcementEnabled && !env.aiTextReviewOnCreateEnabled && !env.aiTextReviewOnEditEnabled) errors.push('AI_TEXT_REVIEW_ENFORCEMENT_ENABLED=true requires AI_TEXT_REVIEW_ON_CREATE_ENABLED=true or AI_TEXT_REVIEW_ON_EDIT_ENABLED=true.');
+  if (env.moderationPrivateMessageScanEnabled && !env.moderationTextEnabled && !env.moderationImageEnabled) errors.push('MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED=true requires text or image moderation to be enabled.');
+  if (env.moderationProviderMaxRetries > 0 && env.moderationProvider === 'none') errors.push('MODERATION_PROVIDER_MAX_RETRIES requires MODERATION_PROVIDER to be mock or a later real provider.');
+  if (env.moderationProvider === 'openai' && !hasConfiguredValue(env.moderationProviderApiKey)) errors.push('MODERATION_PROVIDER=openai requires MODERATION_PROVIDER_API_KEY to be set.');
+  if (env.moderationProvider === 'openai' && env.moderationImageEnabled) errors.push('SAFETY9 OpenAI moderation adapter is text-only; keep MODERATION_IMAGE_ENABLED=false until an image provider patch is added.');
+  if (env.publicImageReviewEnabled && !env.moderationEnabled) errors.push('PUBLIC_IMAGE_REVIEW_ENABLED=true requires MODERATION_ENABLED=true so image review cases are explicit and auditable.');
+
   const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.plusAiAssistEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiModerationSuggestionsEnabled || env.aiDebugPlaceholders;
   const aiSecretsConfigured = hasConfiguredValue(env.openaiApiKey) || hasConfiguredValue(env.geminiApiKey) || hasConfiguredValue(env.groqApiKey);
   if (aiConfigured && env.aiProvider === 'none') {

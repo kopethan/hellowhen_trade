@@ -3,6 +3,9 @@ import { updateProfileRequestSchema } from '@hellowhen/contracts';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { enqueuePublicImageReview } from '../moderation/moderation.mediaPipeline.js';
+import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
+import { buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
 import { assertUsernameChangeAllowed, buildUsernameHistoryData, ensureUsernameAvailable, normalizeProfileHandle, usernameErrorPayload } from './profileUsernames.js';
 
 export const profileRoutes = Router();
@@ -27,7 +30,7 @@ function getProfilePatch(input: ReturnType<typeof updateProfileRequestSchema.par
 
 
 async function attachAvatarMedia(userId: string, profileId: string, mediaId: string) {
-  const media = await prisma.mediaAsset.findFirst({ where: { id: mediaId, ownerId: userId, status: 'active' } });
+  const media = await prisma.mediaAsset.findFirst({ where: { id: mediaId, ownerId: userId, status: { in: ['active', 'pending_review'] } } });
   if (!media) throw createProfileError('invalid_avatar_media', 'Upload a profile image again and retry.');
 
   if (media.entityType && media.entityType !== 'profile') {
@@ -38,7 +41,9 @@ async function attachAvatarMedia(userId: string, profileId: string, mediaId: str
     throw createProfileError('avatar_media_already_attached', 'This image already belongs to another profile. Upload a new copy for your profile picture.');
   }
 
-  return prisma.mediaAsset.update({ where: { id: media.id }, data: { entityType: 'profile', entityId: profileId } });
+  const updated = await prisma.mediaAsset.update({ where: { id: media.id }, data: { entityType: 'profile', entityId: profileId } });
+  await enqueuePublicImageReview(updated.id, { actorId: userId });
+  return updated;
 }
 
 profileRoutes.patch('/me', asyncRoute(async (req, res) => {
@@ -57,6 +62,27 @@ profileRoutes.patch('/me', asyncRoute(async (req, res) => {
     if (wantsHandleChange && patch.handle) {
       assertUsernameChangeAllowed(currentProfile, now);
       await ensureUsernameAvailable(patch.handle, { ownerProfileId: currentProfile?.id ?? null, now });
+    }
+
+    const textReview = await runAiTextReview({
+      contentType: 'profile',
+      contentId: currentProfile?.id ?? userId,
+      contentOwnerId: userId,
+      visibility: 'public',
+      mode: 'edit',
+      title: typeof patch.displayName === 'string' ? patch.displayName : undefined,
+      description: typeof patch.bio === 'string' ? patch.bio : undefined,
+      message: typeof patch.handle === 'string' ? patch.handle : undefined,
+      actorId: userId,
+      appArea: 'profile_edit',
+    });
+    const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview, { blockHoldPending: true });
+    if (textReviewOutcome) {
+      return res.status(textReviewOutcome.status).json({
+        error: textReviewOutcome.error ?? 'content_text_review_pending',
+        message: textReviewOutcome.message,
+        moderation: textReviewOutcome.moderation,
+      });
     }
 
     profile = await prisma.$transaction(async (tx: any) => {

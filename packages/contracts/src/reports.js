@@ -16,14 +16,18 @@ export const reportUserPreviewSchema = z.object({
     createdAt: z.string().optional(),
     profile: reportUserProfilePreviewSchema,
 }).passthrough();
-export const reportTargetTypeSchema = z.enum(['user', 'profile', 'trade', 'need', 'offer', 'proposal', 'message', 'media', 'plan', 'plan_place']);
-export const reportReasonSchema = z.enum(['spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'inappropriate_image', 'other']);
+export const reportTargetTypeSchema = z.enum(['user', 'profile', 'trade', 'need', 'offer', 'proposal', 'message', 'public_message', 'media', 'plan', 'plan_place']);
+export const reportReasonSchema = z.enum(['spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'impersonation', 'inappropriate_image', 'other']);
 export const reportStatusSchema = z.enum(['pending', 'reviewing', 'resolved', 'dismissed']);
 export const createReportRequestSchema = z.object({
     targetType: reportTargetTypeSchema,
     targetId: z.string().trim().min(1).max(120),
     reason: reportReasonSchema,
     details: z.string().trim().min(3).max(2000).optional(),
+});
+export const createDealProblemReportRequestSchema = z.object({
+    reason: reportReasonSchema.optional().default('other'),
+    details: z.string().trim().min(3).max(2000),
 });
 export const reportTargetSummarySchema = z.object({
     type: reportTargetTypeSchema,
@@ -41,6 +45,7 @@ export const reportSchema = z.object({
     targetType: reportTargetTypeSchema,
     targetId: z.string(),
     targetOwnerId: z.string().nullable().optional(),
+    moderationCaseId: z.string().nullable().optional(),
     reason: reportReasonSchema,
     details: z.string().nullable().optional(),
     status: reportStatusSchema,

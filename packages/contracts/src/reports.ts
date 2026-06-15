@@ -51,6 +51,7 @@ export const reportSchema = z.object({
   targetType: reportTargetTypeSchema,
   targetId: z.string(),
   targetOwnerId: z.string().nullable().optional(),
+  moderationCaseId: z.string().nullable().optional(),
   reason: reportReasonSchema,
   details: z.string().nullable().optional(),
   status: reportStatusSchema,

@@ -45,7 +45,7 @@ const postTypeOptions: Array<{ labelKey: string; value: PostTypeFilter }> = [
 ];
 
 function hasApprovedImages(trade: TradeDeckItem) {
-  return (trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0) > 0;
+  return (trade.need?.media?.length ?? 0) + (trade.need?.mediaAccess?.hiddenCount ?? 0) + (trade.offer?.media?.length ?? 0) + (trade.offer?.mediaAccess?.hiddenCount ?? 0) > 0;
 }
 
 function hasWalletAmount(trade: TradeDeckItem) {

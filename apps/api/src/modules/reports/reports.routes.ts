@@ -3,9 +3,10 @@ import { createReportRequestSchema, type ReportTargetType } from '@hellowhen/con
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
 import { publicTradeVisibilityWhere } from '../trades/trades.routes.js';
+import { createModerationCaseForReport, ensureReportModerationCase } from '../moderation/moderation.reportCases.js';
 
 export const reportsRoutes = Router();
 
@@ -18,6 +19,7 @@ type ReportRecord = {
   targetType: ReportTargetType;
   targetId: string;
   targetOwnerId?: string | null;
+  moderationCaseId?: string | null;
   reason: string;
   details?: string | null;
   status: string;
@@ -314,6 +316,7 @@ function publicReportResponse<T extends ReportRecord & { target?: ReportTargetSu
     targetType: report.targetType,
     targetId: report.targetId,
     targetOwnerId: report.targetOwnerId ?? null,
+    moderationCaseId: report.moderationCaseId ?? null,
     reason: report.reason,
     details: report.details ?? null,
     status: report.status,
@@ -410,6 +413,7 @@ export async function moderateReportedTarget(targetType: ReportTargetType, targe
 }
 
 reportsRoutes.use(requireAuth);
+reportsRoutes.use(requireActiveAccount);
 
 reportsRoutes.post('/', asyncRoute(async (req, res) => {
   const input = createReportRequestSchema.parse(req.body ?? {});
@@ -424,21 +428,50 @@ reportsRoutes.post('/', asyncRoute(async (req, res) => {
     include: { reporter: { select: reportUserSelect }, reviewer: { select: reportUserSelect } },
   });
   if (existing) {
-    const [report] = await hydrateReports([existing]);
+    const moderationCaseId = await ensureReportModerationCase({
+      reportId: existing.id,
+      reporterId: actorId,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      targetOwnerId: target.ownerId ?? null,
+      moderationCaseId: existing.moderationCaseId ?? null,
+      reason: input.reason,
+      details: input.details?.trim() || existing.details || null,
+    });
+    const [report] = await hydrateReports([{ ...existing, moderationCaseId }]);
     return res.json({ report: publicReportResponse(report), duplicate: true });
   }
 
-  const report = await (prisma as any).report.create({
-    data: {
+  const report = await prisma.$transaction(async (tx: any) => {
+    const createdReport = await tx.report.create({
+      data: {
+        reporterId: actorId,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        targetOwnerId: target.ownerId ?? null,
+        reason: input.reason,
+        details: input.details?.trim() || null,
+      },
+      include: { reporter: { select: reportUserSelect }, reviewer: { select: reportUserSelect } },
+    });
+
+    const moderationCase = await createModerationCaseForReport(tx, {
+      reportId: createdReport.id,
       reporterId: actorId,
       targetType: input.targetType,
       targetId: input.targetId,
       targetOwnerId: target.ownerId ?? null,
       reason: input.reason,
       details: input.details?.trim() || null,
-    },
-    include: { reporter: { select: reportUserSelect }, reviewer: { select: reportUserSelect } },
+    });
+
+    return tx.report.update({
+      where: { id: createdReport.id },
+      data: { moderationCaseId: moderationCase.id },
+      include: { reporter: { select: reportUserSelect }, reviewer: { select: reportUserSelect } },
+    });
   });
+
   const [hydrated] = await hydrateReports([report]);
   return res.status(201).json({ report: publicReportResponse(hydrated), duplicate: false });
 }));

@@ -143,7 +143,10 @@ export async function serveUploadedMedia(req: Request, res: Response, next: Next
   }
 
   const media = await prisma.mediaAsset.findFirst({
-    where: { storageKey, status: 'active' },
+    // Public lists only expose active media IDs. The file endpoint also serves
+    // pending/flagged images by unguessable storage key so owners and admins can
+    // preview review-state images without making removed media available.
+    where: { storageKey, status: { in: ['active', 'pending_review', 'flagged'] } },
     select: { storageKey: true, filename: true, mimeType: true, sizeBytes: true }
   });
   if (!media || !isSupportedImageMimeType(media.mimeType)) {

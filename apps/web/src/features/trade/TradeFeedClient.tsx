@@ -78,7 +78,7 @@ function localFilter(trades: TradeDto[], filters: FeedFilters) {
   return trades.filter((trade) => {
     const haystack = [trade.title, trade.description, trade.need?.title, trade.need?.description, trade.offer?.title, trade.offer?.description].filter(Boolean).join(' ').toLowerCase();
     const mode = trade.need?.mode ?? trade.offer?.mode ?? '';
-    const hasImages = Boolean((trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0));
+    const hasImages = Boolean((trade.need?.media?.length ?? 0) + (trade.need?.mediaAccess?.hiddenCount ?? 0) + (trade.offer?.media?.length ?? 0) + (trade.offer?.mediaAccess?.hiddenCount ?? 0));
     const hasMoney = (trade.amountCents ?? 0) > 0;
     if (query && !haystack.includes(query)) return false;
     if (filters.mode && mode !== filters.mode) return false;

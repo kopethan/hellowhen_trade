@@ -29,7 +29,7 @@ function entityLabel(item: AdminMediaItem) {
 export default function AdminMediaPage() {
   const apiBase = useMemo(() => getWebApiBaseUrl(), []);
   const { token, headers } = useAdminSessionToken();
-  const [status, setStatus] = useState<MediaAssetStatus | 'all'>('active');
+  const [status, setStatus] = useState<MediaAssetStatus | 'all'>('pending_review');
   const [items, setItems] = useState<AdminMediaItem[]>([]);
   const [reviewNote, setReviewNote] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -66,7 +66,7 @@ export default function AdminMediaPage() {
       <div className="card">
         <span className="semantic-badge admin">Admin moderation</span>
         <h1>Uploaded images</h1>
-        <p className="notice-box admin">Basic dev admin space for moderating uploaded need, offer, plan, profile, and support images. First-beta uploads are active immediately; use flag or remove only after reports or a manual check.</p>
+        <p className="notice-box admin">Admin space for reviewing uploaded images. When PUBLIC_IMAGE_REVIEW_ENABLED=true, public trade, need, offer, and profile images stay pending until approval.</p>
         <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
         <div className="form-row" style={{ marginTop: 12 }}>
           <select value={status} onChange={(event) => setStatus(event.target.value as MediaAssetStatus | 'all')}>
@@ -75,7 +75,7 @@ export default function AdminMediaPage() {
           <button className="secondary" onClick={() => { void loadMedia(); }} disabled={loading}>Load media</button>
         </div>
         <textarea value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} placeholder="Internal review note. Required before flagging, removing, or restoring media." rows={3} style={{ marginTop: 12 }} />
-        <p className="notice-box info">Media moderation is reversible: Restore moves an item back to active, but every change remains in the audit log.</p>
+        <p className="notice-box info">Media moderation is reversible: Approve/restore moves an item back to active, pending keeps it hidden from public surfaces, and every change remains in the audit log.</p>
         {message ? <p className="notice-box info">{message}</p> : null}
       </div>
       <div className="media-grid">
@@ -87,7 +87,8 @@ export default function AdminMediaPage() {
             <p className="meta">Owner: {item.owner?.profile?.displayName ?? item.owner?.email ?? item.ownerId}</p>
             <p className="meta">Entity: {entityLabel(item)}</p>
             <div className="cta-row">
-              <button className="success" onClick={() => { void updateStatus(item.id, 'active'); }}>Restore</button>
+              <button className="success" onClick={() => { void updateStatus(item.id, 'active'); }}>Approve</button>
+              <button className="secondary" onClick={() => { void updateStatus(item.id, 'pending_review'); }}>Keep pending</button>
               <button className="warning" onClick={() => { void updateStatus(item.id, 'flagged'); }}>Flag</button>
               <button className="danger" onClick={() => { void updateStatus(item.id, 'removed'); }}>Remove</button>
             </div>

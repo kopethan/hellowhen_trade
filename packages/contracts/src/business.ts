@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mediaAssetSchema } from './media.js';
+import { mediaAssetSchema, publicMediaAccessSchema } from './media.js';
 import { publicProfileTradeSummarySchema, publicVerificationBadgeSchema } from './users.js';
 import { createNeedRequestSchema, createOfferRequestSchema, discoveryLanguageSchema, inventoryAvailabilityPresetSchema, inventoryDurationPresetSchema, inventoryItemTypeSchema, inventoryTemplateKindSchema, tradeExchangeModeSchema, updateNeedRequestSchema, updateOfferRequestSchema } from './trade.js';
 
@@ -65,6 +65,7 @@ export const publicBusinessInventoryItemSchema = z.object({
   updatedAt: z.string(),
   expiresAt: z.string().nullable().optional(),
   media: z.array(mediaAssetSchema).optional(),
+  mediaAccess: publicMediaAccessSchema.optional(),
 }).passthrough();
 
 export const publicBusinessProfileResponseSchema = z.object({

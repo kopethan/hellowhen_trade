@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mediaAssetSchema } from './media.js';
+import { mediaAssetSchema, publicMediaAccessSchema } from './media.js';
 import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from './inventoryLimits.js';
 export const needStatusSchema = z.enum(['draft', 'pending_review', 'active', 'rejected', 'fulfilled', 'closed', 'expired']);
 export const offerStatusSchema = z.enum(['draft', 'pending_review', 'active', 'rejected', 'accepted', 'closed', 'expired']);
@@ -188,7 +188,8 @@ export const needSchema = z.object({
     createdAt: z.string(),
     updatedAt: z.string(),
     expiresAt: z.string().nullable().optional(),
-    media: z.array(mediaAssetSchema).optional()
+    media: z.array(mediaAssetSchema).optional(),
+    mediaAccess: publicMediaAccessSchema.optional()
 });
 export const offerSchema = z.object({
     id: z.string(),
@@ -207,7 +208,8 @@ export const offerSchema = z.object({
     createdAt: z.string(),
     updatedAt: z.string(),
     expiresAt: z.string().nullable().optional(),
-    media: z.array(mediaAssetSchema).optional()
+    media: z.array(mediaAssetSchema).optional(),
+    mediaAccess: publicMediaAccessSchema.optional()
 });
 export const inventoryTemplateBusinessProfileSchema = z.object({
     id: z.string(),
@@ -301,7 +303,8 @@ export const tradeSchema = z.object({
     payment: tradePaymentSchema.nullable().optional(),
     escrow: tradeEscrowSchema.nullable().optional(),
     // Deprecated. Kept for legacy trades/admin compatibility; new deck UI should use need.media and offer.media.
-    media: z.array(mediaAssetSchema).optional()
+    media: z.array(mediaAssetSchema).optional(),
+    mediaAccess: publicMediaAccessSchema.optional()
 });
 export const proposalMessageSchema = z.object({ id: z.string(), proposalId: z.string(), senderId: z.string(), body: z.string(), createdAt: z.string(), sender: userPreviewSchema.optional() });
 export const tradeProposalSchema = z.object({

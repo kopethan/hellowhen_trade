@@ -22,10 +22,16 @@ function previewThemeForTrade(trade: TradeDto) {
 
 function TradeStackImageCard({ image, i18n }: { image: ReturnType<typeof getDeckImages>[number]; i18n?: TradeI18n }) {
   const [failed, setFailed] = useState(!image.url);
+  const authRequired = Boolean(image.isAuthPlaceholder);
 
   return (
-    <figure className={`trade-stack-card trade-stack-card--image${failed ? ' is-broken' : ''}`}>
-      {!failed ? (
+    <figure className={`trade-stack-card trade-stack-card--image${failed || authRequired ? ' is-broken' : ''}`}>
+      {authRequired ? (
+        <div className="trade-stack-card__image-fallback">
+          <strong>{i18n?.t?.('media.authRequired.title') ?? 'Log in to view images'}</strong>
+          <span>{i18n?.t?.('media.authRequired.body', { count: image.hiddenCount ?? 1 }) ?? 'Images are visible after login.'}</span>
+        </div>
+      ) : !failed ? (
         <img src={image.url} alt={image.alt} loading="lazy" onError={() => setFailed(true)} />
       ) : (
         <div className="trade-stack-card__image-fallback">

@@ -1,0 +1,835 @@
+diff --git a/.env.example b/.env.example
+index 9cab0b5..179d701 100644
+--- a/.env.example
++++ b/.env.example
+@@ -198,6 +198,18 @@ EXPO_PUBLIC_CASH_PROMISE_ENABLED=false
+ EXPO_PUBLIC_CASH_PROMISE_VISIBLE=false
+ 
+ 
++# Provider-neutral moderation foundation. Keep external providers and scans disabled for the first public launch.
++# SAFETY1 only stores shared types, schema, and a no-provider adapter; no external API is connected.
++MODERATION_ENABLED=false
++MODERATION_PROVIDER=none
++MODERATION_TEXT_ENABLED=false
++MODERATION_IMAGE_ENABLED=false
++MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED=false
++MODERATION_STORE_RAW_PROVIDER_RESULT=false
++MODERATION_PROVIDER_API_KEY=
++MODERATION_PROVIDER_ENDPOINT=
++MODERATION_PROVIDER_TIMEOUT_MS=10000
++
+ # Hidden AI foundation. Keep disabled for the first public launch.
+ # No SDKs, external calls, tracking, or private-message AI are wired in this foundation.
+ AI_ENABLED=false
+diff --git a/apps/api/prisma/migrations/20260615100000_moderation_foundation/migration.sql b/apps/api/prisma/migrations/20260615100000_moderation_foundation/migration.sql
+new file mode 100644
+index 0000000..4f7660b
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260615100000_moderation_foundation/migration.sql
+@@ -0,0 +1,80 @@
++CREATE TYPE "ModerationContentType" AS ENUM ('user', 'profile', 'trade', 'need', 'offer', 'proposal', 'message', 'public_message', 'media', 'profile_image', 'trade_image', 'need_image', 'offer_image', 'support_ticket', 'support_message');
++CREATE TYPE "ModerationContentVisibility" AS ENUM ('public', 'private', 'reported_private', 'admin_internal');
++CREATE TYPE "ModerationCaseSource" AS ENUM ('upload', 'report', 'automatic', 'admin', 'backfill');
++CREATE TYPE "ModerationCaseStatus" AS ENUM ('pending', 'approved', 'rejected', 'needs_review', 'limited', 'removed', 'skipped', 'failed');
++CREATE TYPE "ModerationProviderName" AS ENUM ('none', 'mock', 'openai', 'aws_rekognition', 'google_vision', 'azure_content_safety', 'human_review');
++CREATE TYPE "ModerationScanType" AS ENUM ('text', 'image', 'combined');
++CREATE TYPE "ModerationLabelCategory" AS ENUM ('safe', 'adult', 'sexual', 'violence', 'hate_or_harassment', 'self_harm', 'illegal_or_regulated', 'spam_or_scam', 'personal_data', 'unknown');
++CREATE TYPE "ModerationSeverity" AS ENUM ('none', 'low', 'medium', 'high', 'critical');
++CREATE TYPE "ModerationSuggestedAction" AS ENUM ('allow', 'review', 'limit', 'reject', 'remove', 'no_action');
++CREATE TYPE "ModerationActionType" AS ENUM ('case_created', 'provider_scan_skipped', 'provider_scan_failed', 'provider_result_stored', 'mark_needs_review', 'approve', 'reject', 'limit', 'remove', 'restore', 'resolve', 'admin_note');
++
++CREATE TABLE "ModerationCase" (
++    "id" TEXT NOT NULL,
++    "contentType" "ModerationContentType" NOT NULL,
++    "contentId" TEXT NOT NULL,
++    "contentOwnerId" TEXT,
++    "status" "ModerationCaseStatus" NOT NULL DEFAULT 'pending',
++    "source" "ModerationCaseSource" NOT NULL DEFAULT 'automatic',
++    "priority" INTEGER NOT NULL DEFAULT 0,
++    "visibility" "ModerationContentVisibility" NOT NULL DEFAULT 'public',
++    "reason" TEXT,
++    "resolvedById" TEXT,
++    "resolvedAt" TIMESTAMP(3),
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updatedAt" TIMESTAMP(3) NOT NULL,
++
++    CONSTRAINT "ModerationCase_pkey" PRIMARY KEY ("id")
++);
++
++CREATE TABLE "ModerationResult" (
++    "id" TEXT NOT NULL,
++    "caseId" TEXT NOT NULL,
++    "provider" "ModerationProviderName" NOT NULL DEFAULT 'none',
++    "scanType" "ModerationScanType" NOT NULL,
++    "status" TEXT NOT NULL DEFAULT 'skipped',
++    "labelsJson" JSONB,
++    "scoresJson" JSONB,
++    "highestSeverity" "ModerationSeverity" NOT NULL DEFAULT 'none',
++    "suggestedAction" "ModerationSuggestedAction" NOT NULL DEFAULT 'no_action',
++    "reason" TEXT,
++    "rawJson" JSONB,
++    "errorCode" TEXT,
++    "errorMessage" TEXT,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++
++    CONSTRAINT "ModerationResult_pkey" PRIMARY KEY ("id")
++);
++
++CREATE TABLE "ModerationAction" (
++    "id" TEXT NOT NULL,
++    "caseId" TEXT NOT NULL,
++    "action" "ModerationActionType" NOT NULL,
++    "actorType" TEXT NOT NULL DEFAULT 'system',
++    "actorId" TEXT,
++    "note" TEXT,
++    "previousStatus" "ModerationCaseStatus",
++    "nextStatus" "ModerationCaseStatus",
++    "metadata" JSONB,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++
++    CONSTRAINT "ModerationAction_pkey" PRIMARY KEY ("id")
++);
++
++CREATE INDEX "ModerationCase_status_priority_createdAt_idx" ON "ModerationCase"("status", "priority", "createdAt");
++CREATE INDEX "ModerationCase_contentType_contentId_idx" ON "ModerationCase"("contentType", "contentId");
++CREATE INDEX "ModerationCase_contentOwnerId_status_idx" ON "ModerationCase"("contentOwnerId", "status");
++CREATE INDEX "ModerationCase_source_createdAt_idx" ON "ModerationCase"("source", "createdAt");
++CREATE INDEX "ModerationCase_resolvedById_resolvedAt_idx" ON "ModerationCase"("resolvedById", "resolvedAt");
++CREATE INDEX "ModerationResult_caseId_createdAt_idx" ON "ModerationResult"("caseId", "createdAt");
++CREATE INDEX "ModerationResult_provider_createdAt_idx" ON "ModerationResult"("provider", "createdAt");
++CREATE INDEX "ModerationResult_highestSeverity_suggestedAction_idx" ON "ModerationResult"("highestSeverity", "suggestedAction");
++CREATE INDEX "ModerationAction_caseId_createdAt_idx" ON "ModerationAction"("caseId", "createdAt");
++CREATE INDEX "ModerationAction_actorId_createdAt_idx" ON "ModerationAction"("actorId", "createdAt");
++CREATE INDEX "ModerationAction_action_createdAt_idx" ON "ModerationAction"("action", "createdAt");
++
++ALTER TABLE "ModerationCase" ADD CONSTRAINT "ModerationCase_contentOwnerId_fkey" FOREIGN KEY ("contentOwnerId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
++ALTER TABLE "ModerationCase" ADD CONSTRAINT "ModerationCase_resolvedById_fkey" FOREIGN KEY ("resolvedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
++ALTER TABLE "ModerationResult" ADD CONSTRAINT "ModerationResult_caseId_fkey" FOREIGN KEY ("caseId") REFERENCES "ModerationCase"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "ModerationAction" ADD CONSTRAINT "ModerationAction_caseId_fkey" FOREIGN KEY ("caseId") REFERENCES "ModerationCase"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "ModerationAction" ADD CONSTRAINT "ModerationAction_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 9bb16a1..d919105 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -572,6 +572,112 @@ enum ReportStatus {
+   dismissed
+ }
+ 
++
++enum ModerationContentType {
++  user
++  profile
++  trade
++  need
++  offer
++  proposal
++  message
++  public_message
++  media
++  profile_image
++  trade_image
++  need_image
++  offer_image
++  support_ticket
++  support_message
++}
++
++enum ModerationContentVisibility {
++  public
++  private
++  reported_private
++  admin_internal
++}
++
++enum ModerationCaseSource {
++  upload
++  report
++  automatic
++  admin
++  backfill
++}
++
++enum ModerationCaseStatus {
++  pending
++  approved
++  rejected
++  needs_review
++  limited
++  removed
++  skipped
++  failed
++}
++
++enum ModerationProviderName {
++  none
++  mock
++  openai
++  aws_rekognition
++  google_vision
++  azure_content_safety
++  human_review
++}
++
++enum ModerationScanType {
++  text
++  image
++  combined
++}
++
++enum ModerationLabelCategory {
++  safe
++  adult
++  sexual
++  violence
++  hate_or_harassment
++  self_harm
++  illegal_or_regulated
++  spam_or_scam
++  personal_data
++  unknown
++}
++
++enum ModerationSeverity {
++  none
++  low
++  medium
++  high
++  critical
++}
++
++enum ModerationSuggestedAction {
++  allow
++  review
++  limit
++  reject
++  remove
++  no_action
++}
++
++enum ModerationActionType {
++  case_created
++  provider_scan_skipped
++  provider_scan_failed
++  provider_result_stored
++  mark_needs_review
++  approve
++  reject
++  limit
++  remove
++  restore
++  resolve
++  admin_note
++}
++
+ enum AccountDeletionRequestStatus {
+   requested
+   in_review
+@@ -791,6 +897,9 @@ model User {
+   reviewedIdentityVerificationStates IdentityVerificationState[] @relation("ReviewedIdentityVerificationStates")
+   reportsMade Report[] @relation("UserReportsMade")
+   reviewedReports Report[] @relation("ReviewedReports")
++  moderationCasesOwned ModerationCase[] @relation("ModerationCaseOwner")
++  moderationCasesResolved ModerationCase[] @relation("ModerationCaseResolver")
++  moderationActions ModerationAction[] @relation("ModerationActionActor")
+   accountDeletionRequests AccountDeletionRequest[]
+   blocksCreated UserBlock[] @relation("UserBlocksCreated")
+   blocksReceived UserBlock[] @relation("UserBlocksReceived")
+@@ -2379,6 +2488,77 @@ model MoneyProviderEvent {
+ }
+ 
+ 
++
++model ModerationCase {
++  id             String                      @id @default(cuid())
++  contentType    ModerationContentType
++  contentId      String
++  contentOwnerId String?
++  status         ModerationCaseStatus        @default(pending)
++  source         ModerationCaseSource        @default(automatic)
++  priority       Int                         @default(0)
++  visibility     ModerationContentVisibility @default(public)
++  reason         String?
++  resolvedById   String?
++  resolvedAt     DateTime?
++  createdAt      DateTime                    @default(now())
++  updatedAt      DateTime                    @updatedAt
++
++  contentOwner User? @relation("ModerationCaseOwner", fields: [contentOwnerId], references: [id], onDelete: SetNull)
++  resolvedBy   User? @relation("ModerationCaseResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
++  results      ModerationResult[]
++  actions      ModerationAction[]
++
++  @@index([status, priority, createdAt])
++  @@index([contentType, contentId])
++  @@index([contentOwnerId, status])
++  @@index([source, createdAt])
++  @@index([resolvedById, resolvedAt])
++}
++
++model ModerationResult {
++  id              String                     @id @default(cuid())
++  caseId          String
++  provider        ModerationProviderName     @default(none)
++  scanType        ModerationScanType
++  status          String                     @default("skipped")
++  labelsJson      Json?
++  scoresJson      Json?
++  highestSeverity ModerationSeverity         @default(none)
++  suggestedAction ModerationSuggestedAction  @default(no_action)
++  reason          String?
++  rawJson         Json?
++  errorCode       String?
++  errorMessage    String?
++  createdAt       DateTime                   @default(now())
++
++  moderationCase ModerationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
++
++  @@index([caseId, createdAt])
++  @@index([provider, createdAt])
++  @@index([highestSeverity, suggestedAction])
++}
++
++model ModerationAction {
++  id             String                @id @default(cuid())
++  caseId         String
++  action         ModerationActionType
++  actorType      String                @default("system")
++  actorId        String?
++  note           String?
++  previousStatus ModerationCaseStatus?
++  nextStatus     ModerationCaseStatus?
++  metadata       Json?
++  createdAt      DateTime              @default(now())
++
++  moderationCase ModerationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
++  actor User?          @relation("ModerationActionActor", fields: [actorId], references: [id], onDelete: SetNull)
++
++  @@index([caseId, createdAt])
++  @@index([actorId, createdAt])
++  @@index([action, createdAt])
++}
++
+ model AccountDeletionRequest {
+   id              String                       @id @default(cuid())
+   userId          String
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 03b2410..64eb285 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -24,6 +24,7 @@ function disabled(value: string | undefined, defaultValue = false) {
+ const moneyProviders = new Set(['none', 'stripe', 'airwallex']);
+ const adsProviders = new Set(['none', 'adsense', 'admob']);
+ const aiProviders = new Set(['none', 'openai', 'gemini', 'groq']);
++const moderationProviders = new Set(['none', 'mock', 'openai', 'aws_rekognition', 'google_vision', 'azure_content_safety', 'human_review']);
+ const airwallexEnvironments = new Set(['demo', 'production']);
+ 
+ function parseMoneyProvider(value: string | undefined) {
+@@ -46,6 +47,11 @@ function parseAiProvider(value: string | undefined) {
+   return aiProviders.has(raw) ? raw as 'none' | 'openai' | 'gemini' | 'groq' : 'none';
+ }
+ 
++function parseModerationProvider(value: string | undefined) {
++  const raw = String(value ?? 'none').trim().toLowerCase();
++  return moderationProviders.has(raw) ? raw as 'none' | 'mock' | 'openai' | 'aws_rekognition' | 'google_vision' | 'azure_content_safety' | 'human_review' : 'none';
++}
++
+ export const env = {
+   nodeEnv: process.env.NODE_ENV ?? 'development',
+   port: Number(process.env.PORT ?? 4000),
+@@ -219,6 +225,15 @@ export const env = {
+   groqApiKey: process.env.GROQ_API_KEY ?? process.env.AI_API_KEY ?? '',
+   groqContentSuggestionModel: process.env.GROQ_CONTENT_SUGGESTION_MODEL ?? 'llama-3.1-8b-instant',
+   aiContentSuggestionTimeoutMs: Number(process.env.AI_CONTENT_SUGGESTION_TIMEOUT_MS ?? 12000),
++  moderationEnabled: enabled(process.env.MODERATION_ENABLED),
++  moderationProvider: parseModerationProvider(process.env.MODERATION_PROVIDER),
++  moderationTextEnabled: enabled(process.env.MODERATION_TEXT_ENABLED),
++  moderationImageEnabled: enabled(process.env.MODERATION_IMAGE_ENABLED),
++  moderationPrivateMessageScanEnabled: enabled(process.env.MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED),
++  moderationStoreRawProviderResult: enabled(process.env.MODERATION_STORE_RAW_PROVIDER_RESULT),
++  moderationProviderApiKey: process.env.MODERATION_PROVIDER_API_KEY ?? '',
++  moderationProviderEndpoint: process.env.MODERATION_PROVIDER_ENDPOINT ?? '',
++  moderationProviderTimeoutMs: Number(process.env.MODERATION_PROVIDER_TIMEOUT_MS ?? 10000),
+   contentIntelligenceEnabled: enabled(process.env.CONTENT_INTELLIGENCE_ENABLED),
+   contentClassificationEnabled: enabled(process.env.CONTENT_CLASSIFICATION_ENABLED),
+   contentPlacementSignalsEnabled: enabled(process.env.CONTENT_PLACEMENT_SIGNALS_ENABLED),
+@@ -473,6 +488,10 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
+     || env.contentReviewGateCategoryMismatchEnabled
+     || env.contentReviewGateSuggestedHideEnabled
+     || env.contentReviewGateClassifierFailureEnabled;
++  if (env.moderationProvider !== 'none' || env.moderationTextEnabled || env.moderationImageEnabled || env.moderationPrivateMessageScanEnabled || hasConfiguredValue(env.moderationProviderApiKey) || hasConfiguredValue(env.moderationProviderEndpoint)) {
++    errors.push('External moderation providers and automated scans must stay disabled for first launch. The provider-neutral moderation foundation may exist, but MODERATION_PROVIDER must remain none and scan flags false.');
++  }
++
+   if (env.contentPlacementSignalsEnabled || env.businessContextualSignalsEnabled || env.contextualAdSignalsEnabled) {
+     errors.push('Contextual placement/ad signals must stay disabled for first launch. Content Intelligence may store admin-reviewed classifications only.');
+   }
+@@ -554,6 +573,15 @@ export function validateProductionEnv() {
+   if (env.googlePlayMembershipPurchaseSyncEnabled && !env.plusEnabled) errors.push('GOOGLE_PLAY_MEMBERSHIP_PURCHASE_SYNC_ENABLED=true requires PLUS_ENABLED=true.');
+   if (env.googlePlayMembershipPurchaseSyncEnabled && !env.googlePlayMembershipServerValidationEnabled) errors.push('GOOGLE_PLAY_MEMBERSHIP_PURCHASE_SYNC_ENABLED=true requires GOOGLE_PLAY_MEMBERSHIP_SERVER_VALIDATION_ENABLED=true in production.');
+   if (env.googlePlayMembershipServerValidationEnabled && (!env.googlePlayMembershipPackageName || !env.googlePlayMembershipServiceAccountEmail || !env.googlePlayMembershipServiceAccountPrivateKey)) errors.push('Google Play server validation requires GOOGLE_PLAY_MEMBERSHIP_PACKAGE_NAME, GOOGLE_PLAY_MEMBERSHIP_SERVICE_ACCOUNT_EMAIL, and GOOGLE_PLAY_MEMBERSHIP_SERVICE_ACCOUNT_PRIVATE_KEY.');
++  const moderationConfigured = env.moderationProvider !== 'none'
++    || env.moderationTextEnabled
++    || env.moderationImageEnabled
++    || env.moderationPrivateMessageScanEnabled
++    || hasConfiguredValue(env.moderationProviderApiKey)
++    || hasConfiguredValue(env.moderationProviderEndpoint);
++  if (moderationConfigured && !env.moderationEnabled) errors.push('Moderation provider settings require MODERATION_ENABLED=true.');
++  if (env.moderationPrivateMessageScanEnabled && !env.moderationTextEnabled && !env.moderationImageEnabled) errors.push('MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED=true requires text or image moderation to be enabled.');
++
+   const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.plusAiAssistEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiModerationSuggestionsEnabled || env.aiDebugPlaceholders;
+   const aiSecretsConfigured = hasConfiguredValue(env.openaiApiKey) || hasConfiguredValue(env.geminiApiKey) || hasConfiguredValue(env.groqApiKey);
+   if (aiConfigured && env.aiProvider === 'none') {
+diff --git a/apps/api/src/modules/moderation/moderation.payloads.ts b/apps/api/src/modules/moderation/moderation.payloads.ts
+new file mode 100644
+index 0000000..8b8d833
+--- /dev/null
++++ b/apps/api/src/modules/moderation/moderation.payloads.ts
+@@ -0,0 +1,59 @@
++import type { ModerationContentType, ModerationContentVisibility, ModerationProviderPayload, ModerationScanType } from '@hellowhen/contracts';
++import { moderationProviderPayloadSchema } from '@hellowhen/contracts';
++
++type BuildModerationPayloadInput = {
++  contentId: string;
++  contentType: ModerationContentType;
++  visibility: ModerationContentVisibility;
++  scanType: ModerationScanType;
++  title?: string | null;
++  description?: string | null;
++  message?: string | null;
++  locale?: 'en' | 'fr' | 'es';
++  temporaryImageUrl?: string | null;
++  mediaId?: string | null;
++  mimeType?: string | null;
++  sizeBytes?: number | null;
++  country?: string | null;
++  appArea?: string | null;
++  relatedTradeId?: string | null;
++  relatedReportId?: string | null;
++};
++
++function clean(value: string | null | undefined) {
++  const trimmed = value?.trim();
++  return trimmed || undefined;
++}
++
++export function buildMinimalModerationPayload(input: BuildModerationPayloadInput): ModerationProviderPayload {
++  const text = input.title || input.description || input.message ? {
++    title: clean(input.title),
++    description: clean(input.description),
++    message: clean(input.message),
++    locale: input.locale,
++  } : undefined;
++
++  const image = input.temporaryImageUrl || input.mediaId || input.mimeType || input.sizeBytes != null ? {
++    temporaryUrl: clean(input.temporaryImageUrl),
++    mediaId: clean(input.mediaId),
++    mimeType: clean(input.mimeType),
++    sizeBytes: input.sizeBytes ?? undefined,
++  } : undefined;
++
++  const context = input.country || input.appArea || input.relatedTradeId || input.relatedReportId ? {
++    country: clean(input.country),
++    appArea: clean(input.appArea),
++    relatedTradeId: clean(input.relatedTradeId),
++    relatedReportId: clean(input.relatedReportId),
++  } : undefined;
++
++  return moderationProviderPayloadSchema.parse({
++    contentId: input.contentId,
++    contentType: input.contentType,
++    visibility: input.visibility,
++    scanType: input.scanType,
++    text,
++    image,
++    context,
++  });
++}
+diff --git a/apps/api/src/modules/moderation/moderation.provider.ts b/apps/api/src/modules/moderation/moderation.provider.ts
+new file mode 100644
+index 0000000..2afb604
+--- /dev/null
++++ b/apps/api/src/modules/moderation/moderation.provider.ts
+@@ -0,0 +1,42 @@
++import type { ModerationFeatureFlags, ModerationProviderName, ModerationProviderPayload, ModerationProviderResult } from '@hellowhen/contracts';
++import { createSkippedModerationResult, shouldRunModerationProvider } from '@hellowhen/shared';
++import { env } from '../../config/env.js';
++
++export type ModerationProviderAdapter = {
++  name: ModerationProviderName;
++  scan(payload: ModerationProviderPayload): Promise<ModerationProviderResult>;
++};
++
++export function getModerationFeatureFlags(): ModerationFeatureFlags {
++  return {
++    enabled: env.moderationEnabled,
++    provider: env.moderationProvider,
++    textEnabled: env.moderationTextEnabled,
++    imageEnabled: env.moderationImageEnabled,
++    privateMessageScanEnabled: env.moderationPrivateMessageScanEnabled,
++    storeRawProviderResult: env.moderationStoreRawProviderResult,
++  };
++}
++
++function createNoopModerationProvider(name: ModerationProviderName): ModerationProviderAdapter {
++  return {
++    name,
++    async scan(payload) {
++      const flags = getModerationFeatureFlags();
++      if (!shouldRunModerationProvider(flags, payload.scanType)) {
++        return createSkippedModerationResult(name, payload.scanType, 'Moderation provider scan is disabled by feature flags.');
++      }
++
++      return createSkippedModerationResult(name, payload.scanType, 'No external moderation provider is connected in this foundation patch.');
++    },
++  };
++}
++
++export function getModerationProviderAdapter(): ModerationProviderAdapter {
++  return createNoopModerationProvider(env.moderationProvider);
++}
++
++export async function scanWithConfiguredModerationProvider(payload: ModerationProviderPayload): Promise<ModerationProviderResult> {
++  const adapter = getModerationProviderAdapter();
++  return adapter.scan(payload);
++}
+diff --git a/apps/mobile/.env.example b/apps/mobile/.env.example
+index 0420cca..d1f9e3e 100644
+--- a/apps/mobile/.env.example
++++ b/apps/mobile/.env.example
+@@ -16,6 +16,9 @@ EXPO_PUBLIC_CASH_PROMISE_ENABLED=false
+ EXPO_PUBLIC_CASH_PROMISE_VISIBLE=false
+ 
+ 
++# Reporting stays available; provider-based moderation is server-only and not exposed to the app.
++EXPO_PUBLIC_REPORTING_ENABLED=true
++
+ # Hidden AI foundation. Keep disabled for the first public launch.
+ EXPO_PUBLIC_AI_ENABLED=false
+ EXPO_PUBLIC_AI_PROVIDER=none
+diff --git a/docs/product/safety-review-moderation-foundation.md b/docs/product/safety-review-moderation-foundation.md
+new file mode 100644
+index 0000000..e2e878d
+--- /dev/null
++++ b/docs/product/safety-review-moderation-foundation.md
+@@ -0,0 +1,62 @@
++# SAFETY1 — Provider-neutral moderation foundation
++
++This foundation prepares Hellowhen for future content-moderation providers without connecting an external API yet.
++
++## Position
++
++Hellowhen owns the safety workflow. External providers should only classify selected content and return labels, scores, and suggested actions. They should not receive full user profiles or decide final product actions directly.
++
++## Data minimisation rule
++
++Provider payloads should include only:
++
++- content id
++- content type
++- public/private/reported-private visibility
++- title, description, or message text when needed
++- temporary image URL or media id when needed
++- minimal app context such as country, app area, related trade id, or report id
++
++Provider payloads should not include by default:
++
++- email
++- phone number
++- legal name
++- IP address
++- exact address
++- payment data
++- full profile history
++- unrelated private messages
++
++## Current SAFETY1 scope
++
++Included:
++
++- shared moderation contracts and zod schemas
++- provider-neutral names for future OpenAI/AWS/Google/Azure/human-review adapters
++- moderation case/result/action database foundation
++- API feature flags and production guard checks
++- no-provider adapter that always skips scans safely
++
++Not included yet:
++
++- public report/block UI changes
++- admin moderation queue changes
++- public image pending pipeline
++- real provider API calls
++- automatic removal/hiding decisions
++
++## Runtime flags
++
++Keep these disabled for first launch:
++
++```env
++MODERATION_ENABLED=false
++MODERATION_PROVIDER=none
++MODERATION_TEXT_ENABLED=false
++MODERATION_IMAGE_ENABLED=false
++MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED=false
++MODERATION_STORE_RAW_PROVIDER_RESULT=false
++```
++
++Future provider launches can enable `MODERATION_ENABLED=true`, choose a provider, then enable text and/or image scans in a dedicated patch with rate limits, thresholds, and failure handling.
+diff --git a/packages/contracts/src/index.js b/packages/contracts/src/index.js
+index 2e98b9d..409ffec 100644
+--- a/packages/contracts/src/index.js
++++ b/packages/contracts/src/index.js
+@@ -13,6 +13,7 @@ export * from './business.js';
+ export * from './users.js';
+ export * from './admin.js';
+ export * from './reports.js';
++export * from './moderation.js';
+ export * from './account.js';
+ export * from './plans.js';
+ export * from './usage.js';
+diff --git a/packages/contracts/src/index.ts b/packages/contracts/src/index.ts
+index 8318d4b..2ee4d2d 100644
+--- a/packages/contracts/src/index.ts
++++ b/packages/contracts/src/index.ts
+@@ -13,6 +13,7 @@ export * from './business.js';
+ export * from './users.js';
+ export * from './admin.js';
+ export * from './reports.js';
++export * from './moderation.js';
+ export * from './account.js';
+ export * from './plans.js';
+ export * from './usage.js';
+diff --git a/packages/contracts/src/moderation.js b/packages/contracts/src/moderation.js
+new file mode 100644
+index 0000000..4a60d1a
+--- /dev/null
++++ b/packages/contracts/src/moderation.js
+@@ -0,0 +1,2 @@
++// Runtime shim for Metro/Turbopack when TypeScript source imports use .js specifiers.
++export * from './moderation.ts';
+diff --git a/packages/contracts/src/moderation.ts b/packages/contracts/src/moderation.ts
+new file mode 100644
+index 0000000..23b9f9a
+--- /dev/null
++++ b/packages/contracts/src/moderation.ts
+@@ -0,0 +1,154 @@
++import { z } from 'zod';
++
++export const MODERATION_MAX_REASON_LENGTH = 1200;
++export const MODERATION_MAX_TEXT_LENGTH = 8000;
++export const MODERATION_MAX_IMAGE_URL_LENGTH = 2000;
++
++export const moderationContentTypeSchema = z.enum([
++  'user',
++  'profile',
++  'trade',
++  'need',
++  'offer',
++  'proposal',
++  'message',
++  'public_message',
++  'media',
++  'profile_image',
++  'trade_image',
++  'need_image',
++  'offer_image',
++  'support_ticket',
++  'support_message',
++]);
++
++export const moderationContentVisibilitySchema = z.enum(['public', 'private', 'reported_private', 'admin_internal']);
++export const moderationCaseSourceSchema = z.enum(['upload', 'report', 'automatic', 'admin', 'backfill']);
++export const moderationCaseStatusSchema = z.enum(['pending', 'approved', 'rejected', 'needs_review', 'limited', 'removed', 'skipped', 'failed']);
++export const moderationProviderSchema = z.enum(['none', 'mock', 'openai', 'aws_rekognition', 'google_vision', 'azure_content_safety', 'human_review']);
++export const moderationScanTypeSchema = z.enum(['text', 'image', 'combined']);
++export const moderationLabelCategorySchema = z.enum([
++  'safe',
++  'adult',
++  'sexual',
++  'violence',
++  'hate_or_harassment',
++  'self_harm',
++  'illegal_or_regulated',
++  'spam_or_scam',
++  'personal_data',
++  'unknown',
++]);
++export const moderationSeveritySchema = z.enum(['none', 'low', 'medium', 'high', 'critical']);
++export const moderationSuggestedActionSchema = z.enum(['allow', 'review', 'limit', 'reject', 'remove', 'no_action']);
++export const moderationActionTypeSchema = z.enum([
++  'case_created',
++  'provider_scan_skipped',
++  'provider_scan_failed',
++  'provider_result_stored',
++  'mark_needs_review',
++  'approve',
++  'reject',
++  'limit',
++  'remove',
++  'restore',
++  'resolve',
++  'admin_note',
++]);
++
++export const moderationTextInputSchema = z.object({
++  title: z.string().trim().max(300).optional(),
++  description: z.string().trim().max(MODERATION_MAX_TEXT_LENGTH).optional(),
++  message: z.string().trim().max(MODERATION_MAX_TEXT_LENGTH).optional(),
++  locale: z.enum(['en', 'fr', 'es']).optional(),
++}).strict();
++
++export const moderationImageInputSchema = z.object({
++  temporaryUrl: z.string().trim().max(MODERATION_MAX_IMAGE_URL_LENGTH).optional(),
++  mediaId: z.string().trim().min(1).max(160).optional(),
++  mimeType: z.string().trim().max(120).optional(),
++  sizeBytes: z.number().int().nonnegative().optional(),
++}).strict();
++
++export const moderationContextSchema = z.object({
++  country: z.string().trim().length(2).optional(),
++  appArea: z.string().trim().min(1).max(80).optional(),
++  relatedTradeId: z.string().trim().min(1).max(160).optional(),
++  relatedReportId: z.string().trim().min(1).max(160).optional(),
++}).strict();
++
++export const moderationProviderPayloadSchema = z.object({
++  contentId: z.string().trim().min(1).max(160),
++  contentType: moderationContentTypeSchema,
++  visibility: moderationContentVisibilitySchema,
++  scanType: moderationScanTypeSchema,
++  text: moderationTextInputSchema.optional(),
++  image: moderationImageInputSchema.optional(),
++  context: moderationContextSchema.optional(),
++}).strict().refine((value) => value.scanType !== 'text' || Boolean(value.text), { message: 'Text moderation payloads require text.' })
++  .refine((value) => value.scanType !== 'image' || Boolean(value.image), { message: 'Image moderation payloads require image.' })
++  .refine((value) => value.scanType !== 'combined' || Boolean(value.text || value.image), { message: 'Combined moderation payloads require text or image.' });
++
++export const moderationProviderLabelSchema = z.object({
++  category: moderationLabelCategorySchema,
++  severity: moderationSeveritySchema,
++  confidence: z.number().min(0).max(1).optional(),
++  sourceLabel: z.string().trim().max(160).optional(),
++}).strict();
++
++export const moderationProviderResultSchema = z.object({
++  provider: moderationProviderSchema,
++  scanType: moderationScanTypeSchema,
++  status: z.enum(['skipped', 'completed', 'failed']),
++  labels: z.array(moderationProviderLabelSchema).default([]),
++  highestSeverity: moderationSeveritySchema.default('none'),
++  suggestedAction: moderationSuggestedActionSchema.default('no_action'),
++  reason: z.string().trim().max(MODERATION_MAX_REASON_LENGTH).optional(),
++  raw: z.unknown().optional(),
++  errorCode: z.string().trim().max(120).optional(),
++  errorMessage: z.string().trim().max(500).optional(),
++}).strict();
++
++export const moderationFeatureFlagsSchema = z.object({
++  enabled: z.boolean(),
++  provider: moderationProviderSchema,
++  textEnabled: z.boolean(),
++  imageEnabled: z.boolean(),
++  privateMessageScanEnabled: z.boolean(),
++  storeRawProviderResult: z.boolean(),
++}).strict();
++
++export const moderationCaseSchema = z.object({
++  id: z.string(),
++  contentType: moderationContentTypeSchema,
++  contentId: z.string(),
++  contentOwnerId: z.string().nullable().optional(),
++  status: moderationCaseStatusSchema,
++  source: moderationCaseSourceSchema,
++  priority: z.number().int(),
++  visibility: moderationContentVisibilitySchema,
++  reason: z.string().nullable().optional(),
++  resolvedById: z.string().nullable().optional(),
++  resolvedAt: z.string().nullable().optional(),
++  createdAt: z.string(),
++  updatedAt: z.string(),
++}).passthrough();
++
++export type ModerationContentType = z.infer<typeof moderationContentTypeSchema>;
++export type ModerationContentVisibility = z.infer<typeof moderationContentVisibilitySchema>;
++export type ModerationCaseSource = z.infer<typeof moderationCaseSourceSchema>;
++export type ModerationCaseStatus = z.infer<typeof moderationCaseStatusSchema>;
++export type ModerationProviderName = z.infer<typeof moderationProviderSchema>;
++export type ModerationScanType = z.infer<typeof moderationScanTypeSchema>;
++export type ModerationLabelCategory = z.infer<typeof moderationLabelCategorySchema>;
++export type ModerationSeverity = z.infer<typeof moderationSeveritySchema>;
++export type ModerationSuggestedAction = z.infer<typeof moderationSuggestedActionSchema>;
++export type ModerationActionType = z.infer<typeof moderationActionTypeSchema>;
++export type ModerationTextInput = z.infer<typeof moderationTextInputSchema>;
++export type ModerationImageInput = z.infer<typeof moderationImageInputSchema>;
++export type ModerationContext = z.infer<typeof moderationContextSchema>;
++export type ModerationProviderPayload = z.infer<typeof moderationProviderPayloadSchema>;
++export type ModerationProviderLabel = z.infer<typeof moderationProviderLabelSchema>;
++export type ModerationProviderResult = z.infer<typeof moderationProviderResultSchema>;
++export type ModerationFeatureFlags = z.infer<typeof moderationFeatureFlagsSchema>;
++export type ModerationCaseDto = z.infer<typeof moderationCaseSchema>;
+diff --git a/packages/shared/src/index.ts b/packages/shared/src/index.ts
+index 8e73022..5a77182 100644
+--- a/packages/shared/src/index.ts
++++ b/packages/shared/src/index.ts
+@@ -2,6 +2,7 @@ export * from './format.js';
+ 
+ export * from './ads.js';
+ export * from './ai.js';
++export * from './moderation.js';
+ export * from './subscriptions.js';
+ export * from './membership.js';
+ export * from './membershipBilling.js';
+diff --git a/packages/shared/src/moderation.js b/packages/shared/src/moderation.js
+new file mode 100644
+index 0000000..4a60d1a
+--- /dev/null
++++ b/packages/shared/src/moderation.js
+@@ -0,0 +1,2 @@
++// Runtime shim for Metro/Turbopack when TypeScript source imports use .js specifiers.
++export * from './moderation.ts';
+diff --git a/packages/shared/src/moderation.ts b/packages/shared/src/moderation.ts
+new file mode 100644
+index 0000000..4a72ee0
+--- /dev/null
++++ b/packages/shared/src/moderation.ts
+@@ -0,0 +1,41 @@
++export const MODERATION_PROVIDERS = ['none', 'mock', 'openai', 'aws_rekognition', 'google_vision', 'azure_content_safety', 'human_review'] as const;
++export const MODERATION_EXTERNAL_PROVIDERS = ['openai', 'aws_rekognition', 'google_vision', 'azure_content_safety', 'human_review'] as const;
++
++export type ModerationProviderName = typeof MODERATION_PROVIDERS[number];
++export type ModerationScanType = 'text' | 'image' | 'combined';
++export type ModerationFeatureFlags = {
++  enabled: boolean;
++  provider: ModerationProviderName;
++  textEnabled: boolean;
++  imageEnabled: boolean;
++  privateMessageScanEnabled: boolean;
++  storeRawProviderResult: boolean;
++};
++
++export function normalizeModerationProvider(value: string | undefined | null): ModerationProviderName {
++  const normalized = String(value ?? 'none').trim().toLowerCase();
++  return (MODERATION_PROVIDERS as readonly string[]).includes(normalized) ? normalized as ModerationProviderName : 'none';
++}
++
++export function isExternalModerationProvider(provider: ModerationProviderName) {
++  return (MODERATION_EXTERNAL_PROVIDERS as readonly string[]).includes(provider);
++}
++
++export function shouldRunModerationProvider(flags: ModerationFeatureFlags, scanType: ModerationScanType) {
++  if (!flags.enabled || flags.provider === 'none') return false;
++  if (scanType === 'text') return flags.textEnabled;
++  if (scanType === 'image') return flags.imageEnabled;
++  return flags.textEnabled || flags.imageEnabled;
++}
++
++export function createSkippedModerationResult(provider: ModerationProviderName, scanType: ModerationScanType, reason: string) {
++  return {
++    provider,
++    scanType,
++    status: 'skipped' as const,
++    labels: [],
++    highestSeverity: 'none' as const,
++    suggestedAction: 'no_action' as const,
++    reason,
++  };
++}

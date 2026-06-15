@@ -1,0 +1,689 @@
+diff --git a/.env.example b/.env.example
+index 802ccad..ae2c783 100644
+--- a/.env.example
++++ b/.env.example
+@@ -216,6 +216,14 @@ MODERATION_PROVIDER_API_KEY=
+ MODERATION_PROVIDER_ENDPOINT=
+ MODERATION_PROVIDER_TIMEOUT_MS=10000
+ MODERATION_PROVIDER_MAX_RETRIES=0
++# SAFETY7 text-review pipeline. Keep disabled until a mock or real moderation provider is intentionally enabled.
++AI_TEXT_REVIEW_ON_CREATE_ENABLED=false
++AI_TEXT_REVIEW_ON_EDIT_ENABLED=false
++AI_TEXT_REVIEW_PUBLIC_MESSAGES_ENABLED=false
++AI_TEXT_REVIEW_PROFILE_ENABLED=false
++AI_TEXT_REVIEW_PRIVATE_MESSAGES_ENABLED=false
++# allow_with_case | hold_pending | reject. Enforcement is added later; SAFETY7 only records the decision.
++MODERATION_TEXT_FAIL_MODE=allow_with_case
+ 
+ # Hidden AI foundation. Keep disabled for the first public launch.
+ # No SDKs, external calls, tracking, or private-message AI are wired in this foundation.
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 7dc0850..7bd9be7 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -58,6 +58,12 @@ function parseModerationProvider(value: string | undefined) {
+   return moderationProviders.has(raw) ? raw as 'none' | 'mock' | 'openai' | 'aws_rekognition' | 'google_vision' | 'azure_content_safety' | 'human_review' : 'none';
+ }
+ 
++function parseModerationTextFailMode(value: string | undefined) {
++  const raw = String(value ?? 'allow_with_case').trim().toLowerCase();
++  if (raw === 'hold_pending' || raw === 'reject') return raw as 'hold_pending' | 'reject';
++  return 'allow_with_case' as const;
++}
++
+ export const env = {
+   nodeEnv: process.env.NODE_ENV ?? 'development',
+   port: Number(process.env.PORT ?? 4000),
+@@ -243,6 +249,12 @@ export const env = {
+   moderationProviderEndpoint: process.env.MODERATION_PROVIDER_ENDPOINT ?? '',
+   moderationProviderTimeoutMs: boundedInt(process.env.MODERATION_PROVIDER_TIMEOUT_MS, 10000, 1000, 60000),
+   moderationProviderMaxRetries: boundedInt(process.env.MODERATION_PROVIDER_MAX_RETRIES, 0, 0, 3),
++  aiTextReviewOnCreateEnabled: enabled(process.env.AI_TEXT_REVIEW_ON_CREATE_ENABLED),
++  aiTextReviewOnEditEnabled: enabled(process.env.AI_TEXT_REVIEW_ON_EDIT_ENABLED),
++  aiTextReviewPublicMessagesEnabled: enabled(process.env.AI_TEXT_REVIEW_PUBLIC_MESSAGES_ENABLED),
++  aiTextReviewProfileEnabled: enabled(process.env.AI_TEXT_REVIEW_PROFILE_ENABLED),
++  aiTextReviewPrivateMessagesEnabled: enabled(process.env.AI_TEXT_REVIEW_PRIVATE_MESSAGES_ENABLED),
++  moderationTextFailMode: parseModerationTextFailMode(process.env.MODERATION_TEXT_FAIL_MODE),
+   contentIntelligenceEnabled: enabled(process.env.CONTENT_INTELLIGENCE_ENABLED),
+   contentClassificationEnabled: enabled(process.env.CONTENT_CLASSIFICATION_ENABLED),
+   contentPlacementSignalsEnabled: enabled(process.env.CONTENT_PLACEMENT_SIGNALS_ENABLED),
+@@ -497,7 +509,12 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
+     || env.contentReviewGateCategoryMismatchEnabled
+     || env.contentReviewGateSuggestedHideEnabled
+     || env.contentReviewGateClassifierFailureEnabled;
+-  if (env.moderationProvider !== 'none' || env.moderationTextEnabled || env.moderationImageEnabled || env.moderationPrivateMessageScanEnabled || hasConfiguredValue(env.moderationProviderApiKey) || hasConfiguredValue(env.moderationProviderEndpoint)) {
++  const aiTextReviewRuntimeEnabled = env.aiTextReviewOnCreateEnabled
++    || env.aiTextReviewOnEditEnabled
++    || env.aiTextReviewPublicMessagesEnabled
++    || env.aiTextReviewProfileEnabled
++    || env.aiTextReviewPrivateMessagesEnabled;
++  if (env.moderationProvider !== 'none' || env.moderationTextEnabled || env.moderationImageEnabled || env.moderationPrivateMessageScanEnabled || aiTextReviewRuntimeEnabled || hasConfiguredValue(env.moderationProviderApiKey) || hasConfiguredValue(env.moderationProviderEndpoint)) {
+     errors.push('External moderation providers and automated scans must stay disabled for first launch. The provider-neutral moderation foundation may exist, but MODERATION_PROVIDER must remain none and scan flags false.');
+   }
+ 
+@@ -582,13 +599,22 @@ export function validateProductionEnv() {
+   if (env.googlePlayMembershipPurchaseSyncEnabled && !env.plusEnabled) errors.push('GOOGLE_PLAY_MEMBERSHIP_PURCHASE_SYNC_ENABLED=true requires PLUS_ENABLED=true.');
+   if (env.googlePlayMembershipPurchaseSyncEnabled && !env.googlePlayMembershipServerValidationEnabled) errors.push('GOOGLE_PLAY_MEMBERSHIP_PURCHASE_SYNC_ENABLED=true requires GOOGLE_PLAY_MEMBERSHIP_SERVER_VALIDATION_ENABLED=true in production.');
+   if (env.googlePlayMembershipServerValidationEnabled && (!env.googlePlayMembershipPackageName || !env.googlePlayMembershipServiceAccountEmail || !env.googlePlayMembershipServiceAccountPrivateKey)) errors.push('Google Play server validation requires GOOGLE_PLAY_MEMBERSHIP_PACKAGE_NAME, GOOGLE_PLAY_MEMBERSHIP_SERVICE_ACCOUNT_EMAIL, and GOOGLE_PLAY_MEMBERSHIP_SERVICE_ACCOUNT_PRIVATE_KEY.');
++  const textReviewConfigured = env.aiTextReviewOnCreateEnabled
++    || env.aiTextReviewOnEditEnabled
++    || env.aiTextReviewPublicMessagesEnabled
++    || env.aiTextReviewProfileEnabled
++    || env.aiTextReviewPrivateMessagesEnabled;
+   const moderationConfigured = env.moderationProvider !== 'none'
+     || env.moderationTextEnabled
+     || env.moderationImageEnabled
+     || env.moderationPrivateMessageScanEnabled
++    || textReviewConfigured
+     || hasConfiguredValue(env.moderationProviderApiKey)
+     || hasConfiguredValue(env.moderationProviderEndpoint);
+   if (moderationConfigured && !env.moderationEnabled) errors.push('Moderation provider settings require MODERATION_ENABLED=true.');
++  if (textReviewConfigured && !env.moderationTextEnabled) errors.push('AI text review flags require MODERATION_TEXT_ENABLED=true.');
++  if (textReviewConfigured && env.moderationProvider === 'none') errors.push('AI text review flags require MODERATION_PROVIDER=mock or a later real provider.');
++  if (env.aiTextReviewPrivateMessagesEnabled && !env.moderationPrivateMessageScanEnabled) errors.push('AI_TEXT_REVIEW_PRIVATE_MESSAGES_ENABLED=true requires MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED=true.');
+   if (env.moderationPrivateMessageScanEnabled && !env.moderationTextEnabled && !env.moderationImageEnabled) errors.push('MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED=true requires text or image moderation to be enabled.');
+   if (env.moderationProviderMaxRetries > 0 && env.moderationProvider === 'none') errors.push('MODERATION_PROVIDER_MAX_RETRIES requires MODERATION_PROVIDER to be mock or a later real provider.');
+   if (env.publicImageReviewEnabled && !env.moderationEnabled) errors.push('PUBLIC_IMAGE_REVIEW_ENABLED=true requires MODERATION_ENABLED=true so image review cases are explicit and auditable.');
+diff --git a/apps/api/src/modules/moderation/moderation.provider.ts b/apps/api/src/modules/moderation/moderation.provider.ts
+index dbac493..acf3b35 100644
+--- a/apps/api/src/modules/moderation/moderation.provider.ts
++++ b/apps/api/src/modules/moderation/moderation.provider.ts
+@@ -40,6 +40,12 @@ export function getModerationFeatureFlags(): ModerationFeatureFlags {
+     storeRawProviderResult: env.moderationStoreRawProviderResult,
+     providerTimeoutMs: env.moderationProviderTimeoutMs,
+     providerMaxRetries: env.moderationProviderMaxRetries,
++    textReviewOnCreateEnabled: env.aiTextReviewOnCreateEnabled,
++    textReviewOnEditEnabled: env.aiTextReviewOnEditEnabled,
++    textReviewPublicMessagesEnabled: env.aiTextReviewPublicMessagesEnabled,
++    textReviewProfileEnabled: env.aiTextReviewProfileEnabled,
++    textReviewPrivateMessagesEnabled: env.aiTextReviewPrivateMessagesEnabled,
++    textFailMode: env.moderationTextFailMode,
+   };
+ }
+ 
+diff --git a/apps/api/src/modules/moderation/moderation.textPipeline.ts b/apps/api/src/modules/moderation/moderation.textPipeline.ts
+new file mode 100644
+index 0000000..02d96a7
+--- /dev/null
++++ b/apps/api/src/modules/moderation/moderation.textPipeline.ts
+@@ -0,0 +1,218 @@
++import type {
++  ModerationContentType,
++  ModerationContentVisibility,
++  ModerationTextReviewMode,
++  ModerationTextReviewResult,
++  ModerationTextReviewSurface,
++} from '@hellowhen/contracts';
++import { moderationTextReviewResultSchema } from '@hellowhen/contracts';
++import { textReviewDecisionForProviderResult } from '@hellowhen/shared';
++import { env } from '../../config/env.js';
++import { prisma } from '../../lib/prisma.js';
++import { buildMinimalModerationPayload } from './moderation.payloads.js';
++import { scanWithConfiguredModerationProvider } from './moderation.provider.js';
++import { storeModerationProviderResult } from './moderation.results.js';
++
++type TextModerationReviewInput = {
++  contentType: ModerationContentType;
++  contentId: string;
++  contentOwnerId?: string | null;
++  visibility: ModerationContentVisibility;
++  mode: ModerationTextReviewMode;
++  title?: string | null;
++  description?: string | null;
++  message?: string | null;
++  locale?: 'en' | 'fr' | 'es';
++  actorId?: string | null;
++  appArea?: string | null;
++  relatedTradeId?: string | null;
++  relatedReportId?: string | null;
++  priority?: number;
++  reason?: string | null;
++};
++
++const publicTextContentTypes = new Set<ModerationContentType>(['trade', 'need', 'offer', 'profile', 'public_message']);
++const privateTextContentTypes = new Set<ModerationContentType>(['message', 'proposal']);
++
++function clean(value: string | null | undefined) {
++  const trimmed = value?.trim();
++  return trimmed || undefined;
++}
++
++function hasReviewableText(input: Pick<TextModerationReviewInput, 'title' | 'description' | 'message'>) {
++  return Boolean(clean(input.title) || clean(input.description) || clean(input.message));
++}
++
++export function textReviewSurfaceForContentType(contentType: ModerationContentType): ModerationTextReviewSurface | null {
++  if (contentType === 'trade') return 'trade';
++  if (contentType === 'need') return 'need';
++  if (contentType === 'offer') return 'offer';
++  if (contentType === 'profile' || contentType === 'user') return 'profile';
++  if (contentType === 'public_message') return 'public_message';
++  if (contentType === 'message' || contentType === 'proposal') return 'private_message';
++  return null;
++}
++
++export function isAiTextReviewEnabledForSurface(surface: ModerationTextReviewSurface, mode: ModerationTextReviewMode) {
++  if (!env.moderationEnabled || !env.moderationTextEnabled) return false;
++  if (mode === 'create' && !env.aiTextReviewOnCreateEnabled) return false;
++  if (mode === 'edit' && !env.aiTextReviewOnEditEnabled) return false;
++  if (surface === 'public_message' && !env.aiTextReviewPublicMessagesEnabled) return false;
++  if (surface === 'profile' && !env.aiTextReviewProfileEnabled) return false;
++  if (surface === 'private_message' && (!env.aiTextReviewPrivateMessagesEnabled || !env.moderationPrivateMessageScanEnabled)) return false;
++  return true;
++}
++
++function disabledTextReviewResult(reason: string): ModerationTextReviewResult {
++  return moderationTextReviewResultSchema.parse({
++    enabled: false,
++    caseId: null,
++    providerResult: null,
++    decision: {
++      status: 'skipped',
++      contentAction: 'none',
++      caseStatus: 'skipped',
++      highestSeverity: 'none',
++      suggestedAction: 'no_action',
++      reason,
++    },
++  });
++}
++
++function defaultReason(input: TextModerationReviewInput) {
++  const surface = textReviewSurfaceForContentType(input.contentType) ?? input.contentType;
++  const action = input.mode === 'edit' ? 'edited' : input.mode === 'create' ? 'created' : input.mode;
++  return `AI text review pipeline queued for ${action} ${surface} content.`;
++}
++
++function priorityForDecision(status: string, fallback: number) {
++  if (status === 'rejected') return Math.max(fallback, 85);
++  if (status === 'needs_review') return Math.max(fallback, 65);
++  if (status === 'provider_failed') return Math.max(fallback, 45);
++  return fallback;
++}
++
++export async function runAiTextReview(input: TextModerationReviewInput): Promise<ModerationTextReviewResult> {
++  const surface = textReviewSurfaceForContentType(input.contentType);
++  if (!surface) return disabledTextReviewResult('This content type is not configured for text review.');
++  if (!hasReviewableText(input)) return disabledTextReviewResult('No reviewable text was provided.');
++  if (!isAiTextReviewEnabledForSurface(surface, input.mode)) return disabledTextReviewResult('AI text review is disabled by feature flags.');
++  if (input.visibility === 'private' && !privateTextContentTypes.has(input.contentType)) return disabledTextReviewResult('Private text review is only configured for message-like content.');
++  if (input.visibility === 'public' && !publicTextContentTypes.has(input.contentType)) return disabledTextReviewResult('Public text review is only configured for public content surfaces.');
++
++  const payload = buildMinimalModerationPayload({
++    contentId: input.contentId,
++    contentType: input.contentType,
++    visibility: input.visibility,
++    scanType: 'text',
++    title: input.title,
++    description: input.description,
++    message: input.message,
++    locale: input.locale,
++    country: 'FR',
++    appArea: input.appArea ?? `${surface}_text`,
++    relatedTradeId: input.relatedTradeId,
++    relatedReportId: input.relatedReportId,
++  });
++
++  const providerResult = await scanWithConfiguredModerationProvider(payload);
++  const decision = textReviewDecisionForProviderResult(providerResult, env.moderationTextFailMode);
++  const priority = priorityForDecision(decision.status, input.priority ?? 40);
++  const now = new Date();
++  const resolved = decision.caseStatus === 'approved' || decision.caseStatus === 'skipped';
++
++  const moderationCase = await prisma.$transaction(async (tx: any) => {
++    const existing = await tx.moderationCase.findFirst({
++      where: {
++        contentType: input.contentType,
++        contentId: input.contentId,
++        source: 'automatic',
++      },
++      orderBy: { createdAt: 'desc' },
++    });
++
++    const caseData = {
++      contentOwnerId: input.contentOwnerId ?? null,
++      visibility: input.visibility,
++      status: decision.caseStatus,
++      priority,
++      reason: input.reason?.trim() || defaultReason(input),
++      resolvedById: null,
++      resolvedAt: resolved ? now : null,
++    };
++
++    const moderationCase = existing
++      ? await tx.moderationCase.update({
++        where: { id: existing.id },
++        data: caseData,
++      })
++      : await tx.moderationCase.create({
++        data: {
++          contentType: input.contentType,
++          contentId: input.contentId,
++          contentOwnerId: input.contentOwnerId ?? null,
++          source: 'automatic',
++          status: decision.caseStatus,
++          priority,
++          visibility: input.visibility,
++          reason: input.reason?.trim() || defaultReason(input),
++          resolvedAt: resolved ? now : null,
++        },
++      });
++
++    if (!existing) {
++      await tx.moderationAction.create({
++        data: {
++          caseId: moderationCase.id,
++          action: 'case_created',
++          actorType: input.actorId ? 'user' : 'system',
++          actorId: input.actorId ?? null,
++          nextStatus: decision.caseStatus,
++          note: 'AI text review case created by the provider-neutral text pipeline.',
++          metadata: {
++            contentType: input.contentType,
++            contentId: input.contentId,
++            surface,
++            mode: input.mode,
++            decision,
++          },
++        },
++      });
++    }
++
++    await storeModerationProviderResult(tx, moderationCase.id, providerResult);
++
++    await tx.moderationAction.create({
++      data: {
++        caseId: moderationCase.id,
++        action: decision.caseStatus === 'approved'
++          ? 'approve'
++          : decision.caseStatus === 'skipped'
++            ? 'resolve'
++            : decision.caseStatus === 'failed'
++              ? 'provider_scan_failed'
++              : 'mark_needs_review',
++        actorType: 'system',
++        previousStatus: existing?.status ?? null,
++        nextStatus: decision.caseStatus,
++        note: decision.reason ?? 'AI text review decision recorded.',
++        metadata: {
++          contentType: input.contentType,
++          contentId: input.contentId,
++          surface,
++          mode: input.mode,
++          decision,
++        },
++      },
++    });
++
++    return moderationCase;
++  });
++
++  return moderationTextReviewResultSchema.parse({
++    enabled: true,
++    caseId: moderationCase.id,
++    providerResult,
++    decision,
++  });
++}
+diff --git a/docs/product/safety-review-ai-text-pipeline.md b/docs/product/safety-review-ai-text-pipeline.md
+new file mode 100644
+index 0000000..d3d37f3
+--- /dev/null
++++ b/docs/product/safety-review-ai-text-pipeline.md
+@@ -0,0 +1,128 @@
++# SAFETY7 — AI text review pipeline foundation
++
++SAFETY7 adds the internal foundation for checking newly created or edited text content with the provider-neutral moderation adapter from SAFETY5.
++
++This patch does **not** enforce moderation decisions on create/edit routes yet. Enforcement belongs to SAFETY8.
++
++## Goals
++
++- Add explicit flags for future text review on create/edit.
++- Support public content surfaces first: trades, needs, offers, profiles, and public messages.
++- Keep private message review disabled unless explicitly enabled later.
++- Store provider results and a Hellowhen-owned decision separately.
++- Keep the default configuration fully disabled.
++
++## New flags
++
++```env
++AI_TEXT_REVIEW_ON_CREATE_ENABLED=false
++AI_TEXT_REVIEW_ON_EDIT_ENABLED=false
++AI_TEXT_REVIEW_PUBLIC_MESSAGES_ENABLED=false
++AI_TEXT_REVIEW_PROFILE_ENABLED=false
++AI_TEXT_REVIEW_PRIVATE_MESSAGES_ENABLED=false
++MODERATION_TEXT_FAIL_MODE=allow_with_case
++```
++
++These flags require the existing moderation foundation flags when enabled:
++
++```env
++MODERATION_ENABLED=true
++MODERATION_PROVIDER=mock
++MODERATION_TEXT_ENABLED=true
++```
++
++For a later production provider, `MODERATION_PROVIDER` can become a real adapter after a dedicated provider patch.
++
++## Fail mode
++
++`MODERATION_TEXT_FAIL_MODE` controls the decision returned when a provider scan fails:
++
++- `allow_with_case`: record the failure, but future enforcement can allow the content.
++- `hold_pending`: record the failure and future enforcement can hold the content for review.
++- `reject`: record the failure and future enforcement can reject the content.
++
++SAFETY7 only records the decision. It does not block or hide content.
++
++## New API helper
++
++The API now has:
++
++```ts
++runAiTextReview(input)
++```
++
++It:
++
++1. Checks feature flags.
++2. Builds a minimal moderation text payload.
++3. Calls the configured SAFETY5 provider adapter.
++4. Stores a `ModerationResult`.
++5. Records a Hellowhen decision:
++   - `approved`
++   - `needs_review`
++   - `rejected`
++   - `skipped`
++   - `provider_failed`
++6. Updates/creates a `ModerationCase` for admin review visibility.
++
++## Privacy rule
++
++The pipeline sends only the minimum content payload:
++
++- content id
++- content type
++- visibility
++- title / description / message
++- locale when available
++- app area / related trade/report id when useful
++
++It does not send:
++
++- email
++- phone
++- real name
++- exact address
++- full account history
++- unrelated private messages
++
++## Supported surfaces
++
++Public surfaces:
++
++- `trade`
++- `need`
++- `offer`
++- `profile`
++- `public_message`
++
++Private surfaces are disabled by default and require both:
++
++```env
++AI_TEXT_REVIEW_PRIVATE_MESSAGES_ENABLED=true
++MODERATION_PRIVATE_MESSAGE_SCAN_ENABLED=true
++```
++
++## Recommended local mock test setup
++
++```env
++MODERATION_ENABLED=true
++MODERATION_PROVIDER=mock
++MODERATION_TEXT_ENABLED=true
++AI_TEXT_REVIEW_ON_CREATE_ENABLED=true
++AI_TEXT_REVIEW_ON_EDIT_ENABLED=true
++AI_TEXT_REVIEW_PUBLIC_MESSAGES_ENABLED=true
++AI_TEXT_REVIEW_PROFILE_ENABLED=true
++AI_TEXT_REVIEW_PRIVATE_MESSAGES_ENABLED=false
++MODERATION_TEXT_FAIL_MODE=allow_with_case
++```
++
++The mock provider is deterministic and keyword-based. It is for local testing only.
++
++## Next patch
++
++SAFETY8 should wire this helper into create/edit routes and add user-safe UI states:
++
++- approved: publish normally
++- needs_review: save but hold/hide/limit based on route
++- rejected: block publish with safe message
++- provider_failed: follow `MODERATION_TEXT_FAIL_MODE`
+diff --git a/packages/contracts/src/moderation.js b/packages/contracts/src/moderation.js
+index 577308c..762cc29 100644
+--- a/packages/contracts/src/moderation.js
++++ b/packages/contracts/src/moderation.js
+@@ -43,6 +43,11 @@ export const moderationLabelCategorySchema = z.enum([
+ ]);
+ export const moderationSeveritySchema = z.enum(['none', 'low', 'medium', 'high', 'critical']);
+ export const moderationSuggestedActionSchema = z.enum(['allow', 'review', 'limit', 'reject', 'remove', 'no_action']);
++export const moderationTextReviewSurfaceSchema = z.enum(['trade', 'need', 'offer', 'profile', 'public_message', 'private_message']);
++export const moderationTextReviewModeSchema = z.enum(['create', 'edit', 'report', 'manual']);
++export const moderationTextReviewDecisionStatusSchema = z.enum(['approved', 'needs_review', 'rejected', 'skipped', 'provider_failed']);
++export const moderationTextReviewContentActionSchema = z.enum(['allow', 'hold_pending', 'reject', 'none']);
++export const moderationTextFailModeSchema = z.enum(['allow_with_case', 'hold_pending', 'reject']);
+ export const moderationActionTypeSchema = z.enum([
+   'case_created',
+   'provider_scan_skipped',
+@@ -124,6 +129,28 @@ export const moderationFeatureFlagsSchema = z.object({
+   storeRawProviderResult: z.boolean(),
+   providerTimeoutMs: z.number().int().positive(),
+   providerMaxRetries: z.number().int().min(0).max(3),
++  textReviewOnCreateEnabled: z.boolean().optional().default(false),
++  textReviewOnEditEnabled: z.boolean().optional().default(false),
++  textReviewPublicMessagesEnabled: z.boolean().optional().default(false),
++  textReviewProfileEnabled: z.boolean().optional().default(false),
++  textReviewPrivateMessagesEnabled: z.boolean().optional().default(false),
++  textFailMode: moderationTextFailModeSchema.optional().default('allow_with_case'),
++}).strict();
++
++export const moderationTextReviewDecisionSchema = z.object({
++  status: moderationTextReviewDecisionStatusSchema,
++  contentAction: moderationTextReviewContentActionSchema,
++  caseStatus: moderationCaseStatusSchema,
++  highestSeverity: moderationSeveritySchema,
++  suggestedAction: moderationSuggestedActionSchema,
++  reason: z.string().trim().max(MODERATION_MAX_REASON_LENGTH).optional(),
++}).strict();
++
++export const moderationTextReviewResultSchema = z.object({
++  enabled: z.boolean(),
++  caseId: z.string().nullable().optional(),
++  decision: moderationTextReviewDecisionSchema,
++  providerResult: moderationProviderResultSchema.nullable().optional(),
+ }).strict();
+ 
+ export const moderationCaseSchema = z.object({
+diff --git a/packages/contracts/src/moderation.ts b/packages/contracts/src/moderation.ts
+index f4f21e7..bd8274d 100644
+--- a/packages/contracts/src/moderation.ts
++++ b/packages/contracts/src/moderation.ts
+@@ -43,6 +43,11 @@ export const moderationLabelCategorySchema = z.enum([
+ ]);
+ export const moderationSeveritySchema = z.enum(['none', 'low', 'medium', 'high', 'critical']);
+ export const moderationSuggestedActionSchema = z.enum(['allow', 'review', 'limit', 'reject', 'remove', 'no_action']);
++export const moderationTextReviewSurfaceSchema = z.enum(['trade', 'need', 'offer', 'profile', 'public_message', 'private_message']);
++export const moderationTextReviewModeSchema = z.enum(['create', 'edit', 'report', 'manual']);
++export const moderationTextReviewDecisionStatusSchema = z.enum(['approved', 'needs_review', 'rejected', 'skipped', 'provider_failed']);
++export const moderationTextReviewContentActionSchema = z.enum(['allow', 'hold_pending', 'reject', 'none']);
++export const moderationTextFailModeSchema = z.enum(['allow_with_case', 'hold_pending', 'reject']);
+ export const moderationActionTypeSchema = z.enum([
+   'case_created',
+   'provider_scan_skipped',
+@@ -124,6 +129,28 @@ export const moderationFeatureFlagsSchema = z.object({
+   storeRawProviderResult: z.boolean(),
+   providerTimeoutMs: z.number().int().positive(),
+   providerMaxRetries: z.number().int().min(0).max(3),
++  textReviewOnCreateEnabled: z.boolean().optional().default(false),
++  textReviewOnEditEnabled: z.boolean().optional().default(false),
++  textReviewPublicMessagesEnabled: z.boolean().optional().default(false),
++  textReviewProfileEnabled: z.boolean().optional().default(false),
++  textReviewPrivateMessagesEnabled: z.boolean().optional().default(false),
++  textFailMode: moderationTextFailModeSchema.optional().default('allow_with_case'),
++}).strict();
++
++export const moderationTextReviewDecisionSchema = z.object({
++  status: moderationTextReviewDecisionStatusSchema,
++  contentAction: moderationTextReviewContentActionSchema,
++  caseStatus: moderationCaseStatusSchema,
++  highestSeverity: moderationSeveritySchema,
++  suggestedAction: moderationSuggestedActionSchema,
++  reason: z.string().trim().max(MODERATION_MAX_REASON_LENGTH).optional(),
++}).strict();
++
++export const moderationTextReviewResultSchema = z.object({
++  enabled: z.boolean(),
++  caseId: z.string().nullable().optional(),
++  decision: moderationTextReviewDecisionSchema,
++  providerResult: moderationProviderResultSchema.nullable().optional(),
+ }).strict();
+ 
+ export const moderationCaseSchema = z.object({
+@@ -261,6 +288,11 @@ export type ModerationScanType = z.infer<typeof moderationScanTypeSchema>;
+ export type ModerationLabelCategory = z.infer<typeof moderationLabelCategorySchema>;
+ export type ModerationSeverity = z.infer<typeof moderationSeveritySchema>;
+ export type ModerationSuggestedAction = z.infer<typeof moderationSuggestedActionSchema>;
++export type ModerationTextReviewSurface = z.infer<typeof moderationTextReviewSurfaceSchema>;
++export type ModerationTextReviewMode = z.infer<typeof moderationTextReviewModeSchema>;
++export type ModerationTextReviewDecisionStatus = z.infer<typeof moderationTextReviewDecisionStatusSchema>;
++export type ModerationTextReviewContentAction = z.infer<typeof moderationTextReviewContentActionSchema>;
++export type ModerationTextFailMode = z.infer<typeof moderationTextFailModeSchema>;
+ export type ModerationActionType = z.infer<typeof moderationActionTypeSchema>;
+ export type ModerationTextInput = z.infer<typeof moderationTextInputSchema>;
+ export type ModerationImageInput = z.infer<typeof moderationImageInputSchema>;
+@@ -269,6 +301,8 @@ export type ModerationProviderPayload = z.infer<typeof moderationProviderPayload
+ export type ModerationProviderLabel = z.infer<typeof moderationProviderLabelSchema>;
+ export type ModerationProviderResult = z.infer<typeof moderationProviderResultSchema>;
+ export type ModerationFeatureFlags = z.infer<typeof moderationFeatureFlagsSchema>;
++export type ModerationTextReviewDecision = z.infer<typeof moderationTextReviewDecisionSchema>;
++export type ModerationTextReviewResult = z.infer<typeof moderationTextReviewResultSchema>;
+ export type ModerationCaseDto = z.infer<typeof moderationCaseSchema>;
+ export type AdminModerationCaseDto = z.infer<typeof adminModerationCaseSchema>;
+ export type AdminModerationCasesResponse = z.infer<typeof adminModerationCasesResponseSchema>;
+diff --git a/packages/shared/src/moderation.ts b/packages/shared/src/moderation.ts
+index 366600f..c60b632 100644
+--- a/packages/shared/src/moderation.ts
++++ b/packages/shared/src/moderation.ts
+@@ -6,6 +6,24 @@ export type ModerationScanType = 'text' | 'image' | 'combined';
+ export type ModerationProviderStatus = 'skipped' | 'completed' | 'failed';
+ export type ModerationSeverity = 'none' | 'low' | 'medium' | 'high' | 'critical';
+ export type ModerationSuggestedAction = 'allow' | 'review' | 'limit' | 'reject' | 'remove' | 'no_action';
++export type ModerationCaseStatus = 'pending' | 'approved' | 'rejected' | 'needs_review' | 'limited' | 'removed' | 'skipped' | 'failed';
++export type ModerationTextFailMode = 'allow_with_case' | 'hold_pending' | 'reject';
++export type ModerationTextReviewDecisionStatus = 'approved' | 'needs_review' | 'rejected' | 'skipped' | 'provider_failed';
++export type ModerationTextReviewContentAction = 'allow' | 'hold_pending' | 'reject' | 'none';
++export type ModerationProviderResultLike = {
++  status: ModerationProviderStatus;
++  highestSeverity?: ModerationSeverity;
++  suggestedAction?: ModerationSuggestedAction;
++  reason?: string;
++};
++export type ModerationTextReviewDecision = {
++  status: ModerationTextReviewDecisionStatus;
++  contentAction: ModerationTextReviewContentAction;
++  caseStatus: ModerationCaseStatus;
++  highestSeverity: ModerationSeverity;
++  suggestedAction: ModerationSuggestedAction;
++  reason?: string;
++};
+ export type ModerationFeatureFlags = {
+   enabled: boolean;
+   provider: ModerationProviderName;
+@@ -15,6 +33,12 @@ export type ModerationFeatureFlags = {
+   storeRawProviderResult: boolean;
+   providerTimeoutMs?: number;
+   providerMaxRetries?: number;
++  textReviewOnCreateEnabled?: boolean;
++  textReviewOnEditEnabled?: boolean;
++  textReviewPublicMessagesEnabled?: boolean;
++  textReviewProfileEnabled?: boolean;
++  textReviewPrivateMessagesEnabled?: boolean;
++  textFailMode?: ModerationTextFailMode;
+ };
+ 
+ export function normalizeModerationProvider(value: string | undefined | null): ModerationProviderName {
+@@ -83,3 +107,74 @@ export function suggestedActionForSeverity(severity: ModerationSeverity): Modera
+   if (severity === 'low') return 'allow';
+   return 'allow';
+ }
++
++export function normalizeModerationTextFailMode(value: string | undefined | null): ModerationTextFailMode {
++  const normalized = String(value ?? 'allow_with_case').trim().toLowerCase();
++  if (normalized === 'hold_pending' || normalized === 'reject') return normalized;
++  return 'allow_with_case';
++}
++
++function contentActionForProviderFailure(failMode: ModerationTextFailMode): ModerationTextReviewContentAction {
++  if (failMode === 'reject') return 'reject';
++  if (failMode === 'hold_pending') return 'hold_pending';
++  return 'allow';
++}
++
++export function textReviewDecisionForProviderResult(result: ModerationProviderResultLike, failMode: ModerationTextFailMode = 'allow_with_case'): ModerationTextReviewDecision {
++  const highestSeverity = result.highestSeverity ?? 'none';
++  const suggestedAction = result.suggestedAction ?? suggestedActionForSeverity(highestSeverity);
++
++  if (result.status === 'skipped') {
++    return {
++      status: 'skipped',
++      contentAction: 'none',
++      caseStatus: 'skipped',
++      highestSeverity,
++      suggestedAction,
++      reason: result.reason ?? 'Text moderation scan was skipped.',
++    };
++  }
++
++  if (result.status === 'failed') {
++    const contentAction = contentActionForProviderFailure(failMode);
++    return {
++      status: 'provider_failed',
++      contentAction,
++      caseStatus: 'failed',
++      highestSeverity,
++      suggestedAction,
++      reason: result.reason ?? 'Text moderation provider failed.',
++    };
++  }
++
++  if (suggestedAction === 'reject' || suggestedAction === 'remove' || highestSeverity === 'high' || highestSeverity === 'critical') {
++    return {
++      status: 'rejected',
++      contentAction: 'reject',
++      caseStatus: 'needs_review',
++      highestSeverity,
++      suggestedAction,
++      reason: result.reason ?? 'Text moderation found high-risk content.',
++    };
++  }
++
++  if (suggestedAction === 'review' || suggestedAction === 'limit' || highestSeverity === 'medium') {
++    return {
++      status: 'needs_review',
++      contentAction: 'hold_pending',
++      caseStatus: 'needs_review',
++      highestSeverity,
++      suggestedAction,
++      reason: result.reason ?? 'Text moderation found content that needs review.',
++    };
++  }
++
++  return {
++    status: 'approved',
++    contentAction: 'allow',
++    caseStatus: 'approved',
++    highestSeverity,
++    suggestedAction,
++    reason: result.reason ?? 'Text moderation approved this content.',
++  };
++}
