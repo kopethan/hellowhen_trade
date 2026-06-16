@@ -1,0 +1,737 @@
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index 3f0dab9..5808cfc 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -19,6 +19,7 @@ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useAuth } from '../../providers/AuthProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { TradeSquareDeck } from './components/TradeSquareDeck';
++import { TradeExchangeIcon } from './components/TradeExchangeIcon';
+ import { feedTradeIdeaKeys, getInlineFeedIdeaKey, shouldShowFeedIdeaRail, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+ import type { TradeDeckItem } from './types';
+ 
+@@ -350,7 +351,7 @@ function TradeFeedIdeaRail({ onCreate }: { onCreate: (ideaKey: FeedTradeIdeaKey)
+   const { t } = useTranslation();
+ 
+   return (
+-    <AppCard style={[styles.feedIdeasCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++    <View style={styles.feedIdeasCard}>
+       <View style={styles.feedIdeasHeader}>
+         <SemanticBadge label={t('trade.feedIdeas.badge')} tone="instruction" />
+         <AppText style={styles.feedIdeasTitle}>{t('trade.feedIdeas.title')}</AppText>
+@@ -359,35 +360,51 @@ function TradeFeedIdeaRail({ onCreate }: { onCreate: (ideaKey: FeedTradeIdeaKey)
+       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.feedIdeasList}>
+         {feedTradeIdeaKeys.map((key) => <TradeFeedIdeaCard key={key} ideaKey={key} onCreate={onCreate} />)}
+       </ScrollView>
+-    </AppCard>
++    </View>
+   );
+ }
+ 
+ function TradeFeedIdeaCard({ ideaKey, onCreate, inline = false }: { ideaKey: FeedTradeIdeaKey; onCreate: (ideaKey: FeedTradeIdeaKey) => void; inline?: boolean }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
++  const pack = t(`trade.feedIdeas.items.${ideaKey}.pack`);
++  const need = t(`trade.feedIdeas.items.${ideaKey}.need`);
++  const offer = t(`trade.feedIdeas.items.${ideaKey}.offer`);
+ 
+   return (
+-    <View style={[styles.feedIdeaCard, inline && styles.feedIdeaCardInline, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
++    <Pressable
++      accessibilityRole="button"
++      accessibilityLabel={`${t('trade.feedIdeas.cardLabel')} · ${pack}: ${need} ↔ ${offer}. ${t('trade.feedIdeas.action')}`}
++      onPress={() => onCreate(ideaKey)}
++      style={({ pressed }) => [styles.feedIdeaCard, inline && styles.feedIdeaCardInline, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
++    >
+       <View style={styles.feedIdeaTopline}>
+-        <AppText style={[styles.feedIdeaEyebrow, { color: theme.color.muted }]}>{t('trade.feedIdeas.ideaLabel')}</AppText>
+-        <AppText numberOfLines={1} style={[styles.feedIdeaPack, { color: theme.semantic.info.text }]}>{t(`trade.feedIdeas.items.${ideaKey}.pack`)}</AppText>
++        <AppText numberOfLines={1} style={[styles.feedIdeaToplineText, { color: theme.color.muted }]}>{t('trade.feedIdeas.cardLabel')} · {pack}</AppText>
++        <AppText numberOfLines={1} style={[styles.feedIdeaToplineRight, { color: theme.color.text }]}>{t('trade.feedIdeas.ideaLabel')}</AppText>
+       </View>
+-      <View style={styles.feedIdeaSides} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
+-        <View style={[styles.feedIdeaSide, { backgroundColor: theme.color.surface, borderColor: theme.semantic.need.border }]}>
+-          <AppText style={[styles.feedIdeaSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iNeed')}</AppText>
+-          <AppText numberOfLines={3} style={styles.feedIdeaSideTitle}>{t(`trade.feedIdeas.items.${ideaKey}.need`)}</AppText>
+-        </View>
+-        <View style={[styles.feedIdeaSide, { backgroundColor: theme.color.surface, borderColor: theme.semantic.offer.border }]}>
+-          <AppText style={[styles.feedIdeaSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iOffer')}</AppText>
+-          <AppText numberOfLines={3} style={styles.feedIdeaSideTitle}>{t(`trade.feedIdeas.items.${ideaKey}.offer`)}</AppText>
+-        </View>
++
++      <View style={styles.feedIdeaSideBlock}>
++        <AppText style={[styles.feedIdeaSideEyebrow, { color: '#60A5FA' }]}>{t('trade.labels.iNeed')}</AppText>
++        <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, { color: theme.color.text }]}>{need}</AppText>
++        <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.needMeta`)}</AppText>
+       </View>
+-      <AppText numberOfLines={2} style={[styles.feedIdeaCardBody, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.body`)}</AppText>
+-      <Pressable accessibilityRole="button" onPress={() => onCreate(ideaKey)} style={({ pressed }) => [styles.feedIdeaAction, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+-        <AppText style={styles.feedIdeaActionText}>{t('trade.feedIdeas.action')}</AppText>
+-      </Pressable>
+-    </View>
++
++      <View style={styles.feedIdeaExchangeRow} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
++        <View style={[styles.feedIdeaExchangeLine, { backgroundColor: theme.color.border }]} />
++        <TradeExchangeIcon color={theme.color.muted} size={16} strokeWidth={2.2} />
++        <View style={[styles.feedIdeaExchangeLine, { backgroundColor: theme.color.border }]} />
++      </View>
++
++      <View style={styles.feedIdeaSideBlock}>
++        <AppText style={[styles.feedIdeaSideEyebrow, { color: '#34D399' }]}>{t('trade.labels.iOffer')}</AppText>
++        <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, { color: theme.color.text }]}>{offer}</AppText>
++        <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.offerMeta`)}</AppText>
++      </View>
++
++      <View style={styles.feedIdeaFooter}>
++        <AppText numberOfLines={1} style={[styles.feedIdeaActionText, { color: theme.color.text }]}>{t('trade.feedIdeas.action')}</AppText>
++      </View>
++    </Pressable>
+   );
+ }
+ 
+@@ -1032,23 +1049,37 @@ const styles = StyleSheet.create({
+   suggestionText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '900' },
+   suggestionSource: { fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
+   feedList: { gap: 20 },
+-  feedIdeasCard: { gap: 14, borderWidth: 1, padding: 14 },
+-  feedIdeasHeader: { gap: 6 },
++  feedIdeasCard: { gap: 14 },
++  feedIdeasHeader: { gap: 6, paddingHorizontal: 4 },
+   feedIdeasTitle: { fontSize: 21, lineHeight: 25, fontWeight: '900', letterSpacing: -0.5 },
+   feedIdeasBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
+-  feedIdeasList: { gap: 10, paddingRight: 18 },
+-  feedIdeaCard: { width: 284, borderRadius: 22, borderWidth: 1, padding: 12, gap: 10 },
+-  feedIdeaCardInline: { width: '100%', borderStyle: 'dashed' },
+-  feedIdeaTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+-  feedIdeaEyebrow: { fontSize: 10, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
+-  feedIdeaPack: { flexShrink: 1, fontSize: 10, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
+-  feedIdeaSides: { gap: 8 },
+-  feedIdeaSide: { minHeight: 88, borderRadius: 16, borderWidth: 1, padding: 10, gap: 6 },
+-  feedIdeaSideLabel: { fontSize: 10, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' },
+-  feedIdeaSideTitle: { fontSize: 14, lineHeight: 18, fontWeight: '900' },
+-  feedIdeaCardBody: { minHeight: 36, fontSize: 12, lineHeight: 18, fontWeight: '700' },
+-  feedIdeaAction: { minHeight: 38, borderRadius: 999, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+-  feedIdeaActionText: { fontSize: 13, fontWeight: '900' },
++  feedIdeasList: { gap: 14, paddingRight: 18, paddingBottom: 4 },
++  feedIdeaCard: {
++    width: 318,
++    aspectRatio: 1,
++    borderRadius: 28,
++    borderWidth: StyleSheet.hairlineWidth,
++    paddingHorizontal: 24,
++    paddingVertical: 22,
++    gap: 0,
++    shadowColor: '#000000',
++    shadowOpacity: 0.14,
++    shadowRadius: 18,
++    shadowOffset: { width: 0, height: 10 },
++    elevation: 4,
++  },
++  feedIdeaCardInline: { width: '100%', maxWidth: 348, alignSelf: 'center' },
++  feedIdeaTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
++  feedIdeaToplineText: { flex: 1, minWidth: 0, fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95, textTransform: 'uppercase' },
++  feedIdeaToplineRight: { maxWidth: '34%', flexShrink: 0, fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.65, textAlign: 'right', textTransform: 'uppercase' },
++  feedIdeaSideBlock: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 3, minHeight: 0 },
++  feedIdeaSideEyebrow: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
++  feedIdeaSideTitle: { textAlign: 'center', fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.55, paddingBottom: 1 },
++  feedIdeaSideMeta: { textAlign: 'center', fontSize: 12, lineHeight: 16, fontWeight: '800' },
++  feedIdeaExchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 1 },
++  feedIdeaExchangeLine: { flex: 1, height: StyleSheet.hairlineWidth },
++  feedIdeaFooter: { minHeight: 20, alignItems: 'center', justifyContent: 'center' },
++  feedIdeaActionText: { fontSize: 13, lineHeight: 17, fontWeight: '900', letterSpacing: 0.2 },
+   mineHeaderCard: { gap: 14 },
+   mineHeaderCopy: { gap: 8 },
+   mineTitle: { fontSize: 28, fontWeight: '900', letterSpacing: -0.7 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 30401c0..3add098 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -8308,17 +8308,12 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   .membership-upgrade-card__action .button { width: 100%; }
+ }
+ 
+-/* STARTER6A: transparent feed trade idea cards */
++/* STARTER6E: feed trade ideas use the same square deck-card rhythm as real trades. */
+ .trade-feed-ideas {
+   display: grid;
+   gap: 12px;
+-  width: min(880px, 100%);
++  width: min(1120px, 100%);
+   margin: 0 auto;
+-  border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent);
+-  border-radius: 24px;
+-  background: color-mix(in srgb, var(--app-surface) 94%, transparent);
+-  padding: 14px;
+-  box-shadow: 0 14px 34px color-mix(in srgb, var(--app-shadow) 22%, transparent);
+ }
+ 
+ .trade-feed-ideas__header {
+@@ -8326,6 +8321,9 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   grid-template-columns: auto minmax(0, 1fr);
+   align-items: start;
+   gap: 10px;
++  width: min(880px, 100%);
++  margin: 0 auto;
++  padding: 0 4px;
+ }
+ 
+ .trade-feed-ideas__header h2,
+@@ -8350,146 +8348,196 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ 
+ .trade-feed-ideas__list {
+   display: grid;
+-  grid-template-columns: repeat(3, minmax(0, 1fr));
+-  gap: 10px;
++  grid-template-columns: repeat(3, minmax(0, 360px));
++  justify-content: center;
++  gap: clamp(14px, 2vw, 22px);
+ }
+ 
+ .trade-feed-idea-card {
+   display: grid;
+-  gap: 11px;
+   min-width: 0;
+-  border: 1px solid color-mix(in srgb, var(--app-border) 80%, transparent);
+-  border-radius: 21px;
+-  background: color-mix(in srgb, var(--app-bg-muted) 72%, transparent);
+-  padding: 13px;
++  aspect-ratio: 1 / 1;
++  overflow: hidden;
++  border: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent);
++  border-radius: 34px;
++  background: var(--app-surface);
++  color: var(--app-text);
++  box-shadow: var(--app-card-shadow-strong);
+ }
+ 
+-
+ .trade-feed-inline-idea {
+-  display: block;
++  display: grid;
++  justify-content: center;
++  width: 100%;
+ }
+ 
+ .trade-feed-idea-card--inline {
+-  border-style: dashed;
+-  background: color-mix(in srgb, var(--app-surface) 88%, transparent);
++  width: min(360px, 100%);
++  justify-self: center;
+ }
+ 
+-.trade-feed-idea-card--inline .trade-feed-idea-card__sides h3 {
++.trade-feed-idea-card__open-link {
++  display: grid;
++  width: 100%;
++  height: 100%;
++  grid-template-rows: auto minmax(0, 1fr) auto minmax(0, 1fr) auto;
++  gap: 0;
++  min-width: 0;
+   min-height: 0;
++  padding: clamp(22px, 7vw, 30px);
++  color: inherit;
++  text-align: center;
++  text-decoration: none;
++}
++
++.trade-feed-idea-card__open-link:focus-visible {
++  outline: 3px solid color-mix(in srgb, var(--proposal-border) 48%, transparent);
++  outline-offset: -8px;
++  border-radius: 32px;
+ }
+ 
+ .trade-feed-idea-card__topline {
+   display: flex;
+   align-items: center;
+   justify-content: space-between;
+-  gap: 8px;
++  gap: 12px;
+   color: var(--app-text-muted);
+-  font-size: 10px;
++  font-size: 12px;
+   font-weight: 950;
+-  letter-spacing: 0.06em;
++  letter-spacing: .12em;
+   text-transform: uppercase;
+ }
+ 
++.trade-feed-idea-card__topline span,
+ .trade-feed-idea-card__topline strong {
++  min-width: 0;
+   overflow: hidden;
+-  color: var(--proposal-text);
+   text-overflow: ellipsis;
+   white-space: nowrap;
+ }
+ 
+-.trade-feed-idea-card__sides {
+-  display: grid;
+-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+-  align-items: stretch;
+-  gap: 8px;
++.trade-feed-idea-card__topline strong {
++  flex: 0 0 auto;
++  max-width: 34%;
++  color: var(--app-text);
++  font-size: 12px;
++  font-weight: 950;
++  text-align: right;
+ }
+ 
+-.trade-feed-idea-card__sides > div {
++.trade-feed-idea-card__side {
+   display: grid;
++  align-content: center;
++  justify-items: center;
+   gap: 5px;
+-  min-width: 0;
+-  border: 1px solid color-mix(in srgb, var(--app-border) 74%, transparent);
+-  border-radius: 16px;
+-  background: color-mix(in srgb, var(--app-surface) 80%, transparent);
+-  padding: 10px;
++  min-height: 0;
++  overflow: visible;
++  padding-block: 5px;
+ }
+ 
+-.trade-feed-idea-card__sides > div:first-child {
+-  border-color: color-mix(in srgb, var(--need-border) 44%, var(--app-border));
++.trade-feed-idea-card__side p {
++  font-size: 13.5px;
++  font-weight: 950;
++  letter-spacing: -0.02em;
+ }
+ 
+-.trade-feed-idea-card__sides > div:last-child {
+-  border-color: color-mix(in srgb, var(--offer-border) 44%, var(--app-border));
++.trade-feed-idea-card__side--need p {
++  color: color-mix(in srgb, #2563eb 76%, var(--app-text));
+ }
+ 
+-.trade-feed-idea-card__sides span {
+-  color: var(--app-text-muted);
+-  font-size: 10px;
+-  font-weight: 950;
+-  text-transform: uppercase;
+-  letter-spacing: 0.06em;
++.trade-feed-idea-card__side--offer p {
++  color: color-mix(in srgb, #059669 78%, var(--app-text));
+ }
+ 
+-.trade-feed-idea-card__sides h3 {
++.trade-feed-idea-card__side h3 {
+   display: -webkit-box;
+-  min-height: 36px;
++  width: 100%;
++  max-width: 100%;
++  padding-bottom: 0.12em;
+   overflow: hidden;
+-  font-size: 13px;
++  overflow-wrap: anywhere;
++  color: var(--app-text);
++  font-size: clamp(19px, 5.25vw, 24px);
+   line-height: 1.25;
+-  font-weight: 920;
+-  -webkit-line-clamp: 2;
++  letter-spacing: -0.044em;
++  text-overflow: ellipsis;
+   -webkit-box-orient: vertical;
++  -webkit-line-clamp: 2;
+ }
+ 
+-.trade-feed-idea-card__sides i {
+-  align-self: center;
++.trade-feed-idea-card__side span {
++  display: block;
++  max-width: min(90%, 280px);
++  overflow: hidden;
+   color: var(--app-text-muted);
+-  font-style: normal;
+-  font-weight: 950;
++  font-size: 11px;
++  font-weight: 850;
++  line-height: 1.36;
++  text-overflow: ellipsis;
++  white-space: nowrap;
+ }
+ 
+-.trade-feed-idea-card > p {
+-  display: -webkit-box;
++.trade-feed-idea-card__divider {
++  display: grid;
++  grid-template-columns: minmax(64px, 1fr) auto minmax(64px, 1fr);
++  align-items: center;
++  gap: 12px;
+   min-height: 34px;
+-  overflow: hidden;
+   color: var(--app-text-muted);
+-  font-size: 12px;
+-  font-weight: 760;
+-  line-height: 1.4;
+-  -webkit-line-clamp: 2;
+-  -webkit-box-orient: vertical;
+ }
+ 
+-.trade-feed-idea-card__action {
++.trade-feed-idea-card__divider i {
++  display: block;
++  height: 2px;
++  border-radius: 999px;
++  background: color-mix(in srgb, var(--app-border-strong) 62%, transparent);
++}
++
++.trade-feed-idea-card__divider > span {
++  display: grid;
++  place-items: center;
++  width: 24px;
++  height: 24px;
++  color: color-mix(in srgb, var(--app-text-muted) 82%, var(--app-text));
++}
++
++.trade-feed-idea-card__footer {
++  display: flex;
++  align-items: flex-end;
+   justify-content: center;
+-  min-height: 36px;
+-  padding: 0 12px;
+-  font-size: 12px;
++  min-height: 22px;
++}
++
++.trade-feed-idea-card__footer span {
++  color: var(--app-text);
++  font-size: 13px;
++  font-weight: 950;
++  letter-spacing: .01em;
++}
++
++@media (min-width: 760px) {
++  .trade-feed-idea-card__open-link { padding: 30px; }
++  .trade-feed-idea-card__side h3 { font-size: clamp(20px, 1.55vw, 25px); }
++  .trade-feed-idea-card__side span { font-size: 11.5px; }
+ }
+ 
+ @media (max-width: 860px) {
+   .trade-feed-ideas__list {
+-    grid-template-columns: 1fr;
++    grid-template-columns: minmax(0, min(360px, 100%));
+   }
+ }
+ 
+ @media (max-width: 520px) {
+-  .trade-feed-ideas {
+-    border-radius: 20px;
+-    padding: 12px;
+-  }
+-
+   .trade-feed-ideas__header {
+     grid-template-columns: 1fr;
+   }
++}
+ 
+-  .trade-feed-idea-card__sides {
+-    grid-template-columns: 1fr;
+-  }
+-
+-  .trade-feed-idea-card__sides i {
+-    display: none;
+-  }
++@media (max-width: 420px) {
++  .trade-feed-idea-card__open-link { padding: 22px; }
++  .trade-feed-idea-card__side h3 { font-size: 19px; }
++  .trade-feed-idea-card__topline,
++  .trade-feed-idea-card__topline strong { font-size: 11px; }
+ }
+ .trade-create-idea-prefill { display: grid; gap: 14px; }
+ .trade-create-idea-prefill h3,
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index 3308a7a..4af0861 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -477,26 +477,40 @@ function TradeFeedIdeaRail({ createIdeaHref }: TradeFeedIdeaRailProps) {
+ 
+ function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: { ideaKey: FeedTradeIdeaKey; createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string; inline?: boolean }) {
+   const { t } = useWebTranslation();
++  const pack = t(`trade.feedIdeas.items.${ideaKey}.pack`);
++  const need = t(`trade.feedIdeas.items.${ideaKey}.need`);
++  const offer = t(`trade.feedIdeas.items.${ideaKey}.offer`);
+ 
+   return (
+     <article className={`trade-feed-idea-card${inline ? ' trade-feed-idea-card--inline' : ''}`}>
+-      <div className="trade-feed-idea-card__topline">
+-        <span>{t('trade.feedIdeas.ideaLabel')}</span>
+-        <strong>{t(`trade.feedIdeas.items.${ideaKey}.pack`)}</strong>
+-      </div>
+-      <div className="trade-feed-idea-card__sides" aria-label={t('trade.feedIdeas.sidesLabel')}>
+-        <div>
+-          <span>{t('trade.labels.iNeed')}</span>
+-          <h3>{t(`trade.feedIdeas.items.${ideaKey}.need`)}</h3>
++      <Link href={createIdeaHref(ideaKey)} className="trade-feed-idea-card__open-link" aria-label={`${t('trade.feedIdeas.cardLabel')} · ${pack}: ${need} ↔ ${offer}. ${t('trade.feedIdeas.action')}`}>
++        <div className="trade-feed-idea-card__topline">
++          <span>{t('trade.feedIdeas.cardLabel')} · {pack}</span>
++          <strong>{t('trade.feedIdeas.ideaLabel')}</strong>
+         </div>
+-        <i aria-hidden="true">↔</i>
+-        <div>
+-          <span>{t('trade.labels.iOffer')}</span>
+-          <h3>{t(`trade.feedIdeas.items.${ideaKey}.offer`)}</h3>
++
++        <div className="trade-feed-idea-card__side trade-feed-idea-card__side--need">
++          <p>{t('trade.labels.iNeed')}</p>
++          <h3 title={need}>{need}</h3>
++          <span>{t(`trade.feedIdeas.items.${ideaKey}.needMeta`)}</span>
+         </div>
+-      </div>
+-      <p>{t(`trade.feedIdeas.items.${ideaKey}.body`)}</p>
+-      <Link href={createIdeaHref(ideaKey)} className="button secondary trade-feed-idea-card__action">{t('trade.feedIdeas.action')}</Link>
++
++        <div className="trade-feed-idea-card__divider" aria-hidden="true">
++          <i />
++          <span><WebIcon name="trade" size={17} decorative /></span>
++          <i />
++        </div>
++
++        <div className="trade-feed-idea-card__side trade-feed-idea-card__side--offer">
++          <p>{t('trade.labels.iOffer')}</p>
++          <h3 title={offer}>{offer}</h3>
++          <span>{t(`trade.feedIdeas.items.${ideaKey}.offerMeta`)}</span>
++        </div>
++
++        <div className="trade-feed-idea-card__footer">
++          <span>{t('trade.feedIdeas.action')}</span>
++        </div>
++      </Link>
+     </article>
+   );
+ }
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index c49c2e6..fa3cb32 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -841,6 +841,7 @@ export const trade = {
+     title: 'Starter ideas you can turn into real trades',
+     body: 'These are transparent examples, not bot posts. Use them for inspiration, then publish your own version when you are ready.',
+     ideaLabel: 'Idea',
++    cardLabel: 'Trade idea',
+     sidesLabel: 'Starter Need and Offer sides',
+     action: 'Create your version',
+     createFromIdeaTitle: 'Create from this trade idea',
+@@ -856,48 +857,64 @@ export const trade = {
+         pack: 'Startup',
+         need: 'I need someone to test my app like a normal user',
+         offer: 'I can edit product photos',
++        needMeta: 'Testing · Remote',
++        offerMeta: 'Creative · Remote',
+         body: 'A simple starter exchange for builders, makers, and creators.',
+       },
+       coldDmTranslation: {
+         pack: 'Language',
+         need: 'I need help writing my first cold DM',
+         offer: 'I can translate French-English text',
++        needMeta: 'Writing · Remote',
++        offerMeta: 'Language · Remote',
+         body: 'Useful for people approaching partners, communities, or early users.',
+       },
+       frenchPracticeVideoEdit: {
+         pack: 'Social',
+         need: 'I need someone to practice a French phone call with me',
+         offer: 'I can edit a short phone video',
++        needMeta: 'Language · Remote',
++        offerMeta: 'Video · Remote',
+         body: 'A practical confidence trade for local life and creative work.',
+       },
+       localTipsBrandNames: {
+         pack: 'Local',
+         need: 'I need a local Paris recommendation list',
+         offer: 'I can help brainstorm brand names',
++        needMeta: 'Local tips · Paris',
++        offerMeta: 'Branding · Remote',
+         body: 'A small exchange between local knowledge and project identity.',
+       },
+       quietTableEmailClarity: {
+         pack: 'Local',
+         need: 'I need a quiet table for a video call',
+         offer: 'I can check an important email before you send it',
++        needMeta: 'Space · Local',
++        offerMeta: 'Writing · Remote',
+         body: 'Useful when someone needs a calm space and can offer clear writing in return.',
+       },
+       tripodUxFeedback: {
+         pack: 'Objects',
+         need: 'I need to borrow a tripod for one day',
+         offer: 'I can give UX feedback on an app or website',
++        needMeta: 'Object · Local',
++        offerMeta: 'UX · Remote',
+         body: 'A simple object-access trade paired with practical digital feedback.',
+       },
+       placePhotosNotion: {
+         pack: 'Local',
+         need: 'I need someone to visit a place and send photos',
+         offer: 'I can organize a Notion portfolio page',
++        needMeta: 'Local help · Paris',
++        offerMeta: 'Notion · Remote',
+         body: 'Turns local access into useful project organization help.',
+       },
+       cleanBackgroundSocialPost: {
+         pack: 'Creative',
+         need: 'I need a clean background for photos',
+         offer: 'I can design a simple social media post',
++        needMeta: 'Photos · Flexible',
++        offerMeta: 'Design · Remote',
+         body: 'A light creative exchange for profile, product, or content work.',
+       },
+     },
+diff --git a/packages/i18n/src/locales/es/trade.ts b/packages/i18n/src/locales/es/trade.ts
+index a65fffc..e5722e6 100644
+--- a/packages/i18n/src/locales/es/trade.ts
++++ b/packages/i18n/src/locales/es/trade.ts
+@@ -854,6 +854,7 @@ export const trade = {
+     title: 'Ideas iniciales que puedes convertir en intercambios reales',
+     body: 'Son ejemplos transparentes, no publicaciones de un bot. Úsalos como inspiración y publica tu propia versión cuando estés listo.',
+     ideaLabel: 'Idea',
++    cardLabel: 'Idea de intercambio',
+     sidesLabel: 'Lados de Necesidad y Oferta de la idea inicial',
+     action: 'Crear mi versión',
+     createFromIdeaTitle: 'Crear desde esta idea',
+@@ -869,48 +870,64 @@ export const trade = {
+         pack: 'Startup',
+         need: 'Necesito que alguien pruebe mi app como un usuario normal',
+         offer: 'Puedo retocar fotos de producto',
++        needMeta: 'Testing · Remoto',
++        offerMeta: 'Creativo · Remoto',
+         body: 'Un intercambio simple para builders, creadores y proyectos pequeños.',
+       },
+       coldDmTranslation: {
+         pack: 'Idioma',
+         need: 'Necesito ayuda para escribir mi primer mensaje directo',
+         offer: 'Puedo traducir texto entre francés e inglés',
++        needMeta: 'Escritura · Remoto',
++        offerMeta: 'Idioma · Remoto',
+         body: 'Útil para contactar socios, comunidades o primeros usuarios.',
+       },
+       frenchPracticeVideoEdit: {
+         pack: 'Social',
+         need: 'Necesito practicar una llamada telefónica en francés',
+         offer: 'Puedo editar un video corto grabado con el teléfono',
++        needMeta: 'Idioma · Remoto',
++        offerMeta: 'Video · Remoto',
+         body: 'Un intercambio práctico para ganar confianza y crear contenido.',
+       },
+       localTipsBrandNames: {
+         pack: 'Local',
+         need: 'Necesito una lista de recomendaciones locales en París',
+         offer: 'Puedo ayudar a pensar nombres de marca',
++        needMeta: 'Tips locales · París',
++        offerMeta: 'Branding · Remoto',
+         body: 'Un pequeño intercambio entre conocimiento local e identidad de proyecto.',
+       },
+       quietTableEmailClarity: {
+         pack: 'Local',
+         need: 'Necesito una mesa tranquila para una videollamada',
+         offer: 'Puedo revisar un email importante antes de enviarlo',
++        needMeta: 'Espacio · Local',
++        offerMeta: 'Escritura · Remoto',
+         body: 'Útil cuando alguien necesita un espacio tranquilo y puede ofrecer claridad al escribir.',
+       },
+       tripodUxFeedback: {
+         pack: 'Objetos',
+         need: 'Necesito pedir prestado un trípode por un día',
+         offer: 'Puedo dar feedback UX sobre una app o web',
++        needMeta: 'Objeto · Local',
++        offerMeta: 'UX · Remoto',
+         body: 'Un intercambio simple entre acceso a un objeto y feedback digital práctico.',
+       },
+       placePhotosNotion: {
+         pack: 'Local',
+         need: 'Necesito que alguien visite un lugar y me envíe fotos',
+         offer: 'Puedo organizar una página de portfolio en Notion',
++        needMeta: 'Ayuda local · París',
++        offerMeta: 'Notion · Remoto',
+         body: 'Convierte el acceso local en ayuda útil para organizar un proyecto.',
+       },
+       cleanBackgroundSocialPost: {
+         pack: 'Creativo',
+         need: 'Necesito un fondo limpio para fotos',
+         offer: 'Puedo diseñar un post sencillo para redes sociales',
++        needMeta: 'Fotos · Flexible',
++        offerMeta: 'Diseño · Remoto',
+         body: 'Un intercambio creativo ligero para perfil, producto o contenido.',
+       },
+     },
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index d8320f8..3ded11a 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -841,6 +841,7 @@ export const trade = {
+     title: 'Des idées de départ à transformer en vrais échanges',
+     body: 'Ce sont des exemples transparents, pas des publications de bot. Utilise-les comme inspiration, puis publie ta propre version quand tu es prêt.',
+     ideaLabel: 'Idée',
++    cardLabel: 'Idée d’échange',
+     sidesLabel: 'Côtés Besoin et Offre de l’idée de départ',
+     action: 'Créer ma version',
+     createFromIdeaTitle: 'Créer à partir de cette idée',
+@@ -856,48 +857,64 @@ export const trade = {
+         pack: 'Startup',
+         need: 'J’ai besoin que quelqu’un teste mon app comme un utilisateur normal',
+         offer: 'Je peux retoucher des photos produit',
++        needMeta: 'Test · À distance',
++        offerMeta: 'Créatif · À distance',
+         body: 'Un échange simple pour builders, créateurs et porteurs de projet.',
+       },
+       coldDmTranslation: {
+         pack: 'Langue',
+         need: 'J’ai besoin d’aide pour écrire mon premier message de prospection',
+         offer: 'Je peux traduire un texte français-anglais',
++        needMeta: 'Rédaction · À distance',
++        offerMeta: 'Langue · À distance',
+         body: 'Utile pour approcher des partenaires, communautés ou premiers utilisateurs.',
+       },
+       frenchPracticeVideoEdit: {
+         pack: 'Social',
+         need: 'J’ai besoin de pratiquer un appel téléphonique en français',
+         offer: 'Je peux monter une courte vidéo filmée au téléphone',
++        needMeta: 'Langue · À distance',
++        offerMeta: 'Vidéo · À distance',
+         body: 'Un échange pratique pour gagner en confiance et créer du contenu.',
+       },
+       localTipsBrandNames: {
+         pack: 'Local',
+         need: 'J’ai besoin d’une liste de recommandations locales à Paris',
+         offer: 'Je peux aider à trouver des noms de marque',
++        needMeta: 'Conseils locaux · Paris',
++        offerMeta: 'Branding · À distance',
+         body: 'Un petit échange entre connaissance locale et identité de projet.',
+       },
+       quietTableEmailClarity: {
+         pack: 'Local',
+         need: 'J’ai besoin d’une table calme pour un appel vidéo',
+         offer: 'Je peux relire un email important avant l’envoi',
++        needMeta: 'Espace · Local',
++        offerMeta: 'Rédaction · À distance',
+         body: 'Utile quand quelqu’un a besoin d’un espace calme et peut offrir une écriture plus claire.',
+       },
+       tripodUxFeedback: {
+         pack: 'Objets',
+         need: 'J’ai besoin d’emprunter un trépied pour une journée',
+         offer: 'Je peux donner du feedback UX sur une app ou un site',
++        needMeta: 'Objet · Local',
++        offerMeta: 'UX · À distance',
+         body: 'Un échange simple entre accès à un objet et retour digital concret.',
+       },
+       placePhotosNotion: {
+         pack: 'Local',
+         need: 'J’ai besoin que quelqu’un visite un lieu et m’envoie des photos',
+         offer: 'Je peux organiser une page portfolio Notion',
++        needMeta: 'Aide locale · Paris',
++        offerMeta: 'Notion · À distance',
+         body: 'Transforme l’accès local en aide utile pour organiser un projet.',
+       },
+       cleanBackgroundSocialPost: {
+         pack: 'Créatif',
+         need: 'J’ai besoin d’un fond propre pour des photos',
+         offer: 'Je peux créer un visuel simple pour les réseaux sociaux',
++        needMeta: 'Photos · Flexible',
++        offerMeta: 'Design · À distance',
+         body: 'Un échange créatif léger pour un profil, un produit ou du contenu.',
+       },
+     },

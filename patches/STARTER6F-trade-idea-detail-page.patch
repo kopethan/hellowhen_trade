@@ -1,0 +1,774 @@
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index 5808cfc..a87eded 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -212,13 +212,17 @@ export function TradeDeckFeedScreen() {
+     setRefreshSeed(createFeedRefreshSeed());
+   }, [trades]);
+ 
+-  const createTrade = useCallback((ideaKey?: FeedTradeIdeaKey) => {
++  const createTrade = useCallback(() => {
+     if (!auth.isAuthenticated) {
+       navigation.navigate('Login');
+       return;
+     }
+-    navigation.navigate('CreateTrade', ideaKey ? { initialIdeaKey: ideaKey } : undefined);
++    navigation.navigate('CreateTrade');
+   }, [auth.isAuthenticated, navigation]);
++
++  const openTradeIdea = useCallback((ideaKey: FeedTradeIdeaKey) => {
++    navigation.navigate('TradeIdeaDetail', { ideaId: ideaKey });
++  }, [navigation]);
+   const clearFilters = useCallback(() => {
+     setQuery('');
+     setDraftQuery('');
+@@ -285,7 +289,7 @@ export function TradeDeckFeedScreen() {
+         <>
+           <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshDiscoveryOrder} />}>
+             {error ? <InfoNotice tone="danger" title={t('trade.filters.couldNotLoadTrades')} body={error} /> : null}
+-            {shouldShowIdeaRail ? <TradeFeedIdeaRail onCreate={createTrade} /> : null}
++            {shouldShowIdeaRail ? <TradeFeedIdeaRail onOpenIdea={openTradeIdea} /> : null}
+             {hasVisibleTrades ? (
+               <View style={styles.feedList}>
+                 {visibleTrades.map((trade, index) => {
+@@ -293,7 +297,7 @@ export function TradeDeckFeedScreen() {
+                   return (
+                     <React.Fragment key={trade.id}>
+                       <TradeDeckSection trade={trade} index={index} total={visibleTrades.length} onOpen={() => openTrade(trade)} />
+-                      {ideaKey ? <TradeFeedInlineIdeaCard ideaKey={ideaKey} onCreate={createTrade} /> : null}
++                      {ideaKey ? <TradeFeedInlineIdeaCard ideaKey={ideaKey} onOpenIdea={openTradeIdea} /> : null}
+                     </React.Fragment>
+                   );
+                 })}
+@@ -346,7 +350,7 @@ export function TradeDeckFeedScreen() {
+ 
+ 
+ 
+-function TradeFeedIdeaRail({ onCreate }: { onCreate: (ideaKey: FeedTradeIdeaKey) => void }) {
++function TradeFeedIdeaRail({ onOpenIdea }: { onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+ 
+@@ -358,13 +362,13 @@ function TradeFeedIdeaRail({ onCreate }: { onCreate: (ideaKey: FeedTradeIdeaKey)
+         <AppText style={[styles.feedIdeasBody, { color: theme.color.muted }]}>{t('trade.feedIdeas.body')}</AppText>
+       </View>
+       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.feedIdeasList}>
+-        {feedTradeIdeaKeys.map((key) => <TradeFeedIdeaCard key={key} ideaKey={key} onCreate={onCreate} />)}
++        {feedTradeIdeaKeys.map((key) => <TradeFeedIdeaCard key={key} ideaKey={key} onOpenIdea={onOpenIdea} />)}
+       </ScrollView>
+     </View>
+   );
+ }
+ 
+-function TradeFeedIdeaCard({ ideaKey, onCreate, inline = false }: { ideaKey: FeedTradeIdeaKey; onCreate: (ideaKey: FeedTradeIdeaKey) => void; inline?: boolean }) {
++function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: FeedTradeIdeaKey; onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void; inline?: boolean }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+   const pack = t(`trade.feedIdeas.items.${ideaKey}.pack`);
+@@ -375,7 +379,7 @@ function TradeFeedIdeaCard({ ideaKey, onCreate, inline = false }: { ideaKey: Fee
+     <Pressable
+       accessibilityRole="button"
+       accessibilityLabel={`${t('trade.feedIdeas.cardLabel')} · ${pack}: ${need} ↔ ${offer}. ${t('trade.feedIdeas.action')}`}
+-      onPress={() => onCreate(ideaKey)}
++      onPress={() => onOpenIdea(ideaKey)}
+       style={({ pressed }) => [styles.feedIdeaCard, inline && styles.feedIdeaCardInline, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
+     >
+       <View style={styles.feedIdeaTopline}>
+@@ -409,8 +413,8 @@ function TradeFeedIdeaCard({ ideaKey, onCreate, inline = false }: { ideaKey: Fee
+ }
+ 
+ 
+-function TradeFeedInlineIdeaCard({ ideaKey, onCreate }: { ideaKey: FeedTradeIdeaKey; onCreate: (ideaKey: FeedTradeIdeaKey) => void }) {
+-  return <TradeFeedIdeaCard ideaKey={ideaKey} onCreate={onCreate} inline />;
++function TradeFeedInlineIdeaCard({ ideaKey, onOpenIdea }: { ideaKey: FeedTradeIdeaKey; onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void }) {
++  return <TradeFeedIdeaCard ideaKey={ideaKey} onOpenIdea={onOpenIdea} inline />;
+ }
+ 
+ type TradeActivityModalProps = {
+@@ -782,7 +786,7 @@ function MyCreatedTradesPanel({ scrollProps, onCreate, onOpenTrade, onOpenPropos
+             <AppText style={styles.mineTitle}>{t('trade.mine.title')}</AppText>
+             <AppText style={[styles.mineBody, { color: theme.color.muted }]}>{t('trade.mine.body')}</AppText>
+           </View>
+-          <Pressable accessibilityRole="button" onPress={() => onCreate(ideaKey)} style={({ pressed }) => [styles.mineCreateButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
++          <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.mineCreateButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+             <MobileIcon name="add" size={18} color={theme.color.background} />
+             <AppText style={[styles.mineCreateButtonText, { color: theme.color.background }]}>{t('trade.create.title')}</AppText>
+           </Pressable>
+@@ -860,7 +864,7 @@ function MyCreatedTradesEmpty({ hasFilter, onCreate }: { hasFilter: boolean; onC
+         <SemanticBadge label={t('trade.mine.myTradesTab')} tone="trade" />
+         <AppText style={styles.emptyTitle}>{hasFilter ? t('trade.mine.emptyFilteredTitle') : t('trade.mine.emptyTitle')}</AppText>
+         <AppText style={[styles.emptyText, { color: theme.color.muted }]}>{hasFilter ? t('trade.mine.emptyFilteredBody') : t('trade.mine.emptyBody')}</AppText>
+-        <Pressable accessibilityRole="button" onPress={() => onCreate(ideaKey)} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>{t('trade.create.title')}</AppText></Pressable>
++        <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>{t('trade.create.title')}</AppText></Pressable>
+       </View>
+     </AppCard>
+   );
+@@ -997,7 +1001,7 @@ function EmptyTradesState({ loading, hasTrades, hasFilters, onCreate, onRefresh,
+         <AppText style={styles.emptyTitle}>{title}</AppText>
+         <AppText style={[styles.emptyText, { color: theme.color.muted }]}>{body}</AppText>
+         <View style={styles.emptyActions}>
+-          {hasFilters ? <Pressable accessibilityRole="button" onPress={onClear} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>{t('trade.filters.clearFilters')}</AppText></Pressable> : <Pressable accessibilityRole="button" onPress={() => onCreate(ideaKey)} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>{t('trade.create.title')}</AppText></Pressable>}
++          {hasFilters ? <Pressable accessibilityRole="button" onPress={onClear} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>{t('trade.filters.clearFilters')}</AppText></Pressable> : <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>{t('trade.create.title')}</AppText></Pressable>}
+           <Pressable accessibilityRole="button" onPress={onRefresh} style={({ pressed }) => [styles.emptySecondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.emptySecondaryButtonText, { color: theme.color.text }]}>{t('trade.filters.refresh')}</AppText></Pressable>
+         </View>
+       </View>
+diff --git a/apps/mobile/src/features/trade/TradeIdeaDetailScreen.tsx b/apps/mobile/src/features/trade/TradeIdeaDetailScreen.tsx
+new file mode 100644
+index 0000000..c7a5095
+--- /dev/null
++++ b/apps/mobile/src/features/trade/TradeIdeaDetailScreen.tsx
+@@ -0,0 +1,199 @@
++import React, { useMemo, useState } from 'react';
++import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
++import type { NativeStackScreenProps } from '@react-navigation/native-stack';
++import type { RootStackParamList } from '../../navigation/RootNavigator';
++import { AppScreen } from '../../components/AppScreen';
++import { AppText } from '../../components/AppText';
++import { MobileIcon } from '../../components/MobileIcon';
++import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
++import { useAuth } from '../../providers/AuthProvider';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++import { useTranslation } from '../../providers/MobileI18nProvider';
++import { parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
++
++type Props = NativeStackScreenProps<RootStackParamList, 'TradeIdeaDetail'>;
++type IdeaExpirySelection = 'default' | 'none' | '1' | '3' | '7' | '14';
++
++const expiryOptions: Array<{ value: IdeaExpirySelection; labelKey: string; helperKey?: string }> = [
++  { value: 'default', labelKey: 'trade.ideaDetail.expiryDefault', helperKey: 'trade.ideaDetail.expiryDefaultHelper' },
++  { value: 'none', labelKey: 'trade.expiry.noExpiry' },
++  { value: '1', labelKey: 'trade.ideaDetail.expiry1Day' },
++  { value: '3', labelKey: 'trade.ideaDetail.expiry3Days' },
++  { value: '7', labelKey: 'trade.create.expiry7Days' },
++  { value: '14', labelKey: 'trade.create.expiry14Days' },
++];
++
++function selectedExpiryDays(expiry: IdeaExpirySelection): number | null | undefined {
++  if (expiry === 'default') return undefined;
++  if (expiry === 'none') return null;
++  return Number(expiry);
++}
++
++function ideaTitle(t: ReturnType<typeof useTranslation>['t'], ideaKey: FeedTradeIdeaKey) {
++  return `${t(`trade.feedIdeas.items.${ideaKey}.need`)} ↔ ${t(`trade.feedIdeas.items.${ideaKey}.offer`)}`;
++}
++
++function IdeaSide({ kind, ideaKey }: { kind: 'need' | 'offer'; ideaKey: FeedTradeIdeaKey }) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  const semantic = kind === 'need' ? theme.semantic.need : theme.semantic.offer;
++  const label = kind === 'need' ? t('trade.labels.iNeed') : t('trade.labels.iOffer');
++  const title = t(`trade.feedIdeas.items.${ideaKey}.${kind}`);
++  const meta = t(`trade.feedIdeas.items.${ideaKey}.${kind}Meta`);
++
++  return (
++    <View style={[styles.sideCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++      <View style={styles.sideHeader}>
++        <View style={styles.sideCopy}>
++          <AppText style={[styles.sideEyebrow, { color: theme.color.muted }]}>{label}</AppText>
++          <AppText style={[styles.sideTitle, { color: theme.color.text }]}>{title}</AppText>
++        </View>
++        <View style={[styles.sideBadge, { backgroundColor: semantic.softBg, borderColor: semantic.border }]}>
++          <MobileIcon name={kind} size={15} color={semantic.text} />
++          <AppText style={[styles.sideBadgeText, { color: semantic.text }]}>{label}</AppText>
++        </View>
++      </View>
++      <AppText style={[styles.sideBody, { color: theme.color.text }]}>{title}</AppText>
++      <AppText style={[styles.sideMeta, { color: theme.color.muted }]}>{meta}</AppText>
++    </View>
++  );
++}
++
++export function TradeIdeaDetailScreen({ route, navigation }: Props) {
++  const theme = useThemeTokens();
++  const auth = useAuth();
++  const { t } = useTranslation();
++  const ideaKey = parseFeedTradeIdeaKey(route.params.ideaId);
++  const [expiry, setExpiry] = useState<IdeaExpirySelection>('default');
++  const title = useMemo(() => ideaKey ? ideaTitle(t, ideaKey) : '', [ideaKey, t]);
++
++  function openCreate(fullForm: boolean) {
++    if (!ideaKey) return;
++    if (!auth.isAuthenticated) {
++      navigation.navigate('Login');
++      return;
++    }
++    const expiryDays = selectedExpiryDays(expiry);
++    const params = {
++      initialIdeaKey: ideaKey,
++      initialPostType: 'need_offer' as const,
++      ...(expiryDays !== undefined ? { initialExpiryDays: expiryDays } : {}),
++    };
++    if (fullForm) {
++      navigation.navigate('CreateTradeFull', params);
++      return;
++    }
++    navigation.navigate('CreateTrade', params);
++  }
++
++  if (!ideaKey) {
++    return (
++      <AppScreen>
++        <View style={styles.headerRow}>
++          <Pressable accessibilityRole="button" onPress={() => navigation.goBack()} hitSlop={10} style={({ pressed }) => [styles.backButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++            <MobileIcon name="back" size={20} color={theme.color.text} />
++          </Pressable>
++        </View>
++        <InfoNotice tone="warning" title={t('trade.ideaDetail.notFoundTitle')} body={t('trade.ideaDetail.notFoundBody')} />
++      </AppScreen>
++    );
++  }
++
++  const pack = t(`trade.feedIdeas.items.${ideaKey}.pack`);
++
++  return (
++    <AppScreen>
++      <View style={styles.headerRow}>
++        <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.back')} onPress={() => navigation.goBack()} hitSlop={10} style={({ pressed }) => [styles.backButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++          <MobileIcon name="back" size={20} color={theme.color.text} />
++        </Pressable>
++        <AppText style={[styles.headerTitle, { color: theme.color.text }]}>{t('trade.ideaDetail.header')}</AppText>
++      </View>
++
++      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
++        <View style={[styles.heroCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++          <SemanticBadge label={`${t('trade.feedIdeas.cardLabel')} · ${pack}`} tone="instruction" />
++          <AppText style={[styles.heroTitle, { color: theme.color.text }]}>{title}</AppText>
++          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t('trade.ideaDetail.body')}</AppText>
++        </View>
++
++        <IdeaSide kind="need" ideaKey={ideaKey} />
++
++        <View style={styles.exchangeRow} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
++          <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
++          <MobileIcon name="trade" size={18} color={theme.color.muted} />
++          <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
++        </View>
++
++        <IdeaSide kind="offer" ideaKey={ideaKey} />
++
++        <View style={[styles.expiryCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++          <View style={styles.expiryHeader}>
++            <View style={styles.expiryCopy}>
++              <AppText style={[styles.sideEyebrow, { color: theme.color.muted }]}>{t('trade.ideaDetail.expiryEyebrow')}</AppText>
++              <AppText style={[styles.expiryTitle, { color: theme.color.text }]}>{t('trade.ideaDetail.expiryTitle')}</AppText>
++            </View>
++            <SemanticBadge label={t('inventory.labels.optional')} tone="instruction" size="sm" />
++          </View>
++          <AppText style={[styles.expiryBody, { color: theme.color.muted }]}>{t('trade.ideaDetail.expiryBody')}</AppText>
++          <View style={styles.expiryGrid}>
++            {expiryOptions.map((option) => {
++              const selected = expiry === option.value;
++              return (
++                <Pressable key={option.value} accessibilityRole="radio" accessibilityState={{ selected }} onPress={() => setExpiry(option.value)} style={({ pressed }) => [styles.expiryOption, { backgroundColor: selected ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: selected ? theme.semantic.proposal.border : theme.color.border }, pressed && styles.pressed]}>
++                  <AppText style={[styles.expiryOptionText, { color: selected ? theme.semantic.proposal.text : theme.color.text }]}>{t(option.labelKey)}</AppText>
++                  {option.helperKey ? <AppText style={[styles.expiryOptionHelper, { color: theme.color.muted }]}>{t(option.helperKey)}</AppText> : null}
++                </Pressable>
++              );
++            })}
++          </View>
++        </View>
++      </ScrollView>
++
++      <View style={[styles.actionBar, { backgroundColor: theme.color.background, borderTopColor: theme.color.border }]}>
++        <Pressable accessibilityRole="button" onPress={() => openCreate(true)} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++          <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{t('trade.ideaDetail.editInFullForm')}</AppText>
++        </Pressable>
++        <Pressable accessibilityRole="button" onPress={() => openCreate(false)} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
++          <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('trade.feedIdeas.action')}</AppText>
++        </Pressable>
++      </View>
++    </AppScreen>
++  );
++}
++
++const styles = StyleSheet.create({
++  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 42, marginBottom: 10 },
++  backButton: { width: 40, height: 40, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  headerTitle: { flex: 1, fontSize: 16, lineHeight: 20, fontWeight: '900' },
++  content: { gap: 14, paddingBottom: 104 },
++  heroCard: { borderWidth: 1, borderRadius: 28, padding: 18, gap: 12 },
++  heroTitle: { fontSize: 31, lineHeight: 32, fontWeight: '900', letterSpacing: -1.25 },
++  heroBody: { fontSize: 14, lineHeight: 21, fontWeight: '750' },
++  sideCard: { borderWidth: 1, borderRadius: 26, padding: 16, gap: 12 },
++  sideHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
++  sideCopy: { flex: 1, minWidth: 0, gap: 4 },
++  sideEyebrow: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.8, textTransform: 'uppercase' },
++  sideTitle: { fontSize: 22, lineHeight: 25, fontWeight: '900', letterSpacing: -0.75 },
++  sideBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 6 },
++  sideBadgeText: { fontSize: 10, lineHeight: 12, fontWeight: '900' },
++  sideBody: { fontSize: 15, lineHeight: 21, fontWeight: '800' },
++  sideMeta: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
++  exchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20 },
++  exchangeLine: { flex: 1, height: StyleSheet.hairlineWidth },
++  expiryCard: { borderWidth: 1, borderRadius: 26, padding: 16, gap: 12 },
++  expiryHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
++  expiryCopy: { flex: 1, minWidth: 0, gap: 4 },
++  expiryTitle: { fontSize: 21, lineHeight: 24, fontWeight: '900', letterSpacing: -0.6 },
++  expiryBody: { fontSize: 13, lineHeight: 19, fontWeight: '750' },
++  expiryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
++  expiryOption: { minWidth: '30%', flexGrow: 1, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10, gap: 3 },
++  expiryOptionText: { fontSize: 12, lineHeight: 15, fontWeight: '900' },
++  expiryOptionHelper: { fontSize: 10, lineHeight: 13, fontWeight: '800' },
++  actionBar: { position: 'absolute', left: -18, right: -18, bottom: 0, flexDirection: 'row', gap: 10, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 },
++  secondaryButton: { flex: 1, minHeight: 50, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
++  secondaryButtonText: { textAlign: 'center', fontSize: 13, lineHeight: 16, fontWeight: '900' },
++  primaryButton: { flex: 1, minHeight: 50, borderRadius: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
++  primaryButtonText: { textAlign: 'center', fontSize: 13, lineHeight: 16, fontWeight: '900' },
++  pressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
++});
+diff --git a/apps/mobile/src/features/trade/tradeFeedIdeas.ts b/apps/mobile/src/features/trade/tradeFeedIdeas.ts
+index a7af011..0a2e076 100644
+--- a/apps/mobile/src/features/trade/tradeFeedIdeas.ts
++++ b/apps/mobile/src/features/trade/tradeFeedIdeas.ts
+@@ -78,8 +78,7 @@ export function parseFeedTradeIdeaKey(value?: string | null): FeedTradeIdeaKey |
+ }
+ 
+ export function createFeedIdeaTradeHref(ideaKey: FeedTradeIdeaKey) {
+-  const params = new URLSearchParams({ idea: ideaKey });
+-  return `/trades/create?${params.toString()}`;
++  return `/trades/ideas/${ideaKey}`;
+ }
+ 
+ export function getLocalizedTemplateKeyCandidates(templateKey: string) {
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index 01f93ca..e17b0cc 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -42,6 +42,7 @@ import { TradePrivateProposalsScreen } from '../features/trade/TradePrivatePropo
+ import { TradePublicDiscussionScreen } from '../features/trade/TradePublicDiscussionScreen';
+ import { TradeDeckFeedScreen } from '../features/trade/TradeDeckFeedScreen';
+ import { TradeDetailScreen } from '../features/trade/TradeDetailScreen';
++import { TradeIdeaDetailScreen } from '../features/trade/TradeIdeaDetailScreen';
+ import { WalletScreen } from '../features/wallet/WalletScreen';
+ import { PayoutsScreen } from '../features/wallet/PayoutsScreen';
+ import { useAuth } from '../providers/AuthProvider';
+@@ -92,6 +93,7 @@ export type RootStackParamList = {
+   TradePublicDiscussion: { tradeId: string; title?: string };
+   TradePrivateProposals: { tradeId: string; title?: string; status?: string; selectedProposalSide?: TradeCreateSideSelection; selectedProposalNeedId?: string; selectedProposalOfferId?: string };
+   TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null; selectedProposalSide?: TradeCreateSideSelection; selectedProposalNeedId?: string; selectedProposalOfferId?: string };
++  TradeIdeaDetail: { ideaId: string };
+   UserProfile: { userId: string; displayName?: string };
+   OnboardingGuide: { replay?: boolean } | undefined;
+   Login: undefined;
+@@ -236,6 +238,7 @@ export function RootNavigator() {
+     <Stack.Navigator initialRouteName={onboardingGuide.completed ? 'TradeTabs' : 'OnboardingGuide'} screenOptions={{ headerShown: false }}>
+       <Stack.Screen name="TradeTabs" component={TradeTabs} />
+       <Stack.Screen name="TradeDetail" component={TradeDetailScreen} />
++      <Stack.Screen name="TradeIdeaDetail" component={TradeIdeaDetailScreen} />
+       <Stack.Screen name="UserProfile" component={PublicUserProfileScreen} />
+       <Stack.Screen name="OnboardingGuide" component={OnboardingGuideScreen} initialParams={{ replay: false }} />
+       <Stack.Screen name="Login" component={LoginScreen} />
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 3add098..c38252a 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -8551,3 +8551,114 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   .trade-create-idea-prefill { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+   .trade-create-idea-prefill__sides { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+ }
++
++/* STARTER6F: trade idea detail page review surface. */
++.trade-idea-detail-page {
++  gap: 14px;
++  max-width: 760px;
++}
++
++.trade-idea-detail-page .trade-detail-toolbar {
++  margin-bottom: 0;
++}
++
++.trade-idea-detail-hero {
++  display: grid;
++  gap: 12px;
++}
++
++.trade-idea-detail-hero h1 {
++  margin: 0;
++  font-size: clamp(30px, 6vw, 50px);
++  line-height: .96;
++  letter-spacing: -0.065em;
++}
++
++.trade-idea-detail-hero p,
++.trade-idea-detail-side p,
++.trade-idea-detail-expiry p {
++  margin: 0;
++}
++
++.trade-idea-detail-side .trade-section-heading h2 {
++  line-height: 1.08;
++}
++
++.trade-idea-detail-side > p:not(.meta) {
++  color: var(--app-text);
++  font-size: 16px;
++  font-weight: 840;
++  line-height: 1.45;
++}
++
++.trade-idea-detail-exchange {
++  display: grid;
++  grid-template-columns: minmax(60px, 1fr) auto minmax(60px, 1fr);
++  align-items: center;
++  gap: 12px;
++  padding: 0 26px;
++  color: var(--app-text-muted);
++}
++
++.trade-idea-detail-exchange span {
++  height: 2px;
++  border-radius: 999px;
++  background: color-mix(in srgb, var(--app-border-strong) 62%, transparent);
++}
++
++.trade-idea-detail-expiry-grid {
++  display: grid;
++  grid-template-columns: repeat(3, minmax(0, 1fr));
++  gap: 9px;
++}
++
++.trade-idea-detail-expiry-grid button {
++  min-height: 56px;
++  border: 1px solid var(--app-border);
++  border-radius: 18px;
++  background: var(--app-surface);
++  color: var(--app-text);
++  cursor: pointer;
++  display: grid;
++  gap: 3px;
++  justify-items: start;
++  padding: 10px 12px;
++  text-align: left;
++}
++
++.trade-idea-detail-expiry-grid button.is-selected {
++  border-color: color-mix(in srgb, var(--proposal-border) 62%, var(--app-border));
++  background: color-mix(in srgb, var(--proposal-bg) 9%, var(--app-surface));
++}
++
++.trade-idea-detail-expiry-grid button span {
++  font-size: 13px;
++  font-weight: 920;
++  line-height: 1.2;
++}
++
++.trade-idea-detail-expiry-grid button small {
++  color: var(--app-text-muted);
++  font-size: 11px;
++  font-weight: 820;
++  line-height: 1.2;
++}
++
++.trade-idea-detail-actions {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
++  gap: 10px;
++  padding-bottom: 18px;
++}
++
++.trade-idea-detail-actions .button {
++  justify-content: center;
++  min-height: 48px;
++}
++
++@media (max-width: 560px) {
++  .trade-idea-detail-expiry-grid,
++  .trade-idea-detail-actions {
++    grid-template-columns: 1fr;
++  }
++}
+diff --git a/apps/web/src/app/trades/ideas/[ideaId]/page.tsx b/apps/web/src/app/trades/ideas/[ideaId]/page.tsx
+new file mode 100644
+index 0000000..3d88c40
+--- /dev/null
++++ b/apps/web/src/app/trades/ideas/[ideaId]/page.tsx
+@@ -0,0 +1,30 @@
++import type { Metadata } from 'next';
++import { TradeIdeaDetailClient } from '../../../../features/trade/TradeIdeaDetailClient';
++import { parseFeedTradeIdeaKey } from '../../../../features/trade/tradeFeedIdeas';
++import { publicPageMetadata } from '../../../../lib/seo';
++
++
++type TradeIdeaDetailRouteParams = { ideaId: string };
++type TradeIdeaDetailPageProps = {
++  params: TradeIdeaDetailRouteParams | Promise<TradeIdeaDetailRouteParams>;
++};
++
++async function resolveIdeaId(params: TradeIdeaDetailPageProps['params']) {
++  const resolvedParams = await params;
++  return resolvedParams.ideaId;
++}
++
++export async function generateMetadata({ params }: TradeIdeaDetailPageProps): Promise<Metadata> {
++  const ideaId = await resolveIdeaId(params);
++  const validIdeaId = parseFeedTradeIdeaKey(ideaId);
++  return publicPageMetadata({
++    title: validIdeaId ? 'Trade idea — Hellowhen Trade' : 'Trade idea not found — Hellowhen Trade',
++    description: 'Review a transparent starter trade idea, choose an optional expiry, then create your own editable version.',
++    pathname: validIdeaId ? `/trades/ideas/${validIdeaId}` : '/trades',
++  });
++}
++
++export default async function TradeIdeaDetailPage({ params }: TradeIdeaDetailPageProps) {
++  const ideaId = await resolveIdeaId(params);
++  return <TradeIdeaDetailClient ideaId={ideaId} />;
++}
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index 4af0861..4ebdc40 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -112,11 +112,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+   const demoDataEnabled = isWebDemoDataEnabled();
+   const auth = useWebAuth();
+   const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
+-  const createTradeIdeaHref = useCallback((ideaKey: FeedTradeIdeaKey) => {
+-    const ideaHref = createFeedIdeaTradeHref(ideaKey);
+-    if (!auth.hydrated || !auth.isAuthenticated) return `/auth?next=${encodeURIComponent(ideaHref)}`;
+-    return ideaHref;
+-  }, [auth.hydrated, auth.isAuthenticated]);
++  const createTradeIdeaHref = useCallback((ideaKey: FeedTradeIdeaKey) => createFeedIdeaTradeHref(ideaKey), []);
+   const shouldShowHomeIntro = showHomeIntro && homeIntroReady && auth.hydrated && !auth.isAuthenticated && !homeIntroDismissed;
+ 
+   const queueSearchKeywordRecord = useCallback((q: string, source: TradeSearchKeywordSource) => {
+diff --git a/apps/web/src/features/trade/TradeIdeaDetailClient.tsx b/apps/web/src/features/trade/TradeIdeaDetailClient.tsx
+new file mode 100644
+index 0000000..acacfaa
+--- /dev/null
++++ b/apps/web/src/features/trade/TradeIdeaDetailClient.tsx
+@@ -0,0 +1,140 @@
++'use client';
++
++import Link from 'next/link';
++import { useMemo, useState } from 'react';
++import { WebIcon } from '../../components/WebIcon';
++import { useWebAuth } from '../../providers/WebAuthProvider';
++import { useWebTranslation } from '../../providers/WebI18nProvider';
++import { parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
++
++type IdeaExpirySelection = 'default' | 'none' | '1' | '3' | '7' | '14';
++
++type TradeIdeaDetailClientProps = {
++  ideaId: string;
++};
++
++const expiryOptions: Array<{ value: IdeaExpirySelection; labelKey: string; helperKey?: string }> = [
++  { value: 'default', labelKey: 'trade.ideaDetail.expiryDefault', helperKey: 'trade.ideaDetail.expiryDefaultHelper' },
++  { value: 'none', labelKey: 'trade.expiry.noExpiry' },
++  { value: '1', labelKey: 'trade.ideaDetail.expiry1Day' },
++  { value: '3', labelKey: 'trade.ideaDetail.expiry3Days' },
++  { value: '7', labelKey: 'trade.create.expiry7Days' },
++  { value: '14', labelKey: 'trade.create.expiry14Days' },
++];
++
++function createIdeaActionHref(pathname: '/trades/create' | '/trades/create/full', ideaKey: FeedTradeIdeaKey, expiry: IdeaExpirySelection, isAuthenticated: boolean, nextParam?: string) {
++  const params = new URLSearchParams({ idea: ideaKey });
++  if (expiry !== 'default') params.set('expiryDays', expiry);
++  const href = `${pathname}?${params.toString()}`;
++  if (!isAuthenticated) return `/auth?next=${encodeURIComponent(nextParam ?? href)}`;
++  return href;
++}
++
++function getIdeaTitle(t: ReturnType<typeof useWebTranslation>['t'], ideaKey: FeedTradeIdeaKey) {
++  return `${t(`trade.feedIdeas.items.${ideaKey}.need`)} ↔ ${t(`trade.feedIdeas.items.${ideaKey}.offer`)}`;
++}
++
++function IdeaSideSection({ kind, ideaKey }: { kind: 'need' | 'offer'; ideaKey: FeedTradeIdeaKey }) {
++  const { t } = useWebTranslation();
++  const label = kind === 'need' ? t('trade.labels.iNeed') : t('trade.labels.iOffer');
++  const iconName = kind === 'need' ? 'need' : 'offer';
++  const badgeClass = kind === 'need' ? 'need' : 'offer';
++  const title = t(`trade.feedIdeas.items.${ideaKey}.${kind}`);
++  const meta = t(`trade.feedIdeas.items.${ideaKey}.${kind}Meta`);
++
++  return (
++    <section className="trade-social-section trade-idea-detail-side">
++      <div className="trade-section-heading">
++        <div>
++          <p className="eyebrow">{label}</p>
++          <h2>{title}</h2>
++        </div>
++        <span className={`semantic-badge ${badgeClass}`}><WebIcon name={iconName} size={14} decorative />{label}</span>
++      </div>
++      <p>{title}</p>
++      <p className="meta">{meta}</p>
++    </section>
++  );
++}
++
++function NotFoundIdea() {
++  const { t } = useWebTranslation();
++  return (
++    <article className="mobile-page trade-idea-detail-page">
++      <header className="trade-detail-toolbar" aria-label={t('trade.ideaDetail.header')}>
++        <Link href="/trades" className="trade-detail-back-link">← {t('trade.ideaDetail.backToFeed')}</Link>
++      </header>
++      <section className="trade-hero-section trade-idea-detail-hero">
++        <span className="semantic-badge warning">{t('trade.labels.notFound')}</span>
++        <h1>{t('trade.ideaDetail.notFoundTitle')}</h1>
++        <p>{t('trade.ideaDetail.notFoundBody')}</p>
++        <Link href="/trades" className="button primary">{t('trade.ideaDetail.backToFeed')}</Link>
++      </section>
++    </article>
++  );
++}
++
++export function TradeIdeaDetailClient({ ideaId }: TradeIdeaDetailClientProps) {
++  const auth = useWebAuth();
++  const { t } = useWebTranslation();
++  const ideaKey = parseFeedTradeIdeaKey(ideaId);
++  const [expiry, setExpiry] = useState<IdeaExpirySelection>('default');
++  const title = useMemo(() => ideaKey ? getIdeaTitle(t, ideaKey) : '', [ideaKey, t]);
++
++  if (!ideaKey) return <NotFoundIdea />;
++
++  const pack = t(`trade.feedIdeas.items.${ideaKey}.pack`);
++  const createHref = createIdeaActionHref('/trades/create', ideaKey, expiry, auth.isAuthenticated, `/trades/create?idea=${ideaKey}`);
++  const fullFormHref = createIdeaActionHref('/trades/create/full', ideaKey, expiry, auth.isAuthenticated, `/trades/create/full?idea=${ideaKey}`);
++
++  return (
++    <article className="mobile-page trade-idea-detail-page">
++      <header className="trade-detail-toolbar" aria-label={t('trade.ideaDetail.header')}>
++        <Link href="/trades" className="trade-detail-back-link">← {t('trade.ideaDetail.backToFeed')}</Link>
++      </header>
++
++      <section className="trade-hero-section trade-idea-detail-hero">
++        <span className="semantic-badge instruction">{t('trade.feedIdeas.cardLabel')} · {pack}</span>
++        <h1>{title}</h1>
++        <p>{t('trade.ideaDetail.body')}</p>
++      </section>
++
++      <IdeaSideSection kind="need" ideaKey={ideaKey} />
++
++      <div className="trade-idea-detail-exchange" aria-hidden="true">
++        <span />
++        <WebIcon name="trade" size={19} decorative />
++        <span />
++      </div>
++
++      <IdeaSideSection kind="offer" ideaKey={ideaKey} />
++
++      <section className="trade-social-section trade-idea-detail-expiry" aria-labelledby="trade-idea-expiry-title">
++        <div className="trade-section-heading">
++          <div>
++            <p className="eyebrow">{t('trade.ideaDetail.expiryEyebrow')}</p>
++            <h2 id="trade-idea-expiry-title">{t('trade.ideaDetail.expiryTitle')}</h2>
++          </div>
++          <span className="semantic-badge instruction">{t('inventory.labels.optional')}</span>
++        </div>
++        <p>{t('trade.ideaDetail.expiryBody')}</p>
++        <div className="trade-idea-detail-expiry-grid" role="radiogroup" aria-label={t('trade.ideaDetail.expiryTitle')}>
++          {expiryOptions.map((option) => {
++            const selected = expiry === option.value;
++            return (
++              <button key={option.value} type="button" role="radio" aria-checked={selected} className={selected ? 'is-selected' : ''} onClick={() => setExpiry(option.value)}>
++                <span>{t(option.labelKey)}</span>
++                {option.helperKey ? <small>{t(option.helperKey)}</small> : null}
++              </button>
++            );
++          })}
++        </div>
++      </section>
++
++      <section className="trade-idea-detail-actions" aria-label={t('trade.ideaDetail.actionsLabel')}>
++        <Link href={fullFormHref} className="button secondary">{t('trade.ideaDetail.editInFullForm')}</Link>
++        <Link href={createHref} className="button primary">{t('trade.feedIdeas.action')}</Link>
++      </section>
++    </article>
++  );
++}
+diff --git a/apps/web/src/features/trade/tradeFeedIdeas.ts b/apps/web/src/features/trade/tradeFeedIdeas.ts
+index a7af011..0a2e076 100644
+--- a/apps/web/src/features/trade/tradeFeedIdeas.ts
++++ b/apps/web/src/features/trade/tradeFeedIdeas.ts
+@@ -78,8 +78,7 @@ export function parseFeedTradeIdeaKey(value?: string | null): FeedTradeIdeaKey |
+ }
+ 
+ export function createFeedIdeaTradeHref(ideaKey: FeedTradeIdeaKey) {
+-  const params = new URLSearchParams({ idea: ideaKey });
+-  return `/trades/create?${params.toString()}`;
++  return `/trades/ideas/${ideaKey}`;
+ }
+ 
+ export function getLocalizedTemplateKeyCandidates(templateKey: string) {
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index fa3cb32..5b5e970 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -919,6 +919,22 @@ export const trade = {
+       },
+     },
+   },
++  ideaDetail: {
++    header: 'Trade idea detail',
++    backToFeed: 'Back to feed',
++    body: 'This is a starter trade idea, not a live post. Review both sides, choose an optional expiry, then create an editable version under your account.',
++    expiryEyebrow: 'Before you create',
++    expiryTitle: 'Optional expiry',
++    expiryBody: 'Starter ideas do not expire. Your own version can use the normal Create Trade default, no expiry, or a short starter expiry.',
++    expiryDefault: 'Use create default',
++    expiryDefaultHelper: 'Recommended',
++    expiry1Day: '1 day',
++    expiry3Days: '3 days',
++    editInFullForm: 'Edit in full form',
++    actionsLabel: 'Trade idea actions',
++    notFoundTitle: 'This trade idea is not available',
++    notFoundBody: 'Open the trade feed to choose another transparent starter idea.',
++  },
+   deck: {
+     pass: 'Pass',
+     openDetail: 'Open Detail',
+diff --git a/packages/i18n/src/locales/es/trade.ts b/packages/i18n/src/locales/es/trade.ts
+index e5722e6..2e241da 100644
+--- a/packages/i18n/src/locales/es/trade.ts
++++ b/packages/i18n/src/locales/es/trade.ts
+@@ -932,6 +932,22 @@ export const trade = {
+       },
+     },
+   },
++  ideaDetail: {
++    header: 'Detalle de idea de intercambio',
++    backToFeed: 'Volver al feed',
++    body: 'Es una idea inicial de intercambio, no una publicación real. Revisa ambos lados, elige una caducidad opcional y crea una versión editable en tu cuenta.',
++    expiryEyebrow: 'Antes de crear',
++    expiryTitle: 'Caducidad opcional',
++    expiryBody: 'Las ideas iniciales no caducan. Tu propia versión puede usar el valor normal de creación, no tener caducidad o usar una caducidad corta.',
++    expiryDefault: 'Usar valor por defecto',
++    expiryDefaultHelper: 'Recomendado',
++    expiry1Day: '1 día',
++    expiry3Days: '3 días',
++    editInFullForm: 'Editar en formulario completo',
++    actionsLabel: 'Acciones de la idea de intercambio',
++    notFoundTitle: 'Esta idea de intercambio no está disponible',
++    notFoundBody: 'Abre el feed de intercambios para elegir otra idea inicial transparente.',
++  },
+   deck: {
+     ...enTrade.deck,
+     pass: 'Pasar',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index 3ded11a..30d0aa2 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -919,6 +919,22 @@ export const trade = {
+       },
+     },
+   },
++  ideaDetail: {
++    header: 'Détail de l’idée d’échange',
++    backToFeed: 'Retour au feed',
++    body: 'C’est une idée d’échange de départ, pas une vraie annonce. Vérifie les deux côtés, choisis une expiration optionnelle, puis crée une version modifiable dans ton compte.',
++    expiryEyebrow: 'Avant de créer',
++    expiryTitle: 'Expiration optionnelle',
++    expiryBody: 'Les idées de départ n’expirent pas. Ta propre version peut utiliser le réglage normal de création, aucune expiration, ou une courte expiration.',
++    expiryDefault: 'Utiliser le défaut',
++    expiryDefaultHelper: 'Recommandé',
++    expiry1Day: '1 jour',
++    expiry3Days: '3 jours',
++    editInFullForm: 'Modifier dans le formulaire complet',
++    actionsLabel: 'Actions de l’idée d’échange',
++    notFoundTitle: 'Cette idée d’échange n’est pas disponible',
++    notFoundBody: 'Ouvre le feed des échanges pour choisir une autre idée de départ transparente.',
++  },
+   deck: {
+     pass: 'Passer',
+     openDetail: 'Ouvrir le détail',

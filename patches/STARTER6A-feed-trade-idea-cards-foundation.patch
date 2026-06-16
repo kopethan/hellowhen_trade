@@ -1,0 +1,462 @@
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index d31965c..d00709f 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -281,6 +281,7 @@ export function TradeDeckFeedScreen() {
+         <>
+           <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshDiscoveryOrder} />}>
+             {error ? <InfoNotice tone="danger" title={t('trade.filters.couldNotLoadTrades')} body={error} /> : null}
++            {!loading && !error && !hasFilters ? <TradeFeedIdeaRail onCreate={createTrade} /> : null}
+             {hasVisibleTrades ? (
+               <View style={styles.feedList}>
+                 {visibleTrades.map((trade, index) => <TradeDeckSection key={trade.id} trade={trade} index={index} total={visibleTrades.length} onOpen={() => openTrade(trade)} />)}
+@@ -332,6 +333,57 @@ export function TradeDeckFeedScreen() {
+ 
+ 
+ 
++
++const feedIdeaKeys = ['appTestingPhotos', 'coldDmTranslation', 'frenchPracticeVideoEdit'] as const;
++
++type FeedIdeaKey = (typeof feedIdeaKeys)[number];
++
++function TradeFeedIdeaRail({ onCreate }: { onCreate: () => void }) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++
++  return (
++    <AppCard style={[styles.feedIdeasCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++      <View style={styles.feedIdeasHeader}>
++        <SemanticBadge label={t('trade.feedIdeas.badge')} tone="instruction" />
++        <AppText style={styles.feedIdeasTitle}>{t('trade.feedIdeas.title')}</AppText>
++        <AppText style={[styles.feedIdeasBody, { color: theme.color.muted }]}>{t('trade.feedIdeas.body')}</AppText>
++      </View>
++      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.feedIdeasList}>
++        {feedIdeaKeys.map((key) => <TradeFeedIdeaCard key={key} ideaKey={key} onCreate={onCreate} />)}
++      </ScrollView>
++    </AppCard>
++  );
++}
++
++function TradeFeedIdeaCard({ ideaKey, onCreate }: { ideaKey: FeedIdeaKey; onCreate: () => void }) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++
++  return (
++    <View style={[styles.feedIdeaCard, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
++      <View style={styles.feedIdeaTopline}>
++        <AppText style={[styles.feedIdeaEyebrow, { color: theme.color.muted }]}>{t('trade.feedIdeas.ideaLabel')}</AppText>
++        <AppText numberOfLines={1} style={[styles.feedIdeaPack, { color: theme.semantic.info.text }]}>{t(`trade.feedIdeas.items.${ideaKey}.pack`)}</AppText>
++      </View>
++      <View style={styles.feedIdeaSides} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
++        <View style={[styles.feedIdeaSide, { backgroundColor: theme.color.surface, borderColor: theme.semantic.need.border }]}>
++          <AppText style={[styles.feedIdeaSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iNeed')}</AppText>
++          <AppText numberOfLines={3} style={styles.feedIdeaSideTitle}>{t(`trade.feedIdeas.items.${ideaKey}.need`)}</AppText>
++        </View>
++        <View style={[styles.feedIdeaSide, { backgroundColor: theme.color.surface, borderColor: theme.semantic.offer.border }]}>
++          <AppText style={[styles.feedIdeaSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iOffer')}</AppText>
++          <AppText numberOfLines={3} style={styles.feedIdeaSideTitle}>{t(`trade.feedIdeas.items.${ideaKey}.offer`)}</AppText>
++        </View>
++      </View>
++      <AppText numberOfLines={2} style={[styles.feedIdeaCardBody, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.body`)}</AppText>
++      <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.feedIdeaAction, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++        <AppText style={styles.feedIdeaActionText}>{t('trade.feedIdeas.action')}</AppText>
++      </Pressable>
++    </View>
++  );
++}
++
+ type TradeActivityModalProps = {
+   activeTab: TradeActivityTab;
+   visible: boolean;
+@@ -968,6 +1020,22 @@ const styles = StyleSheet.create({
+   suggestionText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '900' },
+   suggestionSource: { fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
+   feedList: { gap: 20 },
++  feedIdeasCard: { gap: 14, borderWidth: 1, padding: 14 },
++  feedIdeasHeader: { gap: 6 },
++  feedIdeasTitle: { fontSize: 21, lineHeight: 25, fontWeight: '900', letterSpacing: -0.5 },
++  feedIdeasBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
++  feedIdeasList: { gap: 10, paddingRight: 18 },
++  feedIdeaCard: { width: 284, borderRadius: 22, borderWidth: 1, padding: 12, gap: 10 },
++  feedIdeaTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
++  feedIdeaEyebrow: { fontSize: 10, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
++  feedIdeaPack: { flexShrink: 1, fontSize: 10, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
++  feedIdeaSides: { gap: 8 },
++  feedIdeaSide: { minHeight: 88, borderRadius: 16, borderWidth: 1, padding: 10, gap: 6 },
++  feedIdeaSideLabel: { fontSize: 10, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' },
++  feedIdeaSideTitle: { fontSize: 14, lineHeight: 18, fontWeight: '900' },
++  feedIdeaCardBody: { minHeight: 36, fontSize: 12, lineHeight: 18, fontWeight: '700' },
++  feedIdeaAction: { minHeight: 38, borderRadius: 999, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
++  feedIdeaActionText: { fontSize: 13, fontWeight: '900' },
+   mineHeaderCard: { gap: 14 },
+   mineHeaderCopy: { gap: 8 },
+   mineTitle: { fontSize: 28, fontWeight: '900', letterSpacing: -0.7 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 19b63fa..9d103a0 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -8307,3 +8307,173 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   .membership-upgrade-card__action { grid-column: 1 / -1; justify-content: flex-start; min-width: 0; }
+   .membership-upgrade-card__action .button { width: 100%; }
+ }
++
++/* STARTER6A: transparent feed trade idea cards */
++.trade-feed-ideas {
++  display: grid;
++  gap: 12px;
++  width: min(880px, 100%);
++  margin: 0 auto;
++  border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent);
++  border-radius: 24px;
++  background: color-mix(in srgb, var(--app-surface) 94%, transparent);
++  padding: 14px;
++  box-shadow: 0 14px 34px color-mix(in srgb, var(--app-shadow) 22%, transparent);
++}
++
++.trade-feed-ideas__header {
++  display: grid;
++  grid-template-columns: auto minmax(0, 1fr);
++  align-items: start;
++  gap: 10px;
++}
++
++.trade-feed-ideas__header h2,
++.trade-feed-ideas__header p,
++.trade-feed-idea-card h3,
++.trade-feed-idea-card p {
++  margin: 0;
++}
++
++.trade-feed-ideas__header h2 {
++  font-size: 17px;
++  line-height: 1.1;
++  letter-spacing: -0.03em;
++}
++
++.trade-feed-ideas__header p {
++  color: var(--app-text-muted);
++  font-size: 13px;
++  font-weight: 760;
++  line-height: 1.4;
++}
++
++.trade-feed-ideas__list {
++  display: grid;
++  grid-template-columns: repeat(3, minmax(0, 1fr));
++  gap: 10px;
++}
++
++.trade-feed-idea-card {
++  display: grid;
++  gap: 11px;
++  min-width: 0;
++  border: 1px solid color-mix(in srgb, var(--app-border) 80%, transparent);
++  border-radius: 21px;
++  background: color-mix(in srgb, var(--app-bg-muted) 72%, transparent);
++  padding: 13px;
++}
++
++.trade-feed-idea-card__topline {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 8px;
++  color: var(--app-text-muted);
++  font-size: 10px;
++  font-weight: 950;
++  letter-spacing: 0.06em;
++  text-transform: uppercase;
++}
++
++.trade-feed-idea-card__topline strong {
++  overflow: hidden;
++  color: var(--proposal-text);
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.trade-feed-idea-card__sides {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
++  align-items: stretch;
++  gap: 8px;
++}
++
++.trade-feed-idea-card__sides > div {
++  display: grid;
++  gap: 5px;
++  min-width: 0;
++  border: 1px solid color-mix(in srgb, var(--app-border) 74%, transparent);
++  border-radius: 16px;
++  background: color-mix(in srgb, var(--app-surface) 80%, transparent);
++  padding: 10px;
++}
++
++.trade-feed-idea-card__sides > div:first-child {
++  border-color: color-mix(in srgb, var(--need-border) 44%, var(--app-border));
++}
++
++.trade-feed-idea-card__sides > div:last-child {
++  border-color: color-mix(in srgb, var(--offer-border) 44%, var(--app-border));
++}
++
++.trade-feed-idea-card__sides span {
++  color: var(--app-text-muted);
++  font-size: 10px;
++  font-weight: 950;
++  text-transform: uppercase;
++  letter-spacing: 0.06em;
++}
++
++.trade-feed-idea-card__sides h3 {
++  display: -webkit-box;
++  min-height: 36px;
++  overflow: hidden;
++  font-size: 13px;
++  line-height: 1.25;
++  font-weight: 920;
++  -webkit-line-clamp: 2;
++  -webkit-box-orient: vertical;
++}
++
++.trade-feed-idea-card__sides i {
++  align-self: center;
++  color: var(--app-text-muted);
++  font-style: normal;
++  font-weight: 950;
++}
++
++.trade-feed-idea-card > p {
++  display: -webkit-box;
++  min-height: 34px;
++  overflow: hidden;
++  color: var(--app-text-muted);
++  font-size: 12px;
++  font-weight: 760;
++  line-height: 1.4;
++  -webkit-line-clamp: 2;
++  -webkit-box-orient: vertical;
++}
++
++.trade-feed-idea-card__action {
++  justify-content: center;
++  min-height: 36px;
++  padding: 0 12px;
++  font-size: 12px;
++}
++
++@media (max-width: 860px) {
++  .trade-feed-ideas__list {
++    grid-template-columns: 1fr;
++  }
++}
++
++@media (max-width: 520px) {
++  .trade-feed-ideas {
++    border-radius: 20px;
++    padding: 12px;
++  }
++
++  .trade-feed-ideas__header {
++    grid-template-columns: 1fr;
++  }
++
++  .trade-feed-idea-card__sides {
++    grid-template-columns: 1fr;
++  }
++
++  .trade-feed-idea-card__sides i {
++    display: none;
++  }
++}
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index c20cd3e..9ee5f2f 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -374,6 +374,8 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+         />
+       ) : null}
+ 
++      {!loading && !loadError && !hasAppliedFilters ? <TradeFeedIdeaRail createTradeHref={createTradeHref} /> : null}
++
+       <section className="feed-status-row" aria-live="polite">
+         <p>{loading ? t('trade.filters.loadingTrades') : filteredTrades.length === 1 ? t('trade.filters.activeTradeOne') : t('trade.filters.activeTrades', { count: filteredTrades.length })}</p>
+         <div className="feed-status-actions">
+@@ -438,6 +440,60 @@ function TradeSearchSuggestionList({ visible, suggestions, loading, query, onSel
+   );
+ }
+ 
++
++const feedIdeaKeys = ['appTestingPhotos', 'coldDmTranslation', 'frenchPracticeVideoEdit'] as const;
++
++type FeedIdeaKey = (typeof feedIdeaKeys)[number];
++
++type TradeFeedIdeaRailProps = {
++  createTradeHref: string;
++};
++
++function TradeFeedIdeaRail({ createTradeHref }: TradeFeedIdeaRailProps) {
++  const { t } = useWebTranslation();
++
++  return (
++    <section className="trade-feed-ideas" aria-labelledby="trade-feed-ideas-title">
++      <div className="trade-feed-ideas__header">
++        <span className="semantic-badge instruction">{t('trade.feedIdeas.badge')}</span>
++        <div>
++          <h2 id="trade-feed-ideas-title">{t('trade.feedIdeas.title')}</h2>
++          <p>{t('trade.feedIdeas.body')}</p>
++        </div>
++      </div>
++      <div className="trade-feed-ideas__list">
++        {feedIdeaKeys.map((key) => <TradeFeedIdeaCard key={key} ideaKey={key} createTradeHref={createTradeHref} />)}
++      </div>
++    </section>
++  );
++}
++
++function TradeFeedIdeaCard({ ideaKey, createTradeHref }: { ideaKey: FeedIdeaKey; createTradeHref: string }) {
++  const { t } = useWebTranslation();
++
++  return (
++    <article className="trade-feed-idea-card">
++      <div className="trade-feed-idea-card__topline">
++        <span>{t('trade.feedIdeas.ideaLabel')}</span>
++        <strong>{t(`trade.feedIdeas.items.${ideaKey}.pack`)}</strong>
++      </div>
++      <div className="trade-feed-idea-card__sides" aria-label={t('trade.feedIdeas.sidesLabel')}>
++        <div>
++          <span>{t('trade.labels.iNeed')}</span>
++          <h3>{t(`trade.feedIdeas.items.${ideaKey}.need`)}</h3>
++        </div>
++        <i aria-hidden="true">↔</i>
++        <div>
++          <span>{t('trade.labels.iOffer')}</span>
++          <h3>{t(`trade.feedIdeas.items.${ideaKey}.offer`)}</h3>
++        </div>
++      </div>
++      <p>{t(`trade.feedIdeas.items.${ideaKey}.body`)}</p>
++      <Link href={createTradeHref} className="button secondary trade-feed-idea-card__action">{t('trade.feedIdeas.action')}</Link>
++    </article>
++  );
++}
++
+ type HomeTradeIntroBannerProps = {
+   onDismiss: () => void;
+ };
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index 6e8cf52..d5fa2ed 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -836,6 +836,34 @@ export const trade = {
+     ideaFrenchCorrectionCanva: 'Need French correction ↔ Offer Canva visuals',
+     ideaVideoEditLinkedIn: 'Need short video edit ↔ Offer LinkedIn profile review',
+   },
++  feedIdeas: {
++    badge: 'Trade ideas',
++    title: 'Starter ideas you can turn into real trades',
++    body: 'These are transparent examples, not bot posts. Use them for inspiration, then publish your own version when you are ready.',
++    ideaLabel: 'Idea',
++    sidesLabel: 'Starter Need and Offer sides',
++    action: 'Create your version',
++    items: {
++      appTestingPhotos: {
++        pack: 'Startup',
++        need: 'I need someone to test my app like a normal user',
++        offer: 'I can take clean product photos',
++        body: 'A simple starter exchange for builders, makers, and creators.',
++      },
++      coldDmTranslation: {
++        pack: 'Language',
++        need: 'I need help writing my first cold DM',
++        offer: 'I can translate French-English text',
++        body: 'Useful for people approaching partners, communities, or early users.',
++      },
++      frenchPracticeVideoEdit: {
++        pack: 'Social',
++        need: 'I need someone to practice a French phone call with me',
++        offer: 'I can edit a short phone video',
++        body: 'A practical confidence trade for local life and creative work.',
++      },
++    },
++  },
+   deck: {
+     pass: 'Pass',
+     openDetail: 'Open Detail',
+diff --git a/packages/i18n/src/locales/es/trade.ts b/packages/i18n/src/locales/es/trade.ts
+index 774401e..241cfbc 100644
+--- a/packages/i18n/src/locales/es/trade.ts
++++ b/packages/i18n/src/locales/es/trade.ts
+@@ -849,6 +849,34 @@ export const trade = {
+     ideaFrenchCorrectionCanva: 'Necesito corrección en francés ↔ Ofrezco visuales en Canva',
+     ideaVideoEditLinkedIn: 'Necesito edición de video corto ↔ Ofrezco revisión de perfil LinkedIn',
+   },
++  feedIdeas: {
++    badge: 'Ideas de intercambio',
++    title: 'Ideas iniciales que puedes convertir en intercambios reales',
++    body: 'Son ejemplos transparentes, no publicaciones de un bot. Úsalos como inspiración y publica tu propia versión cuando estés listo.',
++    ideaLabel: 'Idea',
++    sidesLabel: 'Lados de Necesidad y Oferta de la idea inicial',
++    action: 'Crear mi versión',
++    items: {
++      appTestingPhotos: {
++        pack: 'Startup',
++        need: 'Necesito que alguien pruebe mi app como un usuario normal',
++        offer: 'Puedo tomar fotos de producto limpias',
++        body: 'Un intercambio simple para builders, creadores y proyectos pequeños.',
++      },
++      coldDmTranslation: {
++        pack: 'Idioma',
++        need: 'Necesito ayuda para escribir mi primer mensaje directo',
++        offer: 'Puedo traducir texto entre francés e inglés',
++        body: 'Útil para contactar socios, comunidades o primeros usuarios.',
++      },
++      frenchPracticeVideoEdit: {
++        pack: 'Social',
++        need: 'Necesito practicar una llamada telefónica en francés',
++        offer: 'Puedo editar un video corto grabado con el teléfono',
++        body: 'Un intercambio práctico para ganar confianza y crear contenido.',
++      },
++    },
++  },
+   deck: {
+     ...enTrade.deck,
+     pass: 'Pasar',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index 87c6fef..cda1894 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -836,6 +836,34 @@ export const trade = {
+     ideaFrenchCorrectionCanva: 'Besoin de correction française ↔ Offre de visuels Canva',
+     ideaVideoEditLinkedIn: 'Besoin de montage vidéo court ↔ Offre de revue LinkedIn',
+   },
++  feedIdeas: {
++    badge: 'Idées d’échange',
++    title: 'Des idées de départ à transformer en vrais échanges',
++    body: 'Ce sont des exemples transparents, pas des publications de bot. Utilise-les comme inspiration, puis publie ta propre version quand tu es prêt.',
++    ideaLabel: 'Idée',
++    sidesLabel: 'Côtés Besoin et Offre de l’idée de départ',
++    action: 'Créer ma version',
++    items: {
++      appTestingPhotos: {
++        pack: 'Startup',
++        need: 'J’ai besoin que quelqu’un teste mon app comme un utilisateur normal',
++        offer: 'Je peux prendre des photos produit propres',
++        body: 'Un échange simple pour builders, créateurs et porteurs de projet.',
++      },
++      coldDmTranslation: {
++        pack: 'Langue',
++        need: 'J’ai besoin d’aide pour écrire mon premier message de prospection',
++        offer: 'Je peux traduire un texte français-anglais',
++        body: 'Utile pour approcher des partenaires, communautés ou premiers utilisateurs.',
++      },
++      frenchPracticeVideoEdit: {
++        pack: 'Social',
++        need: 'J’ai besoin de pratiquer un appel téléphonique en français',
++        offer: 'Je peux monter une courte vidéo filmée au téléphone',
++        body: 'Un échange pratique pour gagner en confiance et créer du contenu.',
++      },
++    },
++  },
+   deck: {
+     pass: 'Passer',
+     openDetail: 'Ouvrir le détail',

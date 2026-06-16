@@ -1,0 +1,50 @@
+--- a/apps/api/src/modules/inventory-templates/inventoryTemplates.routes.ts
++++ b/apps/api/src/modules/inventory-templates/inventoryTemplates.routes.ts
+@@ -102,6 +102,25 @@
+   });
+ }
+ 
++function templateFallbackKey(template: { key: string }) {
++  return template.key.replace(/^starter-(fr|es)-/, 'starter-');
++}
++
++function mergePreferredTemplatesWithFallback<T extends { key: string }>(preferred: T[], fallback: T[], take: number) {
++  const seenKeys = new Set(preferred.map(templateFallbackKey));
++  const merged = [...preferred];
++
++  for (const template of fallback) {
++    const fallbackKey = templateFallbackKey(template);
++    if (seenKeys.has(fallbackKey)) continue;
++    seenKeys.add(fallbackKey);
++    merged.push(template);
++    if (merged.length >= take) break;
++  }
++
++  return merged.slice(0, take);
++}
++
+ async function cloneTemplateMediaToInventory(actorId: string, templateId: string, entityType: 'need' | 'offer', entityId: string) {
+   const templateMediaById = await loadMediaByEntityIds('inventory_template', [templateId], 'public');
+   const templateMedia = templateMediaById.get(templateId) ?? [];
+@@ -132,16 +151,17 @@
+   });
+ 
+   const sortedPreferred = sortTemplatesForLocale(preferred, preferences);
+-  if (preferences.language === 'en' || sortedPreferred.length > 0) return sortedPreferred.slice(0, take);
++  if (preferences.language === 'en') return sortedPreferred.slice(0, take);
+ 
+   const fallback = await prisma.inventoryTemplate.findMany({
+-    where: { AND: [baseWhere, templateLocaleWhere(preferences, 'en'), { key: { notIn: sortedPreferred.map((template) => template.key) } }] },
++    where: { AND: [baseWhere, templateLocaleWhere(preferences, 'en')] },
+     include: { businessProfile: { select: businessProfileSelect } },
+     orderBy: [{ sortOrder: 'asc' }, { itemType: 'asc' }, { title: 'asc' }],
+-    take,
++    take: take + sortedPreferred.length,
+   });
+ 
+-  return sortTemplatesForLocale(fallback, preferences).slice(0, take);
++  const sortedFallback = sortTemplatesForLocale(fallback, { ...preferences, language: 'en' });
++  return mergePreferredTemplatesWithFallback(sortedPreferred, sortedFallback, take);
+ }
+ 
+ inventoryTemplatesRoutes.get('/', optionalAuth, asyncRoute(async (req, res) => {

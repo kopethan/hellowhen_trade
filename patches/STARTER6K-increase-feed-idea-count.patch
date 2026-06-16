@@ -1,0 +1,30 @@
+diff --git a/apps/mobile/src/features/trade/tradeFeedIdeas.ts b/apps/mobile/src/features/trade/tradeFeedIdeas.ts
+index 0a2e076..3e5b9d8 100644
+--- a/apps/mobile/src/features/trade/tradeFeedIdeas.ts
++++ b/apps/mobile/src/features/trade/tradeFeedIdeas.ts
+@@ -55,8 +55,8 @@ export const feedTradeIdeas: Record<FeedTradeIdeaKey, FeedTradeIdeaTemplatePair>
+ export const feedTradeIdeaPlacement = {
+   sparseFeedThreshold: 4,
+   firstInlineAfterIndex: 2,
+-  repeatEvery: 8,
+-  maxInlineIdeas: 1,
++  repeatEvery: 4,
++  maxInlineIdeas: 3,
+ } as const;
+ 
+ export function shouldShowFeedIdeaRail(tradeCount: number) {
+diff --git a/apps/web/src/features/trade/tradeFeedIdeas.ts b/apps/web/src/features/trade/tradeFeedIdeas.ts
+index 0a2e076..3e5b9d8 100644
+--- a/apps/web/src/features/trade/tradeFeedIdeas.ts
++++ b/apps/web/src/features/trade/tradeFeedIdeas.ts
+@@ -55,8 +55,8 @@ export const feedTradeIdeas: Record<FeedTradeIdeaKey, FeedTradeIdeaTemplatePair>
+ export const feedTradeIdeaPlacement = {
+   sparseFeedThreshold: 4,
+   firstInlineAfterIndex: 2,
+-  repeatEvery: 8,
+-  maxInlineIdeas: 1,
++  repeatEvery: 4,
++  maxInlineIdeas: 3,
+ } as const;
+ 
+ export function shouldShowFeedIdeaRail(tradeCount: number) {
