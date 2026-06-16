@@ -1,0 +1,1401 @@
+diff --git a/apps/mobile/src/features/trade/CreateTradeFullScreen.tsx b/apps/mobile/src/features/trade/CreateTradeFullScreen.tsx
+index 028873d..c77e393 100644
+--- a/apps/mobile/src/features/trade/CreateTradeFullScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeFullScreen.tsx
+@@ -25,7 +25,7 @@ import { categoryLabel, itemTypeLabel, modeLabel } from './components/InventoryF
+ import { TradeSquareDeck } from './components/TradeSquareDeck';
+ import { buildTradeSquareDeckCards } from './components/TradeSquareDeckCards';
+ import type { NeedItem, OfferItem, TradeDeckItem } from './types';
+-import { feedTradeIdeas, parseFeedTradeIdeaKey } from './tradeFeedIdeas';
++import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, parseFeedTradeIdeaKey } from './tradeFeedIdeas';
+ 
+ export type TradeCreateSide = 'need' | 'offer';
+ export type TradeCreateSideSelection =
+@@ -217,11 +217,18 @@ export function CreateTradeFullScreen({ route, navigation }: Props) {
+ 
+   function editStarterSide(side: TradeCreateSide) {
+     if (!routeIdeaKey || !selectedFeedIdea) return;
++    const templateKey = side === 'need' && feedTradeIdeaHasNeed(selectedFeedIdea)
++      ? selectedFeedIdea.needTemplateKey
++      : side === 'offer' && feedTradeIdeaHasOffer(selectedFeedIdea)
++        ? selectedFeedIdea.offerTemplateKey
++        : null;
++    if (!templateKey) return;
++    const starterPostType = postType ?? (selectedFeedIdea.type === 'trade' ? 'need_offer' : selectedFeedIdea.type);
+     navigation.navigate(side === 'need' ? 'CreateNeedFull' : 'CreateOfferFull', {
+       returnTo: 'createTradeFull',
+-      initialTemplateKey: side === 'need' ? selectedFeedIdea.needTemplateKey : selectedFeedIdea.offerTemplateKey,
++      initialTemplateKey: templateKey,
+       initialIdeaKey: routeIdeaKey,
+-      initialPostType: postType ?? 'need_offer',
++      initialPostType: starterPostType,
+       initialNeedSelection: needSelection,
+       initialOfferSelection: offerSelection,
+       initialExpiryDays: expiryDays,
+@@ -290,14 +297,18 @@ export function CreateTradeFullScreen({ route, navigation }: Props) {
+           <AppCard>
+             <SemanticBadge label={t('trade.feedIdeas.badge')} tone="trade" size="sm" />
+             <AppText style={styles.sectionTitle}>{t('trade.feedIdeas.fullFormTitle')}</AppText>
+-            <AppText style={[styles.selectedBody, { color: theme.color.muted }]}>{t('trade.feedIdeas.fullFormBody')}</AppText>
++            <AppText style={[styles.selectedBody, { color: theme.color.muted }]}>{t(selectedFeedIdea.type === 'open_need' ? 'trade.feedIdeas.fullFormBodyOpenNeed' : selectedFeedIdea.type === 'open_offer' ? 'trade.feedIdeas.fullFormBodyOpenOffer' : 'trade.feedIdeas.fullFormBody')}</AppText>
+             <View style={styles.starterActionRow}>
+-              <Pressable accessibilityRole="button" disabled={submitting} onPress={() => editStarterSide('need')} style={({ pressed }) => [styles.starterActionButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, submitting && styles.disabled, pressed && styles.pressed]}>
+-                <AppText style={[styles.starterActionText, { color: theme.color.text }]}>{selectedNeed ? t('trade.feedIdeas.editNeedAgainAction') : t('trade.feedIdeas.editNeedAction')}</AppText>
+-              </Pressable>
+-              <Pressable accessibilityRole="button" disabled={submitting} onPress={() => editStarterSide('offer')} style={({ pressed }) => [styles.starterActionButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, submitting && styles.disabled, pressed && styles.pressed]}>
+-                <AppText style={[styles.starterActionText, { color: theme.color.text }]}>{selectedOffer ? t('trade.feedIdeas.editOfferAgainAction') : t('trade.feedIdeas.editOfferAction')}</AppText>
+-              </Pressable>
++              {feedTradeIdeaHasNeed(selectedFeedIdea) ? (
++                <Pressable accessibilityRole="button" disabled={submitting} onPress={() => editStarterSide('need')} style={({ pressed }) => [styles.starterActionButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, submitting && styles.disabled, pressed && styles.pressed]}>
++                  <AppText style={[styles.starterActionText, { color: theme.color.text }]}>{selectedNeed ? t('trade.feedIdeas.editNeedAgainAction') : t('trade.feedIdeas.editNeedAction')}</AppText>
++                </Pressable>
++              ) : null}
++              {feedTradeIdeaHasOffer(selectedFeedIdea) ? (
++                <Pressable accessibilityRole="button" disabled={submitting} onPress={() => editStarterSide('offer')} style={({ pressed }) => [styles.starterActionButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, submitting && styles.disabled, pressed && styles.pressed]}>
++                  <AppText style={[styles.starterActionText, { color: theme.color.text }]}>{selectedOffer ? t('trade.feedIdeas.editOfferAgainAction') : t('trade.feedIdeas.editOfferAction')}</AppText>
++                </Pressable>
++              ) : null}
+             </View>
+           </AppCard>
+         ) : null}
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index f69f832..bb346c9 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -25,7 +25,7 @@ import { categoryLabel, itemTypeLabel, modeLabel } from './components/InventoryF
+ import { TradeSquareDeck } from './components/TradeSquareDeck';
+ import { buildTradeSquareDeckCards } from './components/TradeSquareDeckCards';
+ import { buildMobileWizardDraftKey, useMobileWizardDraft, WizardFooter, WizardShell } from './create';
+-import { feedTradeIdeas, getLocalizedTemplateKeyCandidates, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
++import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedTradeIdeaPostType, getLocalizedTemplateKeyCandidates, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+ import type { NeedItem, OfferItem, TradeDeckItem } from './types';
+ 
+ export type TradeCreateSide = 'need' | 'offer';
+@@ -351,26 +351,28 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+     try {
+       const templatesResponse = await api.inventoryTemplates.list({ sourceType: 'hellowhen', language, take: 100 });
+       const templates = normalizeTemplateResponse(templatesResponse);
+-      const needTemplateKeys = getLocalizedTemplateKeyCandidates(idea.needTemplateKey);
+-      const offerTemplateKeys = getLocalizedTemplateKeyCandidates(idea.offerTemplateKey);
+-      const needTemplate = templates.find((template) => needTemplateKeys.includes(template.key) && template.kind === 'need');
+-      const offerTemplate = templates.find((template) => offerTemplateKeys.includes(template.key) && template.kind === 'offer');
+-      if (!needTemplate) throw new Error(t('trade.feedIdeas.applyMissingNeed'));
+-      if (!offerTemplate) throw new Error(t('trade.feedIdeas.applyMissingOffer'));
++      const needTemplateKeys = feedTradeIdeaHasNeed(idea) ? getLocalizedTemplateKeyCandidates(idea.needTemplateKey) : [];
++      const offerTemplateKeys = feedTradeIdeaHasOffer(idea) ? getLocalizedTemplateKeyCandidates(idea.offerTemplateKey) : [];
++      const needTemplate = feedTradeIdeaHasNeed(idea) ? templates.find((template) => needTemplateKeys.includes(template.key) && template.kind === 'need') : null;
++      const offerTemplate = feedTradeIdeaHasOffer(idea) ? templates.find((template) => offerTemplateKeys.includes(template.key) && template.kind === 'offer') : null;
++      if (feedTradeIdeaHasNeed(idea) && !needTemplate) throw new Error(t('trade.feedIdeas.applyMissingNeed'));
++      if (feedTradeIdeaHasOffer(idea) && !offerTemplate) throw new Error(t('trade.feedIdeas.applyMissingOffer'));
+ 
+       const [needResponse, offerResponse] = await Promise.all([
+-        api.inventoryTemplates.clone(needTemplate.id, { status: 'active' }),
+-        api.inventoryTemplates.clone(offerTemplate.id, { status: 'active' }),
++        needTemplate ? api.inventoryTemplates.clone(needTemplate.id, { status: 'active' }) : Promise.resolve(null),
++        offerTemplate ? api.inventoryTemplates.clone(offerTemplate.id, { status: 'active' }) : Promise.resolve(null),
+       ]);
+-      const clonedNeed = clonedNeedFromResponse(needResponse);
+-      const clonedOffer = clonedOfferFromResponse(offerResponse);
+-      if (!clonedNeed || !clonedOffer) throw new Error(t('trade.feedIdeas.applyError'));
+-
+-      setNeeds((current) => [clonedNeed, ...current.filter((need) => need.id !== clonedNeed.id)]);
+-      setOffers((current) => [clonedOffer, ...current.filter((offer) => offer.id !== clonedOffer.id)]);
+-      setPostType('need_offer');
+-      setNeedSelection({ side: 'need', kind: 'need', id: clonedNeed.id });
+-      setOfferSelection({ side: 'offer', kind: 'offer', id: clonedOffer.id });
++      const clonedNeed = needResponse ? clonedNeedFromResponse(needResponse) : null;
++      const clonedOffer = offerResponse ? clonedOfferFromResponse(offerResponse) : null;
++      if (feedTradeIdeaHasNeed(idea) && !clonedNeed) throw new Error(t('trade.feedIdeas.applyError'));
++      if (feedTradeIdeaHasOffer(idea) && !clonedOffer) throw new Error(t('trade.feedIdeas.applyError'));
++      const nextPostType = getFeedTradeIdeaPostType(idea);
++
++      if (clonedNeed) setNeeds((current) => [clonedNeed, ...current.filter((need) => need.id !== clonedNeed.id)]);
++      if (clonedOffer) setOffers((current) => [clonedOffer, ...current.filter((offer) => offer.id !== clonedOffer.id)]);
++      setPostType(nextPostType);
++      setNeedSelection(clonedNeed ? { side: 'need', kind: 'need', id: clonedNeed.id } : null);
++      setOfferSelection(clonedOffer ? { side: 'offer', kind: 'offer', id: clonedOffer.id } : null);
+       setActiveStepId('review');
+       setAppliedIdeaKey(ideaKey);
+     } catch (caughtError) {
+@@ -623,22 +625,26 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+       )}
+     >
+       {tradeWizardDraft.restored && shouldRestoreStoredDraft ? <InfoNotice tone="info" title={t('inventory.wizard.draftRestoredTitle')} body={t('inventory.wizard.draftRestoredBody')} /> : null}
+-      {showFeedIdeaPanel && routeIdeaKey ? (
++      {showFeedIdeaPanel && routeIdeaKey && selectedFeedIdea ? (
+         <AppCard style={[styles.feedIdeaPrefillCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+           <View style={styles.feedIdeaPrefillHeader}>
+             <SemanticBadge label={t('trade.feedIdeas.badge')} tone="instruction" />
+             <AppText style={styles.feedIdeaPrefillTitle}>{t('trade.feedIdeas.createFromIdeaTitle')}</AppText>
+-            <AppText style={[styles.feedIdeaPrefillBody, { color: theme.color.muted }]}>{t('trade.feedIdeas.createFromIdeaBody')}</AppText>
++            <AppText style={[styles.feedIdeaPrefillBody, { color: theme.color.muted }]}>{t(selectedFeedIdea.type === 'open_need' ? 'trade.feedIdeas.createFromIdeaBodyOpenNeed' : selectedFeedIdea.type === 'open_offer' ? 'trade.feedIdeas.createFromIdeaBodyOpenOffer' : 'trade.feedIdeas.createFromIdeaBody')}</AppText>
+           </View>
+           <View style={styles.feedIdeaPrefillSides} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
+-            <View style={[styles.feedIdeaPrefillSide, { borderColor: theme.semantic.need.border }]}>
+-              <AppText style={[styles.feedIdeaPrefillSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iNeed')}</AppText>
+-              <AppText style={styles.feedIdeaPrefillSideTitle}>{t(`trade.feedIdeas.items.${routeIdeaKey}.need`)}</AppText>
+-            </View>
+-            <View style={[styles.feedIdeaPrefillSide, { borderColor: theme.semantic.offer.border }]}>
+-              <AppText style={[styles.feedIdeaPrefillSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iOffer')}</AppText>
+-              <AppText style={styles.feedIdeaPrefillSideTitle}>{t(`trade.feedIdeas.items.${routeIdeaKey}.offer`)}</AppText>
+-            </View>
++            {feedTradeIdeaHasNeed(selectedFeedIdea) ? (
++              <View style={[styles.feedIdeaPrefillSide, { borderColor: theme.semantic.need.border }]}>
++                <AppText style={[styles.feedIdeaPrefillSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iNeed')}</AppText>
++                <AppText style={styles.feedIdeaPrefillSideTitle}>{t(`trade.feedIdeas.items.${routeIdeaKey}.need`)}</AppText>
++              </View>
++            ) : null}
++            {feedTradeIdeaHasOffer(selectedFeedIdea) ? (
++              <View style={[styles.feedIdeaPrefillSide, { borderColor: theme.semantic.offer.border }]}>
++                <AppText style={[styles.feedIdeaPrefillSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iOffer')}</AppText>
++                <AppText style={styles.feedIdeaPrefillSideTitle}>{t(`trade.feedIdeas.items.${routeIdeaKey}.offer`)}</AppText>
++              </View>
++            ) : null}
+           </View>
+           <Pressable accessibilityRole="button" disabled={Boolean(applyingIdea)} onPress={() => void applyFeedIdeaToDraft(routeIdeaKey)} style={({ pressed }) => [styles.feedIdeaPrefillAction, { backgroundColor: theme.semantic.trade.bg }, pressed && styles.pressed, applyingIdea && styles.disabled]}>
+             <AppText style={[styles.feedIdeaPrefillActionText, { color: theme.color.inverseText }]}>{applyingIdea === routeIdeaKey ? t('trade.feedIdeas.applySaving') : t('trade.feedIdeas.applyAction')}</AppText>
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index a87eded..3c48f8c 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -20,7 +20,7 @@ import { useAuth } from '../../providers/AuthProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { TradeSquareDeck } from './components/TradeSquareDeck';
+ import { TradeExchangeIcon } from './components/TradeExchangeIcon';
+-import { feedTradeIdeaKeys, getInlineFeedIdeaKey, shouldShowFeedIdeaRail, type FeedTradeIdeaKey } from './tradeFeedIdeas';
++import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeaKeys, feedTradeIdeas, getInlineFeedIdeaKey, shouldShowFeedIdeaRail, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+ import type { TradeDeckItem } from './types';
+ 
+ type FeedResponse = { trades: TradeDeckItem[] };
+@@ -368,45 +368,72 @@ function TradeFeedIdeaRail({ onOpenIdea }: { onOpenIdea: (ideaKey: FeedTradeIdea
+   );
+ }
+ 
++function getFeedIdeaTypeLabelKey(ideaKey: FeedTradeIdeaKey) {
++  const idea = feedTradeIdeas[ideaKey];
++  return idea.type === 'open_need' ? 'trade.feedIdeas.typeLabels.openNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.typeLabels.openOffer' : 'trade.feedIdeas.typeLabels.trade';
++}
++
++function getFeedIdeaActionKey(ideaKey: FeedTradeIdeaKey) {
++  const idea = feedTradeIdeas[ideaKey];
++  return idea.type === 'open_need' ? 'trade.feedIdeas.actionOpenNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.actionOpenOffer' : 'trade.feedIdeas.action';
++}
++
++function getFeedIdeaAriaSummary(t: ReturnType<typeof useTranslation>['t'], ideaKey: FeedTradeIdeaKey) {
++  const idea = feedTradeIdeas[ideaKey];
++  const need = feedTradeIdeaHasNeed(idea) ? t(`trade.feedIdeas.items.${ideaKey}.need`) : '';
++  const offer = feedTradeIdeaHasOffer(idea) ? t(`trade.feedIdeas.items.${ideaKey}.offer`) : '';
++  return idea.type === 'open_need' ? need : idea.type === 'open_offer' ? offer : `${need} ↔ ${offer}`;
++}
++
+ function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: FeedTradeIdeaKey; onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void; inline?: boolean }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
++  const idea = feedTradeIdeas[ideaKey];
+   const pack = t(`trade.feedIdeas.items.${ideaKey}.pack`);
+-  const need = t(`trade.feedIdeas.items.${ideaKey}.need`);
+-  const offer = t(`trade.feedIdeas.items.${ideaKey}.offer`);
++  const need = feedTradeIdeaHasNeed(idea) ? t(`trade.feedIdeas.items.${ideaKey}.need`) : '';
++  const offer = feedTradeIdeaHasOffer(idea) ? t(`trade.feedIdeas.items.${ideaKey}.offer`) : '';
++  const typeLabel = t(getFeedIdeaTypeLabelKey(ideaKey));
++  const actionLabel = t(getFeedIdeaActionKey(ideaKey));
++  const summary = getFeedIdeaAriaSummary(t, ideaKey);
+ 
+   return (
+     <Pressable
+       accessibilityRole="button"
+-      accessibilityLabel={`${t('trade.feedIdeas.cardLabel')} · ${pack}: ${need} ↔ ${offer}. ${t('trade.feedIdeas.action')}`}
++      accessibilityLabel={`${typeLabel} · ${pack}: ${summary}. ${actionLabel}`}
+       onPress={() => onOpenIdea(ideaKey)}
+       style={({ pressed }) => [styles.feedIdeaCard, inline && styles.feedIdeaCardInline, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
+     >
+       <View style={styles.feedIdeaTopline}>
+-        <AppText numberOfLines={1} style={[styles.feedIdeaToplineText, { color: theme.color.muted }]}>{t('trade.feedIdeas.cardLabel')} · {pack}</AppText>
++        <AppText numberOfLines={1} style={[styles.feedIdeaToplineText, { color: theme.color.muted }]}>{typeLabel} · {pack}</AppText>
+         <AppText numberOfLines={1} style={[styles.feedIdeaToplineRight, { color: theme.color.text }]}>{t('trade.feedIdeas.ideaLabel')}</AppText>
+       </View>
+ 
+-      <View style={styles.feedIdeaSideBlock}>
+-        <AppText style={[styles.feedIdeaSideEyebrow, { color: '#60A5FA' }]}>{t('trade.labels.iNeed')}</AppText>
+-        <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, { color: theme.color.text }]}>{need}</AppText>
+-        <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.needMeta`)}</AppText>
+-      </View>
++      {feedTradeIdeaHasNeed(idea) ? (
++        <View style={styles.feedIdeaSideBlock}>
++          <AppText style={[styles.feedIdeaSideEyebrow, { color: '#60A5FA' }]}>{t('trade.labels.iNeed')}</AppText>
++          <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, { color: theme.color.text }]}>{need}</AppText>
++          <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.needMeta`)}</AppText>
++        </View>
++      ) : null}
+ 
+-      <View style={styles.feedIdeaExchangeRow} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
+-        <View style={[styles.feedIdeaExchangeLine, { backgroundColor: theme.color.border }]} />
+-        <TradeExchangeIcon color={theme.color.muted} size={16} strokeWidth={2.2} />
+-        <View style={[styles.feedIdeaExchangeLine, { backgroundColor: theme.color.border }]} />
+-      </View>
++      {idea.type === 'trade' ? (
++        <View style={styles.feedIdeaExchangeRow} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
++          <View style={[styles.feedIdeaExchangeLine, { backgroundColor: theme.color.border }]} />
++          <TradeExchangeIcon color={theme.color.muted} size={16} strokeWidth={2.2} />
++          <View style={[styles.feedIdeaExchangeLine, { backgroundColor: theme.color.border }]} />
++        </View>
++      ) : null}
+ 
+-      <View style={styles.feedIdeaSideBlock}>
+-        <AppText style={[styles.feedIdeaSideEyebrow, { color: '#34D399' }]}>{t('trade.labels.iOffer')}</AppText>
+-        <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, { color: theme.color.text }]}>{offer}</AppText>
+-        <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.offerMeta`)}</AppText>
+-      </View>
++      {feedTradeIdeaHasOffer(idea) ? (
++        <View style={styles.feedIdeaSideBlock}>
++          <AppText style={[styles.feedIdeaSideEyebrow, { color: '#34D399' }]}>{t('trade.labels.iOffer')}</AppText>
++          <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, { color: theme.color.text }]}>{offer}</AppText>
++          <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.offerMeta`)}</AppText>
++        </View>
++      ) : null}
+ 
+       <View style={styles.feedIdeaFooter}>
+-        <AppText numberOfLines={1} style={[styles.feedIdeaActionText, { color: theme.color.text }]}>{t('trade.feedIdeas.action')}</AppText>
++        <AppText numberOfLines={1} style={[styles.feedIdeaActionText, { color: theme.color.text }]}>{actionLabel}</AppText>
+       </View>
+     </Pressable>
+   );
+diff --git a/apps/mobile/src/features/trade/TradeIdeaDetailScreen.tsx b/apps/mobile/src/features/trade/TradeIdeaDetailScreen.tsx
+index 17628a0..d353d36 100644
+--- a/apps/mobile/src/features/trade/TradeIdeaDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeIdeaDetailScreen.tsx
+@@ -9,7 +9,7 @@ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { useAuth } from '../../providers/AuthProvider';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+-import { feedTradeIdeaKeys, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
++import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeaKeys, feedTradeIdeas, getFeedTradeIdeaPostType, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'TradeIdeaDetail'>;
+ type IdeaExpirySelection = 'default' | 'none' | '1' | '3' | '7' | '14';
+@@ -32,6 +32,9 @@ function selectedExpiryDays(expiry: IdeaExpirySelection): number | null | undefi
+ }
+ 
+ function ideaTitle(t: ReturnType<typeof useTranslation>['t'], ideaKey: FeedTradeIdeaKey) {
++  const idea = feedTradeIdeas[ideaKey];
++  if (idea.type === 'open_need') return t(`trade.feedIdeas.items.${ideaKey}.need`);
++  if (idea.type === 'open_offer') return t(`trade.feedIdeas.items.${ideaKey}.offer`);
+   return `${t(`trade.feedIdeas.items.${ideaKey}.need`)} ↔ ${t(`trade.feedIdeas.items.${ideaKey}.offer`)}`;
+ }
+ 
+@@ -39,6 +42,16 @@ function getRelatedIdeaKeys(ideaKey: FeedTradeIdeaKey) {
+   return feedTradeIdeaKeys.filter((candidate) => candidate !== ideaKey).slice(0, maxRelatedIdeas);
+ }
+ 
++function getIdeaTypeLabelKey(ideaKey: FeedTradeIdeaKey) {
++  const idea = feedTradeIdeas[ideaKey];
++  return idea.type === 'open_need' ? 'trade.feedIdeas.typeLabels.openNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.typeLabels.openOffer' : 'trade.feedIdeas.typeLabels.trade';
++}
++
++function getIdeaActionKey(ideaKey: FeedTradeIdeaKey) {
++  const idea = feedTradeIdeas[ideaKey];
++  return idea.type === 'open_need' ? 'trade.feedIdeas.actionOpenNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.actionOpenOffer' : 'trade.feedIdeas.action';
++}
++
+ function IdeaSide({ kind, ideaKey }: { kind: 'need' | 'offer'; ideaKey: FeedTradeIdeaKey }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+@@ -133,7 +146,7 @@ export function TradeIdeaDetailScreen({ route, navigation }: Props) {
+     const expiryDays = selectedExpiryDays(expiry);
+     const params = {
+       initialIdeaKey: ideaKey,
+-      initialPostType: 'need_offer' as const,
++      initialPostType: getFeedTradeIdeaPostType(feedTradeIdeas[ideaKey]),
+       ...(expiryDays !== undefined ? { initialExpiryDays: expiryDays } : {}),
+     };
+     if (fullForm) {
+@@ -178,22 +191,24 @@ export function TradeIdeaDetailScreen({ route, navigation }: Props) {
+ 
+       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+         <View style={[styles.heroCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-          <SemanticBadge label={`${t('trade.feedIdeas.cardLabel')} · ${pack}`} tone="instruction" />
++          <SemanticBadge label={`${t(getIdeaTypeLabelKey(ideaKey))} · ${pack}`} tone="instruction" />
+           <AppText style={[styles.heroTitle, { color: theme.color.text }]}>{title}</AppText>
+-          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t('trade.ideaDetail.body')}</AppText>
++          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t(feedTradeIdeas[ideaKey].type === 'open_need' ? 'trade.ideaDetail.bodyOpenNeed' : feedTradeIdeas[ideaKey].type === 'open_offer' ? 'trade.ideaDetail.bodyOpenOffer' : 'trade.ideaDetail.body')}</AppText>
+         </View>
+ 
+         <NextStepsCard />
+ 
+-        <IdeaSide kind="need" ideaKey={ideaKey} />
++        {feedTradeIdeaHasNeed(feedTradeIdeas[ideaKey]) ? <IdeaSide kind="need" ideaKey={ideaKey} /> : null}
+ 
+-        <View style={styles.exchangeRow} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
+-          <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
+-          <MobileIcon name="trade" size={18} color={theme.color.muted} />
+-          <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
+-        </View>
++        {feedTradeIdeas[ideaKey].type === 'trade' ? (
++          <View style={styles.exchangeRow} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
++            <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
++            <MobileIcon name="trade" size={18} color={theme.color.muted} />
++            <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
++          </View>
++        ) : null}
+ 
+-        <IdeaSide kind="offer" ideaKey={ideaKey} />
++        {feedTradeIdeaHasOffer(feedTradeIdeas[ideaKey]) ? <IdeaSide kind="offer" ideaKey={ideaKey} /> : null}
+ 
+         <View style={[styles.expiryCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+           <View style={styles.expiryHeader}>
+@@ -228,7 +243,7 @@ export function TradeIdeaDetailScreen({ route, navigation }: Props) {
+           <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{t('trade.ideaDetail.editInFullForm')}</AppText>
+         </Pressable>
+         <Pressable accessibilityRole="button" onPress={() => openCreate(false)} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+-          <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('trade.feedIdeas.action')}</AppText>
++          <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t(getIdeaActionKey(ideaKey))}</AppText>
+         </Pressable>
+       </View>
+     </AppScreen>
+diff --git a/apps/mobile/src/features/trade/tradeFeedIdeas.ts b/apps/mobile/src/features/trade/tradeFeedIdeas.ts
+index 7c96fa9..2e3ca0d 100644
+--- a/apps/mobile/src/features/trade/tradeFeedIdeas.ts
++++ b/apps/mobile/src/features/trade/tradeFeedIdeas.ts
+@@ -17,90 +17,165 @@ export const feedTradeIdeaKeys = [
+   'productTableDriveCleanup',
+   'clientRoleplayLandingReview',
+   'networkingIntroSocialClips',
++  'openNeedAppOnboarding',
++  'openNeedTripod',
++  'openNeedAdminLetter',
++  'openNeedQuietTable',
++  'openOfferOutdoorPhotos',
++  'openOfferEnglishPractice',
++  'openOfferSocialVideoClips',
++  'openOfferLandingReview',
+ ] as const;
+ 
+ export type FeedTradeIdeaKey = (typeof feedTradeIdeaKeys)[number];
++export type FeedTradeIdeaType = 'trade' | 'open_need' | 'open_offer';
++export type FeedTradeIdeaPostType = 'need_offer' | 'open_need' | 'open_offer';
+ 
+-export type FeedTradeIdeaTemplatePair = {
+-  needTemplateKey: string;
+-  offerTemplateKey: string;
+-};
++export type FeedTradeIdeaTemplatePair =
++  | { type: 'trade'; needTemplateKey: string; offerTemplateKey: string }
++  | { type: 'open_need'; needTemplateKey: string }
++  | { type: 'open_offer'; offerTemplateKey: string };
+ 
+ export const feedTradeIdeas: Record<FeedTradeIdeaKey, FeedTradeIdeaTemplatePair> = {
+   appTestingPhotos: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-app-flow-normal-user-test',
+     offerTemplateKey: 'starter-offer-edit-product-portfolio-photos',
+   },
+   coldDmTranslation: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-first-cold-dm',
+     offerTemplateKey: 'starter-offer-translate-french-english-text',
+   },
+   frenchPracticeVideoEdit: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-practice-french-phone-call',
+     offerTemplateKey: 'starter-offer-short-video-reel-edit',
+   },
+   localTipsBrandNames: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-local-paris-recommendations',
+     offerTemplateKey: 'starter-offer-brand-name-ideas',
+   },
+   quietTableEmailClarity: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-quiet-table-video-call',
+     offerTemplateKey: 'starter-offer-email-clarity-check',
+   },
+   tripodUxFeedback: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-borrow-tripod-day',
+     offerTemplateKey: 'starter-offer-ux-feedback-app-website',
+   },
+   placePhotosNotion: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-visit-place-send-photos',
+     offerTemplateKey: 'starter-offer-notion-portfolio-structure',
+   },
+   cleanBackgroundSocialPost: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-clean-background-photos',
+     offerTemplateKey: 'starter-offer-simple-social-media-post',
+   },
+   dogLifestylePhotoShoot: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-dog-lifestyle-photo-shoot',
+     offerTemplateKey: 'starter-offer-edit-product-portfolio-photos',
+   },
+   posterAttentionLinkedIn: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-poster-five-second-test',
+     offerTemplateKey: 'starter-offer-linkedin-freelance-profile-review',
+   },
+   microphoneAppTest: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-microphone-short-recording',
+     offerTemplateKey: 'starter-offer-real-user-app-test',
+   },
+   printerProductDescription: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-access-printer',
+     offerTemplateKey: 'starter-offer-product-description-polish',
+   },
+   adminLetterEnglishPractice: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-explain-french-admin-letter',
+     offerTemplateKey: 'starter-offer-english-conversation-practice',
+   },
+   onboardingOutdoorPhotos: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-app-onboarding-ten-minute-test',
+     offerTemplateKey: 'starter-offer-outdoor-product-photos',
+   },
+   bikePickupQrPoster: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-bike-small-pickup',
+     offerTemplateKey: 'starter-offer-qr-poster-design',
+   },
+   productTableDriveCleanup: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-product-table-styling',
+     offerTemplateKey: 'starter-offer-organize-notion-google-drive',
+   },
+   clientRoleplayLandingReview: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-client-interview-roleplay',
+     offerTemplateKey: 'starter-offer-landing-page-honest-feedback',
+   },
+   networkingIntroSocialClips: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-networking-event-confidence',
+     offerTemplateKey: 'starter-offer-social-video-clips',
+   },
++  openNeedAppOnboarding: {
++    type: 'open_need',
++    needTemplateKey: 'starter-need-app-onboarding-ten-minute-test',
++  },
++  openNeedTripod: {
++    type: 'open_need',
++    needTemplateKey: 'starter-need-borrow-tripod-day',
++  },
++  openNeedAdminLetter: {
++    type: 'open_need',
++    needTemplateKey: 'starter-need-explain-french-admin-letter',
++  },
++  openNeedQuietTable: {
++    type: 'open_need',
++    needTemplateKey: 'starter-need-quiet-table-video-call',
++  },
++  openOfferOutdoorPhotos: {
++    type: 'open_offer',
++    offerTemplateKey: 'starter-offer-outdoor-product-photos',
++  },
++  openOfferEnglishPractice: {
++    type: 'open_offer',
++    offerTemplateKey: 'starter-offer-english-conversation-practice',
++  },
++  openOfferSocialVideoClips: {
++    type: 'open_offer',
++    offerTemplateKey: 'starter-offer-social-video-clips',
++  },
++  openOfferLandingReview: {
++    type: 'open_offer',
++    offerTemplateKey: 'starter-offer-landing-page-honest-feedback',
++  },
+ };
+ 
++export function getFeedTradeIdeaPostType(idea: FeedTradeIdeaTemplatePair): FeedTradeIdeaPostType {
++  return idea.type === 'trade' ? 'need_offer' : idea.type;
++}
++
++export function feedTradeIdeaHasNeed(idea: FeedTradeIdeaTemplatePair): idea is Extract<FeedTradeIdeaTemplatePair, { needTemplateKey: string }> {
++  return 'needTemplateKey' in idea;
++}
++
++export function feedTradeIdeaHasOffer(idea: FeedTradeIdeaTemplatePair): idea is Extract<FeedTradeIdeaTemplatePair, { offerTemplateKey: string }> {
++  return 'offerTemplateKey' in idea;
++}
++
++export function getFeedTradeIdeaType(ideaKey: FeedTradeIdeaKey): FeedTradeIdeaType {
++  return feedTradeIdeas[ideaKey].type;
++}
+ 
+ export const feedTradeIdeaPlacement = {
+   sparseFeedThreshold: 4,
+diff --git a/apps/web/src/features/trade/TradeCreateClient.tsx b/apps/web/src/features/trade/TradeCreateClient.tsx
+index 26c0124..0b07f26 100644
+--- a/apps/web/src/features/trade/TradeCreateClient.tsx
++++ b/apps/web/src/features/trade/TradeCreateClient.tsx
+@@ -18,7 +18,7 @@ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { normalizeInventoryList, toIsoDate } from '../inventory/inventoryPresentation';
+ import { TradeSidePicker } from './TradeSidePicker';
+ import { TradeStackDeck } from './TradeStackDeck';
+-import { feedTradeIdeas, getLocalizedTemplateKeyCandidates, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
++import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedTradeIdeaPostType, getLocalizedTemplateKeyCandidates, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+ 
+ type CreateTradeResponse = { trade?: unknown; id?: unknown };
+ type DuplicateTradeSummary = Pick<TradeDto, 'id' | 'status' | 'title'> & { postType?: TradePostType };
+@@ -382,9 +382,11 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
+   const routeNeedId = searchParams.get('needId') ?? initialNeedId;
+   const routeOfferId = searchParams.get('offerId') ?? initialOfferId;
+   const routeIdeaKey = parseFeedTradeIdeaKey(searchParams.get('idea') ?? initialIdea);
++  const routeSelectedFeedIdea = routeIdeaKey ? feedTradeIdeas[routeIdeaKey] : null;
++  const routeIdeaPostType = routeSelectedFeedIdea ? getFeedTradeIdeaPostType(routeSelectedFeedIdea) : '';
+   const routeExpiryDays = parseIdeaExpiryDaysParam(searchParams.get('expiryDays'));
+   const routeExpiryDateInput = buildDateInputFromExpiryDays(routeExpiryDays);
+-  const routePostType = parseTradePostType(searchParams.get('postType') ?? initialPostType) || (routeNeedId || routeOfferId || routeIdeaKey ? 'need_offer' : '');
++  const routePostType = parseTradePostType(searchParams.get('postType') ?? initialPostType) || routeIdeaPostType || (routeNeedId || routeOfferId ? 'need_offer' : '');
+   const preferredCurrency = getPreferredCurrency(auth.user?.profile?.preferredCurrency);
+   const demoDataEnabled = isWebDemoDataEnabled();
+   const [needs, setNeeds] = useState<NeedDto[]>(() => demoDataEnabled ? mockNeeds : []);
+@@ -669,7 +671,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
+     }
+   }
+ 
+-  const selectedFeedIdea = routeIdeaKey ? feedTradeIdeas[routeIdeaKey] : null;
++  const selectedFeedIdea = routeSelectedFeedIdea;
+   const showFeedIdeaPanel = Boolean(routeIdeaKey && selectedFeedIdea && appliedIdeaKey !== routeIdeaKey);
+ 
+   async function applyFeedIdeaToDraft(ideaKey: FeedTradeIdeaKey) {
+@@ -684,30 +686,32 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
+     try {
+       const templatesResponse = await api.inventoryTemplates.list({ sourceType: 'hellowhen', language, take: 100 });
+       const templates = normalizeTemplateResponse(templatesResponse);
+-      const needTemplateKeys = getLocalizedTemplateKeyCandidates(idea.needTemplateKey);
+-      const offerTemplateKeys = getLocalizedTemplateKeyCandidates(idea.offerTemplateKey);
+-      const needTemplate = templates.find((template) => needTemplateKeys.includes(template.key) && template.kind === 'need');
+-      const offerTemplate = templates.find((template) => offerTemplateKeys.includes(template.key) && template.kind === 'offer');
+-      if (!needTemplate) throw new Error(t('trade.feedIdeas.applyMissingNeed'));
+-      if (!offerTemplate) throw new Error(t('trade.feedIdeas.applyMissingOffer'));
++      const needTemplateKeys = feedTradeIdeaHasNeed(idea) ? getLocalizedTemplateKeyCandidates(idea.needTemplateKey) : [];
++      const offerTemplateKeys = feedTradeIdeaHasOffer(idea) ? getLocalizedTemplateKeyCandidates(idea.offerTemplateKey) : [];
++      const needTemplate = feedTradeIdeaHasNeed(idea) ? templates.find((template) => needTemplateKeys.includes(template.key) && template.kind === 'need') : null;
++      const offerTemplate = feedTradeIdeaHasOffer(idea) ? templates.find((template) => offerTemplateKeys.includes(template.key) && template.kind === 'offer') : null;
++      if (feedTradeIdeaHasNeed(idea) && !needTemplate) throw new Error(t('trade.feedIdeas.applyMissingNeed'));
++      if (feedTradeIdeaHasOffer(idea) && !offerTemplate) throw new Error(t('trade.feedIdeas.applyMissingOffer'));
+ 
+       const [needResponse, offerResponse] = await Promise.all([
+-        api.inventoryTemplates.clone(needTemplate.id, { status: 'active' }),
+-        api.inventoryTemplates.clone(offerTemplate.id, { status: 'active' }),
++        needTemplate ? api.inventoryTemplates.clone(needTemplate.id, { status: 'active' }) : Promise.resolve(null),
++        offerTemplate ? api.inventoryTemplates.clone(offerTemplate.id, { status: 'active' }) : Promise.resolve(null),
+       ]);
+-      const clonedNeed = clonedNeedFromResponse(needResponse);
+-      const clonedOffer = clonedOfferFromResponse(offerResponse);
+-      if (!clonedNeed || !clonedOffer) throw new Error(t('trade.feedIdeas.applyError'));
+-
+-      setNeeds((current) => [clonedNeed, ...current.filter((need) => need.id !== clonedNeed.id)]);
+-      setOffers((current) => [clonedOffer, ...current.filter((offer) => offer.id !== clonedOffer.id)]);
++      const clonedNeed = needResponse ? clonedNeedFromResponse(needResponse) : null;
++      const clonedOffer = offerResponse ? clonedOfferFromResponse(offerResponse) : null;
++      if (feedTradeIdeaHasNeed(idea) && !clonedNeed) throw new Error(t('trade.feedIdeas.applyError'));
++      if (feedTradeIdeaHasOffer(idea) && !clonedOffer) throw new Error(t('trade.feedIdeas.applyError'));
++      const nextPostType = getFeedTradeIdeaPostType(idea);
++
++      if (clonedNeed) setNeeds((current) => [clonedNeed, ...current.filter((need) => need.id !== clonedNeed.id)]);
++      if (clonedOffer) setOffers((current) => [clonedOffer, ...current.filter((offer) => offer.id !== clonedOffer.id)]);
+       setValues((current) => ({
+         ...current,
+-        postType: 'need_offer',
++        postType: nextPostType,
+         needMode: 'saved',
+         offerMode: 'saved',
+-        needId: clonedNeed.id,
+-        offerId: clonedOffer.id,
++        needId: clonedNeed?.id ?? '',
++        offerId: clonedOffer?.id ?? '',
+         amount: '',
+         cashPromiseAmount: '',
+         cashPromiseNote: '',
+@@ -716,7 +720,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
+       }));
+       setActiveStepId('review');
+       setAppliedIdeaKey(ideaKey);
+-      setNotice(t('trade.feedIdeas.applySuccess'));
++      setNotice(t(nextPostType === 'open_need' ? 'trade.feedIdeas.applySuccessOpenNeed' : nextPostType === 'open_offer' ? 'trade.feedIdeas.applySuccessOpenOffer' : 'trade.feedIdeas.applySuccess'));
+       router.replace('/trades/create', { scroll: false });
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError, t('trade.feedIdeas.applyError')));
+@@ -976,15 +980,15 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
+ 
+         {tradeWizardDraft.restored && shouldRestoreStoredDraft ? <p className="form-message">{t('inventory.wizard.draftRestoredTitle')} · {t('inventory.wizard.draftRestoredBody')}</p> : null}
+ 
+-        {showFeedIdeaPanel && routeIdeaKey ? (
++        {showFeedIdeaPanel && routeIdeaKey && selectedFeedIdea ? (
+           <section className="mobile-card mobile-card--soft trade-create-idea-prefill">
+             <div>
+               <span className="semantic-badge instruction">{t('trade.feedIdeas.badge')}</span>
+               <h3>{t('trade.feedIdeas.createFromIdeaTitle')}</h3>
+-              <p>{t('trade.feedIdeas.createFromIdeaBody')}</p>
++              <p>{t(selectedFeedIdea.type === 'open_need' ? 'trade.feedIdeas.createFromIdeaBodyOpenNeed' : selectedFeedIdea.type === 'open_offer' ? 'trade.feedIdeas.createFromIdeaBodyOpenOffer' : 'trade.feedIdeas.createFromIdeaBody')}</p>
+               <div className="trade-create-idea-prefill__sides" aria-label={t('trade.feedIdeas.sidesLabel')}>
+-                <span><strong>{t('trade.labels.iNeed')}</strong>{t(`trade.feedIdeas.items.${routeIdeaKey}.need`)}</span>
+-                <span><strong>{t('trade.labels.iOffer')}</strong>{t(`trade.feedIdeas.items.${routeIdeaKey}.offer`)}</span>
++                {feedTradeIdeaHasNeed(selectedFeedIdea) ? <span><strong>{t('trade.labels.iNeed')}</strong>{t(`trade.feedIdeas.items.${routeIdeaKey}.need`)}</span> : null}
++                {feedTradeIdeaHasOffer(selectedFeedIdea) ? <span><strong>{t('trade.labels.iOffer')}</strong>{t(`trade.feedIdeas.items.${routeIdeaKey}.offer`)}</span> : null}
+               </div>
+             </div>
+             <button type="button" className="button primary" disabled={Boolean(applyingIdea)} onClick={() => void applyFeedIdeaToDraft(routeIdeaKey)}>
+diff --git a/apps/web/src/features/trade/TradeCreateFullClient.tsx b/apps/web/src/features/trade/TradeCreateFullClient.tsx
+index 773727e..f515b90 100644
+--- a/apps/web/src/features/trade/TradeCreateFullClient.tsx
++++ b/apps/web/src/features/trade/TradeCreateFullClient.tsx
+@@ -19,7 +19,7 @@ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { normalizeInventoryList, toIsoDate } from '../inventory/inventoryPresentation';
+ import { TradeSidePicker } from './TradeSidePicker';
+ import { TradeStackDeck } from './TradeStackDeck';
+-import { feedTradeIdeas, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
++import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedTradeIdeaPostType, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+ 
+ type CreateTradeResponse = { trade?: unknown; id?: unknown };
+ type DuplicateTradeSummary = Pick<TradeDto, 'id' | 'status' | 'title'> & { postType?: TradePostType };
+@@ -162,15 +162,15 @@ function createSideNewHref(side: 'need' | 'offer', values: TradeCreateValues) {
+   return `/trades/create/choose-${side}/new${fullQuery ? `?${fullQuery}` : ''}`;
+ }
+ 
+-function createStarterSideNewHref(side: 'need' | 'offer', values: TradeCreateValues, ideaKey: FeedTradeIdeaKey, templateKey: string, expiryDaysParam?: string) {
++function createStarterSideNewHref(side: 'need' | 'offer', values: TradeCreateValues, ideaKey: FeedTradeIdeaKey, templateKey: string, postType: TradePostType, expiryDaysParam?: string) {
+   const params = new URLSearchParams();
+-  params.set('postType', 'need_offer');
++  params.set('postType', postType);
+   params.set('returnTo', 'full');
+   params.set('idea', ideaKey);
+   params.set('starterTemplateKey', templateKey);
+   if (expiryDaysParam) params.set('expiryDays', expiryDaysParam);
+-  if (side === 'need' && values.offerId) params.set('offerId', values.offerId);
+-  if (side === 'offer' && values.needId) params.set('needId', values.needId);
++  if (postType !== 'open_need' && side === 'need' && values.offerId) params.set('offerId', values.offerId);
++  if (postType !== 'open_offer' && side === 'offer' && values.needId) params.set('needId', values.needId);
+   const query = params.toString();
+   return `/trades/create/choose-${side}/new${query ? `?${query}` : ''}`;
+ }
+@@ -341,10 +341,12 @@ export function TradeCreateFullClient({ initialNeedId = '', initialOfferId = '',
+   const routeNeedId = searchParams.get('needId') ?? initialNeedId;
+   const routeOfferId = searchParams.get('offerId') ?? initialOfferId;
+   const routeIdeaKey = parseFeedTradeIdeaKey(searchParams.get('idea') ?? initialIdea);
++  const routeSelectedFeedIdea = routeIdeaKey ? feedTradeIdeas[routeIdeaKey] : null;
++  const routeIdeaPostType = routeSelectedFeedIdea ? getFeedTradeIdeaPostType(routeSelectedFeedIdea) : '';
+   const routeExpiryDaysParam = searchParams.get('expiryDays') ?? initialExpiryDays;
+   const routeExpiryDays = parseIdeaExpiryDaysParam(routeExpiryDaysParam);
+   const routeExpiryDateInput = buildDateInputFromExpiryDays(routeExpiryDays);
+-  const routePostType = parseTradePostType(searchParams.get('postType') ?? initialPostType) || (routeNeedId || routeOfferId || routeIdeaKey ? 'need_offer' : '');
++  const routePostType = parseTradePostType(searchParams.get('postType') ?? initialPostType) || routeIdeaPostType || (routeNeedId || routeOfferId ? 'need_offer' : '');
+   const preferredCurrency = getPreferredCurrency(auth.user?.profile?.preferredCurrency);
+   const demoDataEnabled = isWebDemoDataEnabled();
+   const [needs, setNeeds] = useState<NeedDto[]>(() => demoDataEnabled ? mockNeeds : []);
+@@ -607,9 +609,10 @@ export function TradeCreateFullClient({ initialNeedId = '', initialOfferId = '',
+   if (routeExpiryDaysParam) currentCreateParams.set('expiryDays', routeExpiryDaysParam);
+   const currentCreateQuery = currentCreateParams.toString();
+   const currentCreateHref = `/trades/create/full${currentCreateQuery ? `?${currentCreateQuery}` : ''}`;
+-  const selectedFeedIdea = routeIdeaKey ? feedTradeIdeas[routeIdeaKey] : null;
+-  const starterNeedHref = routeIdeaKey && selectedFeedIdea ? createStarterSideNewHref('need', values, routeIdeaKey, selectedFeedIdea.needTemplateKey, routeExpiryDaysParam) : '';
+-  const starterOfferHref = routeIdeaKey && selectedFeedIdea ? createStarterSideNewHref('offer', values, routeIdeaKey, selectedFeedIdea.offerTemplateKey, routeExpiryDaysParam) : '';
++  const selectedFeedIdea = routeSelectedFeedIdea;
++  const selectedFeedIdeaPostType = selectedFeedIdea ? getFeedTradeIdeaPostType(selectedFeedIdea) : 'need_offer';
++  const starterNeedHref = routeIdeaKey && selectedFeedIdea && feedTradeIdeaHasNeed(selectedFeedIdea) ? createStarterSideNewHref('need', values, routeIdeaKey, selectedFeedIdea.needTemplateKey, selectedFeedIdeaPostType, routeExpiryDaysParam) : '';
++  const starterOfferHref = routeIdeaKey && selectedFeedIdea && feedTradeIdeaHasOffer(selectedFeedIdea) ? createStarterSideNewHref('offer', values, routeIdeaKey, selectedFeedIdea.offerTemplateKey, selectedFeedIdeaPostType, routeExpiryDaysParam) : '';
+   const showStarterFullFormPanel = Boolean(routeIdeaKey && selectedFeedIdea && auth.isAuthenticated);
+ 
+   return (
+@@ -642,20 +645,20 @@ export function TradeCreateFullClient({ initialNeedId = '', initialOfferId = '',
+           {amountPreview && (usesMoney || usesCashPromise) ? <span className="semantic-badge money">{amountPreview}</span> : <span className="semantic-badge instruction">{t('trade.create.beta')}</span>}
+         </div>
+ 
+-        {showStarterFullFormPanel && routeIdeaKey ? (
++        {showStarterFullFormPanel && routeIdeaKey && selectedFeedIdea ? (
+           <section className="mobile-card mobile-card--soft trade-create-idea-prefill">
+             <div>
+               <span className="semantic-badge instruction">{t('trade.feedIdeas.badge')}</span>
+               <h3>{t('trade.feedIdeas.fullFormTitle')}</h3>
+-              <p>{t('trade.feedIdeas.fullFormBody')}</p>
++              <p>{t(selectedFeedIdea.type === 'open_need' ? 'trade.feedIdeas.fullFormBodyOpenNeed' : selectedFeedIdea.type === 'open_offer' ? 'trade.feedIdeas.fullFormBodyOpenOffer' : 'trade.feedIdeas.fullFormBody')}</p>
+               <div className="trade-create-idea-prefill__sides" aria-label={t('trade.feedIdeas.sidesLabel')}>
+-                <span><strong>{selectedNeed ? t('trade.feedIdeas.selectedNeedReady') : t('trade.labels.iNeed')}</strong>{selectedNeed ? selectedNeed.title : t(`trade.feedIdeas.items.${routeIdeaKey}.need`)}</span>
+-                <span><strong>{selectedOffer ? t('trade.feedIdeas.selectedOfferReady') : t('trade.labels.iOffer')}</strong>{selectedOffer ? selectedOffer.title : t(`trade.feedIdeas.items.${routeIdeaKey}.offer`)}</span>
++                {feedTradeIdeaHasNeed(selectedFeedIdea) ? <span><strong>{selectedNeed ? t('trade.feedIdeas.selectedNeedReady') : t('trade.labels.iNeed')}</strong>{selectedNeed ? selectedNeed.title : t(`trade.feedIdeas.items.${routeIdeaKey}.need`)}</span> : null}
++                {feedTradeIdeaHasOffer(selectedFeedIdea) ? <span><strong>{selectedOffer ? t('trade.feedIdeas.selectedOfferReady') : t('trade.labels.iOffer')}</strong>{selectedOffer ? selectedOffer.title : t(`trade.feedIdeas.items.${routeIdeaKey}.offer`)}</span> : null}
+               </div>
+             </div>
+             <div className="trade-create-idea-prefill__actions">
+-              <Link href={starterNeedHref} className="button secondary compact">{selectedNeed ? t('trade.feedIdeas.editNeedAgainAction') : t('trade.feedIdeas.editNeedAction')}</Link>
+-              <Link href={starterOfferHref} className="button secondary compact">{selectedOffer ? t('trade.feedIdeas.editOfferAgainAction') : t('trade.feedIdeas.editOfferAction')}</Link>
++              {starterNeedHref ? <Link href={starterNeedHref} className="button secondary compact">{selectedNeed ? t('trade.feedIdeas.editNeedAgainAction') : t('trade.feedIdeas.editNeedAction')}</Link> : null}
++              {starterOfferHref ? <Link href={starterOfferHref} className="button secondary compact">{selectedOffer ? t('trade.feedIdeas.editOfferAgainAction') : t('trade.feedIdeas.editOfferAction')}</Link> : null}
+             </div>
+           </section>
+         ) : null}
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index 4ebdc40..8d203cd 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -14,7 +14,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { formatWebShortDate } from '../../lib/webFormat';
+ import { TradeDeckGrid } from './TradeDeckGrid';
+-import { createFeedIdeaTradeHref, feedTradeIdeaKeys, getInlineFeedIdeaKey, shouldShowFeedIdeaRail, type FeedTradeIdeaKey } from './tradeFeedIdeas';
++import { createFeedIdeaTradeHref, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeaKeys, feedTradeIdeas, getInlineFeedIdeaKey, shouldShowFeedIdeaRail, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+ import { getExchangeLabel, getStatusLabel, getTradeHeadline } from './tradePresentation';
+ 
+ type FeedFilters = {
+@@ -471,40 +471,67 @@ function TradeFeedIdeaRail({ createIdeaHref }: TradeFeedIdeaRailProps) {
+   );
+ }
+ 
++function getFeedIdeaTypeLabelKey(ideaKey: FeedTradeIdeaKey) {
++  const idea = feedTradeIdeas[ideaKey];
++  return idea.type === 'open_need' ? 'trade.feedIdeas.typeLabels.openNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.typeLabels.openOffer' : 'trade.feedIdeas.typeLabels.trade';
++}
++
++function getFeedIdeaActionKey(ideaKey: FeedTradeIdeaKey) {
++  const idea = feedTradeIdeas[ideaKey];
++  return idea.type === 'open_need' ? 'trade.feedIdeas.actionOpenNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.actionOpenOffer' : 'trade.feedIdeas.action';
++}
++
++function getFeedIdeaAriaSummary(t: ReturnType<typeof useWebTranslation>['t'], ideaKey: FeedTradeIdeaKey) {
++  const idea = feedTradeIdeas[ideaKey];
++  const need = feedTradeIdeaHasNeed(idea) ? t(`trade.feedIdeas.items.${ideaKey}.need`) : '';
++  const offer = feedTradeIdeaHasOffer(idea) ? t(`trade.feedIdeas.items.${ideaKey}.offer`) : '';
++  return idea.type === 'open_need' ? need : idea.type === 'open_offer' ? offer : `${need} ↔ ${offer}`;
++}
++
+ function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: { ideaKey: FeedTradeIdeaKey; createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string; inline?: boolean }) {
+   const { t } = useWebTranslation();
++  const idea = feedTradeIdeas[ideaKey];
+   const pack = t(`trade.feedIdeas.items.${ideaKey}.pack`);
+-  const need = t(`trade.feedIdeas.items.${ideaKey}.need`);
+-  const offer = t(`trade.feedIdeas.items.${ideaKey}.offer`);
++  const need = feedTradeIdeaHasNeed(idea) ? t(`trade.feedIdeas.items.${ideaKey}.need`) : '';
++  const offer = feedTradeIdeaHasOffer(idea) ? t(`trade.feedIdeas.items.${ideaKey}.offer`) : '';
++  const typeLabel = t(getFeedIdeaTypeLabelKey(ideaKey));
++  const actionLabel = t(getFeedIdeaActionKey(ideaKey));
++  const summary = getFeedIdeaAriaSummary(t, ideaKey);
+ 
+   return (
+     <article className={`trade-feed-idea-card${inline ? ' trade-feed-idea-card--inline' : ''}`}>
+-      <Link href={createIdeaHref(ideaKey)} className="trade-feed-idea-card__open-link" aria-label={`${t('trade.feedIdeas.cardLabel')} · ${pack}: ${need} ↔ ${offer}. ${t('trade.feedIdeas.action')}`}>
++      <Link href={createIdeaHref(ideaKey)} className="trade-feed-idea-card__open-link" aria-label={`${typeLabel} · ${pack}: ${summary}. ${actionLabel}`}>
+         <div className="trade-feed-idea-card__topline">
+-          <span>{t('trade.feedIdeas.cardLabel')} · {pack}</span>
++          <span>{typeLabel} · {pack}</span>
+           <strong>{t('trade.feedIdeas.ideaLabel')}</strong>
+         </div>
+ 
+-        <div className="trade-feed-idea-card__side trade-feed-idea-card__side--need">
+-          <p>{t('trade.labels.iNeed')}</p>
+-          <h3 title={need}>{need}</h3>
+-          <span>{t(`trade.feedIdeas.items.${ideaKey}.needMeta`)}</span>
+-        </div>
++        {feedTradeIdeaHasNeed(idea) ? (
++          <div className="trade-feed-idea-card__side trade-feed-idea-card__side--need">
++            <p>{t('trade.labels.iNeed')}</p>
++            <h3 title={need}>{need}</h3>
++            <span>{t(`trade.feedIdeas.items.${ideaKey}.needMeta`)}</span>
++          </div>
++        ) : null}
+ 
+-        <div className="trade-feed-idea-card__divider" aria-hidden="true">
+-          <i />
+-          <span><WebIcon name="trade" size={17} decorative /></span>
+-          <i />
+-        </div>
++        {idea.type === 'trade' ? (
++          <div className="trade-feed-idea-card__divider" aria-hidden="true">
++            <i />
++            <span><WebIcon name="trade" size={17} decorative /></span>
++            <i />
++          </div>
++        ) : null}
+ 
+-        <div className="trade-feed-idea-card__side trade-feed-idea-card__side--offer">
+-          <p>{t('trade.labels.iOffer')}</p>
+-          <h3 title={offer}>{offer}</h3>
+-          <span>{t(`trade.feedIdeas.items.${ideaKey}.offerMeta`)}</span>
+-        </div>
++        {feedTradeIdeaHasOffer(idea) ? (
++          <div className="trade-feed-idea-card__side trade-feed-idea-card__side--offer">
++            <p>{t('trade.labels.iOffer')}</p>
++            <h3 title={offer}>{offer}</h3>
++            <span>{t(`trade.feedIdeas.items.${ideaKey}.offerMeta`)}</span>
++          </div>
++        ) : null}
+ 
+         <div className="trade-feed-idea-card__footer">
+-          <span>{t('trade.feedIdeas.action')}</span>
++          <span>{actionLabel}</span>
+         </div>
+       </Link>
+     </article>
+diff --git a/apps/web/src/features/trade/TradeIdeaDetailClient.tsx b/apps/web/src/features/trade/TradeIdeaDetailClient.tsx
+index dcadb3d..17035fa 100644
+--- a/apps/web/src/features/trade/TradeIdeaDetailClient.tsx
++++ b/apps/web/src/features/trade/TradeIdeaDetailClient.tsx
+@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
+ import { WebIcon } from '../../components/WebIcon';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+-import { createFeedIdeaTradeHref, feedTradeIdeaKeys, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
++import { createFeedIdeaTradeHref, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeaKeys, feedTradeIdeas, getFeedTradeIdeaPostType, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+ 
+ type IdeaExpirySelection = 'default' | 'none' | '1' | '3' | '7' | '14';
+ 
+@@ -25,7 +25,8 @@ const expiryOptions: Array<{ value: IdeaExpirySelection; labelKey: string; helpe
+ ];
+ 
+ function createIdeaActionHref(pathname: '/trades/create' | '/trades/create/full', ideaKey: FeedTradeIdeaKey, expiry: IdeaExpirySelection, isAuthenticated: boolean, nextParam?: string) {
+-  const params = new URLSearchParams({ idea: ideaKey });
++  const idea = feedTradeIdeas[ideaKey];
++  const params = new URLSearchParams({ idea: ideaKey, postType: getFeedTradeIdeaPostType(idea) });
+   if (expiry !== 'default') params.set('expiryDays', expiry);
+   const href = `${pathname}?${params.toString()}`;
+   if (!isAuthenticated) return `/auth?next=${encodeURIComponent(nextParam ?? href)}`;
+@@ -33,6 +34,9 @@ function createIdeaActionHref(pathname: '/trades/create' | '/trades/create/full'
+ }
+ 
+ function getIdeaTitle(t: ReturnType<typeof useWebTranslation>['t'], ideaKey: FeedTradeIdeaKey) {
++  const idea = feedTradeIdeas[ideaKey];
++  if (idea.type === 'open_need') return t(`trade.feedIdeas.items.${ideaKey}.need`);
++  if (idea.type === 'open_offer') return t(`trade.feedIdeas.items.${ideaKey}.offer`);
+   return `${t(`trade.feedIdeas.items.${ideaKey}.need`)} ↔ ${t(`trade.feedIdeas.items.${ideaKey}.offer`)}`;
+ }
+ 
+@@ -40,6 +44,16 @@ function getRelatedIdeaKeys(ideaKey: FeedTradeIdeaKey) {
+   return feedTradeIdeaKeys.filter((candidate) => candidate !== ideaKey).slice(0, maxRelatedIdeas);
+ }
+ 
++function getIdeaTypeLabelKey(ideaKey: FeedTradeIdeaKey) {
++  const idea = feedTradeIdeas[ideaKey];
++  return idea.type === 'open_need' ? 'trade.feedIdeas.typeLabels.openNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.typeLabels.openOffer' : 'trade.feedIdeas.typeLabels.trade';
++}
++
++function getIdeaActionKey(ideaKey: FeedTradeIdeaKey) {
++  const idea = feedTradeIdeas[ideaKey];
++  return idea.type === 'open_need' ? 'trade.feedIdeas.actionOpenNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.actionOpenOffer' : 'trade.feedIdeas.action';
++}
++
+ function IdeaSideSection({ kind, ideaKey }: { kind: 'need' | 'offer'; ideaKey: FeedTradeIdeaKey }) {
+   const { t } = useWebTranslation();
+   const label = kind === 'need' ? t('trade.labels.iNeed') : t('trade.labels.iOffer');
+@@ -149,22 +163,24 @@ export function TradeIdeaDetailClient({ ideaId }: TradeIdeaDetailClientProps) {
+       </header>
+ 
+       <section className="trade-hero-section trade-idea-detail-hero">
+-        <span className="semantic-badge instruction">{t('trade.feedIdeas.cardLabel')} · {pack}</span>
++        <span className="semantic-badge instruction">{t(getIdeaTypeLabelKey(ideaKey))} · {pack}</span>
+         <h1>{title}</h1>
+-        <p>{t('trade.ideaDetail.body')}</p>
++        <p>{t(feedTradeIdeas[ideaKey].type === 'open_need' ? 'trade.ideaDetail.bodyOpenNeed' : feedTradeIdeas[ideaKey].type === 'open_offer' ? 'trade.ideaDetail.bodyOpenOffer' : 'trade.ideaDetail.body')}</p>
+       </section>
+ 
+       <IdeaNextSteps />
+ 
+-      <IdeaSideSection kind="need" ideaKey={ideaKey} />
++      {feedTradeIdeaHasNeed(feedTradeIdeas[ideaKey]) ? <IdeaSideSection kind="need" ideaKey={ideaKey} /> : null}
+ 
+-      <div className="trade-idea-detail-exchange" aria-hidden="true">
+-        <span />
+-        <WebIcon name="trade" size={19} decorative />
+-        <span />
+-      </div>
++      {feedTradeIdeas[ideaKey].type === 'trade' ? (
++        <div className="trade-idea-detail-exchange" aria-hidden="true">
++          <span />
++          <WebIcon name="trade" size={19} decorative />
++          <span />
++        </div>
++      ) : null}
+ 
+-      <IdeaSideSection kind="offer" ideaKey={ideaKey} />
++      {feedTradeIdeaHasOffer(feedTradeIdeas[ideaKey]) ? <IdeaSideSection kind="offer" ideaKey={ideaKey} /> : null}
+ 
+       <section className="trade-social-section trade-idea-detail-expiry" aria-labelledby="trade-idea-expiry-title">
+         <div className="trade-section-heading">
+@@ -193,7 +209,7 @@ export function TradeIdeaDetailClient({ ideaId }: TradeIdeaDetailClientProps) {
+       <section className="trade-idea-detail-actions" aria-label={t('trade.ideaDetail.actionsLabel')}>
+         <Link href="/trades" className="button ghost">{t('trade.ideaDetail.backToFeed')}</Link>
+         <Link href={fullFormHref} className="button secondary">{t('trade.ideaDetail.editInFullForm')}</Link>
+-        <Link href={createHref} className="button primary">{t('trade.feedIdeas.action')}</Link>
++        <Link href={createHref} className="button primary">{t(getIdeaActionKey(ideaKey))}</Link>
+       </section>
+     </article>
+   );
+diff --git a/apps/web/src/features/trade/tradeFeedIdeas.ts b/apps/web/src/features/trade/tradeFeedIdeas.ts
+index 7c96fa9..2e3ca0d 100644
+--- a/apps/web/src/features/trade/tradeFeedIdeas.ts
++++ b/apps/web/src/features/trade/tradeFeedIdeas.ts
+@@ -17,90 +17,165 @@ export const feedTradeIdeaKeys = [
+   'productTableDriveCleanup',
+   'clientRoleplayLandingReview',
+   'networkingIntroSocialClips',
++  'openNeedAppOnboarding',
++  'openNeedTripod',
++  'openNeedAdminLetter',
++  'openNeedQuietTable',
++  'openOfferOutdoorPhotos',
++  'openOfferEnglishPractice',
++  'openOfferSocialVideoClips',
++  'openOfferLandingReview',
+ ] as const;
+ 
+ export type FeedTradeIdeaKey = (typeof feedTradeIdeaKeys)[number];
++export type FeedTradeIdeaType = 'trade' | 'open_need' | 'open_offer';
++export type FeedTradeIdeaPostType = 'need_offer' | 'open_need' | 'open_offer';
+ 
+-export type FeedTradeIdeaTemplatePair = {
+-  needTemplateKey: string;
+-  offerTemplateKey: string;
+-};
++export type FeedTradeIdeaTemplatePair =
++  | { type: 'trade'; needTemplateKey: string; offerTemplateKey: string }
++  | { type: 'open_need'; needTemplateKey: string }
++  | { type: 'open_offer'; offerTemplateKey: string };
+ 
+ export const feedTradeIdeas: Record<FeedTradeIdeaKey, FeedTradeIdeaTemplatePair> = {
+   appTestingPhotos: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-app-flow-normal-user-test',
+     offerTemplateKey: 'starter-offer-edit-product-portfolio-photos',
+   },
+   coldDmTranslation: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-first-cold-dm',
+     offerTemplateKey: 'starter-offer-translate-french-english-text',
+   },
+   frenchPracticeVideoEdit: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-practice-french-phone-call',
+     offerTemplateKey: 'starter-offer-short-video-reel-edit',
+   },
+   localTipsBrandNames: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-local-paris-recommendations',
+     offerTemplateKey: 'starter-offer-brand-name-ideas',
+   },
+   quietTableEmailClarity: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-quiet-table-video-call',
+     offerTemplateKey: 'starter-offer-email-clarity-check',
+   },
+   tripodUxFeedback: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-borrow-tripod-day',
+     offerTemplateKey: 'starter-offer-ux-feedback-app-website',
+   },
+   placePhotosNotion: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-visit-place-send-photos',
+     offerTemplateKey: 'starter-offer-notion-portfolio-structure',
+   },
+   cleanBackgroundSocialPost: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-clean-background-photos',
+     offerTemplateKey: 'starter-offer-simple-social-media-post',
+   },
+   dogLifestylePhotoShoot: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-dog-lifestyle-photo-shoot',
+     offerTemplateKey: 'starter-offer-edit-product-portfolio-photos',
+   },
+   posterAttentionLinkedIn: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-poster-five-second-test',
+     offerTemplateKey: 'starter-offer-linkedin-freelance-profile-review',
+   },
+   microphoneAppTest: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-microphone-short-recording',
+     offerTemplateKey: 'starter-offer-real-user-app-test',
+   },
+   printerProductDescription: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-access-printer',
+     offerTemplateKey: 'starter-offer-product-description-polish',
+   },
+   adminLetterEnglishPractice: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-explain-french-admin-letter',
+     offerTemplateKey: 'starter-offer-english-conversation-practice',
+   },
+   onboardingOutdoorPhotos: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-app-onboarding-ten-minute-test',
+     offerTemplateKey: 'starter-offer-outdoor-product-photos',
+   },
+   bikePickupQrPoster: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-bike-small-pickup',
+     offerTemplateKey: 'starter-offer-qr-poster-design',
+   },
+   productTableDriveCleanup: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-product-table-styling',
+     offerTemplateKey: 'starter-offer-organize-notion-google-drive',
+   },
+   clientRoleplayLandingReview: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-client-interview-roleplay',
+     offerTemplateKey: 'starter-offer-landing-page-honest-feedback',
+   },
+   networkingIntroSocialClips: {
++    type: 'trade',
+     needTemplateKey: 'starter-need-networking-event-confidence',
+     offerTemplateKey: 'starter-offer-social-video-clips',
+   },
++  openNeedAppOnboarding: {
++    type: 'open_need',
++    needTemplateKey: 'starter-need-app-onboarding-ten-minute-test',
++  },
++  openNeedTripod: {
++    type: 'open_need',
++    needTemplateKey: 'starter-need-borrow-tripod-day',
++  },
++  openNeedAdminLetter: {
++    type: 'open_need',
++    needTemplateKey: 'starter-need-explain-french-admin-letter',
++  },
++  openNeedQuietTable: {
++    type: 'open_need',
++    needTemplateKey: 'starter-need-quiet-table-video-call',
++  },
++  openOfferOutdoorPhotos: {
++    type: 'open_offer',
++    offerTemplateKey: 'starter-offer-outdoor-product-photos',
++  },
++  openOfferEnglishPractice: {
++    type: 'open_offer',
++    offerTemplateKey: 'starter-offer-english-conversation-practice',
++  },
++  openOfferSocialVideoClips: {
++    type: 'open_offer',
++    offerTemplateKey: 'starter-offer-social-video-clips',
++  },
++  openOfferLandingReview: {
++    type: 'open_offer',
++    offerTemplateKey: 'starter-offer-landing-page-honest-feedback',
++  },
+ };
+ 
++export function getFeedTradeIdeaPostType(idea: FeedTradeIdeaTemplatePair): FeedTradeIdeaPostType {
++  return idea.type === 'trade' ? 'need_offer' : idea.type;
++}
++
++export function feedTradeIdeaHasNeed(idea: FeedTradeIdeaTemplatePair): idea is Extract<FeedTradeIdeaTemplatePair, { needTemplateKey: string }> {
++  return 'needTemplateKey' in idea;
++}
++
++export function feedTradeIdeaHasOffer(idea: FeedTradeIdeaTemplatePair): idea is Extract<FeedTradeIdeaTemplatePair, { offerTemplateKey: string }> {
++  return 'offerTemplateKey' in idea;
++}
++
++export function getFeedTradeIdeaType(ideaKey: FeedTradeIdeaKey): FeedTradeIdeaType {
++  return feedTradeIdeas[ideaKey].type;
++}
+ 
+ export const feedTradeIdeaPlacement = {
+   sparseFeedThreshold: 4,
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index 06ed0e7..6207cab 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -841,19 +841,32 @@ export const trade = {
+     title: 'Starter ideas you can turn into real trades',
+     body: 'These are transparent examples, not bot posts. Use them for inspiration, then publish your own version when you are ready.',
+     ideaLabel: 'Idea',
++    typeLabels: {
++      trade: 'Trade idea',
++      openNeed: 'Open Need idea',
++      openOffer: 'Open Offer idea',
++    },
+     cardLabel: 'Trade idea',
+     sidesLabel: 'Starter Need and Offer sides',
+     action: 'Create your version',
++    actionOpenNeed: 'Create your Open Need',
++    actionOpenOffer: 'Create your Open Offer',
+     createFromIdeaTitle: 'Create from this trade idea',
+     createFromIdeaBody: 'Save both starter sides to your account, then edit or publish your own version.',
++    createFromIdeaBodyOpenNeed: 'Save this starter Need to your account, then edit or publish your own Open Need.',
++    createFromIdeaBodyOpenOffer: 'Save this starter Offer to your account, then edit or publish your own Open Offer.',
+     applyAction: 'Use this idea',
+     applySaving: 'Saving starter sides...',
+     applySuccess: 'Starter Need and Offer added to your draft.',
++    applySuccessOpenNeed: 'Starter Need added to your Open Need draft.',
++    applySuccessOpenOffer: 'Starter Offer added to your Open Offer draft.',
+     applyError: 'Could not prepare this trade idea yet.',
+     applyMissingNeed: 'The starter Need for this idea is missing.',
+     applyMissingOffer: 'The starter Offer for this idea is missing.',
+     fullFormTitle: 'Edit this idea before publishing',
+     fullFormBody: 'Create editable copies of the starter Need and Offer, adjust the details, then publish from this full trade form.',
++    fullFormBodyOpenNeed: 'Create an editable copy of the starter Need, adjust the details, then publish from this full trade form.',
++    fullFormBodyOpenOffer: 'Create an editable copy of the starter Offer, adjust the details, then publish from this full trade form.',
+     editNeedAction: 'Edit starter Need',
+     editOfferAction: 'Edit starter Offer',
+     editNeedAgainAction: 'Edit Need again',
+@@ -1005,12 +1018,63 @@ export const trade = {
+         offerMeta: 'Video · Remote',
+         body: 'A human social-confidence trade with a practical content offer in return.',
+       },
++
++      openNeedAppOnboarding: {
++        pack: 'Open Need',
++        need: 'I need someone to test my app onboarding for 10 minutes',
++        needMeta: 'Testing · Remote',
++        body: 'A one-sided starter Need for getting fast, honest onboarding feedback.',
++      },
++      openNeedTripod: {
++        pack: 'Objects',
++        need: 'I need to borrow a tripod for one day',
++        needMeta: 'Object · Local',
++        body: 'A clear object/access starter Need for local practical help.',
++      },
++      openNeedAdminLetter: {
++        pack: 'Admin help',
++        need: 'I need someone to explain a French admin letter',
++        needMeta: 'Admin help · Remote',
++        body: 'A human starter Need for understanding everyday French paperwork.',
++      },
++      openNeedQuietTable: {
++        pack: 'Local',
++        need: 'I need a quiet place/table for a video call',
++        needMeta: 'Space · Local',
++        body: 'A simple local starter Need for people who need a calm place briefly.',
++      },
++      openOfferOutdoorPhotos: {
++        pack: 'Open Offer',
++        offer: 'I can take simple product photos outdoors',
++        offerMeta: 'Photos · Local',
++        body: 'A one-sided starter Offer for people who can help creators with natural-light photos.',
++      },
++      openOfferEnglishPractice: {
++        pack: 'Language',
++        offer: 'I can help someone practice English conversation',
++        offerMeta: 'Language · Hybrid',
++        body: 'A friendly starter Offer for simple language confidence practice.',
++      },
++      openOfferSocialVideoClips: {
++        pack: 'Creative',
++        offer: 'I can edit short videos for social media',
++        offerMeta: 'Video · Remote',
++        body: 'A practical creative starter Offer for people making small social clips.',
++      },
++      openOfferLandingReview: {
++        pack: 'Startup',
++        offer: 'I can review a landing page and give honest feedback',
++        offerMeta: 'Web feedback · Remote',
++        body: 'A useful starter Offer for founders and creators who need outside eyes.',
++      },
+     },
+   },
+   ideaDetail: {
+     header: 'Trade idea detail',
+     backToFeed: 'Back to feed',
+     body: 'This is a starter trade idea, not a live post. Review both sides, choose an optional expiry, then create an editable version under your account.',
++    bodyOpenNeed: 'This is a starter Open Need idea, not a live post. Review the Need, choose an optional expiry, then create an editable version under your account.',
++    bodyOpenOffer: 'This is a starter Open Offer idea, not a live post. Review the Offer, choose an optional expiry, then create an editable version under your account.',
+     expiryEyebrow: 'Before you create',
+     expiryTitle: 'Optional expiry',
+     expiryBody: 'Starter ideas do not expire. Your own version can use the normal Create Trade default, no expiry, or a short starter expiry.',
+diff --git a/packages/i18n/src/locales/es/trade.ts b/packages/i18n/src/locales/es/trade.ts
+index 265e793..eb6a361 100644
+--- a/packages/i18n/src/locales/es/trade.ts
++++ b/packages/i18n/src/locales/es/trade.ts
+@@ -854,19 +854,32 @@ export const trade = {
+     title: 'Ideas iniciales que puedes convertir en intercambios reales',
+     body: 'Son ejemplos transparentes, no publicaciones de un bot. Úsalos como inspiración y publica tu propia versión cuando estés listo.',
+     ideaLabel: 'Idea',
++    typeLabels: {
++      trade: 'Idea de intercambio',
++      openNeed: 'Idea de necesidad abierta',
++      openOffer: 'Idea de oferta abierta',
++    },
+     cardLabel: 'Idea de intercambio',
+     sidesLabel: 'Lados de Necesidad y Oferta de la idea inicial',
+     action: 'Crear mi versión',
++    actionOpenNeed: 'Crear tu necesidad abierta',
++    actionOpenOffer: 'Crear tu oferta abierta',
+     createFromIdeaTitle: 'Crear desde esta idea',
+     createFromIdeaBody: 'Guarda los dos lados starter en tu cuenta y luego edita o publica tu propia versión.',
++    createFromIdeaBodyOpenNeed: 'Guarda esta necesidad inicial en tu cuenta y luego edita o publica tu propia necesidad abierta.',
++    createFromIdeaBodyOpenOffer: 'Guarda esta oferta inicial en tu cuenta y luego edita o publica tu propia oferta abierta.',
+     applyAction: 'Usar esta idea',
+     applySaving: 'Guardando lados starter...',
+     applySuccess: 'Necesidad y Oferta starter añadidas a tu borrador.',
++    applySuccessOpenNeed: 'La necesidad inicial se añadió a tu borrador de necesidad abierta.',
++    applySuccessOpenOffer: 'La oferta inicial se añadió a tu borrador de oferta abierta.',
+     applyError: 'No se pudo preparar esta idea de intercambio todavía.',
+     applyMissingNeed: 'Falta la Necesidad starter de esta idea.',
+     applyMissingOffer: 'Falta la Oferta starter de esta idea.',
+     fullFormTitle: 'Editar esta idea antes de publicar',
+     fullFormBody: 'Crea copias editables de la necesidad y la oferta iniciales, ajusta los detalles y publica desde este formulario completo.',
++    fullFormBodyOpenNeed: 'Crea una copia editable de la necesidad inicial, ajusta los detalles y publica desde este formulario completo.',
++    fullFormBodyOpenOffer: 'Crea una copia editable de la oferta inicial, ajusta los detalles y publica desde este formulario completo.',
+     editNeedAction: 'Editar necesidad inicial',
+     editOfferAction: 'Editar oferta inicial',
+     editNeedAgainAction: 'Volver a editar la necesidad',
+@@ -1018,12 +1031,63 @@ export const trade = {
+         offerMeta: 'Video · Remoto',
+         body: 'Un intercambio humano de confianza social con una oferta práctica de contenido a cambio.',
+       },
++
++      openNeedAppOnboarding: {
++        pack: 'Necesidad abierta',
++        need: 'Necesito que alguien pruebe el onboarding de mi app durante 10 minutos',
++        needMeta: 'Prueba · Remoto',
++        body: 'Una necesidad abierta para recibir feedback rápido y honesto sobre el onboarding.',
++      },
++      openNeedTripod: {
++        pack: 'Objetos',
++        need: 'Necesito pedir prestado un trípode por un día',
++        needMeta: 'Objeto · Local',
++        body: 'Una necesidad clara de objeto o acceso local práctico.',
++      },
++      openNeedAdminLetter: {
++        pack: 'Ayuda administrativa',
++        need: 'Necesito que alguien me explique una carta administrativa francesa',
++        needMeta: 'Administración · Remoto',
++        body: 'Una necesidad humana para entender mejor documentos franceses del día a día.',
++      },
++      openNeedQuietTable: {
++        pack: 'Local',
++        need: 'Necesito un lugar o una mesa tranquila para una videollamada',
++        needMeta: 'Espacio · Local',
++        body: 'Una necesidad local simple para quien necesita un lugar tranquilo por poco tiempo.',
++      },
++      openOfferOutdoorPhotos: {
++        pack: 'Oferta abierta',
++        offer: 'Puedo tomar fotos simples de productos al aire libre',
++        offerMeta: 'Fotos · Local',
++        body: 'Una oferta abierta para ayudar a creadores con fotos con luz natural.',
++      },
++      openOfferEnglishPractice: {
++        pack: 'Idioma',
++        offer: 'Puedo ayudar a alguien a practicar conversación en inglés',
++        offerMeta: 'Idioma · Híbrido',
++        body: 'Una oferta amable para practicar idioma con más confianza.',
++      },
++      openOfferSocialVideoClips: {
++        pack: 'Creativo',
++        offer: 'Puedo editar videos cortos para redes sociales',
++        offerMeta: 'Video · Remoto',
++        body: 'Una oferta creativa práctica para personas que hacen pequeños clips sociales.',
++      },
++      openOfferLandingReview: {
++        pack: 'Startup',
++        offer: 'Puedo revisar una landing page y dar feedback honesto',
++        offerMeta: 'Feedback web · Remoto',
++        body: 'Una oferta útil para fundadores y creadores que necesitan una mirada externa.',
++      },
+     },
+   },
+   ideaDetail: {
+     header: 'Detalle de idea de intercambio',
+     backToFeed: 'Volver al feed',
+     body: 'Es una idea inicial de intercambio, no una publicación real. Revisa ambos lados, elige una caducidad opcional y crea una versión editable en tu cuenta.',
++    bodyOpenNeed: 'Esta es una idea de necesidad abierta, no una publicación activa. Revisa la necesidad, elige una caducidad opcional y crea una versión editable en tu cuenta.',
++    bodyOpenOffer: 'Esta es una idea de oferta abierta, no una publicación activa. Revisa la oferta, elige una caducidad opcional y crea una versión editable en tu cuenta.',
+     expiryEyebrow: 'Antes de crear',
+     expiryTitle: 'Caducidad opcional',
+     expiryBody: 'Las ideas iniciales no caducan. Tu propia versión puede usar el valor normal de creación, no tener caducidad o usar una caducidad corta.',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index 711a65d..328d0fa 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -841,19 +841,32 @@ export const trade = {
+     title: 'Des idées de départ à transformer en vrais échanges',
+     body: 'Ce sont des exemples transparents, pas des publications de bot. Utilise-les comme inspiration, puis publie ta propre version quand tu es prêt.',
+     ideaLabel: 'Idée',
++    typeLabels: {
++      trade: 'Idée d’échange',
++      openNeed: 'Idée de besoin ouvert',
++      openOffer: 'Idée d’offre ouverte',
++    },
+     cardLabel: 'Idée d’échange',
+     sidesLabel: 'Côtés Besoin et Offre de l’idée de départ',
+     action: 'Créer ma version',
++    actionOpenNeed: 'Créer votre besoin ouvert',
++    actionOpenOffer: 'Créer votre offre ouverte',
+     createFromIdeaTitle: 'Créer à partir de cette idée',
+     createFromIdeaBody: 'Enregistre les deux côtés starter dans ton compte, puis modifie ou publie ta propre version.',
++    createFromIdeaBodyOpenNeed: 'Enregistrez ce besoin de départ sur votre compte, puis modifiez ou publiez votre besoin ouvert.',
++    createFromIdeaBodyOpenOffer: 'Enregistrez cette offre de départ sur votre compte, puis modifiez ou publiez votre offre ouverte.',
+     applyAction: 'Utiliser cette idée',
+     applySaving: 'Enregistrement des côtés starter...',
+     applySuccess: 'Besoin et Offre starter ajoutés à ton brouillon.',
++    applySuccessOpenNeed: 'Le besoin de départ a été ajouté à votre brouillon de besoin ouvert.',
++    applySuccessOpenOffer: 'L’offre de départ a été ajoutée à votre brouillon d’offre ouverte.',
+     applyError: 'Impossible de préparer cette idée d’échange pour le moment.',
+     applyMissingNeed: 'Le Besoin starter de cette idée est manquant.',
+     applyMissingOffer: 'L’Offre starter de cette idée est manquante.',
+     fullFormTitle: 'Modifier cette idée avant publication',
+     fullFormBody: 'Crée des copies modifiables du besoin et de l’offre de démarrage, ajuste les détails, puis publie depuis ce formulaire complet.',
++    fullFormBodyOpenNeed: 'Créez une copie modifiable du besoin de départ, ajustez les détails, puis publiez depuis ce formulaire complet.',
++    fullFormBodyOpenOffer: 'Créez une copie modifiable de l’offre de départ, ajustez les détails, puis publiez depuis ce formulaire complet.',
+     editNeedAction: 'Modifier le besoin de départ',
+     editOfferAction: 'Modifier l’offre de départ',
+     editNeedAgainAction: 'Modifier encore le besoin',
+@@ -1005,12 +1018,63 @@ export const trade = {
+         offerMeta: 'Vidéo · À distance',
+         body: 'Un échange humain de confiance sociale avec une offre concrète de contenu en retour.',
+       },
++
++      openNeedAppOnboarding: {
++        pack: 'Besoin ouvert',
++        need: 'J’ai besoin que quelqu’un teste l’onboarding de mon app pendant 10 minutes',
++        needMeta: 'Test · À distance',
++        body: 'Un besoin ouvert simple pour obtenir un retour rapide et honnête sur un onboarding.',
++      },
++      openNeedTripod: {
++        pack: 'Objets',
++        need: 'J’ai besoin d’emprunter un trépied pour une journée',
++        needMeta: 'Objet · Local',
++        body: 'Un besoin clair autour d’un objet ou d’un accès local pratique.',
++      },
++      openNeedAdminLetter: {
++        pack: 'Aide administrative',
++        need: 'J’ai besoin que quelqu’un m’explique une lettre administrative française',
++        needMeta: 'Admin · À distance',
++        body: 'Un besoin humain pour mieux comprendre des papiers français du quotidien.',
++      },
++      openNeedQuietTable: {
++        pack: 'Local',
++        need: 'J’ai besoin d’un endroit ou d’une table calme pour un appel vidéo',
++        needMeta: 'Espace · Local',
++        body: 'Un besoin local simple pour les personnes qui ont besoin d’un endroit calme brièvement.',
++      },
++      openOfferOutdoorPhotos: {
++        pack: 'Offre ouverte',
++        offer: 'Je peux prendre des photos produit simples en extérieur',
++        offerMeta: 'Photos · Local',
++        body: 'Une offre ouverte pour aider des créateurs avec des photos à la lumière naturelle.',
++      },
++      openOfferEnglishPractice: {
++        pack: 'Langue',
++        offer: 'Je peux aider quelqu’un à pratiquer la conversation en anglais',
++        offerMeta: 'Langue · Hybride',
++        body: 'Une offre conviviale pour pratiquer la langue avec plus de confiance.',
++      },
++      openOfferSocialVideoClips: {
++        pack: 'Créatif',
++        offer: 'Je peux monter de courtes vidéos pour les réseaux sociaux',
++        offerMeta: 'Vidéo · À distance',
++        body: 'Une offre créative pratique pour les personnes qui créent de petits clips sociaux.',
++      },
++      openOfferLandingReview: {
++        pack: 'Startup',
++        offer: 'Je peux relire une landing page et donner un retour honnête',
++        offerMeta: 'Retour web · À distance',
++        body: 'Une offre utile pour les fondateurs et créateurs qui ont besoin d’un regard extérieur.',
++      },
+     },
+   },
+   ideaDetail: {
+     header: 'Détail de l’idée d’échange',
+     backToFeed: 'Retour au feed',
+     body: 'C’est une idée d’échange de départ, pas une vraie annonce. Vérifie les deux côtés, choisis une expiration optionnelle, puis crée une version modifiable dans ton compte.',
++    bodyOpenNeed: 'Ceci est une idée de besoin ouvert, pas une publication active. Relisez le besoin, choisissez une expiration optionnelle, puis créez une version modifiable sur votre compte.',
++    bodyOpenOffer: 'Ceci est une idée d’offre ouverte, pas une publication active. Relisez l’offre, choisissez une expiration optionnelle, puis créez une version modifiable sur votre compte.',
+     expiryEyebrow: 'Avant de créer',
+     expiryTitle: 'Expiration optionnelle',
+     expiryBody: 'Les idées de départ n’expirent pas. Ta propre version peut utiliser le réglage normal de création, aucune expiration, ou une courte expiration.',

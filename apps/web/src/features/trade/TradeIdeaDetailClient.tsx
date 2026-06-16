@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { WebIcon } from '../../components/WebIcon';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
-import { createFeedIdeaTradeHref, feedTradeIdeaKeys, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+import { createFeedIdeaTradeHref, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeaKeys, feedTradeIdeas, getFeedTradeIdeaPostType, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
 
 type IdeaExpirySelection = 'default' | 'none' | '1' | '3' | '7' | '14';
 
@@ -25,7 +25,8 @@ const expiryOptions: Array<{ value: IdeaExpirySelection; labelKey: string; helpe
 ];
 
 function createIdeaActionHref(pathname: '/trades/create' | '/trades/create/full', ideaKey: FeedTradeIdeaKey, expiry: IdeaExpirySelection, isAuthenticated: boolean, nextParam?: string) {
-  const params = new URLSearchParams({ idea: ideaKey });
+  const idea = feedTradeIdeas[ideaKey];
+  const params = new URLSearchParams({ idea: ideaKey, postType: getFeedTradeIdeaPostType(idea) });
   if (expiry !== 'default') params.set('expiryDays', expiry);
   const href = `${pathname}?${params.toString()}`;
   if (!isAuthenticated) return `/auth?next=${encodeURIComponent(nextParam ?? href)}`;
@@ -33,11 +34,24 @@ function createIdeaActionHref(pathname: '/trades/create' | '/trades/create/full'
 }
 
 function getIdeaTitle(t: ReturnType<typeof useWebTranslation>['t'], ideaKey: FeedTradeIdeaKey) {
+  const idea = feedTradeIdeas[ideaKey];
+  if (idea.type === 'open_need') return t(`trade.feedIdeas.items.${ideaKey}.need`);
+  if (idea.type === 'open_offer') return t(`trade.feedIdeas.items.${ideaKey}.offer`);
   return `${t(`trade.feedIdeas.items.${ideaKey}.need`)} ↔ ${t(`trade.feedIdeas.items.${ideaKey}.offer`)}`;
 }
 
 function getRelatedIdeaKeys(ideaKey: FeedTradeIdeaKey) {
   return feedTradeIdeaKeys.filter((candidate) => candidate !== ideaKey).slice(0, maxRelatedIdeas);
+}
+
+function getIdeaTypeLabelKey(ideaKey: FeedTradeIdeaKey) {
+  const idea = feedTradeIdeas[ideaKey];
+  return idea.type === 'open_need' ? 'trade.feedIdeas.typeLabels.openNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.typeLabels.openOffer' : 'trade.feedIdeas.typeLabels.trade';
+}
+
+function getIdeaActionKey(ideaKey: FeedTradeIdeaKey) {
+  const idea = feedTradeIdeas[ideaKey];
+  return idea.type === 'open_need' ? 'trade.feedIdeas.actionOpenNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.actionOpenOffer' : 'trade.feedIdeas.action';
 }
 
 function IdeaSideSection({ kind, ideaKey }: { kind: 'need' | 'offer'; ideaKey: FeedTradeIdeaKey }) {
@@ -149,22 +163,24 @@ export function TradeIdeaDetailClient({ ideaId }: TradeIdeaDetailClientProps) {
       </header>
 
       <section className="trade-hero-section trade-idea-detail-hero">
-        <span className="semantic-badge instruction">{t('trade.feedIdeas.cardLabel')} · {pack}</span>
+        <span className="semantic-badge instruction">{t(getIdeaTypeLabelKey(ideaKey))} · {pack}</span>
         <h1>{title}</h1>
-        <p>{t('trade.ideaDetail.body')}</p>
+        <p>{t(feedTradeIdeas[ideaKey].type === 'open_need' ? 'trade.ideaDetail.bodyOpenNeed' : feedTradeIdeas[ideaKey].type === 'open_offer' ? 'trade.ideaDetail.bodyOpenOffer' : 'trade.ideaDetail.body')}</p>
       </section>
 
       <IdeaNextSteps />
 
-      <IdeaSideSection kind="need" ideaKey={ideaKey} />
+      {feedTradeIdeaHasNeed(feedTradeIdeas[ideaKey]) ? <IdeaSideSection kind="need" ideaKey={ideaKey} /> : null}
 
-      <div className="trade-idea-detail-exchange" aria-hidden="true">
-        <span />
-        <WebIcon name="trade" size={19} decorative />
-        <span />
-      </div>
+      {feedTradeIdeas[ideaKey].type === 'trade' ? (
+        <div className="trade-idea-detail-exchange" aria-hidden="true">
+          <span />
+          <WebIcon name="trade" size={19} decorative />
+          <span />
+        </div>
+      ) : null}
 
-      <IdeaSideSection kind="offer" ideaKey={ideaKey} />
+      {feedTradeIdeaHasOffer(feedTradeIdeas[ideaKey]) ? <IdeaSideSection kind="offer" ideaKey={ideaKey} /> : null}
 
       <section className="trade-social-section trade-idea-detail-expiry" aria-labelledby="trade-idea-expiry-title">
         <div className="trade-section-heading">
@@ -193,7 +209,7 @@ export function TradeIdeaDetailClient({ ideaId }: TradeIdeaDetailClientProps) {
       <section className="trade-idea-detail-actions" aria-label={t('trade.ideaDetail.actionsLabel')}>
         <Link href="/trades" className="button ghost">{t('trade.ideaDetail.backToFeed')}</Link>
         <Link href={fullFormHref} className="button secondary">{t('trade.ideaDetail.editInFullForm')}</Link>
-        <Link href={createHref} className="button primary">{t('trade.feedIdeas.action')}</Link>
+        <Link href={createHref} className="button primary">{t(getIdeaActionKey(ideaKey))}</Link>
       </section>
     </article>
   );

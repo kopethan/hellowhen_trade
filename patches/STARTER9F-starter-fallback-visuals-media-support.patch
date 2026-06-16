@@ -1,0 +1,627 @@
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index 08eed47..656fe4a 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+-import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
++import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+@@ -20,7 +20,7 @@ import { useAuth } from '../../providers/AuthProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { TradeSquareDeck } from './components/TradeSquareDeck';
+ import { TradeExchangeIcon } from './components/TradeExchangeIcon';
+-import { emptyFeedStarterIdeaPlacement, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedStarterIdeaPlacement, getInlineFeedIdeaKey, getRandomizedFeedIdeaKeys, type FeedTradeIdeaKey } from './tradeFeedIdeas';
++import { emptyFeedStarterIdeaPlacement, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedStarterIdeaPlacement, getFeedTradeIdeaMedia, getInlineFeedIdeaKey, getRandomizedFeedIdeaKeys, type FeedTradeIdeaKey, type FeedTradeIdeaVisualKey } from './tradeFeedIdeas';
+ import type { TradeDeckItem } from './types';
+ 
+ type FeedResponse = { trades: TradeDeckItem[] };
+@@ -390,6 +390,19 @@ function getFeedIdeaAriaSummary(t: ReturnType<typeof useTranslation>['t'], ideaK
+   return idea.type === 'open_need' ? need : idea.type === 'open_offer' ? offer : `${need} ↔ ${offer}`;
+ }
+ 
++const feedIdeaVisualPalette: Record<FeedTradeIdeaVisualKey, { tone: string; background: string; accent: string }> = {
++  startup: { tone: '#6366F1', background: 'rgba(99,102,241,0.15)', accent: 'rgba(252,231,243,0.72)' },
++  language: { tone: '#14B8A6', background: 'rgba(20,184,166,0.14)', accent: 'rgba(224,242,254,0.78)' },
++  local: { tone: '#F59E0B', background: 'rgba(245,158,11,0.15)', accent: 'rgba(220,252,231,0.78)' },
++  objects: { tone: '#60A5FA', background: 'rgba(96,165,250,0.16)', accent: 'rgba(224,231,255,0.78)' },
++  creative: { tone: '#EC4899', background: 'rgba(236,72,153,0.14)', accent: 'rgba(254,243,199,0.78)' },
++  feedback: { tone: '#8B5CF6', background: 'rgba(139,92,246,0.14)', accent: 'rgba(243,232,255,0.78)' },
++  social: { tone: '#F97316', background: 'rgba(249,115,22,0.14)', accent: 'rgba(254,249,195,0.78)' },
++  admin: { tone: '#64748B', background: 'rgba(100,116,139,0.14)', accent: 'rgba(241,245,249,0.78)' },
++  video: { tone: '#06B6D4', background: 'rgba(6,182,212,0.14)', accent: 'rgba(224,242,254,0.78)' },
++  remote: { tone: '#34D399', background: 'rgba(52,211,153,0.15)', accent: 'rgba(224,242,254,0.78)' },
++};
++
+ function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: FeedTradeIdeaKey; onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void; inline?: boolean }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+@@ -400,9 +413,9 @@ function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: F
+   const typeLabel = t(getFeedIdeaTypeLabelKey(ideaKey));
+   const actionLabel = t(getFeedIdeaActionKey(ideaKey));
+   const summary = getFeedIdeaAriaSummary(t, ideaKey);
++  const media = getFeedTradeIdeaMedia(ideaKey);
+   const isSingleSideIdea = idea.type !== 'trade';
+-  const singleVisualTone = idea.type === 'open_need' ? '#60A5FA' : '#34D399';
+-  const singleVisualBackground = idea.type === 'open_need' ? 'rgba(96,165,250,0.16)' : 'rgba(52,211,153,0.16)';
++  const visualPalette = feedIdeaVisualPalette[media.fallbackVisualKey];
+ 
+   return (
+     <Pressable
+@@ -417,10 +430,21 @@ function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: F
+       </View>
+ 
+       {isSingleSideIdea ? (
+-        <View pointerEvents="none" style={[styles.feedIdeaSingleVisual, { backgroundColor: singleVisualBackground }]}>
+-          <View style={[styles.feedIdeaSingleVisualLine, styles.feedIdeaSingleVisualLineShort]} />
+-          <View style={[styles.feedIdeaSingleVisualLine, styles.feedIdeaSingleVisualLineLong]} />
+-          <View style={[styles.feedIdeaSingleVisualDot, { backgroundColor: singleVisualTone }]} />
++        <View pointerEvents="none" style={[styles.feedIdeaSingleVisual, { backgroundColor: visualPalette.background }]}>
++          {media.imageUrl ? (
++            <>
++              <Image source={{ uri: media.imageUrl }} resizeMode="cover" style={styles.feedIdeaSingleVisualImage} />
++              <View style={styles.feedIdeaSingleVisualImageOverlay} />
++            </>
++          ) : (
++            <>
++              <View style={[styles.feedIdeaSingleVisualBlob, { backgroundColor: visualPalette.accent }]} />
++              <View style={[styles.feedIdeaSingleVisualLine, styles.feedIdeaSingleVisualLineShort]} />
++              <View style={[styles.feedIdeaSingleVisualLine, styles.feedIdeaSingleVisualLineLong]} />
++              <View style={[styles.feedIdeaSingleVisualDot, { backgroundColor: visualPalette.tone }]} />
++              <View style={[styles.feedIdeaSingleVisualPill, { backgroundColor: visualPalette.accent }]} />
++            </>
++          )}
+         </View>
+       ) : null}
+ 
+@@ -1128,11 +1152,15 @@ const styles = StyleSheet.create({
+   feedIdeaSideMeta: { textAlign: 'center', fontSize: 12, lineHeight: 16, fontWeight: '800' },
+   feedIdeaExchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 1 },
+   feedIdeaExchangeLine: { flex: 1, height: StyleSheet.hairlineWidth },
+-  feedIdeaSingleVisual: { height: 78, borderRadius: 23, overflow: 'hidden', justifyContent: 'center', alignItems: 'center', opacity: 0.88 },
+-  feedIdeaSingleVisualLine: { position: 'absolute', height: 10, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.66)', transform: [{ rotate: '-17deg' }] },
+-  feedIdeaSingleVisualLineShort: { width: '62%', left: '7%', top: 16, opacity: 0.74 },
++  feedIdeaSingleVisual: { height: 78, borderRadius: 23, overflow: 'hidden', justifyContent: 'center', alignItems: 'center', opacity: 0.9 },
++  feedIdeaSingleVisualImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
++  feedIdeaSingleVisualImageOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.12)' },
++  feedIdeaSingleVisualBlob: { position: 'absolute', width: '54%', height: 56, borderRadius: 999, opacity: 0.68, transform: [{ rotate: '-13deg' }] },
++  feedIdeaSingleVisualLine: { position: 'absolute', height: 10, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.68)', transform: [{ rotate: '-17deg' }] },
++  feedIdeaSingleVisualLineShort: { width: '62%', left: '7%', top: 16, opacity: 0.76 },
+   feedIdeaSingleVisualLineLong: { width: '76%', left: '16%', top: 38, opacity: 0.52 },
+-  feedIdeaSingleVisualDot: { width: 44, height: 44, borderRadius: 22, opacity: 0.34 },
++  feedIdeaSingleVisualDot: { width: 44, height: 44, borderRadius: 22, opacity: 0.68 },
++  feedIdeaSingleVisualPill: { position: 'absolute', width: '34%', height: 8, right: '8%', bottom: 14, borderRadius: 999, opacity: 0.48, transform: [{ rotate: '-17deg' }] },
+   feedIdeaFooter: { minHeight: 20, alignItems: 'center', justifyContent: 'center' },
+   feedIdeaActionText: { fontSize: 13, lineHeight: 17, fontWeight: '900', letterSpacing: 0.2 },
+   mineHeaderCard: { gap: 14 },
+diff --git a/apps/mobile/src/features/trade/tradeFeedIdeas.ts b/apps/mobile/src/features/trade/tradeFeedIdeas.ts
+index fda8c3d..defdd22 100644
+--- a/apps/mobile/src/features/trade/tradeFeedIdeas.ts
++++ b/apps/mobile/src/features/trade/tradeFeedIdeas.ts
+@@ -30,146 +30,189 @@ export const feedTradeIdeaKeys = [
+ export type FeedTradeIdeaKey = (typeof feedTradeIdeaKeys)[number];
+ export type FeedTradeIdeaType = 'trade' | 'open_need' | 'open_offer';
+ export type FeedTradeIdeaPostType = 'need_offer' | 'open_need' | 'open_offer';
++export type FeedTradeIdeaVisualKey = 'startup' | 'language' | 'local' | 'objects' | 'creative' | 'feedback' | 'social' | 'admin' | 'video' | 'remote';
+ 
+-export type FeedTradeIdeaTemplatePair =
+-  | { type: 'trade'; needTemplateKey: string; offerTemplateKey: string }
+-  | { type: 'open_need'; needTemplateKey: string }
+-  | { type: 'open_offer'; offerTemplateKey: string };
++export type FeedTradeIdeaMedia = {
++  /** Optional future media URL for admin-curated starter decks. Empty means use the deterministic fallback visual. */
++  imageUrl?: string;
++  fallbackVisualKey: FeedTradeIdeaVisualKey;
++};
++
++type FeedTradeIdeaBase = { media: FeedTradeIdeaMedia };
++
++type FeedTradeIdeaTrade = FeedTradeIdeaBase & { type: 'trade'; needTemplateKey: string; offerTemplateKey: string };
++type FeedTradeIdeaOpenNeed = FeedTradeIdeaBase & { type: 'open_need'; needTemplateKey: string };
++type FeedTradeIdeaOpenOffer = FeedTradeIdeaBase & { type: 'open_offer'; offerTemplateKey: string };
++
++export type FeedTradeIdeaTemplatePair = FeedTradeIdeaTrade | FeedTradeIdeaOpenNeed | FeedTradeIdeaOpenOffer;
++export type FeedTradeIdeaWithNeed = FeedTradeIdeaTrade | FeedTradeIdeaOpenNeed;
++export type FeedTradeIdeaWithOffer = FeedTradeIdeaTrade | FeedTradeIdeaOpenOffer;
+ 
+ export const feedTradeIdeas: Record<FeedTradeIdeaKey, FeedTradeIdeaTemplatePair> = {
+   appTestingPhotos: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'startup' },
+     needTemplateKey: 'starter-need-app-flow-normal-user-test',
+     offerTemplateKey: 'starter-offer-edit-product-portfolio-photos',
+   },
+   coldDmTranslation: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'language' },
+     needTemplateKey: 'starter-need-first-cold-dm',
+     offerTemplateKey: 'starter-offer-translate-french-english-text',
+   },
+   frenchPracticeVideoEdit: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'language' },
+     needTemplateKey: 'starter-need-practice-french-phone-call',
+     offerTemplateKey: 'starter-offer-short-video-reel-edit',
+   },
+   localTipsBrandNames: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'local' },
+     needTemplateKey: 'starter-need-local-paris-recommendations',
+     offerTemplateKey: 'starter-offer-brand-name-ideas',
+   },
+   quietTableEmailClarity: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'remote' },
+     needTemplateKey: 'starter-need-quiet-table-video-call',
+     offerTemplateKey: 'starter-offer-email-clarity-check',
+   },
+   tripodUxFeedback: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'objects' },
+     needTemplateKey: 'starter-need-borrow-tripod-day',
+     offerTemplateKey: 'starter-offer-ux-feedback-app-website',
+   },
+   placePhotosNotion: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'local' },
+     needTemplateKey: 'starter-need-visit-place-send-photos',
+     offerTemplateKey: 'starter-offer-notion-portfolio-structure',
+   },
+   cleanBackgroundSocialPost: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'creative' },
+     needTemplateKey: 'starter-need-clean-background-photos',
+     offerTemplateKey: 'starter-offer-simple-social-media-post',
+   },
+   dogLifestylePhotoShoot: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'creative' },
+     needTemplateKey: 'starter-need-dog-lifestyle-photo-shoot',
+     offerTemplateKey: 'starter-offer-edit-product-portfolio-photos',
+   },
+   posterAttentionLinkedIn: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'feedback' },
+     needTemplateKey: 'starter-need-poster-five-second-test',
+     offerTemplateKey: 'starter-offer-linkedin-freelance-profile-review',
+   },
+   microphoneAppTest: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'video' },
+     needTemplateKey: 'starter-need-microphone-short-recording',
+     offerTemplateKey: 'starter-offer-real-user-app-test',
+   },
+   printerProductDescription: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'objects' },
+     needTemplateKey: 'starter-need-access-printer',
+     offerTemplateKey: 'starter-offer-product-description-polish',
+   },
+   adminLetterEnglishPractice: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'admin' },
+     needTemplateKey: 'starter-need-explain-french-admin-letter',
+     offerTemplateKey: 'starter-offer-english-conversation-practice',
+   },
+   onboardingOutdoorPhotos: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'startup' },
+     needTemplateKey: 'starter-need-app-onboarding-ten-minute-test',
+     offerTemplateKey: 'starter-offer-outdoor-product-photos',
+   },
+   bikePickupQrPoster: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'local' },
+     needTemplateKey: 'starter-need-bike-small-pickup',
+     offerTemplateKey: 'starter-offer-qr-poster-design',
+   },
+   productTableDriveCleanup: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'creative' },
+     needTemplateKey: 'starter-need-product-table-styling',
+     offerTemplateKey: 'starter-offer-organize-notion-google-drive',
+   },
+   clientRoleplayLandingReview: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'feedback' },
+     needTemplateKey: 'starter-need-client-interview-roleplay',
+     offerTemplateKey: 'starter-offer-landing-page-honest-feedback',
+   },
+   networkingIntroSocialClips: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'social' },
+     needTemplateKey: 'starter-need-networking-event-confidence',
+     offerTemplateKey: 'starter-offer-social-video-clips',
+   },
+   openNeedAppOnboarding: {
+     type: 'open_need',
++    media: { fallbackVisualKey: 'startup' },
+     needTemplateKey: 'starter-need-app-onboarding-ten-minute-test',
+   },
+   openNeedTripod: {
+     type: 'open_need',
++    media: { fallbackVisualKey: 'objects' },
+     needTemplateKey: 'starter-need-borrow-tripod-day',
+   },
+   openNeedAdminLetter: {
+     type: 'open_need',
++    media: { fallbackVisualKey: 'admin' },
+     needTemplateKey: 'starter-need-explain-french-admin-letter',
+   },
+   openNeedQuietTable: {
+     type: 'open_need',
++    media: { fallbackVisualKey: 'remote' },
+     needTemplateKey: 'starter-need-quiet-table-video-call',
+   },
+   openOfferOutdoorPhotos: {
+     type: 'open_offer',
++    media: { fallbackVisualKey: 'creative' },
+     offerTemplateKey: 'starter-offer-outdoor-product-photos',
+   },
+   openOfferEnglishPractice: {
+     type: 'open_offer',
++    media: { fallbackVisualKey: 'language' },
+     offerTemplateKey: 'starter-offer-english-conversation-practice',
+   },
+   openOfferSocialVideoClips: {
+     type: 'open_offer',
++    media: { fallbackVisualKey: 'video' },
+     offerTemplateKey: 'starter-offer-social-video-clips',
+   },
+   openOfferLandingReview: {
+     type: 'open_offer',
++    media: { fallbackVisualKey: 'feedback' },
+     offerTemplateKey: 'starter-offer-landing-page-honest-feedback',
+   },
+ };
+ 
++
++export function getFeedTradeIdeaMedia(ideaKey: FeedTradeIdeaKey): FeedTradeIdeaMedia {
++  return feedTradeIdeas[ideaKey].media;
++}
++
+ export function getFeedTradeIdeaPostType(idea: FeedTradeIdeaTemplatePair): FeedTradeIdeaPostType {
+   return idea.type === 'trade' ? 'need_offer' : idea.type;
+ }
+ 
+-export function feedTradeIdeaHasNeed(idea: FeedTradeIdeaTemplatePair): idea is Extract<FeedTradeIdeaTemplatePair, { needTemplateKey: string }> {
++export function feedTradeIdeaHasNeed(idea: FeedTradeIdeaTemplatePair): idea is FeedTradeIdeaWithNeed {
+   return 'needTemplateKey' in idea;
+ }
+ 
+-export function feedTradeIdeaHasOffer(idea: FeedTradeIdeaTemplatePair): idea is Extract<FeedTradeIdeaTemplatePair, { offerTemplateKey: string }> {
++export function feedTradeIdeaHasOffer(idea: FeedTradeIdeaTemplatePair): idea is FeedTradeIdeaWithOffer {
+   return 'offerTemplateKey' in idea;
+ }
+ 
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 37e1ea7..c70a052 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -8498,6 +8498,9 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ }
+ 
+ .trade-feed-idea-card__single-visual {
++  --starter-visual-a: var(--proposal-border);
++  --starter-visual-b: var(--app-border);
++  --starter-visual-c: var(--app-surface-strong);
+   position: relative;
+   display: grid;
+   place-items: center;
+@@ -8505,25 +8508,41 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   overflow: hidden;
+   border-radius: 24px;
+   background:
+-    radial-gradient(circle at 50% 52%, color-mix(in srgb, var(--proposal-border) 28%, transparent) 0 20%, transparent 52%),
+-    linear-gradient(135deg, color-mix(in srgb, var(--app-border) 58%, transparent), color-mix(in srgb, var(--app-surface-strong) 82%, transparent));
+-}
+-
+-.trade-feed-idea-card--open_need .trade-feed-idea-card__single-visual {
+-  background:
+-    radial-gradient(circle at 50% 52%, color-mix(in srgb, #60a5fa 26%, transparent) 0 21%, transparent 54%),
+-    linear-gradient(135deg, color-mix(in srgb, #dbeafe 82%, var(--app-surface)), color-mix(in srgb, var(--app-surface-strong) 82%, transparent));
++    radial-gradient(circle at 50% 52%, color-mix(in srgb, var(--starter-visual-a) 30%, transparent) 0 20%, transparent 54%),
++    linear-gradient(135deg, color-mix(in srgb, var(--starter-visual-b) 70%, var(--app-surface)), color-mix(in srgb, var(--starter-visual-c) 78%, transparent));
++  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 44%, transparent);
++}
++
++.trade-feed-idea-card__single-visual--startup { --starter-visual-a: #6366f1; --starter-visual-b: #dbeafe; --starter-visual-c: #fce7f3; }
++.trade-feed-idea-card__single-visual--language { --starter-visual-a: #14b8a6; --starter-visual-b: #ccfbf1; --starter-visual-c: #e0f2fe; }
++.trade-feed-idea-card__single-visual--local { --starter-visual-a: #f59e0b; --starter-visual-b: #fef3c7; --starter-visual-c: #dcfce7; }
++.trade-feed-idea-card__single-visual--objects { --starter-visual-a: #60a5fa; --starter-visual-b: #dbeafe; --starter-visual-c: #e0e7ff; }
++.trade-feed-idea-card__single-visual--creative { --starter-visual-a: #ec4899; --starter-visual-b: #fce7f3; --starter-visual-c: #fef3c7; }
++.trade-feed-idea-card__single-visual--feedback { --starter-visual-a: #8b5cf6; --starter-visual-b: #ede9fe; --starter-visual-c: #f3e8ff; }
++.trade-feed-idea-card__single-visual--social { --starter-visual-a: #f97316; --starter-visual-b: #ffedd5; --starter-visual-c: #fef9c3; }
++.trade-feed-idea-card__single-visual--admin { --starter-visual-a: #64748b; --starter-visual-b: #e2e8f0; --starter-visual-c: #f1f5f9; }
++.trade-feed-idea-card__single-visual--video { --starter-visual-a: #06b6d4; --starter-visual-b: #cffafe; --starter-visual-c: #e0f2fe; }
++.trade-feed-idea-card__single-visual--remote { --starter-visual-a: #34d399; --starter-visual-b: #d1fae5; --starter-visual-c: #e0f2fe; }
++
++.trade-feed-idea-card__single-visual img {
++  position: absolute;
++  inset: 0;
++  width: 100%;
++  height: 100%;
++  object-fit: cover;
+ }
+ 
+-.trade-feed-idea-card--open_offer .trade-feed-idea-card__single-visual {
+-  background:
+-    radial-gradient(circle at 50% 52%, color-mix(in srgb, #34d399 25%, transparent) 0 21%, transparent 54%),
+-    linear-gradient(135deg, color-mix(in srgb, #d1fae5 74%, var(--app-surface)), color-mix(in srgb, var(--app-surface-strong) 82%, transparent));
++.trade-feed-idea-card__single-visual--has-image::after {
++  content: "";
++  position: absolute;
++  inset: 0;
++  background: linear-gradient(180deg, transparent, color-mix(in srgb, #000000 16%, transparent));
+ }
+ 
+ .trade-feed-idea-card__single-visual span,
+ .trade-feed-idea-card__single-visual i,
+-.trade-feed-idea-card__single-visual b {
++.trade-feed-idea-card__single-visual b,
++.trade-feed-idea-card__single-visual em {
+   position: absolute;
+   display: block;
+   border-radius: 999px;
+@@ -8533,7 +8552,8 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ 
+ .trade-feed-idea-card__single-visual span { width: 62%; height: 10px; top: 18%; left: 7%; opacity: .72; }
+ .trade-feed-idea-card__single-visual i { width: 76%; height: 14px; top: 43%; left: 16%; opacity: .5; }
+-.trade-feed-idea-card__single-visual b { width: 44px; height: 44px; top: 32%; left: calc(50% - 22px); opacity: .7; transform: none; }
++.trade-feed-idea-card__single-visual b { width: 44px; height: 44px; top: 32%; left: calc(50% - 22px); background: color-mix(in srgb, var(--starter-visual-a) 86%, #ffffff); opacity: .68; transform: none; }
++.trade-feed-idea-card__single-visual em { width: 34%; height: 8px; right: 8%; bottom: 18%; opacity: .38; }
+ 
+ .trade-feed-idea-card__divider {
+   display: grid;
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index 66ea908..4289adb 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -14,7 +14,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { formatWebShortDate } from '../../lib/webFormat';
+ import { TradeDeckGrid } from './TradeDeckGrid';
+-import { createFeedIdeaTradeHref, emptyFeedStarterIdeaPlacement, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedStarterIdeaPlacement, getInlineFeedIdeaKey, getRandomizedFeedIdeaKeys, type FeedTradeIdeaKey } from './tradeFeedIdeas';
++import { createFeedIdeaTradeHref, emptyFeedStarterIdeaPlacement, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedStarterIdeaPlacement, getFeedTradeIdeaMedia, getInlineFeedIdeaKey, getRandomizedFeedIdeaKeys, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+ import { getExchangeLabel, getStatusLabel, getTradeHeadline } from './tradePresentation';
+ 
+ type FeedFilters = {
+@@ -506,8 +506,14 @@ function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: { ideaKe
+   const typeLabel = t(getFeedIdeaTypeLabelKey(ideaKey));
+   const actionLabel = t(getFeedIdeaActionKey(ideaKey));
+   const summary = getFeedIdeaAriaSummary(t, ideaKey);
++  const media = getFeedTradeIdeaMedia(ideaKey);
+ 
+   const isSingleSideIdea = idea.type !== 'trade';
++  const visualClassName = [
++    'trade-feed-idea-card__single-visual',
++    `trade-feed-idea-card__single-visual--${media.fallbackVisualKey}`,
++    media.imageUrl ? 'trade-feed-idea-card__single-visual--has-image' : '',
++  ].filter(Boolean).join(' ');
+ 
+   return (
+     <article className={`trade-feed-idea-card trade-feed-idea-card--${idea.type}${inline ? ' trade-feed-idea-card--inline' : ''}`}>
+@@ -518,10 +524,17 @@ function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: { ideaKe
+         </div>
+ 
+         {isSingleSideIdea ? (
+-          <div className="trade-feed-idea-card__single-visual" aria-hidden="true">
+-            <span />
+-            <i />
+-            <b />
++          <div className={visualClassName} aria-hidden="true">
++            {media.imageUrl ? (
++              <img src={media.imageUrl} alt="" loading="lazy" decoding="async" />
++            ) : (
++              <>
++                <span />
++                <i />
++                <b />
++                <em />
++              </>
++            )}
+           </div>
+         ) : null}
+ 
+diff --git a/apps/web/src/features/trade/tradeFeedIdeas.ts b/apps/web/src/features/trade/tradeFeedIdeas.ts
+index fda8c3d..defdd22 100644
+--- a/apps/web/src/features/trade/tradeFeedIdeas.ts
++++ b/apps/web/src/features/trade/tradeFeedIdeas.ts
+@@ -30,146 +30,189 @@ export const feedTradeIdeaKeys = [
+ export type FeedTradeIdeaKey = (typeof feedTradeIdeaKeys)[number];
+ export type FeedTradeIdeaType = 'trade' | 'open_need' | 'open_offer';
+ export type FeedTradeIdeaPostType = 'need_offer' | 'open_need' | 'open_offer';
++export type FeedTradeIdeaVisualKey = 'startup' | 'language' | 'local' | 'objects' | 'creative' | 'feedback' | 'social' | 'admin' | 'video' | 'remote';
+ 
+-export type FeedTradeIdeaTemplatePair =
+-  | { type: 'trade'; needTemplateKey: string; offerTemplateKey: string }
+-  | { type: 'open_need'; needTemplateKey: string }
+-  | { type: 'open_offer'; offerTemplateKey: string };
++export type FeedTradeIdeaMedia = {
++  /** Optional future media URL for admin-curated starter decks. Empty means use the deterministic fallback visual. */
++  imageUrl?: string;
++  fallbackVisualKey: FeedTradeIdeaVisualKey;
++};
++
++type FeedTradeIdeaBase = { media: FeedTradeIdeaMedia };
++
++type FeedTradeIdeaTrade = FeedTradeIdeaBase & { type: 'trade'; needTemplateKey: string; offerTemplateKey: string };
++type FeedTradeIdeaOpenNeed = FeedTradeIdeaBase & { type: 'open_need'; needTemplateKey: string };
++type FeedTradeIdeaOpenOffer = FeedTradeIdeaBase & { type: 'open_offer'; offerTemplateKey: string };
++
++export type FeedTradeIdeaTemplatePair = FeedTradeIdeaTrade | FeedTradeIdeaOpenNeed | FeedTradeIdeaOpenOffer;
++export type FeedTradeIdeaWithNeed = FeedTradeIdeaTrade | FeedTradeIdeaOpenNeed;
++export type FeedTradeIdeaWithOffer = FeedTradeIdeaTrade | FeedTradeIdeaOpenOffer;
+ 
+ export const feedTradeIdeas: Record<FeedTradeIdeaKey, FeedTradeIdeaTemplatePair> = {
+   appTestingPhotos: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'startup' },
+     needTemplateKey: 'starter-need-app-flow-normal-user-test',
+     offerTemplateKey: 'starter-offer-edit-product-portfolio-photos',
+   },
+   coldDmTranslation: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'language' },
+     needTemplateKey: 'starter-need-first-cold-dm',
+     offerTemplateKey: 'starter-offer-translate-french-english-text',
+   },
+   frenchPracticeVideoEdit: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'language' },
+     needTemplateKey: 'starter-need-practice-french-phone-call',
+     offerTemplateKey: 'starter-offer-short-video-reel-edit',
+   },
+   localTipsBrandNames: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'local' },
+     needTemplateKey: 'starter-need-local-paris-recommendations',
+     offerTemplateKey: 'starter-offer-brand-name-ideas',
+   },
+   quietTableEmailClarity: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'remote' },
+     needTemplateKey: 'starter-need-quiet-table-video-call',
+     offerTemplateKey: 'starter-offer-email-clarity-check',
+   },
+   tripodUxFeedback: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'objects' },
+     needTemplateKey: 'starter-need-borrow-tripod-day',
+     offerTemplateKey: 'starter-offer-ux-feedback-app-website',
+   },
+   placePhotosNotion: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'local' },
+     needTemplateKey: 'starter-need-visit-place-send-photos',
+     offerTemplateKey: 'starter-offer-notion-portfolio-structure',
+   },
+   cleanBackgroundSocialPost: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'creative' },
+     needTemplateKey: 'starter-need-clean-background-photos',
+     offerTemplateKey: 'starter-offer-simple-social-media-post',
+   },
+   dogLifestylePhotoShoot: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'creative' },
+     needTemplateKey: 'starter-need-dog-lifestyle-photo-shoot',
+     offerTemplateKey: 'starter-offer-edit-product-portfolio-photos',
+   },
+   posterAttentionLinkedIn: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'feedback' },
+     needTemplateKey: 'starter-need-poster-five-second-test',
+     offerTemplateKey: 'starter-offer-linkedin-freelance-profile-review',
+   },
+   microphoneAppTest: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'video' },
+     needTemplateKey: 'starter-need-microphone-short-recording',
+     offerTemplateKey: 'starter-offer-real-user-app-test',
+   },
+   printerProductDescription: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'objects' },
+     needTemplateKey: 'starter-need-access-printer',
+     offerTemplateKey: 'starter-offer-product-description-polish',
+   },
+   adminLetterEnglishPractice: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'admin' },
+     needTemplateKey: 'starter-need-explain-french-admin-letter',
+     offerTemplateKey: 'starter-offer-english-conversation-practice',
+   },
+   onboardingOutdoorPhotos: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'startup' },
+     needTemplateKey: 'starter-need-app-onboarding-ten-minute-test',
+     offerTemplateKey: 'starter-offer-outdoor-product-photos',
+   },
+   bikePickupQrPoster: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'local' },
+     needTemplateKey: 'starter-need-bike-small-pickup',
+     offerTemplateKey: 'starter-offer-qr-poster-design',
+   },
+   productTableDriveCleanup: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'creative' },
+     needTemplateKey: 'starter-need-product-table-styling',
+     offerTemplateKey: 'starter-offer-organize-notion-google-drive',
+   },
+   clientRoleplayLandingReview: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'feedback' },
+     needTemplateKey: 'starter-need-client-interview-roleplay',
+     offerTemplateKey: 'starter-offer-landing-page-honest-feedback',
+   },
+   networkingIntroSocialClips: {
+     type: 'trade',
++    media: { fallbackVisualKey: 'social' },
+     needTemplateKey: 'starter-need-networking-event-confidence',
+     offerTemplateKey: 'starter-offer-social-video-clips',
+   },
+   openNeedAppOnboarding: {
+     type: 'open_need',
++    media: { fallbackVisualKey: 'startup' },
+     needTemplateKey: 'starter-need-app-onboarding-ten-minute-test',
+   },
+   openNeedTripod: {
+     type: 'open_need',
++    media: { fallbackVisualKey: 'objects' },
+     needTemplateKey: 'starter-need-borrow-tripod-day',
+   },
+   openNeedAdminLetter: {
+     type: 'open_need',
++    media: { fallbackVisualKey: 'admin' },
+     needTemplateKey: 'starter-need-explain-french-admin-letter',
+   },
+   openNeedQuietTable: {
+     type: 'open_need',
++    media: { fallbackVisualKey: 'remote' },
+     needTemplateKey: 'starter-need-quiet-table-video-call',
+   },
+   openOfferOutdoorPhotos: {
+     type: 'open_offer',
++    media: { fallbackVisualKey: 'creative' },
+     offerTemplateKey: 'starter-offer-outdoor-product-photos',
+   },
+   openOfferEnglishPractice: {
+     type: 'open_offer',
++    media: { fallbackVisualKey: 'language' },
+     offerTemplateKey: 'starter-offer-english-conversation-practice',
+   },
+   openOfferSocialVideoClips: {
+     type: 'open_offer',
++    media: { fallbackVisualKey: 'video' },
+     offerTemplateKey: 'starter-offer-social-video-clips',
+   },
+   openOfferLandingReview: {
+     type: 'open_offer',
++    media: { fallbackVisualKey: 'feedback' },
+     offerTemplateKey: 'starter-offer-landing-page-honest-feedback',
+   },
+ };
+ 
++
++export function getFeedTradeIdeaMedia(ideaKey: FeedTradeIdeaKey): FeedTradeIdeaMedia {
++  return feedTradeIdeas[ideaKey].media;
++}
++
+ export function getFeedTradeIdeaPostType(idea: FeedTradeIdeaTemplatePair): FeedTradeIdeaPostType {
+   return idea.type === 'trade' ? 'need_offer' : idea.type;
+ }
+ 
+-export function feedTradeIdeaHasNeed(idea: FeedTradeIdeaTemplatePair): idea is Extract<FeedTradeIdeaTemplatePair, { needTemplateKey: string }> {
++export function feedTradeIdeaHasNeed(idea: FeedTradeIdeaTemplatePair): idea is FeedTradeIdeaWithNeed {
+   return 'needTemplateKey' in idea;
+ }
+ 
+-export function feedTradeIdeaHasOffer(idea: FeedTradeIdeaTemplatePair): idea is Extract<FeedTradeIdeaTemplatePair, { offerTemplateKey: string }> {
++export function feedTradeIdeaHasOffer(idea: FeedTradeIdeaTemplatePair): idea is FeedTradeIdeaWithOffer {
+   return 'offerTemplateKey' in idea;
+ }
+ 

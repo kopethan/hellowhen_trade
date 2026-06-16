@@ -25,7 +25,7 @@ import { categoryLabel, itemTypeLabel, modeLabel } from './components/InventoryF
 import { TradeSquareDeck } from './components/TradeSquareDeck';
 import { buildTradeSquareDeckCards } from './components/TradeSquareDeckCards';
 import type { NeedItem, OfferItem, TradeDeckItem } from './types';
-import { feedTradeIdeas, parseFeedTradeIdeaKey } from './tradeFeedIdeas';
+import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, parseFeedTradeIdeaKey } from './tradeFeedIdeas';
 
 export type TradeCreateSide = 'need' | 'offer';
 export type TradeCreateSideSelection =
@@ -217,11 +217,18 @@ export function CreateTradeFullScreen({ route, navigation }: Props) {
 
   function editStarterSide(side: TradeCreateSide) {
     if (!routeIdeaKey || !selectedFeedIdea) return;
+    const templateKey = side === 'need' && feedTradeIdeaHasNeed(selectedFeedIdea)
+      ? selectedFeedIdea.needTemplateKey
+      : side === 'offer' && feedTradeIdeaHasOffer(selectedFeedIdea)
+        ? selectedFeedIdea.offerTemplateKey
+        : null;
+    if (!templateKey) return;
+    const starterPostType = postType ?? (selectedFeedIdea.type === 'trade' ? 'need_offer' : selectedFeedIdea.type);
     navigation.navigate(side === 'need' ? 'CreateNeedFull' : 'CreateOfferFull', {
       returnTo: 'createTradeFull',
-      initialTemplateKey: side === 'need' ? selectedFeedIdea.needTemplateKey : selectedFeedIdea.offerTemplateKey,
+      initialTemplateKey: templateKey,
       initialIdeaKey: routeIdeaKey,
-      initialPostType: postType ?? 'need_offer',
+      initialPostType: starterPostType,
       initialNeedSelection: needSelection,
       initialOfferSelection: offerSelection,
       initialExpiryDays: expiryDays,
@@ -290,14 +297,18 @@ export function CreateTradeFullScreen({ route, navigation }: Props) {
           <AppCard>
             <SemanticBadge label={t('trade.feedIdeas.badge')} tone="trade" size="sm" />
             <AppText style={styles.sectionTitle}>{t('trade.feedIdeas.fullFormTitle')}</AppText>
-            <AppText style={[styles.selectedBody, { color: theme.color.muted }]}>{t('trade.feedIdeas.fullFormBody')}</AppText>
+            <AppText style={[styles.selectedBody, { color: theme.color.muted }]}>{t(selectedFeedIdea.type === 'open_need' ? 'trade.feedIdeas.fullFormBodyOpenNeed' : selectedFeedIdea.type === 'open_offer' ? 'trade.feedIdeas.fullFormBodyOpenOffer' : 'trade.feedIdeas.fullFormBody')}</AppText>
             <View style={styles.starterActionRow}>
-              <Pressable accessibilityRole="button" disabled={submitting} onPress={() => editStarterSide('need')} style={({ pressed }) => [styles.starterActionButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, submitting && styles.disabled, pressed && styles.pressed]}>
-                <AppText style={[styles.starterActionText, { color: theme.color.text }]}>{selectedNeed ? t('trade.feedIdeas.editNeedAgainAction') : t('trade.feedIdeas.editNeedAction')}</AppText>
-              </Pressable>
-              <Pressable accessibilityRole="button" disabled={submitting} onPress={() => editStarterSide('offer')} style={({ pressed }) => [styles.starterActionButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, submitting && styles.disabled, pressed && styles.pressed]}>
-                <AppText style={[styles.starterActionText, { color: theme.color.text }]}>{selectedOffer ? t('trade.feedIdeas.editOfferAgainAction') : t('trade.feedIdeas.editOfferAction')}</AppText>
-              </Pressable>
+              {feedTradeIdeaHasNeed(selectedFeedIdea) ? (
+                <Pressable accessibilityRole="button" disabled={submitting} onPress={() => editStarterSide('need')} style={({ pressed }) => [styles.starterActionButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, submitting && styles.disabled, pressed && styles.pressed]}>
+                  <AppText style={[styles.starterActionText, { color: theme.color.text }]}>{selectedNeed ? t('trade.feedIdeas.editNeedAgainAction') : t('trade.feedIdeas.editNeedAction')}</AppText>
+                </Pressable>
+              ) : null}
+              {feedTradeIdeaHasOffer(selectedFeedIdea) ? (
+                <Pressable accessibilityRole="button" disabled={submitting} onPress={() => editStarterSide('offer')} style={({ pressed }) => [styles.starterActionButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, submitting && styles.disabled, pressed && styles.pressed]}>
+                  <AppText style={[styles.starterActionText, { color: theme.color.text }]}>{selectedOffer ? t('trade.feedIdeas.editOfferAgainAction') : t('trade.feedIdeas.editOfferAction')}</AppText>
+                </Pressable>
+              ) : null}
             </View>
           </AppCard>
         ) : null}

@@ -9,7 +9,7 @@ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
-import { feedTradeIdeaKeys, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeaKeys, feedTradeIdeas, getFeedTradeIdeaPostType, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TradeIdeaDetail'>;
 type IdeaExpirySelection = 'default' | 'none' | '1' | '3' | '7' | '14';
@@ -32,11 +32,24 @@ function selectedExpiryDays(expiry: IdeaExpirySelection): number | null | undefi
 }
 
 function ideaTitle(t: ReturnType<typeof useTranslation>['t'], ideaKey: FeedTradeIdeaKey) {
+  const idea = feedTradeIdeas[ideaKey];
+  if (idea.type === 'open_need') return t(`trade.feedIdeas.items.${ideaKey}.need`);
+  if (idea.type === 'open_offer') return t(`trade.feedIdeas.items.${ideaKey}.offer`);
   return `${t(`trade.feedIdeas.items.${ideaKey}.need`)} ↔ ${t(`trade.feedIdeas.items.${ideaKey}.offer`)}`;
 }
 
 function getRelatedIdeaKeys(ideaKey: FeedTradeIdeaKey) {
   return feedTradeIdeaKeys.filter((candidate) => candidate !== ideaKey).slice(0, maxRelatedIdeas);
+}
+
+function getIdeaTypeLabelKey(ideaKey: FeedTradeIdeaKey) {
+  const idea = feedTradeIdeas[ideaKey];
+  return idea.type === 'open_need' ? 'trade.feedIdeas.typeLabels.openNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.typeLabels.openOffer' : 'trade.feedIdeas.typeLabels.trade';
+}
+
+function getIdeaActionKey(ideaKey: FeedTradeIdeaKey) {
+  const idea = feedTradeIdeas[ideaKey];
+  return idea.type === 'open_need' ? 'trade.feedIdeas.actionOpenNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.actionOpenOffer' : 'trade.feedIdeas.action';
 }
 
 function IdeaSide({ kind, ideaKey }: { kind: 'need' | 'offer'; ideaKey: FeedTradeIdeaKey }) {
@@ -133,7 +146,7 @@ export function TradeIdeaDetailScreen({ route, navigation }: Props) {
     const expiryDays = selectedExpiryDays(expiry);
     const params = {
       initialIdeaKey: ideaKey,
-      initialPostType: 'need_offer' as const,
+      initialPostType: getFeedTradeIdeaPostType(feedTradeIdeas[ideaKey]),
       ...(expiryDays !== undefined ? { initialExpiryDays: expiryDays } : {}),
     };
     if (fullForm) {
@@ -178,22 +191,24 @@ export function TradeIdeaDetailScreen({ route, navigation }: Props) {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <View style={[styles.heroCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-          <SemanticBadge label={`${t('trade.feedIdeas.cardLabel')} · ${pack}`} tone="instruction" />
+          <SemanticBadge label={`${t(getIdeaTypeLabelKey(ideaKey))} · ${pack}`} tone="instruction" />
           <AppText style={[styles.heroTitle, { color: theme.color.text }]}>{title}</AppText>
-          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t('trade.ideaDetail.body')}</AppText>
+          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t(feedTradeIdeas[ideaKey].type === 'open_need' ? 'trade.ideaDetail.bodyOpenNeed' : feedTradeIdeas[ideaKey].type === 'open_offer' ? 'trade.ideaDetail.bodyOpenOffer' : 'trade.ideaDetail.body')}</AppText>
         </View>
 
         <NextStepsCard />
 
-        <IdeaSide kind="need" ideaKey={ideaKey} />
+        {feedTradeIdeaHasNeed(feedTradeIdeas[ideaKey]) ? <IdeaSide kind="need" ideaKey={ideaKey} /> : null}
 
-        <View style={styles.exchangeRow} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
-          <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
-          <MobileIcon name="trade" size={18} color={theme.color.muted} />
-          <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
-        </View>
+        {feedTradeIdeas[ideaKey].type === 'trade' ? (
+          <View style={styles.exchangeRow} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
+            <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
+            <MobileIcon name="trade" size={18} color={theme.color.muted} />
+            <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
+          </View>
+        ) : null}
 
-        <IdeaSide kind="offer" ideaKey={ideaKey} />
+        {feedTradeIdeaHasOffer(feedTradeIdeas[ideaKey]) ? <IdeaSide kind="offer" ideaKey={ideaKey} /> : null}
 
         <View style={[styles.expiryCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
           <View style={styles.expiryHeader}>
@@ -228,7 +243,7 @@ export function TradeIdeaDetailScreen({ route, navigation }: Props) {
           <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{t('trade.ideaDetail.editInFullForm')}</AppText>
         </Pressable>
         <Pressable accessibilityRole="button" onPress={() => openCreate(false)} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
-          <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('trade.feedIdeas.action')}</AppText>
+          <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t(getIdeaActionKey(ideaKey))}</AppText>
         </Pressable>
       </View>
     </AppScreen>

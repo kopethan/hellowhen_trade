@@ -20,7 +20,8 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { TradeSquareDeck } from './components/TradeSquareDeck';
 import { TradeExchangeIcon } from './components/TradeExchangeIcon';
-import { feedTradeIdeaKeys, getInlineFeedIdeaKey, shouldShowFeedIdeaRail, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+import { TradePosterCard } from './components/TradePosterCard';
+import { emptyFeedStarterIdeaPlacement, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedStarterIdeaPlacement, getFeedTradeIdeaMedia, getInlineFeedIdeaKey, getRandomizedFeedIdeaKeys, type FeedTradeIdeaKey, type FeedTradeIdeaVisualKey } from './tradeFeedIdeas';
 import type { TradeDeckItem } from './types';
 
 type FeedResponse = { trades: TradeDeckItem[] };
@@ -260,8 +261,13 @@ export function TradeDeckFeedScreen() {
   const hasTrades = trades.length > 0;
   const hasVisibleTrades = visibleTrades.length > 0;
   const hasFilters = activeFilterCount > 0;
-  const shouldShowIdeaRail = !loading && !error && !hasFilters && shouldShowFeedIdeaRail(visibleTrades.length);
-  const shouldShowInlineIdeas = !loading && !error && !hasFilters && !shouldShowIdeaRail;
+  const randomizedFeedIdeaKeys = useMemo(() => getRandomizedFeedIdeaKeys(refreshSeed), [refreshSeed]);
+  const starterIdeaPlacement = useMemo(() => (
+    !loading && !error && !hasFilters
+      ? getFeedStarterIdeaPlacement(visibleTrades.length, randomizedFeedIdeaKeys)
+      : emptyFeedStarterIdeaPlacement
+  ), [error, hasFilters, loading, randomizedFeedIdeaKeys, visibleTrades.length]);
+  const hasStarterIdeas = Boolean(Object.keys(starterIdeaPlacement.inlineIdeaKeysByAfterIndex).length || starterIdeaPlacement.appendedIdeaKeys.length);
 
   const header = (
     <View style={styles.fixedHeaderStack}>
@@ -289,18 +295,18 @@ export function TradeDeckFeedScreen() {
         <>
           <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshDiscoveryOrder} />}>
             {error ? <InfoNotice tone="danger" title={t('trade.filters.couldNotLoadTrades')} body={error} /> : null}
-            {shouldShowIdeaRail ? <TradeFeedIdeaRail onOpenIdea={openTradeIdea} /> : null}
-            {hasVisibleTrades ? (
+            {hasVisibleTrades || hasStarterIdeas ? (
               <View style={styles.feedList}>
                 {visibleTrades.map((trade, index) => {
-                  const ideaKey = shouldShowInlineIdeas ? getInlineFeedIdeaKey(index, visibleTrades.length) : null;
+                  const ideaKey = getInlineFeedIdeaKey(index, starterIdeaPlacement);
                   return (
                     <React.Fragment key={trade.id}>
                       <TradeDeckSection trade={trade} index={index} total={visibleTrades.length} onOpen={() => openTrade(trade)} />
-                      {ideaKey ? <TradeFeedInlineIdeaCard ideaKey={ideaKey} onOpenIdea={openTradeIdea} /> : null}
+                      {ideaKey ? <TradeFeedInlineIdeaCard key={`starter-inline-${index}-${ideaKey}`} ideaKey={ideaKey} onOpenIdea={openTradeIdea} /> : null}
                     </React.Fragment>
                   );
                 })}
+                {starterIdeaPlacement.appendedIdeaKeys.length ? <TradeFeedIdeaGroup ideaKeys={starterIdeaPlacement.appendedIdeaKeys} onOpenIdea={openTradeIdea} /> : null}
               </View>
             ) : (
               <EmptyTradesState loading={loading} hasTrades={hasTrades} hasFilters={hasFilters} onCreate={createTrade} onRefresh={refreshDiscoveryOrder} onClear={clearFilters} />
@@ -350,7 +356,7 @@ export function TradeDeckFeedScreen() {
 
 
 
-function TradeFeedIdeaRail({ onOpenIdea }: { onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void }) {
+function TradeFeedIdeaGroup({ ideaKeys, onOpenIdea }: { ideaKeys: readonly FeedTradeIdeaKey[]; onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
 
@@ -361,29 +367,97 @@ function TradeFeedIdeaRail({ onOpenIdea }: { onOpenIdea: (ideaKey: FeedTradeIdea
         <AppText style={styles.feedIdeasTitle}>{t('trade.feedIdeas.title')}</AppText>
         <AppText style={[styles.feedIdeasBody, { color: theme.color.muted }]}>{t('trade.feedIdeas.body')}</AppText>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.feedIdeasList}>
-        {feedTradeIdeaKeys.map((key) => <TradeFeedIdeaCard key={key} ideaKey={key} onOpenIdea={onOpenIdea} />)}
-      </ScrollView>
+      <View style={styles.feedIdeasList}>
+        {ideaKeys.map((key, index) => <TradeFeedIdeaCard key={`starter-appended-${index}-${key}`} ideaKey={key} onOpenIdea={onOpenIdea} />)}
+      </View>
     </View>
   );
+}
+
+function getFeedIdeaTypeLabelKey(ideaKey: FeedTradeIdeaKey) {
+  const idea = feedTradeIdeas[ideaKey];
+  return idea.type === 'open_need' ? 'trade.feedIdeas.typeLabels.openNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.typeLabels.openOffer' : 'trade.feedIdeas.typeLabels.trade';
+}
+
+function getFeedIdeaActionKey(ideaKey: FeedTradeIdeaKey) {
+  const idea = feedTradeIdeas[ideaKey];
+  return idea.type === 'open_need' ? 'trade.feedIdeas.actionOpenNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.actionOpenOffer' : 'trade.feedIdeas.action';
+}
+
+function getFeedIdeaAriaSummary(t: ReturnType<typeof useTranslation>['t'], ideaKey: FeedTradeIdeaKey) {
+  const idea = feedTradeIdeas[ideaKey];
+  const need = feedTradeIdeaHasNeed(idea) ? t(`trade.feedIdeas.items.${ideaKey}.need`) : '';
+  const offer = feedTradeIdeaHasOffer(idea) ? t(`trade.feedIdeas.items.${ideaKey}.offer`) : '';
+  return idea.type === 'open_need' ? need : idea.type === 'open_offer' ? offer : `${need} ↔ ${offer}`;
+}
+
+const starterIdeaPreviewThemeByVisualKey: Record<FeedTradeIdeaVisualKey, 'blue' | 'green' | 'purple' | 'amber' | 'rose'> = {
+  startup: 'purple',
+  language: 'green',
+  local: 'amber',
+  objects: 'blue',
+  creative: 'rose',
+  feedback: 'purple',
+  social: 'amber',
+  admin: 'blue',
+  video: 'blue',
+  remote: 'green',
+};
+
+function splitFeedIdeaChips(value: string) {
+  return value.split('·').map((part) => part.trim()).filter(Boolean).slice(0, 3);
 }
 
 function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: FeedTradeIdeaKey; onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void; inline?: boolean }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
+  const idea = feedTradeIdeas[ideaKey];
   const pack = t(`trade.feedIdeas.items.${ideaKey}.pack`);
-  const need = t(`trade.feedIdeas.items.${ideaKey}.need`);
-  const offer = t(`trade.feedIdeas.items.${ideaKey}.offer`);
+  const need = feedTradeIdeaHasNeed(idea) ? t(`trade.feedIdeas.items.${ideaKey}.need`) : '';
+  const offer = feedTradeIdeaHasOffer(idea) ? t(`trade.feedIdeas.items.${ideaKey}.offer`) : '';
+  const typeLabel = t(getFeedIdeaTypeLabelKey(ideaKey));
+  const actionLabel = t(getFeedIdeaActionKey(ideaKey));
+  const summary = getFeedIdeaAriaSummary(t, ideaKey);
+
+  if (idea.type !== 'trade') {
+    const isOpenNeed = idea.type === 'open_need';
+    const media = getFeedTradeIdeaMedia(ideaKey);
+    const title = isOpenNeed ? need : offer;
+    const meta = t(`trade.feedIdeas.items.${ideaKey}.${isOpenNeed ? 'needMeta' : 'offerMeta'}`);
+
+    return (
+      <View
+        accessibilityLabel={`${typeLabel} · ${pack}: ${summary}. ${actionLabel}`}
+        style={[styles.feedIdeaPosterFrame, inline && styles.feedIdeaCardInline]}
+      >
+        <TradePosterCard
+          id={`starter-${ideaKey}`}
+          accessibilityLabel={`${typeLabel} · ${pack}: ${summary}. ${actionLabel}`}
+          imageUrl={media.imageUrl}
+          badge={`${typeLabel} · 01/01`}
+          eyebrow={isOpenNeed ? t('trade.proposals.openForOffers') : t('trade.proposals.openForNeeds')}
+          title={title}
+          subtitle={meta}
+          topMeta={t('trade.feedIdeas.ideaLabel')}
+          chips={[pack, ...splitFeedIdeaChips(meta)]}
+          footerLabel={actionLabel}
+          variant={isOpenNeed ? 'need' : 'offer'}
+          onPress={() => onOpenIdea(ideaKey)}
+          previewTheme={starterIdeaPreviewThemeByVisualKey[media.fallbackVisualKey]}
+        />
+      </View>
+    );
+  }
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${t('trade.feedIdeas.cardLabel')} · ${pack}: ${need} ↔ ${offer}. ${t('trade.feedIdeas.action')}`}
+      accessibilityLabel={`${typeLabel} · ${pack}: ${summary}. ${actionLabel}`}
       onPress={() => onOpenIdea(ideaKey)}
       style={({ pressed }) => [styles.feedIdeaCard, inline && styles.feedIdeaCardInline, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
     >
       <View style={styles.feedIdeaTopline}>
-        <AppText numberOfLines={1} style={[styles.feedIdeaToplineText, { color: theme.color.muted }]}>{t('trade.feedIdeas.cardLabel')} · {pack}</AppText>
+        <AppText numberOfLines={1} style={[styles.feedIdeaToplineText, { color: theme.color.muted }]}>{typeLabel} · {pack}</AppText>
         <AppText numberOfLines={1} style={[styles.feedIdeaToplineRight, { color: theme.color.text }]}>{t('trade.feedIdeas.ideaLabel')}</AppText>
       </View>
 
@@ -406,7 +480,7 @@ function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: F
       </View>
 
       <View style={styles.feedIdeaFooter}>
-        <AppText numberOfLines={1} style={[styles.feedIdeaActionText, { color: theme.color.text }]}>{t('trade.feedIdeas.action')}</AppText>
+        <AppText numberOfLines={1} style={[styles.feedIdeaActionText, { color: theme.color.text }]}>{actionLabel}</AppText>
       </View>
     </Pressable>
   );
@@ -1052,12 +1126,12 @@ const styles = StyleSheet.create({
   suggestionRow: { minHeight: 42, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   suggestionText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '900' },
   suggestionSource: { fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
-  feedList: { gap: 20 },
-  feedIdeasCard: { gap: 14 },
-  feedIdeasHeader: { gap: 6, paddingHorizontal: 4 },
+  feedList: { gap: 22 },
+  feedIdeasCard: { gap: 16, paddingTop: 10 },
+  feedIdeasHeader: { gap: 7, paddingHorizontal: 6, paddingBottom: 4 },
   feedIdeasTitle: { fontSize: 21, lineHeight: 25, fontWeight: '900', letterSpacing: -0.5 },
   feedIdeasBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
-  feedIdeasList: { gap: 14, paddingRight: 18, paddingBottom: 4 },
+  feedIdeasList: { alignItems: 'center', gap: 16, paddingBottom: 6 },
   feedIdeaCard: {
     width: 318,
     aspectRatio: 1,
@@ -1073,6 +1147,17 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   feedIdeaCardInline: { width: '100%', maxWidth: 348, alignSelf: 'center' },
+  feedIdeaPosterFrame: {
+    width: 318,
+    aspectRatio: 1,
+    borderRadius: 28,
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
+  },
   feedIdeaTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   feedIdeaToplineText: { flex: 1, minWidth: 0, fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95, textTransform: 'uppercase' },
   feedIdeaToplineRight: { maxWidth: '34%', flexShrink: 0, fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.65, textAlign: 'right', textTransform: 'uppercase' },

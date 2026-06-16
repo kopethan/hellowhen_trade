@@ -18,7 +18,7 @@ import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { normalizeInventoryList, toIsoDate } from '../inventory/inventoryPresentation';
 import { TradeSidePicker } from './TradeSidePicker';
 import { TradeStackDeck } from './TradeStackDeck';
-import { feedTradeIdeas, getLocalizedTemplateKeyCandidates, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedTradeIdeaPostType, getLocalizedTemplateKeyCandidates, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
 
 type CreateTradeResponse = { trade?: unknown; id?: unknown };
 type DuplicateTradeSummary = Pick<TradeDto, 'id' | 'status' | 'title'> & { postType?: TradePostType };
@@ -382,9 +382,11 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
   const routeNeedId = searchParams.get('needId') ?? initialNeedId;
   const routeOfferId = searchParams.get('offerId') ?? initialOfferId;
   const routeIdeaKey = parseFeedTradeIdeaKey(searchParams.get('idea') ?? initialIdea);
+  const routeSelectedFeedIdea = routeIdeaKey ? feedTradeIdeas[routeIdeaKey] : null;
+  const routeIdeaPostType = routeSelectedFeedIdea ? getFeedTradeIdeaPostType(routeSelectedFeedIdea) : '';
   const routeExpiryDays = parseIdeaExpiryDaysParam(searchParams.get('expiryDays'));
   const routeExpiryDateInput = buildDateInputFromExpiryDays(routeExpiryDays);
-  const routePostType = parseTradePostType(searchParams.get('postType') ?? initialPostType) || (routeNeedId || routeOfferId || routeIdeaKey ? 'need_offer' : '');
+  const routePostType = parseTradePostType(searchParams.get('postType') ?? initialPostType) || routeIdeaPostType || (routeNeedId || routeOfferId ? 'need_offer' : '');
   const preferredCurrency = getPreferredCurrency(auth.user?.profile?.preferredCurrency);
   const demoDataEnabled = isWebDemoDataEnabled();
   const [needs, setNeeds] = useState<NeedDto[]>(() => demoDataEnabled ? mockNeeds : []);
@@ -669,7 +671,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
     }
   }
 
-  const selectedFeedIdea = routeIdeaKey ? feedTradeIdeas[routeIdeaKey] : null;
+  const selectedFeedIdea = routeSelectedFeedIdea;
   const showFeedIdeaPanel = Boolean(routeIdeaKey && selectedFeedIdea && appliedIdeaKey !== routeIdeaKey);
 
   async function applyFeedIdeaToDraft(ideaKey: FeedTradeIdeaKey) {
@@ -684,30 +686,32 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
     try {
       const templatesResponse = await api.inventoryTemplates.list({ sourceType: 'hellowhen', language, take: 100 });
       const templates = normalizeTemplateResponse(templatesResponse);
-      const needTemplateKeys = getLocalizedTemplateKeyCandidates(idea.needTemplateKey);
-      const offerTemplateKeys = getLocalizedTemplateKeyCandidates(idea.offerTemplateKey);
-      const needTemplate = templates.find((template) => needTemplateKeys.includes(template.key) && template.kind === 'need');
-      const offerTemplate = templates.find((template) => offerTemplateKeys.includes(template.key) && template.kind === 'offer');
-      if (!needTemplate) throw new Error(t('trade.feedIdeas.applyMissingNeed'));
-      if (!offerTemplate) throw new Error(t('trade.feedIdeas.applyMissingOffer'));
+      const needTemplateKeys = feedTradeIdeaHasNeed(idea) ? getLocalizedTemplateKeyCandidates(idea.needTemplateKey) : [];
+      const offerTemplateKeys = feedTradeIdeaHasOffer(idea) ? getLocalizedTemplateKeyCandidates(idea.offerTemplateKey) : [];
+      const needTemplate = feedTradeIdeaHasNeed(idea) ? templates.find((template) => needTemplateKeys.includes(template.key) && template.kind === 'need') : null;
+      const offerTemplate = feedTradeIdeaHasOffer(idea) ? templates.find((template) => offerTemplateKeys.includes(template.key) && template.kind === 'offer') : null;
+      if (feedTradeIdeaHasNeed(idea) && !needTemplate) throw new Error(t('trade.feedIdeas.applyMissingNeed'));
+      if (feedTradeIdeaHasOffer(idea) && !offerTemplate) throw new Error(t('trade.feedIdeas.applyMissingOffer'));
 
       const [needResponse, offerResponse] = await Promise.all([
-        api.inventoryTemplates.clone(needTemplate.id, { status: 'active' }),
-        api.inventoryTemplates.clone(offerTemplate.id, { status: 'active' }),
+        needTemplate ? api.inventoryTemplates.clone(needTemplate.id, { status: 'active' }) : Promise.resolve(null),
+        offerTemplate ? api.inventoryTemplates.clone(offerTemplate.id, { status: 'active' }) : Promise.resolve(null),
       ]);
-      const clonedNeed = clonedNeedFromResponse(needResponse);
-      const clonedOffer = clonedOfferFromResponse(offerResponse);
-      if (!clonedNeed || !clonedOffer) throw new Error(t('trade.feedIdeas.applyError'));
+      const clonedNeed = needResponse ? clonedNeedFromResponse(needResponse) : null;
+      const clonedOffer = offerResponse ? clonedOfferFromResponse(offerResponse) : null;
+      if (feedTradeIdeaHasNeed(idea) && !clonedNeed) throw new Error(t('trade.feedIdeas.applyError'));
+      if (feedTradeIdeaHasOffer(idea) && !clonedOffer) throw new Error(t('trade.feedIdeas.applyError'));
+      const nextPostType = getFeedTradeIdeaPostType(idea);
 
-      setNeeds((current) => [clonedNeed, ...current.filter((need) => need.id !== clonedNeed.id)]);
-      setOffers((current) => [clonedOffer, ...current.filter((offer) => offer.id !== clonedOffer.id)]);
+      if (clonedNeed) setNeeds((current) => [clonedNeed, ...current.filter((need) => need.id !== clonedNeed.id)]);
+      if (clonedOffer) setOffers((current) => [clonedOffer, ...current.filter((offer) => offer.id !== clonedOffer.id)]);
       setValues((current) => ({
         ...current,
-        postType: 'need_offer',
+        postType: nextPostType,
         needMode: 'saved',
         offerMode: 'saved',
-        needId: clonedNeed.id,
-        offerId: clonedOffer.id,
+        needId: clonedNeed?.id ?? '',
+        offerId: clonedOffer?.id ?? '',
         amount: '',
         cashPromiseAmount: '',
         cashPromiseNote: '',
@@ -716,7 +720,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
       }));
       setActiveStepId('review');
       setAppliedIdeaKey(ideaKey);
-      setNotice(t('trade.feedIdeas.applySuccess'));
+      setNotice(t(nextPostType === 'open_need' ? 'trade.feedIdeas.applySuccessOpenNeed' : nextPostType === 'open_offer' ? 'trade.feedIdeas.applySuccessOpenOffer' : 'trade.feedIdeas.applySuccess'));
       router.replace('/trades/create', { scroll: false });
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError, t('trade.feedIdeas.applyError')));
@@ -976,15 +980,15 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
 
         {tradeWizardDraft.restored && shouldRestoreStoredDraft ? <p className="form-message">{t('inventory.wizard.draftRestoredTitle')} · {t('inventory.wizard.draftRestoredBody')}</p> : null}
 
-        {showFeedIdeaPanel && routeIdeaKey ? (
+        {showFeedIdeaPanel && routeIdeaKey && selectedFeedIdea ? (
           <section className="mobile-card mobile-card--soft trade-create-idea-prefill">
             <div>
               <span className="semantic-badge instruction">{t('trade.feedIdeas.badge')}</span>
               <h3>{t('trade.feedIdeas.createFromIdeaTitle')}</h3>
-              <p>{t('trade.feedIdeas.createFromIdeaBody')}</p>
+              <p>{t(selectedFeedIdea.type === 'open_need' ? 'trade.feedIdeas.createFromIdeaBodyOpenNeed' : selectedFeedIdea.type === 'open_offer' ? 'trade.feedIdeas.createFromIdeaBodyOpenOffer' : 'trade.feedIdeas.createFromIdeaBody')}</p>
               <div className="trade-create-idea-prefill__sides" aria-label={t('trade.feedIdeas.sidesLabel')}>
-                <span><strong>{t('trade.labels.iNeed')}</strong>{t(`trade.feedIdeas.items.${routeIdeaKey}.need`)}</span>
-                <span><strong>{t('trade.labels.iOffer')}</strong>{t(`trade.feedIdeas.items.${routeIdeaKey}.offer`)}</span>
+                {feedTradeIdeaHasNeed(selectedFeedIdea) ? <span><strong>{t('trade.labels.iNeed')}</strong>{t(`trade.feedIdeas.items.${routeIdeaKey}.need`)}</span> : null}
+                {feedTradeIdeaHasOffer(selectedFeedIdea) ? <span><strong>{t('trade.labels.iOffer')}</strong>{t(`trade.feedIdeas.items.${routeIdeaKey}.offer`)}</span> : null}
               </div>
             </div>
             <button type="button" className="button primary" disabled={Boolean(applyingIdea)} onClick={() => void applyFeedIdeaToDraft(routeIdeaKey)}>

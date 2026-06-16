@@ -1,0 +1,540 @@
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index 5fd3d44..0ab5ee0 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+-import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
++import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+@@ -20,6 +20,7 @@ import { useAuth } from '../../providers/AuthProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { TradeSquareDeck } from './components/TradeSquareDeck';
+ import { TradeExchangeIcon } from './components/TradeExchangeIcon';
++import { TradePosterCard } from './components/TradePosterCard';
+ import { emptyFeedStarterIdeaPlacement, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedStarterIdeaPlacement, getFeedTradeIdeaMedia, getInlineFeedIdeaKey, getRandomizedFeedIdeaKeys, type FeedTradeIdeaKey, type FeedTradeIdeaVisualKey } from './tradeFeedIdeas';
+ import type { TradeDeckItem } from './types';
+ 
+@@ -390,19 +391,23 @@ function getFeedIdeaAriaSummary(t: ReturnType<typeof useTranslation>['t'], ideaK
+   return idea.type === 'open_need' ? need : idea.type === 'open_offer' ? offer : `${need} ↔ ${offer}`;
+ }
+ 
+-const feedIdeaVisualPalette: Record<FeedTradeIdeaVisualKey, { tone: string; background: string; accent: string }> = {
+-  startup: { tone: '#6366F1', background: 'rgba(99,102,241,0.15)', accent: 'rgba(252,231,243,0.72)' },
+-  language: { tone: '#14B8A6', background: 'rgba(20,184,166,0.14)', accent: 'rgba(224,242,254,0.78)' },
+-  local: { tone: '#F59E0B', background: 'rgba(245,158,11,0.15)', accent: 'rgba(220,252,231,0.78)' },
+-  objects: { tone: '#60A5FA', background: 'rgba(96,165,250,0.16)', accent: 'rgba(224,231,255,0.78)' },
+-  creative: { tone: '#EC4899', background: 'rgba(236,72,153,0.14)', accent: 'rgba(254,243,199,0.78)' },
+-  feedback: { tone: '#8B5CF6', background: 'rgba(139,92,246,0.14)', accent: 'rgba(243,232,255,0.78)' },
+-  social: { tone: '#F97316', background: 'rgba(249,115,22,0.14)', accent: 'rgba(254,249,195,0.78)' },
+-  admin: { tone: '#64748B', background: 'rgba(100,116,139,0.14)', accent: 'rgba(241,245,249,0.78)' },
+-  video: { tone: '#06B6D4', background: 'rgba(6,182,212,0.14)', accent: 'rgba(224,242,254,0.78)' },
+-  remote: { tone: '#34D399', background: 'rgba(52,211,153,0.15)', accent: 'rgba(224,242,254,0.78)' },
++const starterIdeaPreviewThemeByVisualKey: Record<FeedTradeIdeaVisualKey, 'blue' | 'green' | 'purple' | 'amber' | 'rose'> = {
++  startup: 'purple',
++  language: 'green',
++  local: 'amber',
++  objects: 'blue',
++  creative: 'rose',
++  feedback: 'purple',
++  social: 'amber',
++  admin: 'blue',
++  video: 'blue',
++  remote: 'green',
+ };
+ 
++function splitFeedIdeaChips(value: string) {
++  return value.split('·').map((part) => part.trim()).filter(Boolean).slice(0, 3);
++}
++
+ function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: FeedTradeIdeaKey; onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void; inline?: boolean }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+@@ -413,70 +418,66 @@ function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: F
+   const typeLabel = t(getFeedIdeaTypeLabelKey(ideaKey));
+   const actionLabel = t(getFeedIdeaActionKey(ideaKey));
+   const summary = getFeedIdeaAriaSummary(t, ideaKey);
+-  const media = getFeedTradeIdeaMedia(ideaKey);
+-  const [imageFailed, setImageFailed] = useState(false);
+ 
+-  useEffect(() => { setImageFailed(false); }, [ideaKey, media.imageUrl]);
++  if (idea.type !== 'trade') {
++    const isOpenNeed = idea.type === 'open_need';
++    const media = getFeedTradeIdeaMedia(ideaKey);
++    const title = isOpenNeed ? need : offer;
++    const meta = t(`trade.feedIdeas.items.${ideaKey}.${isOpenNeed ? 'needMeta' : 'offerMeta'}`);
+ 
+-  const isSingleSideIdea = idea.type !== 'trade';
+-  const showMediaImage = Boolean(media.imageUrl && !imageFailed);
+-  const mediaImageUrl = showMediaImage ? media.imageUrl : null;
+-  const visualPalette = feedIdeaVisualPalette[media.fallbackVisualKey];
++    return (
++      <View
++        accessibilityLabel={`${typeLabel} · ${pack}: ${summary}. ${actionLabel}`}
++        style={[styles.feedIdeaPosterFrame, inline && styles.feedIdeaCardInline]}
++      >
++        <TradePosterCard
++          id={`starter-${ideaKey}`}
++          accessibilityLabel={`${typeLabel} · ${pack}: ${summary}. ${actionLabel}`}
++          imageUrl={media.imageUrl}
++          badge={`${typeLabel} · 01/01`}
++          eyebrow={isOpenNeed ? t('trade.proposals.openForOffers') : t('trade.proposals.openForNeeds')}
++          title={title}
++          subtitle={meta}
++          topMeta={t('trade.feedIdeas.ideaLabel')}
++          chips={[pack, ...splitFeedIdeaChips(meta)]}
++          footerLabel={actionLabel}
++          variant={isOpenNeed ? 'need' : 'offer'}
++          onPress={() => onOpenIdea(ideaKey)}
++          previewTheme={starterIdeaPreviewThemeByVisualKey[media.fallbackVisualKey]}
++        />
++      </View>
++    );
++  }
+ 
+   return (
+     <Pressable
+       accessibilityRole="button"
+       accessibilityLabel={`${typeLabel} · ${pack}: ${summary}. ${actionLabel}`}
+       onPress={() => onOpenIdea(ideaKey)}
+-      style={({ pressed }) => [styles.feedIdeaCard, isSingleSideIdea && styles.feedIdeaCardSingle, inline && styles.feedIdeaCardInline, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
++      style={({ pressed }) => [styles.feedIdeaCard, inline && styles.feedIdeaCardInline, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
+     >
+       <View style={styles.feedIdeaTopline}>
+         <AppText numberOfLines={1} style={[styles.feedIdeaToplineText, { color: theme.color.muted }]}>{typeLabel} · {pack}</AppText>
+         <AppText numberOfLines={1} style={[styles.feedIdeaToplineRight, { color: theme.color.text }]}>{t('trade.feedIdeas.ideaLabel')}</AppText>
+       </View>
+ 
+-      {isSingleSideIdea ? (
+-        <View pointerEvents="none" style={[styles.feedIdeaSingleVisual, { backgroundColor: visualPalette.background }]}>
+-          {mediaImageUrl ? (
+-            <>
+-              <Image source={{ uri: mediaImageUrl }} resizeMode="cover" style={styles.feedIdeaSingleVisualImage} onError={() => setImageFailed(true)} />
+-              <View style={styles.feedIdeaSingleVisualImageOverlay} />
+-            </>
+-          ) : (
+-            <>
+-              <View style={[styles.feedIdeaSingleVisualBlob, { backgroundColor: visualPalette.accent }]} />
+-              <View style={[styles.feedIdeaSingleVisualLine, styles.feedIdeaSingleVisualLineShort]} />
+-              <View style={[styles.feedIdeaSingleVisualLine, styles.feedIdeaSingleVisualLineLong]} />
+-              <View style={[styles.feedIdeaSingleVisualDot, { backgroundColor: visualPalette.tone }]} />
+-              <View style={[styles.feedIdeaSingleVisualPill, { backgroundColor: visualPalette.accent }]} />
+-            </>
+-          )}
+-        </View>
+-      ) : null}
+-
+-      {feedTradeIdeaHasNeed(idea) ? (
+-        <View style={[styles.feedIdeaSideBlock, isSingleSideIdea && styles.feedIdeaSideBlockSingle]}>
+-          <AppText style={[styles.feedIdeaSideEyebrow, { color: '#60A5FA' }]}>{t('trade.labels.iNeed')}</AppText>
+-          <AppText numberOfLines={isSingleSideIdea ? 3 : 2} style={[styles.feedIdeaSideTitle, isSingleSideIdea && styles.feedIdeaSideTitleSingle, { color: theme.color.text }]}>{need}</AppText>
+-          <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.needMeta`)}</AppText>
+-        </View>
+-      ) : null}
++      <View style={styles.feedIdeaSideBlock}>
++        <AppText style={[styles.feedIdeaSideEyebrow, { color: '#60A5FA' }]}>{t('trade.labels.iNeed')}</AppText>
++        <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, { color: theme.color.text }]}>{need}</AppText>
++        <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.needMeta`)}</AppText>
++      </View>
+ 
+-      {idea.type === 'trade' ? (
+-        <View style={styles.feedIdeaExchangeRow} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
+-          <View style={[styles.feedIdeaExchangeLine, { backgroundColor: theme.color.border }]} />
+-          <TradeExchangeIcon color={theme.color.muted} size={16} strokeWidth={2.2} />
+-          <View style={[styles.feedIdeaExchangeLine, { backgroundColor: theme.color.border }]} />
+-        </View>
+-      ) : null}
++      <View style={styles.feedIdeaExchangeRow} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
++        <View style={[styles.feedIdeaExchangeLine, { backgroundColor: theme.color.border }]} />
++        <TradeExchangeIcon color={theme.color.muted} size={16} strokeWidth={2.2} />
++        <View style={[styles.feedIdeaExchangeLine, { backgroundColor: theme.color.border }]} />
++      </View>
+ 
+-      {feedTradeIdeaHasOffer(idea) ? (
+-        <View style={[styles.feedIdeaSideBlock, isSingleSideIdea && styles.feedIdeaSideBlockSingle]}>
+-          <AppText style={[styles.feedIdeaSideEyebrow, { color: '#34D399' }]}>{t('trade.labels.iOffer')}</AppText>
+-          <AppText numberOfLines={isSingleSideIdea ? 3 : 2} style={[styles.feedIdeaSideTitle, isSingleSideIdea && styles.feedIdeaSideTitleSingle, { color: theme.color.text }]}>{offer}</AppText>
+-          <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.offerMeta`)}</AppText>
+-        </View>
+-      ) : null}
++      <View style={styles.feedIdeaSideBlock}>
++        <AppText style={[styles.feedIdeaSideEyebrow, { color: '#34D399' }]}>{t('trade.labels.iOffer')}</AppText>
++        <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, { color: theme.color.text }]}>{offer}</AppText>
++        <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.offerMeta`)}</AppText>
++      </View>
+ 
+       <View style={styles.feedIdeaFooter}>
+         <AppText numberOfLines={1} style={[styles.feedIdeaActionText, { color: theme.color.text }]}>{actionLabel}</AppText>
+@@ -1146,27 +1147,26 @@ const styles = StyleSheet.create({
+     elevation: 4,
+   },
+   feedIdeaCardInline: { width: '100%', maxWidth: 348, alignSelf: 'center' },
+-  feedIdeaCardSingle: { gap: 12 },
++  feedIdeaPosterFrame: {
++    width: 318,
++    aspectRatio: 1,
++    borderRadius: 28,
++    overflow: 'hidden',
++    shadowColor: '#000000',
++    shadowOpacity: 0.14,
++    shadowRadius: 18,
++    shadowOffset: { width: 0, height: 10 },
++    elevation: 4,
++  },
+   feedIdeaTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+   feedIdeaToplineText: { flex: 1, minWidth: 0, fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95, textTransform: 'uppercase' },
+   feedIdeaToplineRight: { maxWidth: '34%', flexShrink: 0, fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.65, textAlign: 'right', textTransform: 'uppercase' },
+   feedIdeaSideBlock: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 3, minHeight: 0 },
+-  feedIdeaSideBlockSingle: { justifyContent: 'flex-start', gap: 7, paddingVertical: 0 },
+   feedIdeaSideEyebrow: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+   feedIdeaSideTitle: { textAlign: 'center', fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.55, paddingBottom: 1 },
+-  feedIdeaSideTitleSingle: { fontSize: 22, lineHeight: 26, letterSpacing: -0.65 },
+   feedIdeaSideMeta: { textAlign: 'center', fontSize: 12, lineHeight: 16, fontWeight: '800' },
+   feedIdeaExchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 1 },
+   feedIdeaExchangeLine: { flex: 1, height: StyleSheet.hairlineWidth },
+-  feedIdeaSingleVisual: { height: 78, borderRadius: 23, overflow: 'hidden', justifyContent: 'center', alignItems: 'center', opacity: 0.9 },
+-  feedIdeaSingleVisualImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
+-  feedIdeaSingleVisualImageOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.12)' },
+-  feedIdeaSingleVisualBlob: { position: 'absolute', width: '54%', height: 56, borderRadius: 999, opacity: 0.68, transform: [{ rotate: '-13deg' }] },
+-  feedIdeaSingleVisualLine: { position: 'absolute', height: 10, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.68)', transform: [{ rotate: '-17deg' }] },
+-  feedIdeaSingleVisualLineShort: { width: '62%', left: '7%', top: 16, opacity: 0.76 },
+-  feedIdeaSingleVisualLineLong: { width: '76%', left: '16%', top: 38, opacity: 0.52 },
+-  feedIdeaSingleVisualDot: { width: 44, height: 44, borderRadius: 22, opacity: 0.68 },
+-  feedIdeaSingleVisualPill: { position: 'absolute', width: '34%', height: 8, right: '8%', bottom: 14, borderRadius: 999, opacity: 0.48, transform: [{ rotate: '-17deg' }] },
+   feedIdeaFooter: { minHeight: 20, alignItems: 'center', justifyContent: 'center' },
+   feedIdeaActionText: { fontSize: 13, lineHeight: 17, fontWeight: '900', letterSpacing: 0.2 },
+   mineHeaderCard: { gap: 14 },
+diff --git a/apps/mobile/src/features/trade/components/TradePosterCard.tsx b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+index 069e42c..00b15d5 100644
+--- a/apps/mobile/src/features/trade/components/TradePosterCard.tsx
++++ b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+@@ -17,10 +17,12 @@ type TradePosterCardProps = {
+   chips?: string[];
+   status?: { label: string; tone: TradePosterCardStatusTone } | null;
+   topMeta?: string | null;
++  footerLabel?: string;
+   identity?: React.ReactNode;
+   variant?: TradePosterCardVariant;
+   onPress: () => void;
+   previewTheme?: string | null;
++  accessibilityLabel?: string;
+ };
+ 
+ const FALLBACK_ACCENTS = ['#f97316', '#84cc16', '#06b6d4', '#8b5cf6', '#ec4899', '#14b8a6', '#f59e0b', '#6366f1'];
+@@ -100,7 +102,7 @@ function LowerAtmosphere({ imageUrl, isDark }: { imageUrl?: string | null; isDar
+   );
+ }
+ 
+-function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, topMeta, identity, variant = 'trade', onPress, previewTheme }: TradePosterCardProps) {
++function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, topMeta, footerLabel, identity, variant = 'trade', onPress, previewTheme, accessibilityLabel }: TradePosterCardProps) {
+   const theme = useThemeTokens();
+   const isDark = theme.mode === 'dark';
+   const [imageFailed, setImageFailed] = useState(!imageUrl);
+@@ -133,7 +135,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
+           : '#b91c1c';
+ 
+   return (
+-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: controlledAccent && !visibleImageUrl ? `${controlledAccent}24` : mediaSurface }, pressed && styles.pressed]}>
++    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: controlledAccent && !visibleImageUrl ? `${controlledAccent}24` : mediaSurface }, pressed && styles.pressed]}>
+       {visibleImageUrl ? (
+         <Image source={{ uri: visibleImageUrl }} resizeMode="cover" onError={() => setImageFailed(true)} style={StyleSheet.absoluteFillObject} />
+       ) : (
+@@ -223,6 +225,11 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
+               {status.label}
+             </AppText>
+           ) : null}
++          {footerLabel ? (
++            <AppText style={[styles.footerLabel, { color: titleColor, textShadowColor: overlayTextShadow }]} numberOfLines={1}>
++              {footerLabel}
++            </AppText>
++          ) : null}
+           {visibleChips.length ? (
+             <View style={styles.chipRow}>
+               {visibleChips.map((chip) => (
+@@ -371,6 +378,16 @@ const styles = StyleSheet.create({
+     textShadowOffset: { width: 0, height: 1 },
+     textShadowRadius: 7,
+   },
++  footerLabel: {
++    alignSelf: 'flex-start',
++    marginTop: 2,
++    fontSize: 11,
++    lineHeight: 14,
++    fontWeight: '900',
++    letterSpacing: 0.45,
++    textShadowOffset: { width: 0, height: 1 },
++    textShadowRadius: 7,
++  },
+   chipRow: {
+     flexDirection: 'row',
+     flexWrap: 'wrap',
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 9c30a55..2c576d2 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -8390,10 +8390,42 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   text-decoration: none;
+ }
+ 
+-.trade-feed-idea-card--open_need .trade-feed-idea-card__open-link,
+-.trade-feed-idea-card--open_offer .trade-feed-idea-card__open-link {
+-  grid-template-rows: auto minmax(70px, 0.82fr) minmax(0, 1fr) auto;
+-  gap: 12px;
++.trade-feed-idea-card--poster {
++  border: 0;
++  background: transparent;
++  box-shadow: var(--app-card-shadow-strong);
++}
++
++.trade-feed-idea-card__poster-link {
++  display: block;
++  width: 100%;
++  height: 100%;
++  overflow: hidden;
++  border-radius: 34px;
++  color: inherit;
++  text-decoration: none;
++}
++
++.trade-feed-idea-card__poster-link:focus-visible {
++  outline: 3px solid color-mix(in srgb, var(--proposal-border) 48%, transparent);
++  outline-offset: 4px;
++  border-radius: 34px;
++}
++
++.trade-feed-idea-card__poster-link .trade-poster-card {
++  width: 100%;
++  height: 100%;
++}
++
++.trade-feed-idea-card__poster-action {
++  display: inline-flex;
++  align-items: center;
++  min-height: 18px;
++  color: inherit;
++  font-size: 11.5px;
++  font-weight: 950;
++  letter-spacing: .03em;
++  line-height: 1.1;
+ }
+ 
+ .trade-feed-idea-card__open-link:focus-visible {
+@@ -8441,13 +8473,6 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   padding-block: 5px;
+ }
+ 
+-.trade-feed-idea-card--open_need .trade-feed-idea-card__side,
+-.trade-feed-idea-card--open_offer .trade-feed-idea-card__side {
+-  align-content: start;
+-  gap: 7px;
+-  padding-block: 0;
+-}
+-
+ .trade-feed-idea-card__side p {
+   font-size: 13.5px;
+   font-weight: 950;
+@@ -8478,13 +8503,6 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   -webkit-line-clamp: 2;
+ }
+ 
+-.trade-feed-idea-card--open_need .trade-feed-idea-card__side h3,
+-.trade-feed-idea-card--open_offer .trade-feed-idea-card__side h3 {
+-  font-size: clamp(21px, 5.45vw, 26px);
+-  line-height: 1.18;
+-  -webkit-line-clamp: 3;
+-}
+-
+ .trade-feed-idea-card__side span {
+   display: block;
+   max-width: min(90%, 280px);
+@@ -8616,8 +8634,6 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ @media (min-width: 760px) {
+   .trade-feed-idea-card__open-link { padding: 30px; }
+   .trade-feed-idea-card__side h3 { font-size: clamp(20px, 1.55vw, 25px); }
+-  .trade-feed-idea-card--open_need .trade-feed-idea-card__side h3,
+-  .trade-feed-idea-card--open_offer .trade-feed-idea-card__side h3 { font-size: clamp(22px, 1.7vw, 27px); }
+   .trade-feed-idea-card__side span { font-size: 11.5px; }
+ }
+ 
+@@ -8636,8 +8652,6 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ @media (max-width: 420px) {
+   .trade-feed-idea-card__open-link { padding: 22px; }
+   .trade-feed-idea-card__side h3 { font-size: 19px; }
+-  .trade-feed-idea-card--open_need .trade-feed-idea-card__side h3,
+-  .trade-feed-idea-card--open_offer .trade-feed-idea-card__side h3 { font-size: 21px; }
+   .trade-feed-idea-card__topline,
+   .trade-feed-idea-card__topline strong { font-size: 11px; }
+ }
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index b2fda4a..48901af 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -16,6 +16,7 @@ import { formatWebShortDate } from '../../lib/webFormat';
+ import { TradeDeckGrid } from './TradeDeckGrid';
+ import { createFeedIdeaTradeHref, emptyFeedStarterIdeaPlacement, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedStarterIdeaPlacement, getFeedTradeIdeaImageObjectPosition, getFeedTradeIdeaMedia, getInlineFeedIdeaKey, getRandomizedFeedIdeaKeys, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+ import { getExchangeLabel, getStatusLabel, getTradeHeadline } from './tradePresentation';
++import { TradePosterCard } from './TradePosterCard';
+ 
+ type FeedFilters = {
+   q: string;
+@@ -497,6 +498,23 @@ function getFeedIdeaAriaSummary(t: ReturnType<typeof useWebTranslation>['t'], id
+   return idea.type === 'open_need' ? need : idea.type === 'open_offer' ? offer : `${need} ↔ ${offer}`;
+ }
+ 
++const starterIdeaPreviewThemeByVisualKey = {
++  startup: 'purple',
++  language: 'green',
++  local: 'amber',
++  objects: 'blue',
++  creative: 'rose',
++  feedback: 'purple',
++  social: 'amber',
++  admin: 'blue',
++  video: 'blue',
++  remote: 'green',
++} as const;
++
++function splitFeedIdeaChips(value: string) {
++  return value.split('·').map((part) => part.trim()).filter(Boolean).slice(0, 3);
++}
++
+ function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: { ideaKey: FeedTradeIdeaKey; createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string; inline?: boolean }) {
+   const { t } = useWebTranslation();
+   const idea = feedTradeIdeas[ideaKey];
+@@ -507,18 +525,34 @@ function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: { ideaKe
+   const actionLabel = t(getFeedIdeaActionKey(ideaKey));
+   const summary = getFeedIdeaAriaSummary(t, ideaKey);
+   const media = getFeedTradeIdeaMedia(ideaKey);
+-  const [imageFailed, setImageFailed] = useState(false);
+ 
+-  useEffect(() => { setImageFailed(false); }, [ideaKey, media.imageUrl]);
++  if (idea.type !== 'trade') {
++    const isOpenNeed = idea.type === 'open_need';
++    const title = isOpenNeed ? need : offer;
++    const meta = t(`trade.feedIdeas.items.${ideaKey}.${isOpenNeed ? 'needMeta' : 'offerMeta'}`);
+ 
+-  const isSingleSideIdea = idea.type !== 'trade';
+-  const showMediaImage = Boolean(media.imageUrl && !imageFailed);
+-  const mediaImageUrl = showMediaImage ? media.imageUrl : null;
+-  const visualClassName = [
+-    'trade-feed-idea-card__single-visual',
+-    `trade-feed-idea-card__single-visual--${media.fallbackVisualKey}`,
+-    showMediaImage ? 'trade-feed-idea-card__single-visual--has-image' : 'trade-feed-idea-card__single-visual--fallback',
+-  ].filter(Boolean).join(' ');
++    return (
++      <article className={`trade-feed-idea-card trade-feed-idea-card--poster trade-feed-idea-card--${idea.type}${inline ? ' trade-feed-idea-card--inline' : ''}`}>
++        <Link href={createIdeaHref(ideaKey)} className="trade-feed-idea-card__poster-link" aria-label={`${typeLabel} · ${pack}: ${summary}. ${actionLabel}`}>
++          <TradePosterCard
++            id={`starter-${ideaKey}`}
++            imageUrl={media.imageUrl}
++            imageAlt={title}
++            imageObjectPosition={getFeedTradeIdeaImageObjectPosition(media)}
++            badge={`${typeLabel} · 01/01`}
++            eyebrow={isOpenNeed ? t('trade.proposals.openForOffers') : t('trade.proposals.openForNeeds')}
++            title={title}
++            subtitle={meta}
++            topMeta={t('trade.feedIdeas.ideaLabel')}
++            chips={[pack, ...splitFeedIdeaChips(meta)]}
++            footer={<span className="trade-feed-idea-card__poster-action">{actionLabel}</span>}
++            variant={isOpenNeed ? 'need' : 'offer'}
++            previewTheme={starterIdeaPreviewThemeByVisualKey[media.fallbackVisualKey]}
++          />
++        </Link>
++      </article>
++    );
++  }
+ 
+   return (
+     <article className={`trade-feed-idea-card trade-feed-idea-card--${idea.type}${inline ? ' trade-feed-idea-card--inline' : ''}`}>
+@@ -528,44 +562,23 @@ function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: { ideaKe
+           <strong>{t('trade.feedIdeas.ideaLabel')}</strong>
+         </div>
+ 
+-        {isSingleSideIdea ? (
+-          <div className={visualClassName} aria-hidden="true">
+-            {mediaImageUrl ? (
+-              <img src={mediaImageUrl} alt="" loading="lazy" decoding="async" style={{ objectPosition: getFeedTradeIdeaImageObjectPosition(media) }} onError={() => setImageFailed(true)} />
+-            ) : (
+-              <>
+-                <span />
+-                <i />
+-                <b />
+-                <em />
+-              </>
+-            )}
+-          </div>
+-        ) : null}
+-
+-        {feedTradeIdeaHasNeed(idea) ? (
+-          <div className="trade-feed-idea-card__side trade-feed-idea-card__side--need">
+-            <p>{t('trade.labels.iNeed')}</p>
+-            <h3 title={need}>{need}</h3>
+-            <span>{t(`trade.feedIdeas.items.${ideaKey}.needMeta`)}</span>
+-          </div>
+-        ) : null}
++        <div className="trade-feed-idea-card__side trade-feed-idea-card__side--need">
++          <p>{t('trade.labels.iNeed')}</p>
++          <h3 title={need}>{need}</h3>
++          <span>{t(`trade.feedIdeas.items.${ideaKey}.needMeta`)}</span>
++        </div>
+ 
+-        {idea.type === 'trade' ? (
+-          <div className="trade-feed-idea-card__divider" aria-hidden="true">
+-            <i />
+-            <span><WebIcon name="trade" size={17} decorative /></span>
+-            <i />
+-          </div>
+-        ) : null}
++        <div className="trade-feed-idea-card__divider" aria-hidden="true">
++          <i />
++          <span><WebIcon name="trade" size={17} decorative /></span>
++          <i />
++        </div>
+ 
+-        {feedTradeIdeaHasOffer(idea) ? (
+-          <div className="trade-feed-idea-card__side trade-feed-idea-card__side--offer">
+-            <p>{t('trade.labels.iOffer')}</p>
+-            <h3 title={offer}>{offer}</h3>
+-            <span>{t(`trade.feedIdeas.items.${ideaKey}.offerMeta`)}</span>
+-          </div>
+-        ) : null}
++        <div className="trade-feed-idea-card__side trade-feed-idea-card__side--offer">
++          <p>{t('trade.labels.iOffer')}</p>
++          <h3 title={offer}>{offer}</h3>
++          <span>{t(`trade.feedIdeas.items.${ideaKey}.offerMeta`)}</span>
++        </div>
+ 
+         <div className="trade-feed-idea-card__footer">
+           <span>{actionLabel}</span>
+diff --git a/apps/web/src/features/trade/TradePosterCard.tsx b/apps/web/src/features/trade/TradePosterCard.tsx
+index c5187fe..58de4ff 100644
+--- a/apps/web/src/features/trade/TradePosterCard.tsx
++++ b/apps/web/src/features/trade/TradePosterCard.tsx
+@@ -15,6 +15,7 @@ type TradePosterCardProps = {
+   detailTitle?: string;
+   chips?: string[];
+   topMeta?: string | null;
++  imageObjectPosition?: string;
+   footer?: ReactNode;
+   variant?: 'trade' | 'need' | 'offer';
+   previewTheme?: string | null;
+@@ -54,7 +55,7 @@ function fallbackModel(id: string, variant: TradePosterCardProps['variant']) {
+   };
+ }
+ 
+-export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title, subtitle, detailTitle, chips = [], topMeta, footer, variant = 'trade', previewTheme }: TradePosterCardProps) {
++export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title, subtitle, detailTitle, chips = [], topMeta, imageObjectPosition, footer, variant = 'trade', previewTheme }: TradePosterCardProps) {
+   const { t } = useWebTranslation();
+   const [imageFailed, setImageFailed] = useState(!imageUrl);
+   const visibleImageUrl = imageUrl && !imageFailed ? imageUrl : null;
+@@ -76,7 +77,7 @@ export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title,
+       } as CSSProperties}
+     >
+       {visibleImageUrl ? (
+-        <img className="trade-poster-card__media" src={visibleImageUrl} alt={imageAlt ?? title} loading="lazy" onError={() => setImageFailed(true)} />
++        <img className="trade-poster-card__media" src={visibleImageUrl} alt={imageAlt ?? title} loading="lazy" style={imageObjectPosition ? { objectPosition: imageObjectPosition } : undefined} onError={() => setImageFailed(true)} />
+       ) : (
+         <div className="trade-poster-card__fallback" aria-hidden="true">
+           {Array.from({ length: 8 }, (_, index) => {

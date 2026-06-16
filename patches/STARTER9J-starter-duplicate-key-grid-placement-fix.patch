@@ -1,0 +1,213 @@
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index cba1889..799b107 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -302,7 +302,7 @@ export function TradeDeckFeedScreen() {
+                   return (
+                     <React.Fragment key={trade.id}>
+                       <TradeDeckSection trade={trade} index={index} total={visibleTrades.length} onOpen={() => openTrade(trade)} />
+-                      {ideaKey ? <TradeFeedInlineIdeaCard ideaKey={ideaKey} onOpenIdea={openTradeIdea} /> : null}
++                      {ideaKey ? <TradeFeedInlineIdeaCard key={`starter-inline-${index}-${ideaKey}`} ideaKey={ideaKey} onOpenIdea={openTradeIdea} /> : null}
+                     </React.Fragment>
+                   );
+                 })}
+@@ -368,7 +368,7 @@ function TradeFeedIdeaGroup({ ideaKeys, onOpenIdea }: { ideaKeys: readonly FeedT
+         <AppText style={[styles.feedIdeasBody, { color: theme.color.muted }]}>{t('trade.feedIdeas.body')}</AppText>
+       </View>
+       <View style={styles.feedIdeasList}>
+-        {ideaKeys.map((key) => <TradeFeedIdeaCard key={key} ideaKey={key} onOpenIdea={onOpenIdea} />)}
++        {ideaKeys.map((key, index) => <TradeFeedIdeaCard key={`starter-appended-${index}-${key}`} ideaKey={key} onOpenIdea={onOpenIdea} />)}
+       </View>
+     </View>
+   );
+diff --git a/apps/mobile/src/features/trade/components/TradePosterCard.tsx b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+index 00b15d5..46dadf0 100644
+--- a/apps/mobile/src/features/trade/components/TradePosterCard.tsx
++++ b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+@@ -61,7 +61,18 @@ function fallbackModel(id: string, variant: TradePosterCardVariant) {
+ }
+ 
+ function normalizeChips(chips: string[] | undefined) {
+-  return (chips ?? []).map((chip) => chip.trim()).filter(Boolean).slice(0, 3);
++  const seen = new Set<string>();
++
++  return (chips ?? [])
++    .map((chip) => chip.trim())
++    .filter((chip) => {
++      if (!chip) return false;
++      const normalized = chip.toLocaleLowerCase();
++      if (seen.has(normalized)) return false;
++      seen.add(normalized);
++      return true;
++    })
++    .slice(0, 3);
+ }
+ 
+ function LowerAtmosphere({ imageUrl, isDark }: { imageUrl?: string | null; isDark: boolean }) {
+@@ -232,8 +243,8 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
+           ) : null}
+           {visibleChips.length ? (
+             <View style={styles.chipRow}>
+-              {visibleChips.map((chip) => (
+-                <View key={`${id}-${chip}`} style={[styles.chip, { backgroundColor: pillBg, borderColor: pillBorder }]}>
++              {visibleChips.map((chip, index) => (
++                <View key={`${id}-chip-${index}-${chip}`} style={[styles.chip, { backgroundColor: pillBg, borderColor: pillBorder }]}>
+                   <AppText style={[styles.chipText, { color: eyebrowColor }]} numberOfLines={1}>{chip}</AppText>
+                 </View>
+               ))}
+diff --git a/apps/mobile/src/features/trade/tradeFeedIdeas.ts b/apps/mobile/src/features/trade/tradeFeedIdeas.ts
+index b04a468..d80b9da 100644
+--- a/apps/mobile/src/features/trade/tradeFeedIdeas.ts
++++ b/apps/mobile/src/features/trade/tradeFeedIdeas.ts
+@@ -289,6 +289,19 @@ function normalizeGrowthCount(value: number | null | undefined) {
+   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : null;
+ }
+ 
++function getUniqueFeedIdeaKeys(keys: readonly FeedTradeIdeaKey[]) {
++  const seen = new Set<FeedTradeIdeaKey>();
++  const uniqueKeys: FeedTradeIdeaKey[] = [];
++
++  for (const key of keys) {
++    if (seen.has(key)) continue;
++    seen.add(key);
++    uniqueKeys.push(key);
++  }
++
++  return uniqueKeys;
++}
++
+ export function getFeedStarterIdeaVisibleLimit(tradeCount: number, growthSignals: FeedStarterIdeaGrowthSignals = {}) {
+   if (tradeCount >= feedTradeIdeaPlacement.denseFeedThreshold) return 0;
+ 
+@@ -344,7 +357,7 @@ export function getRandomizedFeedIdeaKeys(seed: string, maxCount = feedTradeIdea
+ 
+ export function getFeedStarterIdeaPlacement(tradeCount: number, ideaKeys: readonly FeedTradeIdeaKey[], growthSignals: FeedStarterIdeaGrowthSignals = {}): FeedStarterIdeaPlacement {
+   const visibleLimit = getFeedStarterIdeaVisibleLimit(tradeCount, growthSignals);
+-  const visibleIdeaKeys = ideaKeys.slice(0, visibleLimit);
++  const visibleIdeaKeys = getUniqueFeedIdeaKeys(ideaKeys).slice(0, visibleLimit);
+   if (!visibleIdeaKeys.length) {
+     return emptyFeedStarterIdeaPlacement;
+   }
+diff --git a/apps/web/src/features/trade/TradeDeckGrid.tsx b/apps/web/src/features/trade/TradeDeckGrid.tsx
+index 98eed94..ee13a49 100644
+--- a/apps/web/src/features/trade/TradeDeckGrid.tsx
++++ b/apps/web/src/features/trade/TradeDeckGrid.tsx
+@@ -10,14 +10,20 @@ type TradeDeckGridProps = {
+ 
+ export function TradeDeckGrid({ trades, renderAfterTrade }: TradeDeckGridProps) {
+   const { t } = useWebTranslation();
++  const items: ReactNode[] = [];
++
++  trades.forEach((trade, index) => {
++    items.push(<TradeStackDeck key={`trade-${trade.id}`} trade={trade} />);
++
++    const afterTrade = renderAfterTrade?.(index, trades.length);
++    if (afterTrade) {
++      items.push(<Fragment key={`after-${trade.id}-${index}`}>{afterTrade}</Fragment>);
++    }
++  });
++
+   return (
+     <div className="trade-deck-grid" aria-label={t('trade.filters.controls')}>
+-      {trades.map((trade, index) => (
+-        <Fragment key={trade.id}>
+-          <TradeStackDeck trade={trade} />
+-          {renderAfterTrade?.(index, trades.length)}
+-        </Fragment>
+-      ))}
++      {items}
+     </div>
+   );
+ }
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index 48901af..9534ea8 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -475,7 +475,7 @@ function TradeFeedIdeaGroup({ ideaKeys, createIdeaHref }: TradeFeedIdeaGroupProp
+         </div>
+       </div>
+       <div className="trade-feed-ideas__list">
+-        {ideaKeys.map((key) => <TradeFeedIdeaCard key={key} ideaKey={key} createIdeaHref={createIdeaHref} />)}
++        {ideaKeys.map((key, index) => <TradeFeedIdeaCard key={`starter-appended-${index}-${key}`} ideaKey={key} createIdeaHref={createIdeaHref} />)}
+       </div>
+     </section>
+   );
+diff --git a/apps/web/src/features/trade/TradePosterCard.tsx b/apps/web/src/features/trade/TradePosterCard.tsx
+index 58de4ff..91abccd 100644
+--- a/apps/web/src/features/trade/TradePosterCard.tsx
++++ b/apps/web/src/features/trade/TradePosterCard.tsx
+@@ -40,6 +40,21 @@ function hashString(value: string) {
+   return Math.abs(hash);
+ }
+ 
++function normalizePosterChips(chips: string[]) {
++  const seen = new Set<string>();
++
++  return chips
++    .map((chip) => chip.trim())
++    .filter((chip) => {
++      if (!chip) return false;
++      const normalized = chip.toLocaleLowerCase();
++      if (seen.has(normalized)) return false;
++      seen.add(normalized);
++      return true;
++    })
++    .slice(0, 3);
++}
++
+ function fallbackModel(id: string, variant: TradePosterCardProps['variant']) {
+   const hash = hashString(`${variant ?? 'trade'}-${id}`);
+   const accent = FALLBACK_ACCENTS[hash % FALLBACK_ACCENTS.length] ?? FALLBACK_ACCENTS[0] ?? '#6366f1';
+@@ -60,7 +75,7 @@ export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title,
+   const [imageFailed, setImageFailed] = useState(!imageUrl);
+   const visibleImageUrl = imageUrl && !imageFailed ? imageUrl : null;
+   const fallback = useMemo(() => fallbackModel(id, variant), [id, variant]);
+-  const visibleChips = chips.filter(Boolean).slice(0, 3);
++  const visibleChips = useMemo(() => normalizePosterChips(chips), [chips]);
+   const themeAccent = THEME_ACCENTS[normalizePreviewCardTheme(previewTheme)] ?? fallback.accent;
+ 
+   useEffect(() => {
+@@ -112,8 +127,8 @@ export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title,
+           {footer ? <div className="trade-poster-card__footer">{footer}</div> : null}
+           {visibleChips.length ? (
+             <div className="trade-poster-card__chips" aria-label={t('trade.labels.tags')}>
+-              {visibleChips.map((chip) => (
+-                <span key={`${id}-${chip}`}>{chip}</span>
++              {visibleChips.map((chip, index) => (
++                <span key={`${id}-chip-${index}-${chip}`}>{chip}</span>
+               ))}
+             </div>
+           ) : null}
+diff --git a/apps/web/src/features/trade/tradeFeedIdeas.ts b/apps/web/src/features/trade/tradeFeedIdeas.ts
+index b04a468..d80b9da 100644
+--- a/apps/web/src/features/trade/tradeFeedIdeas.ts
++++ b/apps/web/src/features/trade/tradeFeedIdeas.ts
+@@ -289,6 +289,19 @@ function normalizeGrowthCount(value: number | null | undefined) {
+   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : null;
+ }
+ 
++function getUniqueFeedIdeaKeys(keys: readonly FeedTradeIdeaKey[]) {
++  const seen = new Set<FeedTradeIdeaKey>();
++  const uniqueKeys: FeedTradeIdeaKey[] = [];
++
++  for (const key of keys) {
++    if (seen.has(key)) continue;
++    seen.add(key);
++    uniqueKeys.push(key);
++  }
++
++  return uniqueKeys;
++}
++
+ export function getFeedStarterIdeaVisibleLimit(tradeCount: number, growthSignals: FeedStarterIdeaGrowthSignals = {}) {
+   if (tradeCount >= feedTradeIdeaPlacement.denseFeedThreshold) return 0;
+ 
+@@ -344,7 +357,7 @@ export function getRandomizedFeedIdeaKeys(seed: string, maxCount = feedTradeIdea
+ 
+ export function getFeedStarterIdeaPlacement(tradeCount: number, ideaKeys: readonly FeedTradeIdeaKey[], growthSignals: FeedStarterIdeaGrowthSignals = {}): FeedStarterIdeaPlacement {
+   const visibleLimit = getFeedStarterIdeaVisibleLimit(tradeCount, growthSignals);
+-  const visibleIdeaKeys = ideaKeys.slice(0, visibleLimit);
++  const visibleIdeaKeys = getUniqueFeedIdeaKeys(ideaKeys).slice(0, visibleLimit);
+   if (!visibleIdeaKeys.length) {
+     return emptyFeedStarterIdeaPlacement;
+   }

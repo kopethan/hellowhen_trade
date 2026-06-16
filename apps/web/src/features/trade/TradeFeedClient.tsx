@@ -14,8 +14,9 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { formatWebShortDate } from '../../lib/webFormat';
 import { TradeDeckGrid } from './TradeDeckGrid';
-import { createFeedIdeaTradeHref, feedTradeIdeaKeys, getInlineFeedIdeaKey, shouldShowFeedIdeaRail, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+import { createFeedIdeaTradeHref, emptyFeedStarterIdeaPlacement, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedStarterIdeaPlacement, getFeedTradeIdeaImageObjectPosition, getFeedTradeIdeaMedia, getInlineFeedIdeaKey, getRandomizedFeedIdeaKeys, type FeedTradeIdeaKey } from './tradeFeedIdeas';
 import { getExchangeLabel, getStatusLabel, getTradeHeadline } from './tradePresentation';
+import { TradePosterCard } from './TradePosterCard';
 
 type FeedFilters = {
   q: string;
@@ -214,8 +215,13 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   const filteredTrades = useMemo(() => usingFallback ? localFilter(trades, appliedFilters) : trades, [appliedFilters, trades, usingFallback]);
   const hasAppliedFilters = Boolean(appliedFilters.q.trim() || appliedFilters.mode || appliedFilters.hasImages || appliedFilters.hasMoney || appliedFilters.postType);
   const shouldShowSuggestions = canUseSearchSuggestions(filters.q) && activeToolPanel === 'filter';
-  const shouldShowIdeaRail = !loading && !loadError && !hasAppliedFilters && shouldShowFeedIdeaRail(filteredTrades.length);
-  const shouldShowInlineIdeas = !loading && !loadError && !hasAppliedFilters && !shouldShowIdeaRail;
+  const randomizedFeedIdeaKeys = useMemo(() => getRandomizedFeedIdeaKeys(refreshSeed), [refreshSeed]);
+  const starterIdeaPlacement = useMemo(() => (
+    !loading && !loadError && !hasAppliedFilters
+      ? getFeedStarterIdeaPlacement(filteredTrades.length, randomizedFeedIdeaKeys)
+      : emptyFeedStarterIdeaPlacement
+  ), [filteredTrades.length, hasAppliedFilters, loadError, loading, randomizedFeedIdeaKeys]);
+  const hasStarterIdeas = Boolean(Object.keys(starterIdeaPlacement.inlineIdeaKeysByAfterIndex).length || starterIdeaPlacement.appendedIdeaKeys.length);
 
   useEffect(() => {
     const q = normalizeSearchText(filters.q);
@@ -378,8 +384,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
         />
       ) : null}
 
-      {shouldShowIdeaRail ? <TradeFeedIdeaRail createIdeaHref={createTradeIdeaHref} /> : null}
-
       <section className="feed-status-row" aria-live="polite">
         <p>{loading ? t('trade.filters.loadingTrades') : filteredTrades.length === 1 ? t('trade.filters.activeTradeOne') : t('trade.filters.activeTrades', { count: filteredTrades.length })}</p>
         <div className="feed-status-actions">
@@ -393,12 +397,17 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
           <h3>{t('trade.filters.couldNotLoadTrades')}</h3>
           <p>{loadError}</p>
         </section>
-      ) : loading ? <TradeFeedSkeleton /> : <TradeDeckGrid trades={filteredTrades} renderAfterTrade={shouldShowInlineIdeas ? (index, tradeCount) => {
-        const ideaKey = getInlineFeedIdeaKey(index, tradeCount);
-        return ideaKey ? <TradeFeedInlineIdeaCard ideaKey={ideaKey} createIdeaHref={createTradeIdeaHref} /> : null;
-      } : undefined} />}
+      ) : loading ? <TradeFeedSkeleton /> : (
+        <>
+          <TradeDeckGrid trades={filteredTrades} renderAfterTrade={(index) => {
+            const ideaKey = getInlineFeedIdeaKey(index, starterIdeaPlacement);
+            return ideaKey ? <TradeFeedInlineIdeaCard ideaKey={ideaKey} createIdeaHref={createTradeIdeaHref} /> : null;
+          }} />
+          {starterIdeaPlacement.appendedIdeaKeys.length ? <TradeFeedIdeaGroup ideaKeys={starterIdeaPlacement.appendedIdeaKeys} createIdeaHref={createTradeIdeaHref} /> : null}
+        </>
+      )}
 
-      {!loading && !loadError && !filteredTrades.length ? (
+      {!loading && !loadError && !filteredTrades.length && !hasStarterIdeas ? (
         hasAppliedFilters ? (
           <section className="mobile-card mobile-card--soft">
             <h3>{t('trade.filters.noTradesFound')}</h3>
@@ -448,11 +457,12 @@ function TradeSearchSuggestionList({ visible, suggestions, loading, query, onSel
 }
 
 
-type TradeFeedIdeaRailProps = {
+type TradeFeedIdeaGroupProps = {
+  ideaKeys: readonly FeedTradeIdeaKey[];
   createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string;
 };
 
-function TradeFeedIdeaRail({ createIdeaHref }: TradeFeedIdeaRailProps) {
+function TradeFeedIdeaGroup({ ideaKeys, createIdeaHref }: TradeFeedIdeaGroupProps) {
   const { t } = useWebTranslation();
 
   return (
@@ -465,23 +475,90 @@ function TradeFeedIdeaRail({ createIdeaHref }: TradeFeedIdeaRailProps) {
         </div>
       </div>
       <div className="trade-feed-ideas__list">
-        {feedTradeIdeaKeys.map((key) => <TradeFeedIdeaCard key={key} ideaKey={key} createIdeaHref={createIdeaHref} />)}
+        {ideaKeys.map((key, index) => <TradeFeedIdeaCard key={`starter-appended-${index}-${key}`} ideaKey={key} createIdeaHref={createIdeaHref} />)}
       </div>
     </section>
   );
 }
 
+function getFeedIdeaTypeLabelKey(ideaKey: FeedTradeIdeaKey) {
+  const idea = feedTradeIdeas[ideaKey];
+  return idea.type === 'open_need' ? 'trade.feedIdeas.typeLabels.openNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.typeLabels.openOffer' : 'trade.feedIdeas.typeLabels.trade';
+}
+
+function getFeedIdeaActionKey(ideaKey: FeedTradeIdeaKey) {
+  const idea = feedTradeIdeas[ideaKey];
+  return idea.type === 'open_need' ? 'trade.feedIdeas.actionOpenNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.actionOpenOffer' : 'trade.feedIdeas.action';
+}
+
+function getFeedIdeaAriaSummary(t: ReturnType<typeof useWebTranslation>['t'], ideaKey: FeedTradeIdeaKey) {
+  const idea = feedTradeIdeas[ideaKey];
+  const need = feedTradeIdeaHasNeed(idea) ? t(`trade.feedIdeas.items.${ideaKey}.need`) : '';
+  const offer = feedTradeIdeaHasOffer(idea) ? t(`trade.feedIdeas.items.${ideaKey}.offer`) : '';
+  return idea.type === 'open_need' ? need : idea.type === 'open_offer' ? offer : `${need} ↔ ${offer}`;
+}
+
+const starterIdeaPreviewThemeByVisualKey = {
+  startup: 'purple',
+  language: 'green',
+  local: 'amber',
+  objects: 'blue',
+  creative: 'rose',
+  feedback: 'purple',
+  social: 'amber',
+  admin: 'blue',
+  video: 'blue',
+  remote: 'green',
+} as const;
+
+function splitFeedIdeaChips(value: string) {
+  return value.split('·').map((part) => part.trim()).filter(Boolean).slice(0, 3);
+}
+
 function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: { ideaKey: FeedTradeIdeaKey; createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string; inline?: boolean }) {
   const { t } = useWebTranslation();
+  const idea = feedTradeIdeas[ideaKey];
   const pack = t(`trade.feedIdeas.items.${ideaKey}.pack`);
-  const need = t(`trade.feedIdeas.items.${ideaKey}.need`);
-  const offer = t(`trade.feedIdeas.items.${ideaKey}.offer`);
+  const need = feedTradeIdeaHasNeed(idea) ? t(`trade.feedIdeas.items.${ideaKey}.need`) : '';
+  const offer = feedTradeIdeaHasOffer(idea) ? t(`trade.feedIdeas.items.${ideaKey}.offer`) : '';
+  const typeLabel = t(getFeedIdeaTypeLabelKey(ideaKey));
+  const actionLabel = t(getFeedIdeaActionKey(ideaKey));
+  const summary = getFeedIdeaAriaSummary(t, ideaKey);
+  const media = getFeedTradeIdeaMedia(ideaKey);
+
+  if (idea.type !== 'trade') {
+    const isOpenNeed = idea.type === 'open_need';
+    const title = isOpenNeed ? need : offer;
+    const meta = t(`trade.feedIdeas.items.${ideaKey}.${isOpenNeed ? 'needMeta' : 'offerMeta'}`);
+
+    return (
+      <article className={`trade-feed-idea-card trade-feed-idea-card--poster trade-feed-idea-card--${idea.type}${inline ? ' trade-feed-idea-card--inline' : ''}`}>
+        <Link href={createIdeaHref(ideaKey)} className="trade-feed-idea-card__poster-link" aria-label={`${typeLabel} · ${pack}: ${summary}. ${actionLabel}`}>
+          <TradePosterCard
+            id={`starter-${ideaKey}`}
+            imageUrl={media.imageUrl}
+            imageAlt={title}
+            imageObjectPosition={getFeedTradeIdeaImageObjectPosition(media)}
+            badge={`${typeLabel} · 01/01`}
+            eyebrow={isOpenNeed ? t('trade.proposals.openForOffers') : t('trade.proposals.openForNeeds')}
+            title={title}
+            subtitle={meta}
+            topMeta={t('trade.feedIdeas.ideaLabel')}
+            chips={[pack, ...splitFeedIdeaChips(meta)]}
+            footer={<span className="trade-feed-idea-card__poster-action">{actionLabel}</span>}
+            variant={isOpenNeed ? 'need' : 'offer'}
+            previewTheme={starterIdeaPreviewThemeByVisualKey[media.fallbackVisualKey]}
+          />
+        </Link>
+      </article>
+    );
+  }
 
   return (
-    <article className={`trade-feed-idea-card${inline ? ' trade-feed-idea-card--inline' : ''}`}>
-      <Link href={createIdeaHref(ideaKey)} className="trade-feed-idea-card__open-link" aria-label={`${t('trade.feedIdeas.cardLabel')} · ${pack}: ${need} ↔ ${offer}. ${t('trade.feedIdeas.action')}`}>
+    <article className={`trade-feed-idea-card trade-feed-idea-card--${idea.type}${inline ? ' trade-feed-idea-card--inline' : ''}`}>
+      <Link href={createIdeaHref(ideaKey)} className="trade-feed-idea-card__open-link" aria-label={`${typeLabel} · ${pack}: ${summary}. ${actionLabel}`}>
         <div className="trade-feed-idea-card__topline">
-          <span>{t('trade.feedIdeas.cardLabel')} · {pack}</span>
+          <span>{typeLabel} · {pack}</span>
           <strong>{t('trade.feedIdeas.ideaLabel')}</strong>
         </div>
 
@@ -504,7 +581,7 @@ function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: { ideaKe
         </div>
 
         <div className="trade-feed-idea-card__footer">
-          <span>{t('trade.feedIdeas.action')}</span>
+          <span>{actionLabel}</span>
         </div>
       </Link>
     </article>

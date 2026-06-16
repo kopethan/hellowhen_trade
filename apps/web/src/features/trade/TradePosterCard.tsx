@@ -15,6 +15,7 @@ type TradePosterCardProps = {
   detailTitle?: string;
   chips?: string[];
   topMeta?: string | null;
+  imageObjectPosition?: string;
   footer?: ReactNode;
   variant?: 'trade' | 'need' | 'offer';
   previewTheme?: string | null;
@@ -39,6 +40,21 @@ function hashString(value: string) {
   return Math.abs(hash);
 }
 
+function normalizePosterChips(chips: string[]) {
+  const seen = new Set<string>();
+
+  return chips
+    .map((chip) => chip.trim())
+    .filter((chip) => {
+      if (!chip) return false;
+      const normalized = chip.toLocaleLowerCase();
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    })
+    .slice(0, 3);
+}
+
 function fallbackModel(id: string, variant: TradePosterCardProps['variant']) {
   const hash = hashString(`${variant ?? 'trade'}-${id}`);
   const accent = FALLBACK_ACCENTS[hash % FALLBACK_ACCENTS.length] ?? FALLBACK_ACCENTS[0] ?? '#6366f1';
@@ -54,12 +70,12 @@ function fallbackModel(id: string, variant: TradePosterCardProps['variant']) {
   };
 }
 
-export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title, subtitle, detailTitle, chips = [], topMeta, footer, variant = 'trade', previewTheme }: TradePosterCardProps) {
+export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title, subtitle, detailTitle, chips = [], topMeta, imageObjectPosition, footer, variant = 'trade', previewTheme }: TradePosterCardProps) {
   const { t } = useWebTranslation();
   const [imageFailed, setImageFailed] = useState(!imageUrl);
   const visibleImageUrl = imageUrl && !imageFailed ? imageUrl : null;
   const fallback = useMemo(() => fallbackModel(id, variant), [id, variant]);
-  const visibleChips = chips.filter(Boolean).slice(0, 3);
+  const visibleChips = useMemo(() => normalizePosterChips(chips), [chips]);
   const themeAccent = THEME_ACCENTS[normalizePreviewCardTheme(previewTheme)] ?? fallback.accent;
 
   useEffect(() => {
@@ -76,7 +92,7 @@ export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title,
       } as CSSProperties}
     >
       {visibleImageUrl ? (
-        <img className="trade-poster-card__media" src={visibleImageUrl} alt={imageAlt ?? title} loading="lazy" onError={() => setImageFailed(true)} />
+        <img className="trade-poster-card__media" src={visibleImageUrl} alt={imageAlt ?? title} loading="lazy" style={imageObjectPosition ? { objectPosition: imageObjectPosition } : undefined} onError={() => setImageFailed(true)} />
       ) : (
         <div className="trade-poster-card__fallback" aria-hidden="true">
           {Array.from({ length: 8 }, (_, index) => {
@@ -111,8 +127,8 @@ export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title,
           {footer ? <div className="trade-poster-card__footer">{footer}</div> : null}
           {visibleChips.length ? (
             <div className="trade-poster-card__chips" aria-label={t('trade.labels.tags')}>
-              {visibleChips.map((chip) => (
-                <span key={`${id}-${chip}`}>{chip}</span>
+              {visibleChips.map((chip, index) => (
+                <span key={`${id}-chip-${index}-${chip}`}>{chip}</span>
               ))}
             </div>
           ) : null}

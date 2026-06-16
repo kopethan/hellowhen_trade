@@ -25,7 +25,7 @@ import { categoryLabel, itemTypeLabel, modeLabel } from './components/InventoryF
 import { TradeSquareDeck } from './components/TradeSquareDeck';
 import { buildTradeSquareDeckCards } from './components/TradeSquareDeckCards';
 import { buildMobileWizardDraftKey, useMobileWizardDraft, WizardFooter, WizardShell } from './create';
-import { feedTradeIdeas, getLocalizedTemplateKeyCandidates, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedTradeIdeaPostType, getLocalizedTemplateKeyCandidates, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
 import type { NeedItem, OfferItem, TradeDeckItem } from './types';
 
 export type TradeCreateSide = 'need' | 'offer';
@@ -351,26 +351,28 @@ export function CreateTradeScreen({ route, navigation }: Props) {
     try {
       const templatesResponse = await api.inventoryTemplates.list({ sourceType: 'hellowhen', language, take: 100 });
       const templates = normalizeTemplateResponse(templatesResponse);
-      const needTemplateKeys = getLocalizedTemplateKeyCandidates(idea.needTemplateKey);
-      const offerTemplateKeys = getLocalizedTemplateKeyCandidates(idea.offerTemplateKey);
-      const needTemplate = templates.find((template) => needTemplateKeys.includes(template.key) && template.kind === 'need');
-      const offerTemplate = templates.find((template) => offerTemplateKeys.includes(template.key) && template.kind === 'offer');
-      if (!needTemplate) throw new Error(t('trade.feedIdeas.applyMissingNeed'));
-      if (!offerTemplate) throw new Error(t('trade.feedIdeas.applyMissingOffer'));
+      const needTemplateKeys = feedTradeIdeaHasNeed(idea) ? getLocalizedTemplateKeyCandidates(idea.needTemplateKey) : [];
+      const offerTemplateKeys = feedTradeIdeaHasOffer(idea) ? getLocalizedTemplateKeyCandidates(idea.offerTemplateKey) : [];
+      const needTemplate = feedTradeIdeaHasNeed(idea) ? templates.find((template) => needTemplateKeys.includes(template.key) && template.kind === 'need') : null;
+      const offerTemplate = feedTradeIdeaHasOffer(idea) ? templates.find((template) => offerTemplateKeys.includes(template.key) && template.kind === 'offer') : null;
+      if (feedTradeIdeaHasNeed(idea) && !needTemplate) throw new Error(t('trade.feedIdeas.applyMissingNeed'));
+      if (feedTradeIdeaHasOffer(idea) && !offerTemplate) throw new Error(t('trade.feedIdeas.applyMissingOffer'));
 
       const [needResponse, offerResponse] = await Promise.all([
-        api.inventoryTemplates.clone(needTemplate.id, { status: 'active' }),
-        api.inventoryTemplates.clone(offerTemplate.id, { status: 'active' }),
+        needTemplate ? api.inventoryTemplates.clone(needTemplate.id, { status: 'active' }) : Promise.resolve(null),
+        offerTemplate ? api.inventoryTemplates.clone(offerTemplate.id, { status: 'active' }) : Promise.resolve(null),
       ]);
-      const clonedNeed = clonedNeedFromResponse(needResponse);
-      const clonedOffer = clonedOfferFromResponse(offerResponse);
-      if (!clonedNeed || !clonedOffer) throw new Error(t('trade.feedIdeas.applyError'));
+      const clonedNeed = needResponse ? clonedNeedFromResponse(needResponse) : null;
+      const clonedOffer = offerResponse ? clonedOfferFromResponse(offerResponse) : null;
+      if (feedTradeIdeaHasNeed(idea) && !clonedNeed) throw new Error(t('trade.feedIdeas.applyError'));
+      if (feedTradeIdeaHasOffer(idea) && !clonedOffer) throw new Error(t('trade.feedIdeas.applyError'));
+      const nextPostType = getFeedTradeIdeaPostType(idea);
 
-      setNeeds((current) => [clonedNeed, ...current.filter((need) => need.id !== clonedNeed.id)]);
-      setOffers((current) => [clonedOffer, ...current.filter((offer) => offer.id !== clonedOffer.id)]);
-      setPostType('need_offer');
-      setNeedSelection({ side: 'need', kind: 'need', id: clonedNeed.id });
-      setOfferSelection({ side: 'offer', kind: 'offer', id: clonedOffer.id });
+      if (clonedNeed) setNeeds((current) => [clonedNeed, ...current.filter((need) => need.id !== clonedNeed.id)]);
+      if (clonedOffer) setOffers((current) => [clonedOffer, ...current.filter((offer) => offer.id !== clonedOffer.id)]);
+      setPostType(nextPostType);
+      setNeedSelection(clonedNeed ? { side: 'need', kind: 'need', id: clonedNeed.id } : null);
+      setOfferSelection(clonedOffer ? { side: 'offer', kind: 'offer', id: clonedOffer.id } : null);
       setActiveStepId('review');
       setAppliedIdeaKey(ideaKey);
     } catch (caughtError) {
@@ -623,22 +625,26 @@ export function CreateTradeScreen({ route, navigation }: Props) {
       )}
     >
       {tradeWizardDraft.restored && shouldRestoreStoredDraft ? <InfoNotice tone="info" title={t('inventory.wizard.draftRestoredTitle')} body={t('inventory.wizard.draftRestoredBody')} /> : null}
-      {showFeedIdeaPanel && routeIdeaKey ? (
+      {showFeedIdeaPanel && routeIdeaKey && selectedFeedIdea ? (
         <AppCard style={[styles.feedIdeaPrefillCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
           <View style={styles.feedIdeaPrefillHeader}>
             <SemanticBadge label={t('trade.feedIdeas.badge')} tone="instruction" />
             <AppText style={styles.feedIdeaPrefillTitle}>{t('trade.feedIdeas.createFromIdeaTitle')}</AppText>
-            <AppText style={[styles.feedIdeaPrefillBody, { color: theme.color.muted }]}>{t('trade.feedIdeas.createFromIdeaBody')}</AppText>
+            <AppText style={[styles.feedIdeaPrefillBody, { color: theme.color.muted }]}>{t(selectedFeedIdea.type === 'open_need' ? 'trade.feedIdeas.createFromIdeaBodyOpenNeed' : selectedFeedIdea.type === 'open_offer' ? 'trade.feedIdeas.createFromIdeaBodyOpenOffer' : 'trade.feedIdeas.createFromIdeaBody')}</AppText>
           </View>
           <View style={styles.feedIdeaPrefillSides} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
-            <View style={[styles.feedIdeaPrefillSide, { borderColor: theme.semantic.need.border }]}>
-              <AppText style={[styles.feedIdeaPrefillSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iNeed')}</AppText>
-              <AppText style={styles.feedIdeaPrefillSideTitle}>{t(`trade.feedIdeas.items.${routeIdeaKey}.need`)}</AppText>
-            </View>
-            <View style={[styles.feedIdeaPrefillSide, { borderColor: theme.semantic.offer.border }]}>
-              <AppText style={[styles.feedIdeaPrefillSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iOffer')}</AppText>
-              <AppText style={styles.feedIdeaPrefillSideTitle}>{t(`trade.feedIdeas.items.${routeIdeaKey}.offer`)}</AppText>
-            </View>
+            {feedTradeIdeaHasNeed(selectedFeedIdea) ? (
+              <View style={[styles.feedIdeaPrefillSide, { borderColor: theme.semantic.need.border }]}>
+                <AppText style={[styles.feedIdeaPrefillSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iNeed')}</AppText>
+                <AppText style={styles.feedIdeaPrefillSideTitle}>{t(`trade.feedIdeas.items.${routeIdeaKey}.need`)}</AppText>
+              </View>
+            ) : null}
+            {feedTradeIdeaHasOffer(selectedFeedIdea) ? (
+              <View style={[styles.feedIdeaPrefillSide, { borderColor: theme.semantic.offer.border }]}>
+                <AppText style={[styles.feedIdeaPrefillSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iOffer')}</AppText>
+                <AppText style={styles.feedIdeaPrefillSideTitle}>{t(`trade.feedIdeas.items.${routeIdeaKey}.offer`)}</AppText>
+              </View>
+            ) : null}
           </View>
           <Pressable accessibilityRole="button" disabled={Boolean(applyingIdea)} onPress={() => void applyFeedIdeaToDraft(routeIdeaKey)} style={({ pressed }) => [styles.feedIdeaPrefillAction, { backgroundColor: theme.semantic.trade.bg }, pressed && styles.pressed, applyingIdea && styles.disabled]}>
             <AppText style={[styles.feedIdeaPrefillActionText, { color: theme.color.inverseText }]}>{applyingIdea === routeIdeaKey ? t('trade.feedIdeas.applySaving') : t('trade.feedIdeas.applyAction')}</AppText>

@@ -1,0 +1,242 @@
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index 9394641..08eed47 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -400,23 +400,34 @@ function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: F
+   const typeLabel = t(getFeedIdeaTypeLabelKey(ideaKey));
+   const actionLabel = t(getFeedIdeaActionKey(ideaKey));
+   const summary = getFeedIdeaAriaSummary(t, ideaKey);
++  const isSingleSideIdea = idea.type !== 'trade';
++  const singleVisualTone = idea.type === 'open_need' ? '#60A5FA' : '#34D399';
++  const singleVisualBackground = idea.type === 'open_need' ? 'rgba(96,165,250,0.16)' : 'rgba(52,211,153,0.16)';
+ 
+   return (
+     <Pressable
+       accessibilityRole="button"
+       accessibilityLabel={`${typeLabel} · ${pack}: ${summary}. ${actionLabel}`}
+       onPress={() => onOpenIdea(ideaKey)}
+-      style={({ pressed }) => [styles.feedIdeaCard, inline && styles.feedIdeaCardInline, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
++      style={({ pressed }) => [styles.feedIdeaCard, isSingleSideIdea && styles.feedIdeaCardSingle, inline && styles.feedIdeaCardInline, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
+     >
+       <View style={styles.feedIdeaTopline}>
+         <AppText numberOfLines={1} style={[styles.feedIdeaToplineText, { color: theme.color.muted }]}>{typeLabel} · {pack}</AppText>
+         <AppText numberOfLines={1} style={[styles.feedIdeaToplineRight, { color: theme.color.text }]}>{t('trade.feedIdeas.ideaLabel')}</AppText>
+       </View>
+ 
++      {isSingleSideIdea ? (
++        <View pointerEvents="none" style={[styles.feedIdeaSingleVisual, { backgroundColor: singleVisualBackground }]}>
++          <View style={[styles.feedIdeaSingleVisualLine, styles.feedIdeaSingleVisualLineShort]} />
++          <View style={[styles.feedIdeaSingleVisualLine, styles.feedIdeaSingleVisualLineLong]} />
++          <View style={[styles.feedIdeaSingleVisualDot, { backgroundColor: singleVisualTone }]} />
++        </View>
++      ) : null}
++
+       {feedTradeIdeaHasNeed(idea) ? (
+-        <View style={styles.feedIdeaSideBlock}>
++        <View style={[styles.feedIdeaSideBlock, isSingleSideIdea && styles.feedIdeaSideBlockSingle]}>
+           <AppText style={[styles.feedIdeaSideEyebrow, { color: '#60A5FA' }]}>{t('trade.labels.iNeed')}</AppText>
+-          <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, { color: theme.color.text }]}>{need}</AppText>
++          <AppText numberOfLines={isSingleSideIdea ? 3 : 2} style={[styles.feedIdeaSideTitle, isSingleSideIdea && styles.feedIdeaSideTitleSingle, { color: theme.color.text }]}>{need}</AppText>
+           <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.needMeta`)}</AppText>
+         </View>
+       ) : null}
+@@ -430,9 +441,9 @@ function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: F
+       ) : null}
+ 
+       {feedTradeIdeaHasOffer(idea) ? (
+-        <View style={styles.feedIdeaSideBlock}>
++        <View style={[styles.feedIdeaSideBlock, isSingleSideIdea && styles.feedIdeaSideBlockSingle]}>
+           <AppText style={[styles.feedIdeaSideEyebrow, { color: '#34D399' }]}>{t('trade.labels.iOffer')}</AppText>
+-          <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, { color: theme.color.text }]}>{offer}</AppText>
++          <AppText numberOfLines={isSingleSideIdea ? 3 : 2} style={[styles.feedIdeaSideTitle, isSingleSideIdea && styles.feedIdeaSideTitleSingle, { color: theme.color.text }]}>{offer}</AppText>
+           <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.offerMeta`)}</AppText>
+         </View>
+       ) : null}
+@@ -1105,15 +1116,23 @@ const styles = StyleSheet.create({
+     elevation: 4,
+   },
+   feedIdeaCardInline: { width: '100%', maxWidth: 348, alignSelf: 'center' },
++  feedIdeaCardSingle: { gap: 12 },
+   feedIdeaTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+   feedIdeaToplineText: { flex: 1, minWidth: 0, fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95, textTransform: 'uppercase' },
+   feedIdeaToplineRight: { maxWidth: '34%', flexShrink: 0, fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.65, textAlign: 'right', textTransform: 'uppercase' },
+   feedIdeaSideBlock: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 3, minHeight: 0 },
++  feedIdeaSideBlockSingle: { justifyContent: 'flex-start', gap: 7, paddingVertical: 0 },
+   feedIdeaSideEyebrow: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+   feedIdeaSideTitle: { textAlign: 'center', fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.55, paddingBottom: 1 },
++  feedIdeaSideTitleSingle: { fontSize: 22, lineHeight: 26, letterSpacing: -0.65 },
+   feedIdeaSideMeta: { textAlign: 'center', fontSize: 12, lineHeight: 16, fontWeight: '800' },
+   feedIdeaExchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 1 },
+   feedIdeaExchangeLine: { flex: 1, height: StyleSheet.hairlineWidth },
++  feedIdeaSingleVisual: { height: 78, borderRadius: 23, overflow: 'hidden', justifyContent: 'center', alignItems: 'center', opacity: 0.88 },
++  feedIdeaSingleVisualLine: { position: 'absolute', height: 10, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.66)', transform: [{ rotate: '-17deg' }] },
++  feedIdeaSingleVisualLineShort: { width: '62%', left: '7%', top: 16, opacity: 0.74 },
++  feedIdeaSingleVisualLineLong: { width: '76%', left: '16%', top: 38, opacity: 0.52 },
++  feedIdeaSingleVisualDot: { width: 44, height: 44, borderRadius: 22, opacity: 0.34 },
+   feedIdeaFooter: { minHeight: 20, alignItems: 'center', justifyContent: 'center' },
+   feedIdeaActionText: { fontSize: 13, lineHeight: 17, fontWeight: '900', letterSpacing: 0.2 },
+   mineHeaderCard: { gap: 14 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 2da2d20..37e1ea7 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -8348,7 +8348,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ 
+ .trade-feed-ideas__list {
+   display: grid;
+-  grid-template-columns: repeat(3, minmax(0, 360px));
++  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 360px));
+   justify-content: center;
+   gap: clamp(14px, 2vw, 22px);
+ }
+@@ -8390,6 +8390,12 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   text-decoration: none;
+ }
+ 
++.trade-feed-idea-card--open_need .trade-feed-idea-card__open-link,
++.trade-feed-idea-card--open_offer .trade-feed-idea-card__open-link {
++  grid-template-rows: auto minmax(70px, 0.82fr) minmax(0, 1fr) auto;
++  gap: 12px;
++}
++
+ .trade-feed-idea-card__open-link:focus-visible {
+   outline: 3px solid color-mix(in srgb, var(--proposal-border) 48%, transparent);
+   outline-offset: -8px;
+@@ -8435,6 +8441,13 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   padding-block: 5px;
+ }
+ 
++.trade-feed-idea-card--open_need .trade-feed-idea-card__side,
++.trade-feed-idea-card--open_offer .trade-feed-idea-card__side {
++  align-content: start;
++  gap: 7px;
++  padding-block: 0;
++}
++
+ .trade-feed-idea-card__side p {
+   font-size: 13.5px;
+   font-weight: 950;
+@@ -8465,6 +8478,13 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   -webkit-line-clamp: 2;
+ }
+ 
++.trade-feed-idea-card--open_need .trade-feed-idea-card__side h3,
++.trade-feed-idea-card--open_offer .trade-feed-idea-card__side h3 {
++  font-size: clamp(21px, 5.45vw, 26px);
++  line-height: 1.18;
++  -webkit-line-clamp: 3;
++}
++
+ .trade-feed-idea-card__side span {
+   display: block;
+   max-width: min(90%, 280px);
+@@ -8477,6 +8497,44 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   white-space: nowrap;
+ }
+ 
++.trade-feed-idea-card__single-visual {
++  position: relative;
++  display: grid;
++  place-items: center;
++  min-height: 72px;
++  overflow: hidden;
++  border-radius: 24px;
++  background:
++    radial-gradient(circle at 50% 52%, color-mix(in srgb, var(--proposal-border) 28%, transparent) 0 20%, transparent 52%),
++    linear-gradient(135deg, color-mix(in srgb, var(--app-border) 58%, transparent), color-mix(in srgb, var(--app-surface-strong) 82%, transparent));
++}
++
++.trade-feed-idea-card--open_need .trade-feed-idea-card__single-visual {
++  background:
++    radial-gradient(circle at 50% 52%, color-mix(in srgb, #60a5fa 26%, transparent) 0 21%, transparent 54%),
++    linear-gradient(135deg, color-mix(in srgb, #dbeafe 82%, var(--app-surface)), color-mix(in srgb, var(--app-surface-strong) 82%, transparent));
++}
++
++.trade-feed-idea-card--open_offer .trade-feed-idea-card__single-visual {
++  background:
++    radial-gradient(circle at 50% 52%, color-mix(in srgb, #34d399 25%, transparent) 0 21%, transparent 54%),
++    linear-gradient(135deg, color-mix(in srgb, #d1fae5 74%, var(--app-surface)), color-mix(in srgb, var(--app-surface-strong) 82%, transparent));
++}
++
++.trade-feed-idea-card__single-visual span,
++.trade-feed-idea-card__single-visual i,
++.trade-feed-idea-card__single-visual b {
++  position: absolute;
++  display: block;
++  border-radius: 999px;
++  background: color-mix(in srgb, #ffffff 64%, transparent);
++  transform: rotate(-17deg);
++}
++
++.trade-feed-idea-card__single-visual span { width: 62%; height: 10px; top: 18%; left: 7%; opacity: .72; }
++.trade-feed-idea-card__single-visual i { width: 76%; height: 14px; top: 43%; left: 16%; opacity: .5; }
++.trade-feed-idea-card__single-visual b { width: 44px; height: 44px; top: 32%; left: calc(50% - 22px); opacity: .7; transform: none; }
++
+ .trade-feed-idea-card__divider {
+   display: grid;
+   grid-template-columns: minmax(64px, 1fr) auto minmax(64px, 1fr);
+@@ -8506,6 +8564,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   align-items: flex-end;
+   justify-content: center;
+   min-height: 22px;
++  margin-top: auto;
+ }
+ 
+ .trade-feed-idea-card__footer span {
+@@ -8518,6 +8577,8 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ @media (min-width: 760px) {
+   .trade-feed-idea-card__open-link { padding: 30px; }
+   .trade-feed-idea-card__side h3 { font-size: clamp(20px, 1.55vw, 25px); }
++  .trade-feed-idea-card--open_need .trade-feed-idea-card__side h3,
++  .trade-feed-idea-card--open_offer .trade-feed-idea-card__side h3 { font-size: clamp(22px, 1.7vw, 27px); }
+   .trade-feed-idea-card__side span { font-size: 11.5px; }
+ }
+ 
+@@ -8536,6 +8597,8 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ @media (max-width: 420px) {
+   .trade-feed-idea-card__open-link { padding: 22px; }
+   .trade-feed-idea-card__side h3 { font-size: 19px; }
++  .trade-feed-idea-card--open_need .trade-feed-idea-card__side h3,
++  .trade-feed-idea-card--open_offer .trade-feed-idea-card__side h3 { font-size: 21px; }
+   .trade-feed-idea-card__topline,
+   .trade-feed-idea-card__topline strong { font-size: 11px; }
+ }
+@@ -8647,7 +8710,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ 
+ .trade-idea-detail-actions {
+   display: grid;
+-  grid-template-columns: minmax(0, .82fr) minmax(0, 1fr) minmax(0, 1fr);
++  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1fr) minmax(0, 1fr);
+   gap: 10px;
+   padding-bottom: 18px;
+ }
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index 08aa242..66ea908 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -507,14 +507,24 @@ function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: { ideaKe
+   const actionLabel = t(getFeedIdeaActionKey(ideaKey));
+   const summary = getFeedIdeaAriaSummary(t, ideaKey);
+ 
++  const isSingleSideIdea = idea.type !== 'trade';
++
+   return (
+-    <article className={`trade-feed-idea-card${inline ? ' trade-feed-idea-card--inline' : ''}`}>
++    <article className={`trade-feed-idea-card trade-feed-idea-card--${idea.type}${inline ? ' trade-feed-idea-card--inline' : ''}`}>
+       <Link href={createIdeaHref(ideaKey)} className="trade-feed-idea-card__open-link" aria-label={`${typeLabel} · ${pack}: ${summary}. ${actionLabel}`}>
+         <div className="trade-feed-idea-card__topline">
+           <span>{typeLabel} · {pack}</span>
+           <strong>{t('trade.feedIdeas.ideaLabel')}</strong>
+         </div>
+ 
++        {isSingleSideIdea ? (
++          <div className="trade-feed-idea-card__single-visual" aria-hidden="true">
++            <span />
++            <i />
++            <b />
++          </div>
++        ) : null}
++
+         {feedTradeIdeaHasNeed(idea) ? (
+           <div className="trade-feed-idea-card__side trade-feed-idea-card__side--need">
+             <p>{t('trade.labels.iNeed')}</p>

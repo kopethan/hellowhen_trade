@@ -19,7 +19,7 @@ import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { normalizeInventoryList, toIsoDate } from '../inventory/inventoryPresentation';
 import { TradeSidePicker } from './TradeSidePicker';
 import { TradeStackDeck } from './TradeStackDeck';
-import { feedTradeIdeas, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedTradeIdeaPostType, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
 
 type CreateTradeResponse = { trade?: unknown; id?: unknown };
 type DuplicateTradeSummary = Pick<TradeDto, 'id' | 'status' | 'title'> & { postType?: TradePostType };
@@ -162,15 +162,15 @@ function createSideNewHref(side: 'need' | 'offer', values: TradeCreateValues) {
   return `/trades/create/choose-${side}/new${fullQuery ? `?${fullQuery}` : ''}`;
 }
 
-function createStarterSideNewHref(side: 'need' | 'offer', values: TradeCreateValues, ideaKey: FeedTradeIdeaKey, templateKey: string, expiryDaysParam?: string) {
+function createStarterSideNewHref(side: 'need' | 'offer', values: TradeCreateValues, ideaKey: FeedTradeIdeaKey, templateKey: string, postType: TradePostType, expiryDaysParam?: string) {
   const params = new URLSearchParams();
-  params.set('postType', 'need_offer');
+  params.set('postType', postType);
   params.set('returnTo', 'full');
   params.set('idea', ideaKey);
   params.set('starterTemplateKey', templateKey);
   if (expiryDaysParam) params.set('expiryDays', expiryDaysParam);
-  if (side === 'need' && values.offerId) params.set('offerId', values.offerId);
-  if (side === 'offer' && values.needId) params.set('needId', values.needId);
+  if (postType !== 'open_need' && side === 'need' && values.offerId) params.set('offerId', values.offerId);
+  if (postType !== 'open_offer' && side === 'offer' && values.needId) params.set('needId', values.needId);
   const query = params.toString();
   return `/trades/create/choose-${side}/new${query ? `?${query}` : ''}`;
 }
@@ -341,10 +341,12 @@ export function TradeCreateFullClient({ initialNeedId = '', initialOfferId = '',
   const routeNeedId = searchParams.get('needId') ?? initialNeedId;
   const routeOfferId = searchParams.get('offerId') ?? initialOfferId;
   const routeIdeaKey = parseFeedTradeIdeaKey(searchParams.get('idea') ?? initialIdea);
+  const routeSelectedFeedIdea = routeIdeaKey ? feedTradeIdeas[routeIdeaKey] : null;
+  const routeIdeaPostType = routeSelectedFeedIdea ? getFeedTradeIdeaPostType(routeSelectedFeedIdea) : '';
   const routeExpiryDaysParam = searchParams.get('expiryDays') ?? initialExpiryDays;
   const routeExpiryDays = parseIdeaExpiryDaysParam(routeExpiryDaysParam);
   const routeExpiryDateInput = buildDateInputFromExpiryDays(routeExpiryDays);
-  const routePostType = parseTradePostType(searchParams.get('postType') ?? initialPostType) || (routeNeedId || routeOfferId || routeIdeaKey ? 'need_offer' : '');
+  const routePostType = parseTradePostType(searchParams.get('postType') ?? initialPostType) || routeIdeaPostType || (routeNeedId || routeOfferId ? 'need_offer' : '');
   const preferredCurrency = getPreferredCurrency(auth.user?.profile?.preferredCurrency);
   const demoDataEnabled = isWebDemoDataEnabled();
   const [needs, setNeeds] = useState<NeedDto[]>(() => demoDataEnabled ? mockNeeds : []);
@@ -607,9 +609,10 @@ export function TradeCreateFullClient({ initialNeedId = '', initialOfferId = '',
   if (routeExpiryDaysParam) currentCreateParams.set('expiryDays', routeExpiryDaysParam);
   const currentCreateQuery = currentCreateParams.toString();
   const currentCreateHref = `/trades/create/full${currentCreateQuery ? `?${currentCreateQuery}` : ''}`;
-  const selectedFeedIdea = routeIdeaKey ? feedTradeIdeas[routeIdeaKey] : null;
-  const starterNeedHref = routeIdeaKey && selectedFeedIdea ? createStarterSideNewHref('need', values, routeIdeaKey, selectedFeedIdea.needTemplateKey, routeExpiryDaysParam) : '';
-  const starterOfferHref = routeIdeaKey && selectedFeedIdea ? createStarterSideNewHref('offer', values, routeIdeaKey, selectedFeedIdea.offerTemplateKey, routeExpiryDaysParam) : '';
+  const selectedFeedIdea = routeSelectedFeedIdea;
+  const selectedFeedIdeaPostType = selectedFeedIdea ? getFeedTradeIdeaPostType(selectedFeedIdea) : 'need_offer';
+  const starterNeedHref = routeIdeaKey && selectedFeedIdea && feedTradeIdeaHasNeed(selectedFeedIdea) ? createStarterSideNewHref('need', values, routeIdeaKey, selectedFeedIdea.needTemplateKey, selectedFeedIdeaPostType, routeExpiryDaysParam) : '';
+  const starterOfferHref = routeIdeaKey && selectedFeedIdea && feedTradeIdeaHasOffer(selectedFeedIdea) ? createStarterSideNewHref('offer', values, routeIdeaKey, selectedFeedIdea.offerTemplateKey, selectedFeedIdeaPostType, routeExpiryDaysParam) : '';
   const showStarterFullFormPanel = Boolean(routeIdeaKey && selectedFeedIdea && auth.isAuthenticated);
 
   return (
@@ -642,20 +645,20 @@ export function TradeCreateFullClient({ initialNeedId = '', initialOfferId = '',
           {amountPreview && (usesMoney || usesCashPromise) ? <span className="semantic-badge money">{amountPreview}</span> : <span className="semantic-badge instruction">{t('trade.create.beta')}</span>}
         </div>
 
-        {showStarterFullFormPanel && routeIdeaKey ? (
+        {showStarterFullFormPanel && routeIdeaKey && selectedFeedIdea ? (
           <section className="mobile-card mobile-card--soft trade-create-idea-prefill">
             <div>
               <span className="semantic-badge instruction">{t('trade.feedIdeas.badge')}</span>
               <h3>{t('trade.feedIdeas.fullFormTitle')}</h3>
-              <p>{t('trade.feedIdeas.fullFormBody')}</p>
+              <p>{t(selectedFeedIdea.type === 'open_need' ? 'trade.feedIdeas.fullFormBodyOpenNeed' : selectedFeedIdea.type === 'open_offer' ? 'trade.feedIdeas.fullFormBodyOpenOffer' : 'trade.feedIdeas.fullFormBody')}</p>
               <div className="trade-create-idea-prefill__sides" aria-label={t('trade.feedIdeas.sidesLabel')}>
-                <span><strong>{selectedNeed ? t('trade.feedIdeas.selectedNeedReady') : t('trade.labels.iNeed')}</strong>{selectedNeed ? selectedNeed.title : t(`trade.feedIdeas.items.${routeIdeaKey}.need`)}</span>
-                <span><strong>{selectedOffer ? t('trade.feedIdeas.selectedOfferReady') : t('trade.labels.iOffer')}</strong>{selectedOffer ? selectedOffer.title : t(`trade.feedIdeas.items.${routeIdeaKey}.offer`)}</span>
+                {feedTradeIdeaHasNeed(selectedFeedIdea) ? <span><strong>{selectedNeed ? t('trade.feedIdeas.selectedNeedReady') : t('trade.labels.iNeed')}</strong>{selectedNeed ? selectedNeed.title : t(`trade.feedIdeas.items.${routeIdeaKey}.need`)}</span> : null}
+                {feedTradeIdeaHasOffer(selectedFeedIdea) ? <span><strong>{selectedOffer ? t('trade.feedIdeas.selectedOfferReady') : t('trade.labels.iOffer')}</strong>{selectedOffer ? selectedOffer.title : t(`trade.feedIdeas.items.${routeIdeaKey}.offer`)}</span> : null}
               </div>
             </div>
             <div className="trade-create-idea-prefill__actions">
-              <Link href={starterNeedHref} className="button secondary compact">{selectedNeed ? t('trade.feedIdeas.editNeedAgainAction') : t('trade.feedIdeas.editNeedAction')}</Link>
-              <Link href={starterOfferHref} className="button secondary compact">{selectedOffer ? t('trade.feedIdeas.editOfferAgainAction') : t('trade.feedIdeas.editOfferAction')}</Link>
+              {starterNeedHref ? <Link href={starterNeedHref} className="button secondary compact">{selectedNeed ? t('trade.feedIdeas.editNeedAgainAction') : t('trade.feedIdeas.editNeedAction')}</Link> : null}
+              {starterOfferHref ? <Link href={starterOfferHref} className="button secondary compact">{selectedOffer ? t('trade.feedIdeas.editOfferAgainAction') : t('trade.feedIdeas.editOfferAction')}</Link> : null}
             </div>
           </section>
         ) : null}

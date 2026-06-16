@@ -17,10 +17,12 @@ type TradePosterCardProps = {
   chips?: string[];
   status?: { label: string; tone: TradePosterCardStatusTone } | null;
   topMeta?: string | null;
+  footerLabel?: string;
   identity?: React.ReactNode;
   variant?: TradePosterCardVariant;
   onPress: () => void;
   previewTheme?: string | null;
+  accessibilityLabel?: string;
 };
 
 const FALLBACK_ACCENTS = ['#f97316', '#84cc16', '#06b6d4', '#8b5cf6', '#ec4899', '#14b8a6', '#f59e0b', '#6366f1'];
@@ -59,7 +61,18 @@ function fallbackModel(id: string, variant: TradePosterCardVariant) {
 }
 
 function normalizeChips(chips: string[] | undefined) {
-  return (chips ?? []).map((chip) => chip.trim()).filter(Boolean).slice(0, 3);
+  const seen = new Set<string>();
+
+  return (chips ?? [])
+    .map((chip) => chip.trim())
+    .filter((chip) => {
+      if (!chip) return false;
+      const normalized = chip.toLocaleLowerCase();
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    })
+    .slice(0, 3);
 }
 
 function LowerAtmosphere({ imageUrl, isDark }: { imageUrl?: string | null; isDark: boolean }) {
@@ -100,7 +113,7 @@ function LowerAtmosphere({ imageUrl, isDark }: { imageUrl?: string | null; isDar
   );
 }
 
-function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, topMeta, identity, variant = 'trade', onPress, previewTheme }: TradePosterCardProps) {
+function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, topMeta, footerLabel, identity, variant = 'trade', onPress, previewTheme, accessibilityLabel }: TradePosterCardProps) {
   const theme = useThemeTokens();
   const isDark = theme.mode === 'dark';
   const [imageFailed, setImageFailed] = useState(!imageUrl);
@@ -133,7 +146,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
           : '#b91c1c';
 
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: controlledAccent && !visibleImageUrl ? `${controlledAccent}24` : mediaSurface }, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: controlledAccent && !visibleImageUrl ? `${controlledAccent}24` : mediaSurface }, pressed && styles.pressed]}>
       {visibleImageUrl ? (
         <Image source={{ uri: visibleImageUrl }} resizeMode="cover" onError={() => setImageFailed(true)} style={StyleSheet.absoluteFillObject} />
       ) : (
@@ -223,10 +236,15 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
               {status.label}
             </AppText>
           ) : null}
+          {footerLabel ? (
+            <AppText style={[styles.footerLabel, { color: titleColor, textShadowColor: overlayTextShadow }]} numberOfLines={1}>
+              {footerLabel}
+            </AppText>
+          ) : null}
           {visibleChips.length ? (
             <View style={styles.chipRow}>
-              {visibleChips.map((chip) => (
-                <View key={`${id}-${chip}`} style={[styles.chip, { backgroundColor: pillBg, borderColor: pillBorder }]}>
+              {visibleChips.map((chip, index) => (
+                <View key={`${id}-chip-${index}-${chip}`} style={[styles.chip, { backgroundColor: pillBg, borderColor: pillBorder }]}>
                   <AppText style={[styles.chipText, { color: eyebrowColor }]} numberOfLines={1}>{chip}</AppText>
                 </View>
               ))}
@@ -368,6 +386,16 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     fontWeight: '900',
     letterSpacing: 0.8,
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 7,
+  },
+  footerLabel: {
+    alignSelf: 'flex-start',
+    marginTop: 2,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+    letterSpacing: 0.45,
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 7,
   },
