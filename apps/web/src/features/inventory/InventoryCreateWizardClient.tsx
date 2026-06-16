@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ChangeEvent } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CreateNeedRequest, CreateOfferRequest, InventoryDurationPreset, MediaAssetDto, TradeExchangeMode } from '@hellowhen/contracts';
+import type { CreateNeedRequest, CreateOfferRequest, InventoryDurationPreset, InventoryTemplateDto, MediaAssetDto, TradeExchangeMode } from '@hellowhen/contracts';
 import type { TranslationValues } from '@hellowhen/i18n';
 import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
 import { findInventoryCategoryOption, getNextWizardStepId, getPreviousWizardStepId, inventoryCategoryOptions, type WizardStepDefinition } from '@hellowhen/shared';
@@ -55,6 +55,7 @@ type InventoryCreateWizardClientProps = {
   kind: InventoryKind;
   cancelHref?: string;
   afterCreateRedirect?: InventoryCreateRedirect;
+  initialTemplateKey?: string;
 };
 
 type InventoryWizardStepId = 'idea' | 'details' | 'images';
@@ -109,6 +110,46 @@ function formToOfferPayload(values: InventoryFormValues, mediaIds: string[], cov
     previewTheme: values.previewTheme,
     mediaIds,
     coverMediaId,
+  };
+}
+
+
+type InventoryTemplatesResponse = { templates?: InventoryTemplateDto[]; items?: InventoryTemplateDto[] };
+
+function normalizeTemplateResponse(value: unknown): InventoryTemplateDto[] {
+  if (!value || typeof value !== 'object') return [];
+  const record = value as InventoryTemplatesResponse;
+  if (Array.isArray(record.templates)) return record.templates;
+  if (Array.isArray(record.items)) return record.items;
+  return [];
+}
+
+function getLocalizedTemplateKeyCandidates(templateKey: string) {
+  const suffix = templateKey.replace(/^starter-/, '');
+  return [templateKey, `starter-fr-${suffix}`, `starter-es-${suffix}`];
+}
+
+function templateToInventoryFormValues(template: InventoryTemplateDto, kind: InventoryKind, fallbackLanguage: InventoryFormValues['defaultLanguage']): InventoryFormValues {
+  const durationPreset = isInventoryDurationPreset(template.durationPreset) ? template.durationPreset : undefined;
+  const durationMinutes = durationPresetMinutes(durationPreset);
+  return {
+    ...emptyInventoryFormValues,
+    title: template.title,
+    description: template.description,
+    defaultLanguage: template.languageCode ?? fallbackLanguage,
+    itemType: template.itemType ?? 'service',
+    category: template.category ?? '',
+    timing: kind === 'need' ? template.timing ?? '' : '',
+    availability: kind === 'offer' ? template.availability ?? '' : '',
+    availabilityPreset: template.availabilityPreset ?? undefined,
+    estimatedDurationPreset: kind === 'need' ? durationPreset : undefined,
+    estimatedDurationMinutes: kind === 'need' ? durationMinutes : undefined,
+    typicalDurationPreset: kind === 'offer' ? durationPreset : undefined,
+    typicalDurationMinutes: kind === 'offer' ? durationMinutes : undefined,
+    mode: template.mode ?? 'remote',
+    locationLabel: template.locationLabel ?? '',
+    tags: (template.tags ?? []).join(', '),
+    includes: kind === 'offer' ? (template.includes ?? []).join('\n') : '',
   };
 }
 
@@ -212,7 +253,7 @@ function InventoryPresetPicker<TValue extends string>({
   );
 }
 
-export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedirect }: InventoryCreateWizardClientProps) {
+export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedirect, initialTemplateKey }: InventoryCreateWizardClientProps) {
   const auth = useWebAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -231,6 +272,7 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
   const [translationPickerOpen, setTranslationPickerOpen] = useState(false);
   const [wizardMenuOpen, setWizardMenuOpen] = useState(false);
   const [wizardHelpOpen, setWizardHelpOpen] = useState(false);
+  const [starterPrefillApplied, setStarterPrefillApplied] = useState(false);
   const i18n = useMemo(() => ({ t, language }), [language, t]);
   const noun = kindLabel(kind, i18n);
   const baseHref = kind === 'need' ? '/needs' : '/offers';
@@ -245,6 +287,7 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
   }), [activeStepId, media, values]);
   const draftStorageKey = useMemo(() => buildWebWizardDraftKey(kind === 'need' ? 'create-need' : 'create-offer', auth.user?.id), [auth.user?.id, kind]);
   const restoreDraft = useCallback((savedDraft: InventoryWizardPersistedDraft) => {
+    if (initialTemplateKey) return;
     const restoredValues = { ...emptyInventoryFormValues, ...(savedDraft.values ?? {}) };
     restoredValues.timing = '';
     restoredValues.availability = '';
@@ -258,7 +301,7 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
     setTranslationPanelOpen(Boolean(restoredValues.translations?.some((translation) => translation.title?.trim() || translation.description?.trim())));
     const restoredStepId = savedDraft.activeStepId === 'review' ? 'images' : savedDraft.activeStepId;
     setActiveStepId(['idea', 'details', 'images'].includes(restoredStepId) ? restoredStepId : 'idea');
-  }, []);
+  }, [initialTemplateKey]);
   const inventoryWizardDraft = useWebWizardDraft({
     storageKey: draftStorageKey,
     draft: persistedDraft,
@@ -282,6 +325,7 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
     },
     onRestore: restoreDraft,
   });
+  const clearWizardDraft = inventoryWizardDraft.clearDraft;
 
   const steps = useMemo<WizardStepDefinition<InventoryWizardStepId>[]>(() => ([
     {
@@ -306,8 +350,38 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
   ]), [kind, media.length, t, values]);
 
   useEffect(() => {
+    if (initialTemplateKey) return;
     setValues((current) => current.defaultLanguage === language ? current : { ...current, defaultLanguage: language });
-  }, [language]);
+  }, [initialTemplateKey, language]);
+
+  useEffect(() => {
+    if (!initialTemplateKey || starterPrefillApplied) return;
+    const starterTemplateKey = initialTemplateKey;
+    let mounted = true;
+    async function loadStarterTemplate() {
+      try {
+        const templatesResponse = await api.inventoryTemplates.list({ sourceType: 'hellowhen', language, take: 100 });
+        if (!mounted) return;
+        const candidates = getLocalizedTemplateKeyCandidates(starterTemplateKey);
+        const template = normalizeTemplateResponse(templatesResponse).find((item) => item.kind === kind && candidates.includes(item.key));
+        if (!template) throw new Error('starter_template_missing');
+        const nextValues = templateToInventoryFormValues(template, kind, language);
+        clearWizardDraft();
+        setValues(nextValues);
+        setMedia([]);
+        setTranslationPanelOpen(false);
+        setActiveStepId('idea');
+        setMessage(t('inventory.wizard.starterPrefillLoaded'));
+        setError('');
+      } catch {
+        if (mounted) setError(t('inventory.wizard.starterPrefillLoadError'));
+      } finally {
+        if (mounted) setStarterPrefillApplied(true);
+      }
+    }
+    void loadStarterTemplate();
+    return () => { mounted = false; };
+  }, [clearWizardDraft, initialTemplateKey, kind, language, starterPrefillApplied, t]);
 
   function updateField<Key extends keyof InventoryFormValues>(field: Key, value: InventoryFormValues[Key]) {
     setValues((current) => ({ ...current, [field]: value }));
@@ -382,7 +456,7 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
   }
 
   function resetWizardDraft() {
-    inventoryWizardDraft.clearDraft();
+    clearWizardDraft();
     setValues({ ...emptyInventoryFormValues, defaultLanguage: language });
     setMedia([]);
     setActiveStepId('idea');
@@ -477,7 +551,7 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
         const response = await api.offers.create(formToOfferPayload(values, mediaIds, coverMediaId));
         saved = normalizeInventoryItem(response, kind);
       }
-      inventoryWizardDraft.clearDraft();
+      clearWizardDraft();
       setValues({ ...emptyInventoryFormValues, defaultLanguage: language });
       setMedia([]);
       setActiveStepId('idea');
@@ -590,6 +664,14 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
         )}
       >
         {inventoryWizardDraft.restored ? <p className="form-message">{t('inventory.wizard.draftRestoredTitle')} · {t('inventory.wizard.draftRestoredBody')}</p> : null}
+
+        {initialTemplateKey ? (
+          <section className="mobile-card mobile-card--soft" role="note">
+            <span className="semantic-badge instruction">{t('trade.feedIdeas.badge')}</span>
+            <h3>{t('inventory.wizard.starterPrefillTitle')}</h3>
+            <p>{t('inventory.wizard.starterPrefillBody')}</p>
+          </section>
+        ) : null}
 
         {wizardHelpOpen ? (
           <section className="mobile-card mobile-card--soft inventory-create-help-panel" role="note">

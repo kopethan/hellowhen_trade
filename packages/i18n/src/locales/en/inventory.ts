@@ -333,6 +333,10 @@ export const inventory = {
     tagCount: '{{count}} tags',
     draftRestoredTitle: 'Draft restored',
     draftRestoredBody: 'Your previous wizard progress was restored on this device.',
+    starterPrefillTitle: 'Starter content loaded',
+    starterPrefillBody: 'This form was prefilled from a trade idea. Edit the details, then save it to use in your trade draft.',
+    starterPrefillLoaded: 'Starter content loaded. You can edit it before saving.',
+    starterPrefillLoadError: 'Could not load this starter content yet.'
   },
   empty: {
     createFirstNeed: 'Create your first need',

@@ -348,6 +348,10 @@ export const inventory = {
     tagCount: '{{count}} etiquetas',
     draftRestoredTitle: 'Borrador restaurado',
     draftRestoredBody: 'Tu progreso anterior en el asistente se restauró en este dispositivo.',
+    starterPrefillTitle: 'Contenido inicial cargado',
+    starterPrefillBody: 'Este formulario se rellenó desde una idea de intercambio. Edita los detalles y guárdalo para usarlo en tu borrador.',
+    starterPrefillLoaded: 'Contenido inicial cargado. Puedes editarlo antes de guardar.',
+    starterPrefillLoadError: 'No se pudo cargar este contenido inicial todavía.'
   },
   empty: {
     ...enInventory.empty,

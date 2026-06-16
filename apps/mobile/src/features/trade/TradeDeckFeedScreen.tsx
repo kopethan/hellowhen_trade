@@ -19,6 +19,7 @@ import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { TradeSquareDeck } from './components/TradeSquareDeck';
+import { TradeExchangeIcon } from './components/TradeExchangeIcon';
 import { feedTradeIdeaKeys, getInlineFeedIdeaKey, shouldShowFeedIdeaRail, type FeedTradeIdeaKey } from './tradeFeedIdeas';
 import type { TradeDeckItem } from './types';
 
@@ -211,13 +212,17 @@ export function TradeDeckFeedScreen() {
     setRefreshSeed(createFeedRefreshSeed());
   }, [trades]);
 
-  const createTrade = useCallback((ideaKey?: FeedTradeIdeaKey) => {
+  const createTrade = useCallback(() => {
     if (!auth.isAuthenticated) {
       navigation.navigate('Login');
       return;
     }
-    navigation.navigate('CreateTrade', ideaKey ? { initialIdeaKey: ideaKey } : undefined);
+    navigation.navigate('CreateTrade');
   }, [auth.isAuthenticated, navigation]);
+
+  const openTradeIdea = useCallback((ideaKey: FeedTradeIdeaKey) => {
+    navigation.navigate('TradeIdeaDetail', { ideaId: ideaKey });
+  }, [navigation]);
   const clearFilters = useCallback(() => {
     setQuery('');
     setDraftQuery('');
@@ -284,7 +289,7 @@ export function TradeDeckFeedScreen() {
         <>
           <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshDiscoveryOrder} />}>
             {error ? <InfoNotice tone="danger" title={t('trade.filters.couldNotLoadTrades')} body={error} /> : null}
-            {shouldShowIdeaRail ? <TradeFeedIdeaRail onCreate={createTrade} /> : null}
+            {shouldShowIdeaRail ? <TradeFeedIdeaRail onOpenIdea={openTradeIdea} /> : null}
             {hasVisibleTrades ? (
               <View style={styles.feedList}>
                 {visibleTrades.map((trade, index) => {
@@ -292,7 +297,7 @@ export function TradeDeckFeedScreen() {
                   return (
                     <React.Fragment key={trade.id}>
                       <TradeDeckSection trade={trade} index={index} total={visibleTrades.length} onOpen={() => openTrade(trade)} />
-                      {ideaKey ? <TradeFeedInlineIdeaCard ideaKey={ideaKey} onCreate={createTrade} /> : null}
+                      {ideaKey ? <TradeFeedInlineIdeaCard ideaKey={ideaKey} onOpenIdea={openTradeIdea} /> : null}
                     </React.Fragment>
                   );
                 })}
@@ -345,55 +350,71 @@ export function TradeDeckFeedScreen() {
 
 
 
-function TradeFeedIdeaRail({ onCreate }: { onCreate: (ideaKey: FeedTradeIdeaKey) => void }) {
+function TradeFeedIdeaRail({ onOpenIdea }: { onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
 
   return (
-    <AppCard style={[styles.feedIdeasCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+    <View style={styles.feedIdeasCard}>
       <View style={styles.feedIdeasHeader}>
         <SemanticBadge label={t('trade.feedIdeas.badge')} tone="instruction" />
         <AppText style={styles.feedIdeasTitle}>{t('trade.feedIdeas.title')}</AppText>
         <AppText style={[styles.feedIdeasBody, { color: theme.color.muted }]}>{t('trade.feedIdeas.body')}</AppText>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.feedIdeasList}>
-        {feedTradeIdeaKeys.map((key) => <TradeFeedIdeaCard key={key} ideaKey={key} onCreate={onCreate} />)}
+        {feedTradeIdeaKeys.map((key) => <TradeFeedIdeaCard key={key} ideaKey={key} onOpenIdea={onOpenIdea} />)}
       </ScrollView>
-    </AppCard>
-  );
-}
-
-function TradeFeedIdeaCard({ ideaKey, onCreate, inline = false }: { ideaKey: FeedTradeIdeaKey; onCreate: (ideaKey: FeedTradeIdeaKey) => void; inline?: boolean }) {
-  const theme = useThemeTokens();
-  const { t } = useTranslation();
-
-  return (
-    <View style={[styles.feedIdeaCard, inline && styles.feedIdeaCardInline, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
-      <View style={styles.feedIdeaTopline}>
-        <AppText style={[styles.feedIdeaEyebrow, { color: theme.color.muted }]}>{t('trade.feedIdeas.ideaLabel')}</AppText>
-        <AppText numberOfLines={1} style={[styles.feedIdeaPack, { color: theme.semantic.info.text }]}>{t(`trade.feedIdeas.items.${ideaKey}.pack`)}</AppText>
-      </View>
-      <View style={styles.feedIdeaSides} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
-        <View style={[styles.feedIdeaSide, { backgroundColor: theme.color.surface, borderColor: theme.semantic.need.border }]}>
-          <AppText style={[styles.feedIdeaSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iNeed')}</AppText>
-          <AppText numberOfLines={3} style={styles.feedIdeaSideTitle}>{t(`trade.feedIdeas.items.${ideaKey}.need`)}</AppText>
-        </View>
-        <View style={[styles.feedIdeaSide, { backgroundColor: theme.color.surface, borderColor: theme.semantic.offer.border }]}>
-          <AppText style={[styles.feedIdeaSideLabel, { color: theme.color.muted }]}>{t('trade.labels.iOffer')}</AppText>
-          <AppText numberOfLines={3} style={styles.feedIdeaSideTitle}>{t(`trade.feedIdeas.items.${ideaKey}.offer`)}</AppText>
-        </View>
-      </View>
-      <AppText numberOfLines={2} style={[styles.feedIdeaCardBody, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.body`)}</AppText>
-      <Pressable accessibilityRole="button" onPress={() => onCreate(ideaKey)} style={({ pressed }) => [styles.feedIdeaAction, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-        <AppText style={styles.feedIdeaActionText}>{t('trade.feedIdeas.action')}</AppText>
-      </Pressable>
     </View>
   );
 }
 
+function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: FeedTradeIdeaKey; onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void; inline?: boolean }) {
+  const theme = useThemeTokens();
+  const { t } = useTranslation();
+  const pack = t(`trade.feedIdeas.items.${ideaKey}.pack`);
+  const need = t(`trade.feedIdeas.items.${ideaKey}.need`);
+  const offer = t(`trade.feedIdeas.items.${ideaKey}.offer`);
 
-function TradeFeedInlineIdeaCard({ ideaKey, onCreate }: { ideaKey: FeedTradeIdeaKey; onCreate: (ideaKey: FeedTradeIdeaKey) => void }) {
-  return <TradeFeedIdeaCard ideaKey={ideaKey} onCreate={onCreate} inline />;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${t('trade.feedIdeas.cardLabel')} · ${pack}: ${need} ↔ ${offer}. ${t('trade.feedIdeas.action')}`}
+      onPress={() => onOpenIdea(ideaKey)}
+      style={({ pressed }) => [styles.feedIdeaCard, inline && styles.feedIdeaCardInline, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
+    >
+      <View style={styles.feedIdeaTopline}>
+        <AppText numberOfLines={1} style={[styles.feedIdeaToplineText, { color: theme.color.muted }]}>{t('trade.feedIdeas.cardLabel')} · {pack}</AppText>
+        <AppText numberOfLines={1} style={[styles.feedIdeaToplineRight, { color: theme.color.text }]}>{t('trade.feedIdeas.ideaLabel')}</AppText>
+      </View>
+
+      <View style={styles.feedIdeaSideBlock}>
+        <AppText style={[styles.feedIdeaSideEyebrow, { color: '#60A5FA' }]}>{t('trade.labels.iNeed')}</AppText>
+        <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, { color: theme.color.text }]}>{need}</AppText>
+        <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.needMeta`)}</AppText>
+      </View>
+
+      <View style={styles.feedIdeaExchangeRow} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
+        <View style={[styles.feedIdeaExchangeLine, { backgroundColor: theme.color.border }]} />
+        <TradeExchangeIcon color={theme.color.muted} size={16} strokeWidth={2.2} />
+        <View style={[styles.feedIdeaExchangeLine, { backgroundColor: theme.color.border }]} />
+      </View>
+
+      <View style={styles.feedIdeaSideBlock}>
+        <AppText style={[styles.feedIdeaSideEyebrow, { color: '#34D399' }]}>{t('trade.labels.iOffer')}</AppText>
+        <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, { color: theme.color.text }]}>{offer}</AppText>
+        <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.offerMeta`)}</AppText>
+      </View>
+
+      <View style={styles.feedIdeaFooter}>
+        <AppText numberOfLines={1} style={[styles.feedIdeaActionText, { color: theme.color.text }]}>{t('trade.feedIdeas.action')}</AppText>
+      </View>
+    </Pressable>
+  );
+}
+
+
+function TradeFeedInlineIdeaCard({ ideaKey, onOpenIdea }: { ideaKey: FeedTradeIdeaKey; onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void }) {
+  return <TradeFeedIdeaCard ideaKey={ideaKey} onOpenIdea={onOpenIdea} inline />;
 }
 
 type TradeActivityModalProps = {
@@ -765,7 +786,7 @@ function MyCreatedTradesPanel({ scrollProps, onCreate, onOpenTrade, onOpenPropos
             <AppText style={styles.mineTitle}>{t('trade.mine.title')}</AppText>
             <AppText style={[styles.mineBody, { color: theme.color.muted }]}>{t('trade.mine.body')}</AppText>
           </View>
-          <Pressable accessibilityRole="button" onPress={() => onCreate(ideaKey)} style={({ pressed }) => [styles.mineCreateButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+          <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.mineCreateButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
             <MobileIcon name="add" size={18} color={theme.color.background} />
             <AppText style={[styles.mineCreateButtonText, { color: theme.color.background }]}>{t('trade.create.title')}</AppText>
           </Pressable>
@@ -843,7 +864,7 @@ function MyCreatedTradesEmpty({ hasFilter, onCreate }: { hasFilter: boolean; onC
         <SemanticBadge label={t('trade.mine.myTradesTab')} tone="trade" />
         <AppText style={styles.emptyTitle}>{hasFilter ? t('trade.mine.emptyFilteredTitle') : t('trade.mine.emptyTitle')}</AppText>
         <AppText style={[styles.emptyText, { color: theme.color.muted }]}>{hasFilter ? t('trade.mine.emptyFilteredBody') : t('trade.mine.emptyBody')}</AppText>
-        <Pressable accessibilityRole="button" onPress={() => onCreate(ideaKey)} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>{t('trade.create.title')}</AppText></Pressable>
+        <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>{t('trade.create.title')}</AppText></Pressable>
       </View>
     </AppCard>
   );
@@ -980,7 +1001,7 @@ function EmptyTradesState({ loading, hasTrades, hasFilters, onCreate, onRefresh,
         <AppText style={styles.emptyTitle}>{title}</AppText>
         <AppText style={[styles.emptyText, { color: theme.color.muted }]}>{body}</AppText>
         <View style={styles.emptyActions}>
-          {hasFilters ? <Pressable accessibilityRole="button" onPress={onClear} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>{t('trade.filters.clearFilters')}</AppText></Pressable> : <Pressable accessibilityRole="button" onPress={() => onCreate(ideaKey)} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>{t('trade.create.title')}</AppText></Pressable>}
+          {hasFilters ? <Pressable accessibilityRole="button" onPress={onClear} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>{t('trade.filters.clearFilters')}</AppText></Pressable> : <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>{t('trade.create.title')}</AppText></Pressable>}
           <Pressable accessibilityRole="button" onPress={onRefresh} style={({ pressed }) => [styles.emptySecondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.emptySecondaryButtonText, { color: theme.color.text }]}>{t('trade.filters.refresh')}</AppText></Pressable>
         </View>
       </View>
@@ -1032,23 +1053,37 @@ const styles = StyleSheet.create({
   suggestionText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '900' },
   suggestionSource: { fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
   feedList: { gap: 20 },
-  feedIdeasCard: { gap: 14, borderWidth: 1, padding: 14 },
-  feedIdeasHeader: { gap: 6 },
+  feedIdeasCard: { gap: 14 },
+  feedIdeasHeader: { gap: 6, paddingHorizontal: 4 },
   feedIdeasTitle: { fontSize: 21, lineHeight: 25, fontWeight: '900', letterSpacing: -0.5 },
   feedIdeasBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
-  feedIdeasList: { gap: 10, paddingRight: 18 },
-  feedIdeaCard: { width: 284, borderRadius: 22, borderWidth: 1, padding: 12, gap: 10 },
-  feedIdeaCardInline: { width: '100%', borderStyle: 'dashed' },
-  feedIdeaTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  feedIdeaEyebrow: { fontSize: 10, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
-  feedIdeaPack: { flexShrink: 1, fontSize: 10, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
-  feedIdeaSides: { gap: 8 },
-  feedIdeaSide: { minHeight: 88, borderRadius: 16, borderWidth: 1, padding: 10, gap: 6 },
-  feedIdeaSideLabel: { fontSize: 10, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' },
-  feedIdeaSideTitle: { fontSize: 14, lineHeight: 18, fontWeight: '900' },
-  feedIdeaCardBody: { minHeight: 36, fontSize: 12, lineHeight: 18, fontWeight: '700' },
-  feedIdeaAction: { minHeight: 38, borderRadius: 999, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
-  feedIdeaActionText: { fontSize: 13, fontWeight: '900' },
+  feedIdeasList: { gap: 14, paddingRight: 18, paddingBottom: 4 },
+  feedIdeaCard: {
+    width: 318,
+    aspectRatio: 1,
+    borderRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 24,
+    paddingVertical: 22,
+    gap: 0,
+    shadowColor: '#000000',
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
+  },
+  feedIdeaCardInline: { width: '100%', maxWidth: 348, alignSelf: 'center' },
+  feedIdeaTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  feedIdeaToplineText: { flex: 1, minWidth: 0, fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95, textTransform: 'uppercase' },
+  feedIdeaToplineRight: { maxWidth: '34%', flexShrink: 0, fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.65, textAlign: 'right', textTransform: 'uppercase' },
+  feedIdeaSideBlock: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 3, minHeight: 0 },
+  feedIdeaSideEyebrow: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  feedIdeaSideTitle: { textAlign: 'center', fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.55, paddingBottom: 1 },
+  feedIdeaSideMeta: { textAlign: 'center', fontSize: 12, lineHeight: 16, fontWeight: '800' },
+  feedIdeaExchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 1 },
+  feedIdeaExchangeLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  feedIdeaFooter: { minHeight: 20, alignItems: 'center', justifyContent: 'center' },
+  feedIdeaActionText: { fontSize: 13, lineHeight: 17, fontWeight: '900', letterSpacing: 0.2 },
   mineHeaderCard: { gap: 14 },
   mineHeaderCopy: { gap: 8 },
   mineTitle: { fontSize: 28, fontWeight: '900', letterSpacing: -0.7 },

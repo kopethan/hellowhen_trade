@@ -112,11 +112,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   const demoDataEnabled = isWebDemoDataEnabled();
   const auth = useWebAuth();
   const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
-  const createTradeIdeaHref = useCallback((ideaKey: FeedTradeIdeaKey) => {
-    const ideaHref = createFeedIdeaTradeHref(ideaKey);
-    if (!auth.hydrated || !auth.isAuthenticated) return `/auth?next=${encodeURIComponent(ideaHref)}`;
-    return ideaHref;
-  }, [auth.hydrated, auth.isAuthenticated]);
+  const createTradeIdeaHref = useCallback((ideaKey: FeedTradeIdeaKey) => createFeedIdeaTradeHref(ideaKey), []);
   const shouldShowHomeIntro = showHomeIntro && homeIntroReady && auth.hydrated && !auth.isAuthenticated && !homeIntroDismissed;
 
   const queueSearchKeywordRecord = useCallback((q: string, source: TradeSearchKeywordSource) => {
@@ -477,26 +473,40 @@ function TradeFeedIdeaRail({ createIdeaHref }: TradeFeedIdeaRailProps) {
 
 function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: { ideaKey: FeedTradeIdeaKey; createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string; inline?: boolean }) {
   const { t } = useWebTranslation();
+  const pack = t(`trade.feedIdeas.items.${ideaKey}.pack`);
+  const need = t(`trade.feedIdeas.items.${ideaKey}.need`);
+  const offer = t(`trade.feedIdeas.items.${ideaKey}.offer`);
 
   return (
     <article className={`trade-feed-idea-card${inline ? ' trade-feed-idea-card--inline' : ''}`}>
-      <div className="trade-feed-idea-card__topline">
-        <span>{t('trade.feedIdeas.ideaLabel')}</span>
-        <strong>{t(`trade.feedIdeas.items.${ideaKey}.pack`)}</strong>
-      </div>
-      <div className="trade-feed-idea-card__sides" aria-label={t('trade.feedIdeas.sidesLabel')}>
-        <div>
-          <span>{t('trade.labels.iNeed')}</span>
-          <h3>{t(`trade.feedIdeas.items.${ideaKey}.need`)}</h3>
+      <Link href={createIdeaHref(ideaKey)} className="trade-feed-idea-card__open-link" aria-label={`${t('trade.feedIdeas.cardLabel')} · ${pack}: ${need} ↔ ${offer}. ${t('trade.feedIdeas.action')}`}>
+        <div className="trade-feed-idea-card__topline">
+          <span>{t('trade.feedIdeas.cardLabel')} · {pack}</span>
+          <strong>{t('trade.feedIdeas.ideaLabel')}</strong>
         </div>
-        <i aria-hidden="true">↔</i>
-        <div>
-          <span>{t('trade.labels.iOffer')}</span>
-          <h3>{t(`trade.feedIdeas.items.${ideaKey}.offer`)}</h3>
+
+        <div className="trade-feed-idea-card__side trade-feed-idea-card__side--need">
+          <p>{t('trade.labels.iNeed')}</p>
+          <h3 title={need}>{need}</h3>
+          <span>{t(`trade.feedIdeas.items.${ideaKey}.needMeta`)}</span>
         </div>
-      </div>
-      <p>{t(`trade.feedIdeas.items.${ideaKey}.body`)}</p>
-      <Link href={createIdeaHref(ideaKey)} className="button secondary trade-feed-idea-card__action">{t('trade.feedIdeas.action')}</Link>
+
+        <div className="trade-feed-idea-card__divider" aria-hidden="true">
+          <i />
+          <span><WebIcon name="trade" size={17} decorative /></span>
+          <i />
+        </div>
+
+        <div className="trade-feed-idea-card__side trade-feed-idea-card__side--offer">
+          <p>{t('trade.labels.iOffer')}</p>
+          <h3 title={offer}>{offer}</h3>
+          <span>{t(`trade.feedIdeas.items.${ideaKey}.offerMeta`)}</span>
+        </div>
+
+        <div className="trade-feed-idea-card__footer">
+          <span>{t('trade.feedIdeas.action')}</span>
+        </div>
+      </Link>
     </article>
   );
 }

@@ -102,6 +102,9 @@ function optionalModeLabel(mode: TradeExchangeMode | null | undefined, t: TFunct
 function needMeta(need: NeedItem | null | undefined, t: TFunction) { return need ? [itemTypeLabel(need.itemType ?? 'service', t), categoryLabel(need.category, t), need.timing, optionalModeLabel(need.mode, t), need.locationLabel].filter(Boolean).join(' · ') : ''; }
 function offerMeta(offer: OfferItem | null | undefined, t: TFunction) { return offer ? [itemTypeLabel(offer.itemType ?? 'service', t), categoryLabel(offer.category, t), offer.availability, optionalModeLabel(offer.mode, t), offer.locationLabel].filter(Boolean).join(' · ') : ''; }
 function buildExpiresAt(days: number | null) { if (!days) return undefined; const expiresAt = new Date(); expiresAt.setDate(expiresAt.getDate() + days); return expiresAt.toISOString(); }
+function initialExpiryDaysFromRoute(params: TradeCreateReturnParams) {
+  return params && Object.prototype.hasOwnProperty.call(params, 'initialExpiryDays') ? params.initialExpiryDays ?? null : 14;
+}
 function cashPromiseSelection(needSelection: TradeCreateSideSelection | null, offerSelection: TradeCreateSideSelection | null) {
   if (needSelection?.kind === 'cash_promise') return needSelection;
   if (offerSelection?.kind === 'cash_promise') return offerSelection;
@@ -177,7 +180,7 @@ function buildPreviewTrade({ postType, needSelection, offerSelection, need, offe
 
 export function CreateTradeScreen({ route, navigation }: Props) {
   const theme = useThemeTokens();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const auth = useAuth();
   const [activeStepId, setActiveStepId] = useState<TradeWizardStepId>('type');
   const [postType, setPostType] = useState<TradePostType | null>(route.params?.initialPostType ?? null);
@@ -185,8 +188,9 @@ export function CreateTradeScreen({ route, navigation }: Props) {
   const [offers, setOffers] = useState<OfferItem[]>([]);
   const [needSelection, setNeedSelection] = useState<TradeCreateSideSelection | null>(route.params?.initialNeedSelection ?? null);
   const [offerSelection, setOfferSelection] = useState<TradeCreateSideSelection | null>(route.params?.initialOfferSelection ?? null);
-  const [expiryDays, setExpiryDays] = useState<number | null>(route.params?.initialExpiryDays ?? 14);
+  const [expiryDays, setExpiryDays] = useState<number | null>(() => initialExpiryDaysFromRoute(route.params));
   const [loading, setLoading] = useState(false);
+  const [resourcesLoaded, setResourcesLoaded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [menuSheetVisible, setMenuSheetVisible] = useState(false);
@@ -194,6 +198,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
   const [sourceSheetSide, setSourceSheetSide] = useState<TradeCreateSide | null>(null);
   const [applyingIdea, setApplyingIdea] = useState<FeedTradeIdeaKey | null>(null);
   const [appliedIdeaKey, setAppliedIdeaKey] = useState<FeedTradeIdeaKey | null>(null);
+  const [autoApplyAttemptedIdeaKey, setAutoApplyAttemptedIdeaKey] = useState<FeedTradeIdeaKey | null>(null);
   const processedSelectionRef = useRef<TradeCreateSideSelection | null>(null);
 
   const usableNeeds = useMemo(() => needs.filter(isNeedAvailable), [needs]);
@@ -308,6 +313,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
 
   const loadResources = useCallback(async () => {
     setLoading(true);
+    setResourcesLoaded(false);
     setError(null);
     try {
       const [needsResult, offersResult] = await Promise.all([
@@ -321,11 +327,18 @@ export function CreateTradeScreen({ route, navigation }: Props) {
       setOffers([]);
       setError(getFriendlyApiErrorMessage(caughtError));
     } finally {
+      setResourcesLoaded(true);
       setLoading(false);
     }
   }, []);
 
   useFocusEffect(useCallback(() => { void loadResources(); }, [loadResources]));
+
+  useEffect(() => {
+    if (!auth.hydrated || !auth.isAuthenticated || !resourcesLoaded || !routeIdeaKey || !selectedFeedIdea || appliedIdeaKey === routeIdeaKey || autoApplyAttemptedIdeaKey === routeIdeaKey || applyingIdea) return;
+    setAutoApplyAttemptedIdeaKey(routeIdeaKey);
+    void applyFeedIdeaToDraft(routeIdeaKey);
+  }, [appliedIdeaKey, applyingIdea, auth.hydrated, auth.isAuthenticated, autoApplyAttemptedIdeaKey, resourcesLoaded, routeIdeaKey, selectedFeedIdea]);
 
   async function applyFeedIdeaToDraft(ideaKey: FeedTradeIdeaKey) {
     const idea = feedTradeIdeas[ideaKey];
@@ -358,7 +371,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
       setPostType('need_offer');
       setNeedSelection({ side: 'need', kind: 'need', id: clonedNeed.id });
       setOfferSelection({ side: 'offer', kind: 'offer', id: clonedOffer.id });
-      setActiveStepId('details');
+      setActiveStepId('review');
       setAppliedIdeaKey(ideaKey);
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));

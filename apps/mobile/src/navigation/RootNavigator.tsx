@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { TradePostType } from '@hellowhen/contracts';
 import { AccountScreen } from '../features/account/AccountScreen';
 import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen';
 import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
@@ -32,6 +33,7 @@ import { CreateOfferFullScreen } from '../features/trade/CreateOfferFullScreen';
 import { CreateProposalScreen } from '../features/trade/CreateProposalScreen';
 import { CreateTradeFullScreen } from '../features/trade/CreateTradeFullScreen';
 import { CreateTradeScreen, type TradeCreateReturnParams, type TradeCreateSideSelection, type TradeSidePickerParams } from '../features/trade/CreateTradeScreen';
+import type { FeedTradeIdeaKey } from '../features/trade/tradeFeedIdeas';
 import { TradeSidePickerScreen } from '../features/trade/TradeSidePickerScreen';
 import { MyNeedsScreen } from '../features/trade/MyNeedsScreen';
 import { NeedDetailScreen } from '../features/trade/NeedDetailScreen';
@@ -42,6 +44,7 @@ import { TradePrivateProposalsScreen } from '../features/trade/TradePrivatePropo
 import { TradePublicDiscussionScreen } from '../features/trade/TradePublicDiscussionScreen';
 import { TradeDeckFeedScreen } from '../features/trade/TradeDeckFeedScreen';
 import { TradeDetailScreen } from '../features/trade/TradeDetailScreen';
+import { TradeIdeaDetailScreen } from '../features/trade/TradeIdeaDetailScreen';
 import { WalletScreen } from '../features/wallet/WalletScreen';
 import { PayoutsScreen } from '../features/wallet/PayoutsScreen';
 import { useAuth } from '../providers/AuthProvider';
@@ -56,7 +59,7 @@ import { useTranslation } from '../providers/MobileI18nProvider';
 import type { LegalPolicyKey } from '@hellowhen/i18n';
 
 type InventoryCreateReturnTarget = 'createTrade' | 'createTradeFull' | 'tradeProposal' | 'proposalDetail';
-type InventoryCreateParams = { returnTo?: InventoryCreateReturnTarget; tradeId?: string; tradeTitle?: string; proposalId?: string; proposalNeedId?: string; proposalOfferId?: string } | undefined;
+type InventoryCreateParams = { returnTo?: InventoryCreateReturnTarget; tradeId?: string; tradeTitle?: string; proposalId?: string; proposalNeedId?: string; proposalOfferId?: string; initialTemplateKey?: string; initialIdeaKey?: FeedTradeIdeaKey | null; initialPostType?: TradePostType | null; initialNeedSelection?: TradeCreateSideSelection | null; initialOfferSelection?: TradeCreateSideSelection | null; initialExpiryDays?: number | null } | undefined;
 
 export type RootStackParamList = {
   TradeTabs: undefined;
@@ -92,6 +95,7 @@ export type RootStackParamList = {
   TradePublicDiscussion: { tradeId: string; title?: string };
   TradePrivateProposals: { tradeId: string; title?: string; status?: string; selectedProposalSide?: TradeCreateSideSelection; selectedProposalNeedId?: string; selectedProposalOfferId?: string };
   TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null; selectedProposalSide?: TradeCreateSideSelection; selectedProposalNeedId?: string; selectedProposalOfferId?: string };
+  TradeIdeaDetail: { ideaId: string };
   UserProfile: { userId: string; displayName?: string };
   OnboardingGuide: { replay?: boolean } | undefined;
   Login: undefined;
@@ -236,6 +240,7 @@ export function RootNavigator() {
     <Stack.Navigator initialRouteName={onboardingGuide.completed ? 'TradeTabs' : 'OnboardingGuide'} screenOptions={{ headerShown: false }}>
       <Stack.Screen name="TradeTabs" component={TradeTabs} />
       <Stack.Screen name="TradeDetail" component={TradeDetailScreen} />
+      <Stack.Screen name="TradeIdeaDetail" component={TradeIdeaDetailScreen} />
       <Stack.Screen name="UserProfile" component={PublicUserProfileScreen} />
       <Stack.Screen name="OnboardingGuide" component={OnboardingGuideScreen} initialParams={{ replay: false }} />
       <Stack.Screen name="Login" component={LoginScreen} />

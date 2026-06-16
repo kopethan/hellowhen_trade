@@ -25,6 +25,7 @@ import { categoryLabel, itemTypeLabel, modeLabel } from './components/InventoryF
 import { TradeSquareDeck } from './components/TradeSquareDeck';
 import { buildTradeSquareDeckCards } from './components/TradeSquareDeckCards';
 import type { NeedItem, OfferItem, TradeDeckItem } from './types';
+import { feedTradeIdeas, parseFeedTradeIdeaKey } from './tradeFeedIdeas';
 
 export type TradeCreateSide = 'need' | 'offer';
 export type TradeCreateSideSelection =
@@ -51,8 +52,8 @@ type Props = NativeStackScreenProps<RootStackParamList, 'CreateTradeFull'>;
 type NeedsResponse = { needs: NeedItem[] };
 type OffersResponse = { offers: OfferItem[] };
 type CreateTradeResponse = { trade: TradeDeckItem };
-
 type PostTypeOption = { value: TradePostType; labelKey: string; badgeKey: string; titleKey: string; bodyKey: string; icon: 'trade' | 'need' | 'offer'; tone: 'trade' | 'need' | 'offer' };
+
 
 const expiryOptions = [{ labelKey: 'trade.create.expiry7Days', days: 7 }, { labelKey: 'trade.create.expiry14Days', days: 14 }, { labelKey: 'trade.create.expiry30Days', days: 30 }, { labelKey: 'trade.expiry.noExpiry', days: null }] as const;
 const postTypeOptions: PostTypeOption[] = [
@@ -68,6 +69,9 @@ function optionalModeLabel(mode: TradeExchangeMode | null | undefined, t: TFunct
 function needMeta(need: NeedItem | null | undefined, t: TFunction) { return need ? [itemTypeLabel(need.itemType ?? 'service', t), categoryLabel(need.category, t), need.timing, optionalModeLabel(need.mode, t), need.locationLabel].filter(Boolean).join(' · ') : ''; }
 function offerMeta(offer: OfferItem | null | undefined, t: TFunction) { return offer ? [itemTypeLabel(offer.itemType ?? 'service', t), categoryLabel(offer.category, t), offer.availability, optionalModeLabel(offer.mode, t), offer.locationLabel].filter(Boolean).join(' · ') : ''; }
 function buildExpiresAt(days: number | null) { if (!days) return undefined; const expiresAt = new Date(); expiresAt.setDate(expiresAt.getDate() + days); return expiresAt.toISOString(); }
+function initialExpiryDaysFromRoute(params: RootStackParamList['CreateTradeFull']) {
+  return params && Object.prototype.hasOwnProperty.call(params, 'initialExpiryDays') ? params.initialExpiryDays ?? null : 14;
+}
 function cashPromiseSelection(needSelection: TradeCreateSideSelection | null, offerSelection: TradeCreateSideSelection | null) {
   if (needSelection?.kind === 'cash_promise') return needSelection;
   if (offerSelection?.kind === 'cash_promise') return offerSelection;
@@ -149,7 +153,7 @@ export function CreateTradeFullScreen({ route, navigation }: Props) {
   const [offers, setOffers] = useState<OfferItem[]>([]);
   const [needSelection, setNeedSelection] = useState<TradeCreateSideSelection | null>(route.params?.initialNeedSelection ?? null);
   const [offerSelection, setOfferSelection] = useState<TradeCreateSideSelection | null>(route.params?.initialOfferSelection ?? null);
-  const [expiryDays, setExpiryDays] = useState<number | null>(route.params?.initialExpiryDays ?? 14);
+  const [expiryDays, setExpiryDays] = useState<number | null>(() => initialExpiryDaysFromRoute(route.params));
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -162,7 +166,9 @@ export function CreateTradeFullScreen({ route, navigation }: Props) {
   const currency = currencyFor(needSelection, offerSelection);
   const previewTrade = useMemo(() => buildPreviewTrade({ postType, needSelection, offerSelection, need: selectedNeed, offer: selectedOffer, amountCents, currency, expiryDays, t }), [amountCents, currency, expiryDays, needSelection, offerSelection, postType, selectedNeed, selectedOffer, t]);
   const previewCardCount = useMemo(() => buildTradeSquareDeckCards(previewTrade).length, [previewTrade]);
-  const hasDraft = Boolean(postType || needSelection || offerSelection || expiryDays !== 14);
+  const routeIdeaKey = parseFeedTradeIdeaKey(route.params?.initialIdeaKey);
+  const selectedFeedIdea = routeIdeaKey ? feedTradeIdeas[routeIdeaKey] : null;
+  const hasDraft = Boolean(postType || needSelection || offerSelection || expiryDays !== 14 || routeIdeaKey);
 
   const unsavedChangesConfirm = useUnsavedChangesWarning({
     navigation,
@@ -208,6 +214,19 @@ export function CreateTradeFullScreen({ route, navigation }: Props) {
   }, []);
 
   useFocusEffect(useCallback(() => { void loadResources(); }, [loadResources]));
+
+  function editStarterSide(side: TradeCreateSide) {
+    if (!routeIdeaKey || !selectedFeedIdea) return;
+    navigation.navigate(side === 'need' ? 'CreateNeedFull' : 'CreateOfferFull', {
+      returnTo: 'createTradeFull',
+      initialTemplateKey: side === 'need' ? selectedFeedIdea.needTemplateKey : selectedFeedIdea.offerTemplateKey,
+      initialIdeaKey: routeIdeaKey,
+      initialPostType: postType ?? 'need_offer',
+      initialNeedSelection: needSelection,
+      initialOfferSelection: offerSelection,
+      initialExpiryDays: expiryDays,
+    });
+  }
 
   function choosePostType(nextPostType: TradePostType) {
     setPostType(nextPostType);
@@ -267,6 +286,21 @@ export function CreateTradeFullScreen({ route, navigation }: Props) {
           <AppText style={styles.title}>{t('trade.create.title')}</AppText>
           <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{postType ? postTypeBody(postType, t) : t('trade.create.chooseKindBody')}</AppText>
         </View>
+        {routeIdeaKey && selectedFeedIdea ? (
+          <AppCard>
+            <SemanticBadge label={t('trade.feedIdeas.badge')} tone="trade" size="sm" />
+            <AppText style={styles.sectionTitle}>{t('trade.feedIdeas.fullFormTitle')}</AppText>
+            <AppText style={[styles.selectedBody, { color: theme.color.muted }]}>{t('trade.feedIdeas.fullFormBody')}</AppText>
+            <View style={styles.starterActionRow}>
+              <Pressable accessibilityRole="button" disabled={submitting} onPress={() => editStarterSide('need')} style={({ pressed }) => [styles.starterActionButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, submitting && styles.disabled, pressed && styles.pressed]}>
+                <AppText style={[styles.starterActionText, { color: theme.color.text }]}>{selectedNeed ? t('trade.feedIdeas.editNeedAgainAction') : t('trade.feedIdeas.editNeedAction')}</AppText>
+              </Pressable>
+              <Pressable accessibilityRole="button" disabled={submitting} onPress={() => editStarterSide('offer')} style={({ pressed }) => [styles.starterActionButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, submitting && styles.disabled, pressed && styles.pressed]}>
+                <AppText style={[styles.starterActionText, { color: theme.color.text }]}>{selectedOffer ? t('trade.feedIdeas.editOfferAgainAction') : t('trade.feedIdeas.editOfferAction')}</AppText>
+              </Pressable>
+            </View>
+          </AppCard>
+        ) : null}
         {error ? <InfoNotice tone="danger" title={t('trade.create.couldNotPublish')} body={error} /> : null}
         <AppCard>
           <View style={styles.postTypeHeader}>
@@ -322,4 +356,4 @@ function SideSelectionCard({ theme, side, title, emptyTitle, emptyBody, selectio
   return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.sideCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><View style={styles.sideHeaderRow}><AppText style={styles.sectionTitle}>{title}</AppText><View style={styles.changePill}><AppText style={[styles.changeText, { color: theme.semantic.proposal.bg }]}>{isSelected ? t('common.actions.edit') : t('inventory.labels.selected')}</AppText><MobileIcon name="chevron-right" size={17} color={theme.semantic.proposal.bg} /></View></View>{isCashPromise ? <View style={styles.selectedContent}><SemanticBadge label={t('trade.cashPromise.title')} tone="warning" size="sm" /><AppText style={styles.selectedTitle} numberOfLines={2}>{formatMoney(selection.amountCents, selection.currency)}</AppText><AppText style={[styles.selectedMeta, { color: theme.semantic.warning.text }]}>{t('trade.cashPromise.notProcessed')}</AppText>{selection.note ? <AppText style={[styles.selectedBody, { color: theme.color.muted }]} numberOfLines={2}>{selection.note}</AppText> : null}</View> : item ? <View style={styles.selectedContent}><SemanticBadge label={side === 'need' ? t('inventory.labels.savedNeed') : t('inventory.labels.savedOffer')} tone={side === 'need' ? 'need' : 'offer'} size="sm" /><AppText style={styles.selectedTitle} numberOfLines={2}>{item.title}</AppText>{meta ? <AppText style={[styles.selectedMeta, { color: theme.color.muted }]} numberOfLines={1}>{meta}</AppText> : null}<AppText style={[styles.selectedBody, { color: theme.color.muted }]} numberOfLines={2}>{item.description}</AppText></View> : <View style={[styles.emptyBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={styles.emptyTitle}>{emptyTitle}</AppText><AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{emptyBody}</AppText></View>}</Pressable>;
 }
 
-const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 14 }, header: { gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 21, fontWeight: '600' }, postTypeHeader: { gap: 6, marginBottom: 12 }, selectedPostTypeLabel: { fontSize: 12, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' }, postTypeList: { gap: 10 }, postTypeCard: { borderRadius: 22, borderWidth: 1, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }, postTypeIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, postTypeCopy: { flex: 1, gap: 5 }, postTypeTitle: { fontSize: 18, fontWeight: '900', letterSpacing: -0.25 }, postTypeBody: { lineHeight: 20, fontWeight: '700' }, sideCard: { borderRadius: 28, borderWidth: 1, padding: 18, gap: 14 }, sideHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, sectionTitle: { flex: 1, fontSize: 18, fontWeight: '900' }, changePill: { flexDirection: 'row', alignItems: 'center', gap: 2 }, changeText: { fontWeight: '900' }, selectedContent: { gap: 8 }, selectedTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.45 }, selectedMeta: { fontSize: 13, fontWeight: '800', lineHeight: 19 }, selectedBody: { lineHeight: 20, fontWeight: '600' }, emptyBox: { borderRadius: 20, borderWidth: 1, borderStyle: 'dashed', padding: 14, gap: 5 }, emptyTitle: { fontWeight: '900' }, emptyBody: { lineHeight: 20, fontWeight: '600' }, expiryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, expiryButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 }, expiryButtonText: { fontWeight: '900' }, expiryCallout: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 11, marginTop: 2 }, expiryCalloutIcon: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginTop: 1 }, expiryCalloutIconText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900', lineHeight: 14 }, expiryCalloutText: { flex: 1, fontSize: 13, fontWeight: '800', lineHeight: 19 }, deckPreviewCard: { paddingHorizontal: 0, overflow: 'visible' }, deckPreviewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 18 }, deckPreviewCount: { fontSize: 12, fontWeight: '900', letterSpacing: 0.4 }, previewHint: { fontSize: 12, fontWeight: '800', lineHeight: 18, textAlign: 'center', paddingHorizontal: 18 }, actions: { gap: 10 }, primaryButton: { borderRadius: 18, paddingVertical: 15, alignItems: 'center' }, primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' }, secondaryButton: { borderRadius: 18, borderWidth: 1, paddingVertical: 14, alignItems: 'center' }, secondaryButtonText: { fontWeight: '900' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
+const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 14 }, header: { gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 21, fontWeight: '600' }, postTypeHeader: { gap: 6, marginBottom: 12 }, selectedPostTypeLabel: { fontSize: 12, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' }, postTypeList: { gap: 10 }, postTypeCard: { borderRadius: 22, borderWidth: 1, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }, postTypeIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, postTypeCopy: { flex: 1, gap: 5 }, postTypeTitle: { fontSize: 18, fontWeight: '900', letterSpacing: -0.25 }, postTypeBody: { lineHeight: 20, fontWeight: '700' }, sideCard: { borderRadius: 28, borderWidth: 1, padding: 18, gap: 14 }, sideHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, sectionTitle: { flex: 1, fontSize: 18, fontWeight: '900' }, changePill: { flexDirection: 'row', alignItems: 'center', gap: 2 }, changeText: { fontWeight: '900' }, selectedContent: { gap: 8 }, selectedTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.45 }, selectedMeta: { fontSize: 13, fontWeight: '800', lineHeight: 19 }, selectedBody: { lineHeight: 20, fontWeight: '600' }, emptyBox: { borderRadius: 20, borderWidth: 1, borderStyle: 'dashed', padding: 14, gap: 5 }, emptyTitle: { fontWeight: '900' }, emptyBody: { lineHeight: 20, fontWeight: '600' }, expiryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, expiryButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 }, expiryButtonText: { fontWeight: '900' }, expiryCallout: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 11, marginTop: 2 }, expiryCalloutIcon: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginTop: 1 }, expiryCalloutIconText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900', lineHeight: 14 }, expiryCalloutText: { flex: 1, fontSize: 13, fontWeight: '800', lineHeight: 19 }, deckPreviewCard: { paddingHorizontal: 0, overflow: 'visible' }, deckPreviewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 18 }, deckPreviewCount: { fontSize: 12, fontWeight: '900', letterSpacing: 0.4 }, previewHint: { fontSize: 12, fontWeight: '800', lineHeight: 18, textAlign: 'center', paddingHorizontal: 18 }, actions: { gap: 10 }, primaryButton: { borderRadius: 18, paddingVertical: 15, alignItems: 'center' }, primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' }, secondaryButton: { borderRadius: 18, borderWidth: 1, paddingVertical: 14, alignItems: 'center' }, secondaryButtonText: { fontWeight: '900' }, starterActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, starterActionButton: { flexGrow: 1, flexBasis: 140, borderRadius: 16, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 12, alignItems: 'center' }, starterActionText: { fontWeight: '900', textAlign: 'center' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });

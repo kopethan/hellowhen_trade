@@ -333,6 +333,10 @@ export const inventory = {
     tagCount: '{{count}} tags',
     draftRestoredTitle: 'Brouillon restauré',
     draftRestoredBody: 'Votre progression précédente a été restaurée sur cet appareil.',
+    starterPrefillTitle: 'Contenu starter chargé',
+    starterPrefillBody: 'Ce formulaire a été prérempli depuis une idée d’échange. Modifie les détails, puis enregistre-le pour l’utiliser dans ton brouillon.',
+    starterPrefillLoaded: 'Contenu starter chargé. Tu peux le modifier avant l’enregistrement.',
+    starterPrefillLoadError: 'Impossible de charger ce contenu starter pour le moment.'
   },
   empty: {
     createFirstNeed: 'Créer votre premier besoin',

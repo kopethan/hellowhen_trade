@@ -129,6 +129,20 @@ function parseTradePostType(value?: string | null): PublishMode {
   return value === 'need_offer' || value === 'open_need' || value === 'open_offer' ? value : '';
 }
 
+function parseIdeaExpiryDaysParam(value?: string | null): number | null | undefined {
+  if (!value || value === 'default') return undefined;
+  if (value === 'none') return null;
+  const days = Number(value);
+  return [1, 3, 7, 14].includes(days) ? days : undefined;
+}
+
+function buildDateInputFromExpiryDays(days: number | null | undefined) {
+  if (days === undefined || days === null) return '';
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function postTypeLabel(postType: PublishMode, t: Translator) {
   const option = TRADE_POST_TYPE_OPTIONS.find((item) => item.value === postType);
   return option ? t(option.labelKey) : t('trade.create.choosePublishType');
@@ -368,6 +382,8 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
   const routeNeedId = searchParams.get('needId') ?? initialNeedId;
   const routeOfferId = searchParams.get('offerId') ?? initialOfferId;
   const routeIdeaKey = parseFeedTradeIdeaKey(searchParams.get('idea') ?? initialIdea);
+  const routeExpiryDays = parseIdeaExpiryDaysParam(searchParams.get('expiryDays'));
+  const routeExpiryDateInput = buildDateInputFromExpiryDays(routeExpiryDays);
   const routePostType = parseTradePostType(searchParams.get('postType') ?? initialPostType) || (routeNeedId || routeOfferId || routeIdeaKey ? 'need_offer' : '');
   const preferredCurrency = getPreferredCurrency(auth.user?.profile?.preferredCurrency);
   const demoDataEnabled = isWebDemoDataEnabled();
@@ -387,7 +403,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
     cashPromiseCurrency: preferredCurrency,
     cashPromiseNote: '',
     cashPromiseAcknowledged: false,
-    expiresAt: '',
+    expiresAt: routeExpiryDateInput,
   }));
   const [activeStepId, setActiveStepId] = useState<TradeWizardStepId>(() => getInitialWizardStep(routePostType, routeNeedId, routeOfferId));
   const [saving, setSaving] = useState(false);
@@ -400,13 +416,16 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
   const [wizardHelpOpen, setWizardHelpOpen] = useState(false);
   const [applyingIdea, setApplyingIdea] = useState<FeedTradeIdeaKey | null>(null);
   const [appliedIdeaKey, setAppliedIdeaKey] = useState<FeedTradeIdeaKey | null>(null);
+  const [autoApplyAttemptedIdeaKey, setAutoApplyAttemptedIdeaKey] = useState<FeedTradeIdeaKey | null>(null);
 
   const persistedDraft = useMemo<TradeCreateWizardPersistedDraft>(() => ({
     activeStepId,
     values,
   }), [activeStepId, values]);
   const draftStorageKey = useMemo(() => buildWebWizardDraftKey('create-trade', auth.user?.id), [auth.user?.id]);
+  const shouldRestoreStoredDraft = !routePostType && !routeNeedId && !routeOfferId && !routeIdeaKey && routeExpiryDays === undefined;
   const restoreDraft = useCallback((savedDraft: TradeCreateWizardPersistedDraft) => {
+    if (!shouldRestoreStoredDraft) return;
     setValues((current) => ({
       ...current,
       ...(savedDraft.values ?? {}),
@@ -414,7 +433,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
       cashPromiseCurrency: getPreferredCurrency(savedDraft.values?.cashPromiseCurrency),
     }));
     setActiveStepId(normalizeTradeWizardStepId(savedDraft.activeStepId));
-  }, []);
+  }, [shouldRestoreStoredDraft]);
   const tradeWizardDraft = useWebWizardDraft({
     storageKey: draftStorageKey,
     draft: persistedDraft,
@@ -454,13 +473,14 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
   }, []);
 
   useEffect(() => {
-    if (!routePostType && !routeNeedId && !routeOfferId) return;
+    if (!routePostType && !routeNeedId && !routeOfferId && routeExpiryDays === undefined) return;
     setValues((current) => {
       const nextPostType = routePostType;
       const nextNeedId = routePostType === 'open_offer' ? '' : routeNeedId || '';
       const nextOfferId = routePostType === 'open_need' ? '' : routeOfferId || '';
       const nextCurrency = current.currency || preferredCurrency;
-      if (current.currency === nextCurrency && current.postType === nextPostType && current.needId === nextNeedId && current.offerId === nextOfferId) {
+      const nextExpiresAt = routeExpiryDays === undefined ? current.expiresAt : routeExpiryDateInput;
+      if (current.currency === nextCurrency && current.postType === nextPostType && current.needId === nextNeedId && current.offerId === nextOfferId && current.expiresAt === nextExpiresAt) {
         return current;
       }
       return {
@@ -475,9 +495,10 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
         cashPromiseAcknowledged: nextPostType === 'need_offer' ? current.cashPromiseAcknowledged : false,
         needId: nextNeedId,
         offerId: nextOfferId,
+        expiresAt: nextExpiresAt,
       };
     });
-  }, [preferredCurrency, routeNeedId, routeOfferId, routePostType]);
+  }, [preferredCurrency, routeExpiryDateInput, routeExpiryDays, routeNeedId, routeOfferId, routePostType]);
 
   useEffect(() => {
     setDuplicateConflict(null);
@@ -691,8 +712,9 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
         cashPromiseAmount: '',
         cashPromiseNote: '',
         cashPromiseAcknowledged: false,
+        expiresAt: routeExpiryDays === undefined ? current.expiresAt : routeExpiryDateInput,
       }));
-      setActiveStepId('details');
+      setActiveStepId('review');
       setAppliedIdeaKey(ideaKey);
       setNotice(t('trade.feedIdeas.applySuccess'));
       router.replace('/trades/create', { scroll: false });
@@ -702,6 +724,12 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
       setApplyingIdea(null);
     }
   }
+
+  useEffect(() => {
+    if (!auth.hydrated || !auth.isAuthenticated || (loadState !== 'live' && loadState !== 'demo') || !routeIdeaKey || !selectedFeedIdea || appliedIdeaKey === routeIdeaKey || autoApplyAttemptedIdeaKey === routeIdeaKey || applyingIdea) return;
+    setAutoApplyAttemptedIdeaKey(routeIdeaKey);
+    void applyFeedIdeaToDraft(routeIdeaKey);
+  }, [appliedIdeaKey, applyingIdea, auth.hydrated, auth.isAuthenticated, autoApplyAttemptedIdeaKey, loadState, routeIdeaKey, selectedFeedIdea]);
 
   const amountPreview = usesMoney && Number.isFinite(amountCents) && amountCents > 0 ? formatWebMoney(amountCents, values.currency) : usesCashPromise && Number.isFinite(cashPromiseAmountCents) && cashPromiseAmountCents > 0 ? formatWebMoney(cashPromiseAmountCents, values.cashPromiseCurrency) : null;
   const hasRequiredSides = values.postType === 'need_offer'
@@ -946,7 +974,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
           </section>
         ) : null}
 
-        {tradeWizardDraft.restored ? <p className="form-message">{t('inventory.wizard.draftRestoredTitle')} · {t('inventory.wizard.draftRestoredBody')}</p> : null}
+        {tradeWizardDraft.restored && shouldRestoreStoredDraft ? <p className="form-message">{t('inventory.wizard.draftRestoredTitle')} · {t('inventory.wizard.draftRestoredBody')}</p> : null}
 
         {showFeedIdeaPanel && routeIdeaKey ? (
           <section className="mobile-card mobile-card--soft trade-create-idea-prefill">

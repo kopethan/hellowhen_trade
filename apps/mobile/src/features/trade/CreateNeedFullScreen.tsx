@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { DiscoveryLanguage, PreviewCardTheme, TradeExchangeMode } from '@hellowhen/contracts';
+import type { DiscoveryLanguage, InventoryTemplateDto, PreviewCardTheme, TradeExchangeMode } from '@hellowhen/contracts';
 import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
@@ -20,12 +20,22 @@ import { PreviewThemePickerCard } from './components/PreviewThemePickerCard';
 import { formatUploadProgress, getFriendlyUploadErrorMessage, uploadSelectedImages, type SelectedImageUploadProgress, type SelectedLocalImage } from './mediaUpload';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import type { NeedItem } from './types';
+import { getLocalizedTemplateKeyCandidates } from './tradeFeedIdeas';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateNeedFull'>;
 type CreateNeedResponse = { need: NeedItem };
+type InventoryTemplatesResponse = { templates?: InventoryTemplateDto[]; items?: InventoryTemplateDto[] };
 
 function parseCommaTags(value: string) {
   return value.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 8);
+}
+
+function normalizeTemplateResponse(value: unknown): InventoryTemplateDto[] {
+  if (!value || typeof value !== 'object') return [];
+  const record = value as InventoryTemplatesResponse;
+  if (Array.isArray(record.templates)) return record.templates;
+  if (Array.isArray(record.items)) return record.items;
+  return [];
 }
 
 export function CreateNeedFullScreen({ route, navigation }: Props) {
@@ -46,6 +56,7 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<SelectedImageUploadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [starterPrefillApplied, setStarterPrefillApplied] = useState(false);
 
   const hasDraft = useMemo(() => Boolean(
     title.trim() ||
@@ -84,6 +95,36 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
   const titleError = attemptedSubmit && title.trim().length < INVENTORY_TITLE_MIN_LENGTH ? t('validation.needTitleTooShort') : null;
   const descriptionError = attemptedSubmit && description.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH ? t('validation.needDescriptionTooShort') : null;
   const uploadProgressBody = formatUploadProgress(uploadProgress, t);
+
+  useEffect(() => {
+    const initialTemplateKey = route.params?.initialTemplateKey;
+    if (!initialTemplateKey || starterPrefillApplied) return;
+    const starterTemplateKey = initialTemplateKey;
+    let mounted = true;
+    async function loadStarterTemplate() {
+      try {
+        const templatesResponse = await api.inventoryTemplates.list({ sourceType: 'hellowhen', language, take: 100 });
+        if (!mounted) return;
+        const candidates = getLocalizedTemplateKeyCandidates(starterTemplateKey);
+        const template = normalizeTemplateResponse(templatesResponse).find((item) => item.kind === 'need' && candidates.includes(item.key));
+        if (!template) throw new Error('starter_template_missing');
+        setTitle(template.title);
+        setDescription(template.description);
+        setCategory(template.category ?? '');
+        setTags((template.tags ?? []).join(', '));
+        setMode(template.mode ?? 'remote');
+        setLocationLabel(template.locationLabel ?? '');
+        setPreviewTheme('default');
+        setError(null);
+      } catch {
+        if (mounted) setError(t('inventory.wizard.starterPrefillLoadError'));
+      } finally {
+        if (mounted) setStarterPrefillApplied(true);
+      }
+    }
+    void loadStarterTemplate();
+    return () => { mounted = false; };
+  }, [language, route.params?.initialTemplateKey, starterPrefillApplied, t]);
 
   function applyAiTranslation(_languageCode: DiscoveryLanguage, titleText: string, descriptionText: string) {
     setTranslationEnabled(true);
@@ -151,7 +192,15 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
       }
 
       if (route.params?.returnTo === 'createTradeFull') {
-        navigation.navigate('CreateTradeFull', { selectedTradeSide: { side: 'need', kind: 'need', id: response.need.id } });
+        const selectedTradeSide = { side: 'need' as const, kind: 'need' as const, id: response.need.id };
+        navigation.navigate('CreateTradeFull', {
+          selectedTradeSide,
+          initialIdeaKey: route.params.initialIdeaKey,
+          initialPostType: route.params.initialPostType,
+          initialNeedSelection: selectedTradeSide,
+          initialOfferSelection: route.params.initialOfferSelection,
+          initialExpiryDays: route.params.initialExpiryDays,
+        });
         return;
       }
 
@@ -179,6 +228,7 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
           <AppText style={styles.subtitle}>{t('inventory.form.saveNeedBody')}</AppText>
         </View>
 
+        {route.params?.initialTemplateKey ? <InfoNotice tone="info" title={t('inventory.wizard.starterPrefillTitle')} body={t('inventory.wizard.starterPrefillBody')} /> : null}
         {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotSave')} body={error} /> : null}
         {submitting && uploadProgressBody ? <InfoNotice tone="info" title={t('inventory.form.uploadProgressTitle')} body={uploadProgressBody} /> : null}
 

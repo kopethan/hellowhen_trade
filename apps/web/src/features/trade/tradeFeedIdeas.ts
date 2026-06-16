@@ -55,8 +55,8 @@ export const feedTradeIdeas: Record<FeedTradeIdeaKey, FeedTradeIdeaTemplatePair>
 export const feedTradeIdeaPlacement = {
   sparseFeedThreshold: 4,
   firstInlineAfterIndex: 2,
-  repeatEvery: 8,
-  maxInlineIdeas: 1,
+  repeatEvery: 4,
+  maxInlineIdeas: 3,
 } as const;
 
 export function shouldShowFeedIdeaRail(tradeCount: number) {
@@ -78,8 +78,7 @@ export function parseFeedTradeIdeaKey(value?: string | null): FeedTradeIdeaKey |
 }
 
 export function createFeedIdeaTradeHref(ideaKey: FeedTradeIdeaKey) {
-  const params = new URLSearchParams({ idea: ideaKey });
-  return `/trades/create?${params.toString()}`;
+  return `/trades/ideas/${ideaKey}`;
 }
 
 export function getLocalizedTemplateKeyCandidates(templateKey: string) {
