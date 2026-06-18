@@ -52,7 +52,12 @@
           }
         }
       ],
-      "expo-iap"
+      [
+        "./plugins/withIosDeploymentTarget",
+        {
+          "deploymentTarget": "15.0"
+        }
+      ]
     ]
   }
 }

@@ -1,0 +1,102 @@
+diff --git a/apps/mobile/app.json b/apps/mobile/app.json
+index 4a9a6cc..29cb8f5 100644
+--- a/apps/mobile/app.json
++++ b/apps/mobile/app.json
+@@ -22,7 +22,8 @@
+       },
+       "infoPlist": {
+         "NSPhotoLibraryUsageDescription": "Hellowhen lets you choose photos for your profile, needs, offers, trade references, reports, and support screenshots."
+-      }
++      },
++      "deploymentTarget": "15.0"
+     },
+     "android": {
+       "adaptiveIcon": {
+@@ -52,7 +53,13 @@
+           }
+         }
+       ],
+-      "expo-iap"
++      "expo-iap",
++      [
++        "./plugins/withIosDeploymentTarget",
++        {
++          "deploymentTarget": "15.0"
++        }
++      ]
+     ]
+   }
+ }
+diff --git a/apps/mobile/plugins/withIosDeploymentTarget.js b/apps/mobile/plugins/withIosDeploymentTarget.js
+new file mode 100644
+index 0000000..d9e30fc
+--- /dev/null
++++ b/apps/mobile/plugins/withIosDeploymentTarget.js
+@@ -0,0 +1,67 @@
++const fs = require('fs');
++const path = require('path');
++const { withDangerousMod, withPodfileProperties } = require('@expo/config-plugins');
++
++const DEFAULT_IOS_DEPLOYMENT_TARGET = '15.0';
++const MARKER_START = '# Hellowhen: force minimum iOS deployment target for pods';
++const MARKER_END = '# /Hellowhen: force minimum iOS deployment target for pods';
++
++function buildPostInstallPatch(deploymentTarget) {
++  return `
++    ${MARKER_START}
++    installer.pods_project.targets.each do |target|
++      target.build_configurations.each do |config|
++        current_target = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
++        if current_target.nil? || Gem::Version.new(current_target) < Gem::Version.new('${deploymentTarget}')
++          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '${deploymentTarget}'
++        end
++      end
++    end
++    ${MARKER_END}
++`;
++}
++
++function patchPodfile(contents, deploymentTarget) {
++  let next = contents;
++
++  if (/^platform\s+:ios,\s*min_ios_version_supported/m.test(next)) {
++    next = next.replace(/^platform\s+:ios,\s*min_ios_version_supported/m, `platform :ios, '${deploymentTarget}'`);
++  } else if (/^platform\s+:ios,\s*['"][^'"]+['"]/m.test(next)) {
++    next = next.replace(/^platform\s+:ios,\s*['"][^'"]+['"]/m, `platform :ios, '${deploymentTarget}'`);
++  } else {
++    next = `platform :ios, '${deploymentTarget}'\n${next}`;
++  }
++
++  const markerPattern = new RegExp(`\\n\\s*${MARKER_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${MARKER_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n`, 'm');
++  next = next.replace(markerPattern, '\n');
++
++  const patch = buildPostInstallPatch(deploymentTarget);
++  if (/post_install do \|installer\|/.test(next)) {
++    next = next.replace(/post_install do \|installer\|\n/, `post_install do |installer|\n${patch}`);
++  } else {
++    next = `${next.trimEnd()}\n\npost_install do |installer|${patch}end\n`;
++  }
++
++  return next;
++}
++
++function withIosDeploymentTarget(config, props = {}) {
++  const deploymentTarget = props.deploymentTarget || DEFAULT_IOS_DEPLOYMENT_TARGET;
++
++  config = withPodfileProperties(config, (config) => {
++    config.modResults['ios.deploymentTarget'] = deploymentTarget;
++    return config;
++  });
++
++  return withDangerousMod(config, [
++    'ios',
++    async (config) => {
++      const podfilePath = path.join(config.modRequest.platformProjectRoot, 'Podfile');
++      const contents = await fs.promises.readFile(podfilePath, 'utf8');
++      await fs.promises.writeFile(podfilePath, patchPodfile(contents, deploymentTarget));
++      return config;
++    },
++  ]);
++}
++
++module.exports = withIosDeploymentTarget;

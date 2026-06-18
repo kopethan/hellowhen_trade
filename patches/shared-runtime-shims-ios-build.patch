@@ -1,0 +1,16 @@
+diff --git a/packages/shared/src/chainMatchDemoIdeas.js b/packages/shared/src/chainMatchDemoIdeas.js
+new file mode 100644
+index 0000000..72abec2
+--- /dev/null
++++ b/packages/shared/src/chainMatchDemoIdeas.js
+@@ -0,0 +1,2 @@
++// Runtime shim for Metro/Turbopack when TypeScript source imports use .js specifiers.
++export * from './chainMatchDemoIdeas.ts';
+diff --git a/packages/shared/src/membership.js b/packages/shared/src/membership.js
+new file mode 100644
+index 0000000..24f82f6
+--- /dev/null
++++ b/packages/shared/src/membership.js
+@@ -0,0 +1,2 @@
++// Runtime shim for Metro/Turbopack when TypeScript source imports use .js specifiers.
++export * from './membership.ts';

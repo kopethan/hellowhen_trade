@@ -1,0 +1,65 @@
+diff --git a/apps/mobile/app.json b/apps/mobile/app.json
+index 29cb8f5..c37a48c 100644
+--- a/apps/mobile/app.json
++++ b/apps/mobile/app.json
+@@ -22,8 +22,7 @@
+       },
+       "infoPlist": {
+         "NSPhotoLibraryUsageDescription": "Hellowhen lets you choose photos for your profile, needs, offers, trade references, reports, and support screenshots."
+-      },
+-      "deploymentTarget": "15.0"
++      }
+     },
+     "android": {
+       "adaptiveIcon": {
+diff --git a/apps/mobile/plugins/withIosDeploymentTarget.js b/apps/mobile/plugins/withIosDeploymentTarget.js
+index d9e30fc..cdd583d 100644
+--- a/apps/mobile/plugins/withIosDeploymentTarget.js
++++ b/apps/mobile/plugins/withIosDeploymentTarget.js
+@@ -6,6 +6,10 @@ const DEFAULT_IOS_DEPLOYMENT_TARGET = '15.0';
+ const MARKER_START = '# Hellowhen: force minimum iOS deployment target for pods';
+ const MARKER_END = '# /Hellowhen: force minimum iOS deployment target for pods';
+ 
++function escapeForRegExp(value) {
++  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
++}
++
+ function buildPostInstallPatch(deploymentTarget) {
+   return `
+     ${MARKER_START}
+@@ -24,25 +28,22 @@ function buildPostInstallPatch(deploymentTarget) {
+ function patchPodfile(contents, deploymentTarget) {
+   let next = contents;
+ 
+-  if (/^platform\s+:ios,\s*min_ios_version_supported/m.test(next)) {
+-    next = next.replace(/^platform\s+:ios,\s*min_ios_version_supported/m, `platform :ios, '${deploymentTarget}'`);
+-  } else if (/^platform\s+:ios,\s*['"][^'"]+['"]/m.test(next)) {
+-    next = next.replace(/^platform\s+:ios,\s*['"][^'"]+['"]/m, `platform :ios, '${deploymentTarget}'`);
+-  } else {
+-    next = `platform :ios, '${deploymentTarget}'\n${next}`;
+-  }
+-
+-  const markerPattern = new RegExp(`\\n\\s*${MARKER_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${MARKER_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n`, 'm');
++  // Keep Expo's generated root `platform :ios, podfile_properties[...]` line intact.
++  // The deployment target value is written safely into Podfile.properties.json below.
++  // Replacing or adding another root platform line can make CocoaPods fail with:
++  // "The target `Pods` already has a platform set."
++  const markerPattern = new RegExp(
++    `\\n\\s*${escapeForRegExp(MARKER_START)}[\\s\\S]*?${escapeForRegExp(MARKER_END)}\\n`,
++    'm',
++  );
+   next = next.replace(markerPattern, '\n');
+ 
+   const patch = buildPostInstallPatch(deploymentTarget);
+   if (/post_install do \|installer\|/.test(next)) {
+-    next = next.replace(/post_install do \|installer\|\n/, `post_install do |installer|\n${patch}`);
+-  } else {
+-    next = `${next.trimEnd()}\n\npost_install do |installer|${patch}end\n`;
++    return next.replace(/post_install do \|installer\|\n/, `post_install do |installer|\n${patch}`);
+   }
+ 
+-  return next;
++  return `${next.trimEnd()}\n\npost_install do |installer|${patch}end\n`;
+ }
+ 
+ function withIosDeploymentTarget(config, props = {}) {
