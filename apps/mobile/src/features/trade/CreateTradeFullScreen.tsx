@@ -287,7 +287,7 @@ export function CreateTradeFullScreen({ route, navigation }: Props) {
 
   return (
     <AppFixedHeaderScreen header={<AppHeader title={t('trade.create.title')} onBack={() => navigation.goBack()} />}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadResources(); }} />}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadResources(); }} />}>
         <View style={styles.header}>
           <SemanticBadge label={postType ? postTypeLabel(postType, t) : t('trade.labels.trade')} tone="trade" />
           <AppText style={styles.title}>{t('trade.create.title')}</AppText>

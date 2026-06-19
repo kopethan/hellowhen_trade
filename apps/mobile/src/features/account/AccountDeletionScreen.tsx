@@ -13,6 +13,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
+import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AccountDeletion'>;
 
@@ -76,7 +77,7 @@ export function AccountDeletionScreen({ navigation }: Props) {
 
   return (
     <AppScreen>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadRequest(); }} />}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadRequest(); }} />}>
         <AppHeader title={t('account.deletion.title')} onBack={() => navigation.goBack()} />
 
         <View style={styles.header}>
@@ -112,9 +113,9 @@ export function AccountDeletionScreen({ navigation }: Props) {
             <AppText style={styles.sectionTitle}>{t('account.deletion.formTitle')}</AppText>
             <AppText style={[styles.body, { color: theme.color.muted }]}>{t('account.deletion.formBody')}</AppText>
             <AppText style={styles.label}>{t('account.deletion.reason')}</AppText>
-            <TextInput value={reason} onChangeText={setReason} maxLength={120} placeholder={t('account.deletion.reasonPlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
+            <TextInput value={reason} onChangeText={setReason} maxLength={120} placeholder={t('account.deletion.reasonPlaceholder')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="done" blurOnSubmit={true} style={[styles.input, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
             <AppText style={styles.label}>{t('account.deletion.details')}</AppText>
-            <TextInput value={details} onChangeText={setDetails} maxLength={2000} multiline placeholder={t('account.deletion.detailsPlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.textarea, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
+            <TextInput value={details} onChangeText={setDetails} maxLength={2000} multiline placeholder={t('account.deletion.detailsPlaceholder')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.textarea, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
             <Pressable accessibilityRole="button" disabled={saving} onPress={() => { void submitRequest(); }} style={({ pressed }) => [styles.dangerButton, saving && styles.disabled, pressed && styles.pressed]}>
               <AppText style={styles.dangerButtonText}>{saving ? t('common.states.submitting') : t('account.deletion.submitRequest')}</AppText>
             </Pressable>

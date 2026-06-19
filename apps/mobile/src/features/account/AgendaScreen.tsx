@@ -19,6 +19,7 @@ import { formatMobilePlusMonthlyPrice, getMobilePlusGate } from '../../lib/plusG
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
 
 type AgendaScreenProps = NativeStackScreenProps<RootStackParamList, 'Agenda'>;
 type AgendaFilter = 'all' | AgendaItemType;
@@ -444,7 +445,7 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
 
   return (
     <AppFixedHeaderScreen header={header}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
         <View style={styles.hero}>
           <View style={styles.badgeRow}>
             <SemanticBadge label={t('account.agenda.privateBadge')} tone="proposal" />
@@ -510,7 +511,9 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
             placeholder={t('account.agenda.searchPlaceholder')}
             placeholderTextColor={theme.color.muted}
             returnKeyType="search"
-            style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
+            inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
+                      blurOnSubmit={true}
+                      style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
           />
         </View>
 
@@ -664,7 +667,7 @@ function AgendaEditorModal({ busy, error, onChange, onClose, onSave, state }: { 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.modalTapArea}>
           <Pressable accessibilityRole="menu" onPress={(event) => event.stopPropagation()} style={[styles.modalSheet, { backgroundColor: theme.color.elevated, borderColor: theme.color.border }]}>
-            <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
+            <ScrollView contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
               <View style={styles.modalHeader}>
                 <SemanticBadge label={t('account.agenda.editor.badge')} tone="proposal" />
                 <AppText style={styles.modalTitle}>{state.mode === 'edit' ? t('account.agenda.editor.editTitle') : t('account.agenda.editor.createTitle')}</AppText>
@@ -674,7 +677,7 @@ function AgendaEditorModal({ busy, error, onChange, onClose, onSave, state }: { 
               <View style={styles.formFields}>
                 <View style={styles.fieldGroup}>
                   <AppText style={styles.fieldLabel}>{t('account.agenda.editor.titleLabel')}</AppText>
-                  <TextInput value={state.title} onChangeText={(title) => onChange({ ...state, title })} maxLength={120} placeholder={t('account.agenda.editor.titlePlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+                  <TextInput value={state.title} onChangeText={(title) => onChange({ ...state, title })} maxLength={120} placeholder={t('account.agenda.editor.titlePlaceholder')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="done" blurOnSubmit={true} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
                 </View>
 
                 <AppSelect label={t('account.agenda.editor.typeLabel')} value={state.itemType} options={typeOptions} onSelect={(value) => onChange({ ...state, itemType: value as AgendaItemType })} />
@@ -683,11 +686,11 @@ function AgendaEditorModal({ busy, error, onChange, onClose, onSave, state }: { 
                 <View style={styles.inlineFields}>
                   <View style={styles.inlineField}>
                     <AppText style={styles.fieldLabel}>{t('account.agenda.editor.startLabel')}</AppText>
-                    <TextInput value={state.date} onChangeText={(date) => onChange({ ...state, date })} placeholder={t('account.agenda.datePlaceholder')} placeholderTextColor={theme.color.muted} keyboardType="numbers-and-punctuation" style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+                    <TextInput value={state.date} onChangeText={(date) => onChange({ ...state, date })} placeholder={t('account.agenda.datePlaceholder')} placeholderTextColor={theme.color.muted} keyboardType="numbers-and-punctuation" inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="done" blurOnSubmit={true} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
                   </View>
                   <View style={styles.inlineField}>
                     <AppText style={styles.fieldLabel}>{t('account.agenda.timePlaceholder')}</AppText>
-                    <TextInput value={state.time} onChangeText={(time) => onChange({ ...state, time })} editable={!state.allDay} placeholder="09:00" placeholderTextColor={theme.color.muted} keyboardType="numbers-and-punctuation" style={[styles.input, state.allDay && styles.disabledInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+                    <TextInput value={state.time} onChangeText={(time) => onChange({ ...state, time })} editable={!state.allDay} placeholder="09:00" placeholderTextColor={theme.color.muted} keyboardType="numbers-and-punctuation" inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="done" blurOnSubmit={true} style={[styles.input, state.allDay && styles.disabledInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
                   </View>
                 </View>
 
@@ -698,13 +701,13 @@ function AgendaEditorModal({ busy, error, onChange, onClose, onSave, state }: { 
                   </Pressable>
                   <View style={styles.inlineField}>
                     <AppText style={styles.fieldLabel}>{t('account.agenda.editor.endLabel')}</AppText>
-                    <TextInput value={state.endTime} onChangeText={(endTime) => onChange({ ...state, endTime })} placeholder={t('account.agenda.optionalEndPlaceholder')} placeholderTextColor={theme.color.muted} keyboardType="numbers-and-punctuation" style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+                    <TextInput value={state.endTime} onChangeText={(endTime) => onChange({ ...state, endTime })} placeholder={t('account.agenda.optionalEndPlaceholder')} placeholderTextColor={theme.color.muted} keyboardType="numbers-and-punctuation" inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="done" blurOnSubmit={true} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
                   </View>
                 </View>
 
                 <View style={styles.fieldGroup}>
                   <AppText style={styles.fieldLabel}>{t('account.agenda.editor.noteLabel')}</AppText>
-                  <TextInput value={state.note} onChangeText={(note) => onChange({ ...state, note })} maxLength={2000} multiline textAlignVertical="top" placeholder={t('account.agenda.editor.notePlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+                  <TextInput value={state.note} onChangeText={(note) => onChange({ ...state, note })} maxLength={2000} multiline textAlignVertical="top" placeholder={t('account.agenda.editor.notePlaceholder')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
                 </View>
               </View>
 

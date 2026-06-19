@@ -1,0 +1,694 @@
+diff --git a/apps/mobile/src/components/AddToAgendaButton.tsx b/apps/mobile/src/components/AddToAgendaButton.tsx
+index ef5f997..c43013d 100644
+--- a/apps/mobile/src/components/AddToAgendaButton.tsx
++++ b/apps/mobile/src/components/AddToAgendaButton.tsx
+@@ -14,6 +14,7 @@ import { useThemeTokens } from '../providers/ThemeProvider';
+ import { AppText } from './AppText';
+ import { MobileIcon } from './MobileIcon';
+ import { SemanticBadge, toneForKind } from './SemanticUI';
++import { KEYBOARD_DONE_ACCESSORY_ID } from './KeyboardDoneAccessory';
+ 
+ type LinkedAgendaSourceType = Exclude<AgendaItemSourceType, 'custom'>;
+ 
+@@ -189,7 +190,7 @@ export function AddToAgendaButton({
+         accessibilityLabel={label}
+         disabled={disabled || saving}
+         onPress={openSheet}
+-        style={({ pressed }) => [
++                      style={({ pressed }) => [
+           compact || !showLabel ? styles.iconButton : styles.button,
+           { backgroundColor: compact || !showLabel ? theme.color.surface : theme.semantic.proposal.softBg, borderColor: compact || !showLabel ? theme.color.border : theme.semantic.proposal.border },
+           pressed && !(disabled || saving) && styles.pressed,
+@@ -227,16 +228,19 @@ export function AddToAgendaButton({
+                       onChangeText={setDate}
+                       placeholder={t('account.agenda.datePlaceholder')}
+                       placeholderTextColor={theme.color.muted}
++                      inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
++                      returnKeyType="done"
++                      blurOnSubmit={true}
+                       style={[styles.input, styles.dateInput, { backgroundColor: theme.color.surface, borderColor: dateError ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]}
+                     />
+-                    {!allDay ? <TextInput value={time} onChangeText={setTime} placeholder={t('account.agenda.timePlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, styles.shortInput, { backgroundColor: theme.color.surface, borderColor: dateError ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]} /> : null}
++                    {!allDay ? <TextInput value={time} onChangeText={setTime} placeholder={t('account.agenda.timePlaceholder')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="done" blurOnSubmit={true} style={[styles.input, styles.shortInput, { backgroundColor: theme.color.surface, borderColor: dateError ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]} /> : null}
+                   </View>
+                 </View>
+ 
+                 {!allDay ? (
+                   <View style={styles.fieldBlock}>
+                     <AppText style={styles.fieldLabel}>{t('account.agenda.editor.endLabel')}</AppText>
+-                    <TextInput value={endTime} onChangeText={setEndTime} placeholder={t('account.agenda.optionalEndPlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: dateError ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]} />
++                    <TextInput value={endTime} onChangeText={setEndTime} placeholder={t('account.agenda.optionalEndPlaceholder')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="done" blurOnSubmit={true} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: dateError ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]} />
+                   </View>
+                 ) : null}
+ 
+@@ -259,7 +263,10 @@ export function AddToAgendaButton({
+                     textAlignVertical="top"
+                     placeholder={t('account.agenda.add.notePlaceholder')}
+                     placeholderTextColor={theme.color.muted}
+-                    style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
++                    inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
++                      returnKeyType="default"
++                      blurOnSubmit={false}
++                      style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
+                   />
+                 </View>
+ 
+diff --git a/apps/mobile/src/components/AppScreen.tsx b/apps/mobile/src/components/AppScreen.tsx
+index 844ec63..e0bf108 100644
+--- a/apps/mobile/src/components/AppScreen.tsx
++++ b/apps/mobile/src/components/AppScreen.tsx
+@@ -1,7 +1,8 @@
+ import React from 'react';
+-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
++import { Keyboard, StyleSheet, TouchableWithoutFeedback, View, type StyleProp, type ViewStyle } from 'react-native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import { useThemeTokens } from '../providers/ThemeProvider';
++import { KeyboardDoneAccessory } from './KeyboardDoneAccessory';
+ 
+ export const APP_SCREEN_HORIZONTAL_PADDING = 18;
+ 
+@@ -10,18 +11,21 @@ export function AppScreen({ children, style }: { children: React.ReactNode; styl
+   const insets = useSafeAreaInsets();
+ 
+   return (
+-    <View
+-      style={[
+-        styles.screen,
+-        {
+-          backgroundColor: theme.color.background,
+-          paddingTop: insets.top + 18,
+-        },
+-        style,
+-      ]}
+-    >
+-      {children}
+-    </View>
++    <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
++      <View
++                      style={[
++          styles.screen,
++          {
++            backgroundColor: theme.color.background,
++            paddingTop: insets.top + 18,
++          },
++          style,
++        ]}
++      >
++        {children}
++        <KeyboardDoneAccessory />
++      </View>
++    </TouchableWithoutFeedback>
+   );
+ }
+ 
+diff --git a/apps/mobile/src/components/KeyboardDoneAccessory.tsx b/apps/mobile/src/components/KeyboardDoneAccessory.tsx
+new file mode 100644
+index 0000000..023f60f
+--- /dev/null
++++ b/apps/mobile/src/components/KeyboardDoneAccessory.tsx
+@@ -0,0 +1,46 @@
++import React from 'react';
++import { InputAccessoryView, Keyboard, Platform, Pressable, StyleSheet, View } from 'react-native';
++import { AppText } from './AppText';
++import { useThemeTokens } from '../providers/ThemeProvider';
++import { useTranslation } from '../providers/MobileI18nProvider';
++
++export const KEYBOARD_DONE_ACCESSORY_ID = 'hellowhen-keyboard-done-accessory';
++
++export function KeyboardDoneAccessory() {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++
++  if (Platform.OS !== 'ios') return null;
++
++  return (
++    <InputAccessoryView nativeID={KEYBOARD_DONE_ACCESSORY_ID}>
++      <View style={[styles.bar, { backgroundColor: theme.color.surface, borderTopColor: theme.color.border }]}>
++        <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.close')} onPress={Keyboard.dismiss} hitSlop={10} style={({ pressed }) => [styles.doneButton, pressed && styles.pressed]}>
++          <AppText style={[styles.doneText, { color: theme.color.text }]}>{t('common.states.done')}</AppText>
++        </Pressable>
++      </View>
++    </InputAccessoryView>
++  );
++}
++
++const styles = StyleSheet.create({
++  bar: {
++    minHeight: 44,
++    borderTopWidth: StyleSheet.hairlineWidth,
++    alignItems: 'flex-end',
++    justifyContent: 'center',
++    paddingHorizontal: 16,
++  },
++  doneButton: {
++    borderRadius: 999,
++    paddingHorizontal: 12,
++    paddingVertical: 7,
++  },
++  doneText: {
++    fontSize: 16,
++    fontWeight: '900',
++  },
++  pressed: {
++    opacity: 0.72,
++  },
++});
+diff --git a/apps/mobile/src/components/ReportContentPanel.tsx b/apps/mobile/src/components/ReportContentPanel.tsx
+index ac3219a..7a8540c 100644
+--- a/apps/mobile/src/components/ReportContentPanel.tsx
++++ b/apps/mobile/src/components/ReportContentPanel.tsx
+@@ -10,6 +10,7 @@ import { useThemeTokens } from '../providers/ThemeProvider';
+ import { AppText } from './AppText';
+ import { MobileIcon } from './MobileIcon';
+ import { InfoNotice } from './SemanticUI';
++import { KEYBOARD_DONE_ACCESSORY_ID } from './KeyboardDoneAccessory';
+ 
+ type ReportContentPanelProps = {
+   targetType: ReportTargetType;
+@@ -57,7 +58,7 @@ export function ReportContentPanel({ targetType, targetId, labelKey = 'report.bu
+         accessibilityRole="button"
+         onPress={() => setOpen((value) => !value)}
+         disabled={loading}
+-        style={({ pressed }) => [styles.button, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, loading && styles.disabled]}
++                      style={({ pressed }) => [styles.button, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, loading && styles.disabled]}
+       >
+         <MobileIcon name="report-flag" size={17} color={theme.semantic.danger.text} />
+         <AppText style={[styles.buttonText, { color: theme.semantic.danger.text }]}>{open ? t('report.cancel') : t(labelKey)}</AppText>
+@@ -84,7 +85,7 @@ function ReportForm({ theme, reason, details, loading, helper, onReasonChange, o
+         })}
+       </View>
+       <AppText style={styles.label}>{t('report.detailsOptional')}</AppText>
+-      <TextInput value={details} onChangeText={onDetailsChange} placeholder={t('report.detailsPlaceholder')} placeholderTextColor={theme.color.muted} multiline textAlignVertical="top" style={[styles.input, { color: theme.color.text, backgroundColor: theme.color.surface, borderColor: theme.color.border }]} />
++      <TextInput value={details} onChangeText={onDetailsChange} placeholder={t('report.detailsPlaceholder')} placeholderTextColor={theme.color.muted} multiline textAlignVertical="top" inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.input, { color: theme.color.text, backgroundColor: theme.color.surface, borderColor: theme.color.border }]} />
+       <Pressable accessibilityRole="button" disabled={loading} onPress={onSubmit} style={({ pressed }) => [styles.submit, { backgroundColor: theme.color.text }, pressed && styles.pressed, loading && styles.disabled]}>
+         <AppText style={[styles.submitText, { color: theme.color.background }]}>{loading ? t('report.sending') : t('report.send')}</AppText>
+       </Pressable>
+diff --git a/apps/mobile/src/features/account/AccountDeletionScreen.tsx b/apps/mobile/src/features/account/AccountDeletionScreen.tsx
+index e7f11cd..df6d257 100644
+--- a/apps/mobile/src/features/account/AccountDeletionScreen.tsx
++++ b/apps/mobile/src/features/account/AccountDeletionScreen.tsx
+@@ -13,6 +13,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
++import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'AccountDeletion'>;
+ 
+@@ -76,7 +77,7 @@ export function AccountDeletionScreen({ navigation }: Props) {
+ 
+   return (
+     <AppScreen>
+-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadRequest(); }} />}>
++      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadRequest(); }} />}>
+         <AppHeader title={t('account.deletion.title')} onBack={() => navigation.goBack()} />
+ 
+         <View style={styles.header}>
+@@ -112,9 +113,9 @@ export function AccountDeletionScreen({ navigation }: Props) {
+             <AppText style={styles.sectionTitle}>{t('account.deletion.formTitle')}</AppText>
+             <AppText style={[styles.body, { color: theme.color.muted }]}>{t('account.deletion.formBody')}</AppText>
+             <AppText style={styles.label}>{t('account.deletion.reason')}</AppText>
+-            <TextInput value={reason} onChangeText={setReason} maxLength={120} placeholder={t('account.deletion.reasonPlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
++            <TextInput value={reason} onChangeText={setReason} maxLength={120} placeholder={t('account.deletion.reasonPlaceholder')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="done" blurOnSubmit={true} style={[styles.input, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
+             <AppText style={styles.label}>{t('account.deletion.details')}</AppText>
+-            <TextInput value={details} onChangeText={setDetails} maxLength={2000} multiline placeholder={t('account.deletion.detailsPlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.textarea, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
++            <TextInput value={details} onChangeText={setDetails} maxLength={2000} multiline placeholder={t('account.deletion.detailsPlaceholder')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.textarea, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
+             <Pressable accessibilityRole="button" disabled={saving} onPress={() => { void submitRequest(); }} style={({ pressed }) => [styles.dangerButton, saving && styles.disabled, pressed && styles.pressed]}>
+               <AppText style={styles.dangerButtonText}>{saving ? t('common.states.submitting') : t('account.deletion.submitRequest')}</AppText>
+             </Pressable>
+diff --git a/apps/mobile/src/features/account/AgendaScreen.tsx b/apps/mobile/src/features/account/AgendaScreen.tsx
+index 6887297..6d08454 100644
+--- a/apps/mobile/src/features/account/AgendaScreen.tsx
++++ b/apps/mobile/src/features/account/AgendaScreen.tsx
+@@ -19,6 +19,7 @@ import { formatMobilePlusMonthlyPrice, getMobilePlusGate } from '../../lib/plusG
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
++import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
+ 
+ type AgendaScreenProps = NativeStackScreenProps<RootStackParamList, 'Agenda'>;
+ type AgendaFilter = 'all' | AgendaItemType;
+@@ -444,7 +445,7 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+ 
+   return (
+     <AppFixedHeaderScreen header={header}>
+-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
++      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
+         <View style={styles.hero}>
+           <View style={styles.badgeRow}>
+             <SemanticBadge label={t('account.agenda.privateBadge')} tone="proposal" />
+@@ -510,7 +511,9 @@ export function AgendaScreen({ navigation }: AgendaScreenProps) {
+             placeholder={t('account.agenda.searchPlaceholder')}
+             placeholderTextColor={theme.color.muted}
+             returnKeyType="search"
+-            style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
++            inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
++                      blurOnSubmit={true}
++                      style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
+           />
+         </View>
+ 
+@@ -664,7 +667,7 @@ function AgendaEditorModal({ busy, error, onChange, onClose, onSave, state }: {
+       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
+         <Pressable accessibilityRole="button" onPress={onClose} style={styles.modalTapArea}>
+           <Pressable accessibilityRole="menu" onPress={(event) => event.stopPropagation()} style={[styles.modalSheet, { backgroundColor: theme.color.elevated, borderColor: theme.color.border }]}>
+-            <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
++            <ScrollView contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
+               <View style={styles.modalHeader}>
+                 <SemanticBadge label={t('account.agenda.editor.badge')} tone="proposal" />
+                 <AppText style={styles.modalTitle}>{state.mode === 'edit' ? t('account.agenda.editor.editTitle') : t('account.agenda.editor.createTitle')}</AppText>
+@@ -674,7 +677,7 @@ function AgendaEditorModal({ busy, error, onChange, onClose, onSave, state }: {
+               <View style={styles.formFields}>
+                 <View style={styles.fieldGroup}>
+                   <AppText style={styles.fieldLabel}>{t('account.agenda.editor.titleLabel')}</AppText>
+-                  <TextInput value={state.title} onChangeText={(title) => onChange({ ...state, title })} maxLength={120} placeholder={t('account.agenda.editor.titlePlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
++                  <TextInput value={state.title} onChangeText={(title) => onChange({ ...state, title })} maxLength={120} placeholder={t('account.agenda.editor.titlePlaceholder')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="done" blurOnSubmit={true} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+                 </View>
+ 
+                 <AppSelect label={t('account.agenda.editor.typeLabel')} value={state.itemType} options={typeOptions} onSelect={(value) => onChange({ ...state, itemType: value as AgendaItemType })} />
+@@ -683,11 +686,11 @@ function AgendaEditorModal({ busy, error, onChange, onClose, onSave, state }: {
+                 <View style={styles.inlineFields}>
+                   <View style={styles.inlineField}>
+                     <AppText style={styles.fieldLabel}>{t('account.agenda.editor.startLabel')}</AppText>
+-                    <TextInput value={state.date} onChangeText={(date) => onChange({ ...state, date })} placeholder={t('account.agenda.datePlaceholder')} placeholderTextColor={theme.color.muted} keyboardType="numbers-and-punctuation" style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
++                    <TextInput value={state.date} onChangeText={(date) => onChange({ ...state, date })} placeholder={t('account.agenda.datePlaceholder')} placeholderTextColor={theme.color.muted} keyboardType="numbers-and-punctuation" inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="done" blurOnSubmit={true} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+                   </View>
+                   <View style={styles.inlineField}>
+                     <AppText style={styles.fieldLabel}>{t('account.agenda.timePlaceholder')}</AppText>
+-                    <TextInput value={state.time} onChangeText={(time) => onChange({ ...state, time })} editable={!state.allDay} placeholder="09:00" placeholderTextColor={theme.color.muted} keyboardType="numbers-and-punctuation" style={[styles.input, state.allDay && styles.disabledInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
++                    <TextInput value={state.time} onChangeText={(time) => onChange({ ...state, time })} editable={!state.allDay} placeholder="09:00" placeholderTextColor={theme.color.muted} keyboardType="numbers-and-punctuation" inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="done" blurOnSubmit={true} style={[styles.input, state.allDay && styles.disabledInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+                   </View>
+                 </View>
+ 
+@@ -698,13 +701,13 @@ function AgendaEditorModal({ busy, error, onChange, onClose, onSave, state }: {
+                   </Pressable>
+                   <View style={styles.inlineField}>
+                     <AppText style={styles.fieldLabel}>{t('account.agenda.editor.endLabel')}</AppText>
+-                    <TextInput value={state.endTime} onChangeText={(endTime) => onChange({ ...state, endTime })} placeholder={t('account.agenda.optionalEndPlaceholder')} placeholderTextColor={theme.color.muted} keyboardType="numbers-and-punctuation" style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
++                    <TextInput value={state.endTime} onChangeText={(endTime) => onChange({ ...state, endTime })} placeholder={t('account.agenda.optionalEndPlaceholder')} placeholderTextColor={theme.color.muted} keyboardType="numbers-and-punctuation" inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="done" blurOnSubmit={true} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+                   </View>
+                 </View>
+ 
+                 <View style={styles.fieldGroup}>
+                   <AppText style={styles.fieldLabel}>{t('account.agenda.editor.noteLabel')}</AppText>
+-                  <TextInput value={state.note} onChangeText={(note) => onChange({ ...state, note })} maxLength={2000} multiline textAlignVertical="top" placeholder={t('account.agenda.editor.notePlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
++                  <TextInput value={state.note} onChangeText={(note) => onChange({ ...state, note })} maxLength={2000} multiline textAlignVertical="top" placeholder={t('account.agenda.editor.notePlaceholder')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+                 </View>
+               </View>
+ 
+diff --git a/apps/mobile/src/features/auth/LoginScreen.tsx b/apps/mobile/src/features/auth/LoginScreen.tsx
+index 9d291dd..94444ac 100644
+--- a/apps/mobile/src/features/auth/LoginScreen.tsx
++++ b/apps/mobile/src/features/auth/LoginScreen.tsx
+@@ -7,6 +7,7 @@ import { AppScreen } from '../../components/AppScreen';
+ import { AppSelect } from '../../components/AppSelect';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
++import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
+ import { countryOptions } from '../../lib/moneyPreferences';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { useAuth } from '../../providers/AuthProvider';
+@@ -128,7 +129,7 @@ export function LoginScreen() {
+ 
+   return (
+     <AppScreen>
+-      <ScrollView contentContainerStyle={styles.shell} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
++      <ScrollView contentContainerStyle={styles.shell} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
+         <AppCard style={styles.authCard}>
+           <View style={styles.brandBlock}>
+             <SemanticBadge label={t('auth.brandBadge')} tone="trade" />
+@@ -215,7 +216,7 @@ function ModeButton({ label, active, onPress }: { label: string; active: boolean
+ 
+ function AuthInput(props: React.ComponentProps<typeof TextInput>) {
+   const theme = useThemeTokens();
+-  return <TextInput accessibilityLabel={props.accessibilityLabel ?? props.placeholder} {...props} placeholderTextColor={theme.color.muted} style={[styles.input, { color: theme.color.text, backgroundColor: theme.color.surface, borderColor: theme.color.border }, props.style]} />;
++  return <TextInput accessibilityLabel={props.accessibilityLabel ?? props.placeholder} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType={props.returnKeyType ?? 'done'} blurOnSubmit={props.blurOnSubmit ?? !props.multiline} {...props} placeholderTextColor={theme.color.muted} style={[styles.input, { color: theme.color.text, backgroundColor: theme.color.surface, borderColor: theme.color.border }, props.style]} />;
+ }
+ 
+ function PasswordInput({ value, onChangeText, placeholder, showPassword, onToggle }: { value: string; onChangeText: (value: string) => void; placeholder: string; showPassword: boolean; onToggle: () => void }) {
+diff --git a/apps/mobile/src/features/trade/CreateNeedFullScreen.tsx b/apps/mobile/src/features/trade/CreateNeedFullScreen.tsx
+index a6864df..3c72433 100644
+--- a/apps/mobile/src/features/trade/CreateNeedFullScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateNeedFullScreen.tsx
+@@ -220,7 +220,7 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
+ 
+   return (
+     <AppScreen>
+-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
++      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
+         <AppHeader title={t('inventory.form.saveNeedTitle')} onBack={() => navigation.goBack()} />
+         <View style={styles.header}>
+           <SemanticBadge label={t('inventory.labels.need')} tone="need" />
+diff --git a/apps/mobile/src/features/trade/CreateOfferFullScreen.tsx b/apps/mobile/src/features/trade/CreateOfferFullScreen.tsx
+index d400b4b..d322885 100644
+--- a/apps/mobile/src/features/trade/CreateOfferFullScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateOfferFullScreen.tsx
+@@ -221,7 +221,7 @@ export function CreateOfferFullScreen({ route, navigation }: Props) {
+ 
+   return (
+     <AppScreen>
+-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
++      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
+         <AppHeader title={t('inventory.form.saveOfferTitle')} onBack={() => navigation.goBack()} />
+         <View style={styles.header}>
+           <SemanticBadge label={t('inventory.labels.offer')} tone="offer" />
+diff --git a/apps/mobile/src/features/trade/CreateTradeFullScreen.tsx b/apps/mobile/src/features/trade/CreateTradeFullScreen.tsx
+index c77e393..bf60541 100644
+--- a/apps/mobile/src/features/trade/CreateTradeFullScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeFullScreen.tsx
+@@ -287,7 +287,7 @@ export function CreateTradeFullScreen({ route, navigation }: Props) {
+ 
+   return (
+     <AppFixedHeaderScreen header={<AppHeader title={t('trade.create.title')} onBack={() => navigation.goBack()} />}>
+-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadResources(); }} />}>
++      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadResources(); }} />}>
+         <View style={styles.header}>
+           <SemanticBadge label={postType ? postTypeLabel(postType, t) : t('trade.labels.trade')} tone="trade" />
+           <AppText style={styles.title}>{t('trade.create.title')}</AppText>
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index bb346c9..2586527 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -795,7 +795,7 @@ function ExchangeSideBlock({ theme, side, stepPrefix, title, emptyTitle, selecti
+       <Pressable
+         accessibilityRole="button"
+         onPress={onOpenSourceSheet}
+-        style={({ pressed }) => [styles.sourceLauncherButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
++                      style={({ pressed }) => [styles.sourceLauncherButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
+       >
+         <View style={[styles.sourceLauncherIcon, { backgroundColor: theme.semantic[tone].softBg, borderColor: theme.semantic[tone].border }]}>
+           <MobileIcon name={side} size={17} color={theme.semantic[tone].text} />
+@@ -843,7 +843,7 @@ function DetailsStep({ theme, expiryDays, onExpiryChange }: { theme: ThemeTokens
+       <Pressable
+         accessibilityRole="button"
+         onPress={() => setExpiryExpanded((expanded) => !expanded)}
+-        style={({ pressed }) => [styles.detailsCompactRow, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
++                      style={({ pressed }) => [styles.detailsCompactRow, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
+       >
+         <View style={styles.detailsCompactCopy}>
+           <AppText style={styles.detailsCompactLabel}>{t('trade.create.expiryTitle')}</AppText>
+diff --git a/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx b/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
+index a9c0e70..8dff7c7 100644
+--- a/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
+@@ -393,7 +393,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+         accessibilityState={{ expanded, disabled }}
+         disabled={disabled}
+         onPress={onPress}
+-        style={({ pressed }) => [
++                      style={({ pressed }) => [
+           styles.compactToggle,
+           { backgroundColor: theme.color.surface, borderColor: theme.color.border },
+           disabled && styles.disabled,
+diff --git a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+index 92af7b7..0f2836f 100644
+--- a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+@@ -22,6 +22,7 @@ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { UserIdentityPressable } from '../users/UserIdentityPressable';
+ import { MediaStrip } from './components/MediaStrip';
+ import type { NeedItem, OfferItem, ProposalMessageItem, TradeDeckItem, TradeProposalItem } from './types';
++import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'ProposalDetail'>;
+ type ProposalResponse = { proposal: TradeProposalItem; trade?: TradeDeckItem };
+@@ -823,7 +824,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+       <AppScreen style={styles.screen}>
+         <View style={styles.infoScreenRoot}>
+           <AppHeader title={t(messageReportTarget.titleKey)} onBack={() => setMessageReportTarget(null)} />
+-          <ScrollView contentContainerStyle={styles.infoScreenContent} keyboardShouldPersistTaps="handled">
++          <ScrollView contentContainerStyle={styles.infoScreenContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+             <ReportContentPanel targetType={messageReportTarget.targetType} targetId={messageReportTarget.targetId} helperKey={messageReportTarget.helperKey} initialOpen />
+           </ScrollView>
+         </View>
+@@ -918,7 +919,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+       />
+ 
+       {!proposal ? (
+-        <ScrollView contentContainerStyle={styles.loadingContent} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />}>
++        <ScrollView contentContainerStyle={styles.loadingContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />}>
+           <View style={[styles.loadingCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+             <SemanticBadge label={t('trade.proposals.tradeProposal')} tone="proposal" />
+             {error ? <DetailEmptyState icon="warning" title={t('trade.detail.tradeError')} body={error} actionLabel={t('common.actions.tryAgain')} onAction={() => { void loadProposal(); }} /> : <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.loadingProposal')}</AppText>}
+@@ -930,6 +931,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+             style={styles.chatScroll}
+             contentContainerStyle={styles.chatContent}
+             keyboardShouldPersistTaps="handled"
++            keyboardDismissMode="interactive"
+             scrollEventThrottle={16}
+             onScroll={(event) => {
+               const nextCompact = event.nativeEvent.contentOffset.y > 84;
+@@ -1668,7 +1670,7 @@ function ProposalNoteChatBubble({ proposal, mine, canEdit, canReport, editing, d
+       <Pressable
+         disabled={!canOpenOptions}
+         onLongPress={canOpenOptions ? onOptions : undefined}
+-        style={[
++                      style={[
+           styles.chatBubble,
+           { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border },
+           mine ? styles.chatBubbleMine : styles.chatBubbleOther,
+@@ -1680,7 +1682,7 @@ function ProposalNoteChatBubble({ proposal, mine, canEdit, canReport, editing, d
+         </View>
+         {editing ? (
+           <View style={styles.noteEditBox}>
+-            <TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.proposalNote')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
++            <TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.proposalNote')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+             {error ? <AppText style={styles.errorText}>{error}</AppText> : null}
+             <View style={styles.inlineActions}>
+               <SmallActionButton label={actionLoading === 'proposal-note' ? t('common.states.saving') : t('trade.proposals.saveProposal')} onPress={onSave} disabled={Boolean(actionLoading)} />
+@@ -1714,7 +1716,7 @@ function PrivateMessageBubble({ message, mine, canEdit, canReport, editing, draf
+       <Pressable
+         disabled={!canOpenOptions}
+         onLongPress={canOpenOptions ? onOptions : undefined}
+-        style={[
++                      style={[
+           styles.chatBubble,
+           { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border },
+           mine ? styles.chatBubbleMine : styles.chatBubbleOther,
+@@ -1726,7 +1728,7 @@ function PrivateMessageBubble({ message, mine, canEdit, canReport, editing, draf
+         </View>
+         {editing ? (
+           <View style={styles.noteEditBox}>
+-            <TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.writeMessage')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
++            <TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.writeMessage')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+             {error ? <AppText style={styles.errorText}>{error}</AppText> : null}
+             <View style={styles.inlineActions}>
+               <SmallActionButton label={actionLoading === 'message-edit' ? t('common.states.saving') : t('trade.proposals.saveMessage')} onPress={onSaveEdit} disabled={Boolean(actionLoading)} />
+@@ -1766,7 +1768,7 @@ function ProposalDetailsSheet({ visible, proposal, requiredPackageSide, selected
+   return (
+     <View style={styles.infoScreenRoot}>
+       <AppHeader title={t('trade.proposals.showProposalItemDetails')} onBack={onClose} />
+-      <ScrollView contentContainerStyle={styles.infoScreenContent} keyboardShouldPersistTaps="handled">
++      <ScrollView contentContainerStyle={styles.infoScreenContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+         <View style={[styles.infoHero, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}> 
+           <SemanticBadge label={proposalPackageTitle(proposal, t)} tone="proposal" size="sm" />
+           <AppText style={styles.infoHeroTitle}>{proposal.trade?.title ?? t('trade.proposals.tradeProposal')}</AppText>
+@@ -1791,7 +1793,7 @@ function ProposalDetailsSheet({ visible, proposal, requiredPackageSide, selected
+             {canEditProposalContent ? (
+               <View style={[styles.sheetSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+                 <SemanticBadge label={t('trade.proposals.proposalNote')} tone="proposal" size="sm" />
+-                {editingProposalNote ? <View style={styles.noteEditBox}><TextInput value={proposalNoteDraft} onChangeText={onChangeProposalNote} multiline autoFocus placeholder={t('trade.proposals.proposalNote')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{proposalNoteError ? <AppText style={styles.errorText}>{proposalNoteError}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={actionLoading === 'proposal-note' ? t('common.states.saving') : t('trade.proposals.saveProposal')} onPress={onSaveProposalNote} disabled={Boolean(actionLoading)} /><SmallActionButton label={t('common.actions.cancel')} onPress={onCancelProposalNoteEdit} disabled={Boolean(actionLoading)} muted /></View></View> : <View style={styles.inlineActions}><SmallActionButton label={proposal.messageDeletedAt ? t('trade.proposals.addProposalNote') : t('trade.proposals.editProposal')} onPress={onStartProposalNoteEdit} disabled={Boolean(actionLoading)} />{!proposal.messageDeletedAt ? <SmallActionButton label={t('trade.proposals.deleteProposalNote')} onPress={onDeleteProposalNote} disabled={Boolean(actionLoading)} danger /> : null}</View>}
++                {editingProposalNote ? <View style={styles.noteEditBox}><TextInput value={proposalNoteDraft} onChangeText={onChangeProposalNote} multiline autoFocus placeholder={t('trade.proposals.proposalNote')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{proposalNoteError ? <AppText style={styles.errorText}>{proposalNoteError}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={actionLoading === 'proposal-note' ? t('common.states.saving') : t('trade.proposals.saveProposal')} onPress={onSaveProposalNote} disabled={Boolean(actionLoading)} /><SmallActionButton label={t('common.actions.cancel')} onPress={onCancelProposalNoteEdit} disabled={Boolean(actionLoading)} muted /></View></View> : <View style={styles.inlineActions}><SmallActionButton label={proposal.messageDeletedAt ? t('trade.proposals.addProposalNote') : t('trade.proposals.editProposal')} onPress={onStartProposalNoteEdit} disabled={Boolean(actionLoading)} />{!proposal.messageDeletedAt ? <SmallActionButton label={t('trade.proposals.deleteProposalNote')} onPress={onDeleteProposalNote} disabled={Boolean(actionLoading)} danger /> : null}</View>}
+               </View>
+             ) : null}
+ 
+@@ -1968,7 +1970,10 @@ function ProblemReportSheet({ visible, summary, error, loading, onChangeSummary,
+             textAlignVertical="top"
+             placeholder={t('trade.deal.problemReportPlaceholder')}
+             placeholderTextColor={theme.color.muted}
+-            style={[styles.problemTextArea, { backgroundColor: theme.color.subtleSurface, borderColor: error ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]}
++            inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
++                      returnKeyType="default"
++                      blurOnSubmit={false}
++                      style={[styles.problemTextArea, { backgroundColor: theme.color.subtleSurface, borderColor: error ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]}
+           />
+           {error ? <AppText style={styles.errorText}>{error}</AppText> : null}
+           <View style={styles.inlineActions}>
+@@ -1983,7 +1988,7 @@ function ProblemReportSheet({ visible, summary, error, loading, onChangeSummary,
+ 
+ function CancelTradeForm({ reason, error, loading, onChangeReason, onCancel, onSubmit, t }: { reason: string; error: string | null; loading: boolean; onChangeReason: (text: string) => void; onCancel: () => void; onSubmit: () => void; t: TFunction }) {
+   const theme = useThemeTokens();
+-  return <View style={[styles.cancelBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={styles.cancelTitle}>{t('trade.proposals.cancelAcceptedTradeTitle')}</AppText><AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.cancelAcceptedTradeBody')}</AppText><TextInput value={reason} onChangeText={onChangeReason} multiline placeholder={t('trade.proposals.cancelReasonPlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{error ? <AppText style={styles.errorText}>{error}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={loading ? t('trade.proposals.cancellingTrade') : t('trade.proposals.cancelAcceptedTradeAction')} onPress={onSubmit} disabled={loading} danger /><SmallActionButton label={t('trade.proposals.keepAcceptedTrade')} onPress={onCancel} disabled={loading} muted /></View></View>;
++  return <View style={[styles.cancelBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={styles.cancelTitle}>{t('trade.proposals.cancelAcceptedTradeTitle')}</AppText><AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.cancelAcceptedTradeBody')}</AppText><TextInput value={reason} onChangeText={onChangeReason} multiline placeholder={t('trade.proposals.cancelReasonPlaceholder')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{error ? <AppText style={styles.errorText}>{error}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={loading ? t('trade.proposals.cancellingTrade') : t('trade.proposals.cancelAcceptedTradeAction')} onPress={onSubmit} disabled={loading} danger /><SmallActionButton label={t('trade.proposals.keepAcceptedTrade')} onPress={onCancel} disabled={loading} muted /></View></View>;
+ }
+ 
+ function SmallActionButton({ label, onPress, disabled, danger, muted }: { label: string; onPress: () => void; disabled?: boolean; danger?: boolean; muted?: boolean }) {
+diff --git a/apps/mobile/src/features/trade/TradeDetailScreen.tsx b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+index 1da4d2f..c123028 100644
+--- a/apps/mobile/src/features/trade/TradeDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+@@ -28,6 +28,7 @@ import { UserIdentityPressable } from '../users/UserIdentityPressable';
+ import { resolveMediaUrl } from './mediaUrls';
+ import { durationPresetLabel } from './components/InventoryFormFields';
+ import type { NeedItem, OfferItem, TradeDeckItem, TradeProposalItem } from './types';
++import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
+ 
+  type Props = NativeStackScreenProps<RootStackParamList, 'TradeDetail'>;
+ type TradeResponse = { trade: TradeDeckItem };
+@@ -303,7 +304,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+         accessibilityLabel={t('trade.detail.shareTrade')}
+         disabled={actionLoading === 'share'}
+         onPress={() => { void shareTrade(); }}
+-        style={({ pressed }) => [styles.headerShareButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (pressed || actionLoading === 'share') && styles.pressed]}
++                      style={({ pressed }) => [styles.headerShareButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (pressed || actionLoading === 'share') && styles.pressed]}
+       >
+         <MobileIcon name="share" size={19} color={theme.color.text} />
+       </Pressable>
+@@ -318,7 +319,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+ 
+   return <AppFixedHeaderScreen header={header}>
+     <>
+-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
++      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
+       <DetailHero
+         eyebrow={`${formatStatus(trade.status, t)} · ${postTypeLabel(trade, t)}`}
+         title={detailTitle(trade, t)}
+@@ -399,7 +400,7 @@ function DetailIdentityPill({ label, user, userId }: { label: string; user?: Tra
+ 
+ function TradeDetailLoadingState({ title, theme }: { title: string; theme: ThemeTokens }) {
+   return (
+-    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
++    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+       <View style={styles.loadingBlock}>
+         <AppText style={[styles.loadingTitle, { color: theme.color.text }]}>{title}</AppText>
+         <View style={styles.loadingGroup}>
+@@ -452,7 +453,7 @@ function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, load
+ 
+       <View style={styles.messageComposerBlock}>
+         <AppText style={styles.threadLabel}>{t('trade.labels.message')}</AppText>
+-        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit || messageTooShort ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
++        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit || messageTooShort ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
+         <View style={styles.messageCounterRow}>
+           <AppText style={[styles.messageLimitText, { color: theme.color.muted }]}>{t('trade.proposals.messageLimitHelper', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
+           <AppText style={[styles.messageCounterText, { color: messageOverLimit || messageTooShort ? theme.semantic.danger.text : theme.color.muted }]}>{t('trade.proposals.messageCounter', { count: messageLength, max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
+diff --git a/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx b/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
+index 125db63..79a578b 100644
+--- a/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
++++ b/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
+@@ -22,6 +22,7 @@ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { UserIdentityPressable } from '../users/UserIdentityPressable';
+ import type { NeedItem, OfferItem, TradeDeckItem, TradeProposalItem } from './types';
+ import type { TradeCreateSideSelection } from './CreateTradeScreen';
++import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'TradePrivateProposals'>;
+ type TradeResponse = { trade: TradeDeckItem };
+@@ -302,7 +303,7 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
+         />
+       }
+     >
+-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
++      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
+         {error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}
+         {message ? <InfoNotice tone="success" title={t('trade.detail.updated')} body={message} /> : null}
+         {role === 'owner' ? <OwnerProposalList proposals={proposals} currentUserId={auth.user?.id} loading={loading} theme={theme} t={t} onOpen={(proposalId) => navigation.navigate('ProposalDetail', { proposalId })} /> : null}
+@@ -360,7 +361,7 @@ function PrivateProposalsGuideScreen({ onClose, t }: { onClose: () => void; t: T
+   const theme = useThemeTokens();
+   return (
+     <AppFixedHeaderScreen header={<AppHeader title={t('trade.privateProposalsEntry.guideTitle')} onBack={onClose} />}>
+-      <ScrollView contentContainerStyle={styles.infoContent} showsVerticalScrollIndicator={false}>
++      <ScrollView contentContainerStyle={styles.infoContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
+         <AppText style={styles.infoTitle}>{t('trade.privateProposalsEntry.guideHeading')}</AppText>
+         <AppText style={[styles.infoBody, { color: theme.color.muted }]}>{t('trade.privateProposalsEntry.guideBody')}</AppText>
+         <View style={[styles.infoDivider, { backgroundColor: theme.color.border }]} />
+@@ -376,7 +377,7 @@ function PrivateProposalsGuideScreen({ onClose, t }: { onClose: () => void; t: T
+ function PrivateProposalsReportScreen({ tradeId, onClose, t }: { tradeId: string; onClose: () => void; t: TFunction }) {
+   return (
+     <AppFixedHeaderScreen header={<AppHeader title={t('trade.proposals.reportThreadTitle')} onBack={onClose} />}>
+-      <ScrollView contentContainerStyle={styles.infoContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
++      <ScrollView contentContainerStyle={styles.infoContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
+         <ReportContentPanel targetType="trade" targetId={tradeId} labelKey="trade.proposals.reportThread" helperKey="report.helper.trade" initialOpen />
+       </ScrollView>
+     </AppFixedHeaderScreen>
+@@ -450,7 +451,7 @@ function ProposalComposer({ requiredSide, value, onChange, onSubmit, loading, si
+       <AppText style={styles.composerTitle}>{t('trade.privateProposalsEntry.startTitle')}</AppText>
+       <View style={styles.messageComposerBlock}>
+         <AppText style={styles.threadLabel}>{t('trade.labels.message')}</AppText>
+-        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit || messageTooShort ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
++        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit || messageTooShort ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
+         <View style={styles.messageCounterRow}>
+           <AppText style={[styles.messageLimitText, { color: theme.color.muted }]}>{t('trade.proposals.messageLimitHelper', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
+           <AppText style={[styles.messageCounterText, { color: messageOverLimit || messageTooShort ? theme.semantic.danger.text : theme.color.muted }]}>{t('trade.proposals.messageCounter', { count: messageLength, max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
+diff --git a/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx b/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
+index 2a55e39..10c53bb 100644
+--- a/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
++++ b/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
+@@ -22,6 +22,7 @@ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { UserIdentityPressable } from '../users/UserIdentityPressable';
+ import type { TradeOwnerPreview } from './types';
++import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'TradePublicDiscussion'>;
+ type MessagesResponse = { messages: TradePublicMessageItem[] };
+@@ -274,6 +275,7 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
+           contentContainerStyle={styles.content}
+           showsVerticalScrollIndicator={false}
+           keyboardShouldPersistTaps="handled"
++          keyboardDismissMode="interactive"
+           refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadMessages(); }} />}
+         >
+           {error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}
+@@ -308,7 +310,10 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
+             placeholderTextColor={theme.color.muted}
+             multiline
+             textAlignVertical="top"
+-            style={[styles.composerInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
++            inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
++                      returnKeyType="default"
++                      blurOnSubmit={false}
++                      style={[styles.composerInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
+           />
+           <Pressable accessibilityRole="button" disabled={!canSend} onPress={() => { void sendMessage(); }} style={({ pressed }) => [styles.sendButton, { backgroundColor: theme.color.text }, (!canSend) && styles.disabled, pressed && canSend && styles.pressed]}>
+             <MobileIcon name="proposal" size={18} color={theme.color.background} />
+@@ -369,7 +374,7 @@ function PublicThreadGuideScreen({ onClose, t }: { onClose: () => void; t: TFunc
+ 
+   return (
+     <AppFixedHeaderScreen header={<AppHeader title={t('trade.publicDiscussion.guideTitle')} onBack={onClose} />}>
+-      <ScrollView contentContainerStyle={styles.infoContent} showsVerticalScrollIndicator={false}>
++      <ScrollView contentContainerStyle={styles.infoContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
+         <AppText style={styles.infoTitle}>{t('trade.publicDiscussion.guideIntroTitle')}</AppText>
+         <AppText style={[styles.infoBody, { color: theme.color.muted }]}>{t('trade.publicDiscussion.guideIntroBody')}</AppText>
+         <View style={[styles.fullBleedDivider, { backgroundColor: theme.color.border }]} />
+@@ -423,7 +428,7 @@ function PublicMessageRow({ message, currentUserId, actionTarget, editDraft, sen
+       </View>
+       {actionMode === 'edit' ? (
+         <View style={styles.editBox}>
+-          <TextInput value={editDraft} onChangeText={onChangeEdit} multiline textAlignVertical="top" style={[styles.editInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
++          <TextInput value={editDraft} onChangeText={onChangeEdit} multiline textAlignVertical="top" inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.editInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+           <View style={styles.actionRow}>
+             <SmallAction label={t('common.actions.save')} disabled={sending || editDraft.trim().length < 1} tone="primary" theme={theme} onPress={onSaveEdit} />
+             <SmallAction label={t('common.actions.cancel')} disabled={sending} tone="ghost" theme={theme} onPress={onCancelAction} />
+diff --git a/apps/mobile/src/features/trade/components/InventoryFormFields.tsx b/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
+index 504ac01..a13cde1 100644
+--- a/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
++++ b/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
+@@ -5,6 +5,7 @@ import { findInventoryCategoryOption, getAlternateInventoryLanguage, inventoryCa
+ import { AppText } from '../../../components/AppText';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+ import { useTranslation } from '../../../providers/MobileI18nProvider';
++import { KEYBOARD_DONE_ACCESSORY_ID } from '../../../components/KeyboardDoneAccessory';
+ 
+ export const inventoryItemTypes: InventoryItemType[] = ['service', 'goods', 'other'];
+ export const exchangeModes: TradeExchangeMode[] = ['remote', 'local', 'hybrid'];
+@@ -152,7 +153,10 @@ export function InventoryTextField({
+         multiline={multiline}
+         maxLength={maxLength}
+         textAlignVertical={multiline ? 'top' : 'center'}
+-        style={[styles.input, { backgroundColor: theme.color.surface, borderColor: error ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }, multiline && styles.textarea]}
++        inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
++                      returnKeyType={multiline ? 'default' : 'done'}
++                      blurOnSubmit={!multiline}
++                      style={[styles.input, { backgroundColor: theme.color.surface, borderColor: error ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }, multiline && styles.textarea]}
+       />
+       {error ? <AppText style={[styles.fieldError, { color: theme.semantic.danger.text }]}>{error}</AppText> : null}
+     </View>
+@@ -210,7 +214,7 @@ export function AddTranslationButton({ defaultLanguage, onAdd, disabled }: { def
+       <Pressable
+         disabled={disabled}
+         onPress={onAdd}
+-        style={({ pressed }) => [styles.modeButton, styles.addLanguageButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, disabled && styles.disabled, pressed && styles.pressed]}
++                      style={({ pressed }) => [styles.modeButton, styles.addLanguageButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, disabled && styles.disabled, pressed && styles.pressed]}
+       >
+         <AppText style={[styles.modeButtonText, { color: theme.color.text }]}>{t('inventory.actions.addLanguage')} · {inventoryLanguageLabel(translationLanguage, t)}</AppText>
+       </Pressable>

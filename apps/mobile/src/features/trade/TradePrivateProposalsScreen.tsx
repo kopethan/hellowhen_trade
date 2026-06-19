@@ -22,6 +22,7 @@ import { useTranslation } from '../../providers/MobileI18nProvider';
 import { UserIdentityPressable } from '../users/UserIdentityPressable';
 import type { NeedItem, OfferItem, TradeDeckItem, TradeProposalItem } from './types';
 import type { TradeCreateSideSelection } from './CreateTradeScreen';
+import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TradePrivateProposals'>;
 type TradeResponse = { trade: TradeDeckItem };
@@ -302,7 +303,7 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
         />
       }
     >
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
         {error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}
         {message ? <InfoNotice tone="success" title={t('trade.detail.updated')} body={message} /> : null}
         {role === 'owner' ? <OwnerProposalList proposals={proposals} currentUserId={auth.user?.id} loading={loading} theme={theme} t={t} onOpen={(proposalId) => navigation.navigate('ProposalDetail', { proposalId })} /> : null}
@@ -360,7 +361,7 @@ function PrivateProposalsGuideScreen({ onClose, t }: { onClose: () => void; t: T
   const theme = useThemeTokens();
   return (
     <AppFixedHeaderScreen header={<AppHeader title={t('trade.privateProposalsEntry.guideTitle')} onBack={onClose} />}>
-      <ScrollView contentContainerStyle={styles.infoContent} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.infoContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
         <AppText style={styles.infoTitle}>{t('trade.privateProposalsEntry.guideHeading')}</AppText>
         <AppText style={[styles.infoBody, { color: theme.color.muted }]}>{t('trade.privateProposalsEntry.guideBody')}</AppText>
         <View style={[styles.infoDivider, { backgroundColor: theme.color.border }]} />
@@ -376,7 +377,7 @@ function PrivateProposalsGuideScreen({ onClose, t }: { onClose: () => void; t: T
 function PrivateProposalsReportScreen({ tradeId, onClose, t }: { tradeId: string; onClose: () => void; t: TFunction }) {
   return (
     <AppFixedHeaderScreen header={<AppHeader title={t('trade.proposals.reportThreadTitle')} onBack={onClose} />}>
-      <ScrollView contentContainerStyle={styles.infoContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.infoContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
         <ReportContentPanel targetType="trade" targetId={tradeId} labelKey="trade.proposals.reportThread" helperKey="report.helper.trade" initialOpen />
       </ScrollView>
     </AppFixedHeaderScreen>
@@ -450,7 +451,7 @@ function ProposalComposer({ requiredSide, value, onChange, onSubmit, loading, si
       <AppText style={styles.composerTitle}>{t('trade.privateProposalsEntry.startTitle')}</AppText>
       <View style={styles.messageComposerBlock}>
         <AppText style={styles.threadLabel}>{t('trade.labels.message')}</AppText>
-        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit || messageTooShort ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
+        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit || messageTooShort ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
         <View style={styles.messageCounterRow}>
           <AppText style={[styles.messageLimitText, { color: theme.color.muted }]}>{t('trade.proposals.messageLimitHelper', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
           <AppText style={[styles.messageCounterText, { color: messageOverLimit || messageTooShort ? theme.semantic.danger.text : theme.color.muted }]}>{t('trade.proposals.messageCounter', { count: messageLength, max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>

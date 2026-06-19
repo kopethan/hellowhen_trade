@@ -7,6 +7,7 @@ import { AppScreen } from '../../components/AppScreen';
 import { AppSelect } from '../../components/AppSelect';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
 import { countryOptions } from '../../lib/moneyPreferences';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useAuth } from '../../providers/AuthProvider';
@@ -128,7 +129,7 @@ export function LoginScreen() {
 
   return (
     <AppScreen>
-      <ScrollView contentContainerStyle={styles.shell} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.shell} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
         <AppCard style={styles.authCard}>
           <View style={styles.brandBlock}>
             <SemanticBadge label={t('auth.brandBadge')} tone="trade" />
@@ -215,7 +216,7 @@ function ModeButton({ label, active, onPress }: { label: string; active: boolean
 
 function AuthInput(props: React.ComponentProps<typeof TextInput>) {
   const theme = useThemeTokens();
-  return <TextInput accessibilityLabel={props.accessibilityLabel ?? props.placeholder} {...props} placeholderTextColor={theme.color.muted} style={[styles.input, { color: theme.color.text, backgroundColor: theme.color.surface, borderColor: theme.color.border }, props.style]} />;
+  return <TextInput accessibilityLabel={props.accessibilityLabel ?? props.placeholder} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType={props.returnKeyType ?? 'done'} blurOnSubmit={props.blurOnSubmit ?? !props.multiline} {...props} placeholderTextColor={theme.color.muted} style={[styles.input, { color: theme.color.text, backgroundColor: theme.color.surface, borderColor: theme.color.border }, props.style]} />;
 }
 
 function PasswordInput({ value, onChangeText, placeholder, showPassword, onToggle }: { value: string; onChangeText: (value: string) => void; placeholder: string; showPassword: boolean; onToggle: () => void }) {

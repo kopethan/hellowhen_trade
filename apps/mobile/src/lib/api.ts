@@ -1,8 +1,31 @@
 import { Platform } from 'react-native';
-import { createApiClient } from '@hellowhen/api-client';
-import { getAccessToken } from './tokenStore';
+import { createApiClient, type HellowhenApiClient } from '@hellowhen/api-client';
+import type { AuthResponse } from '@hellowhen/contracts';
+import { getAccessToken, getRefreshToken, setAccessToken, setRefreshToken } from './tokenStore';
 
 const localHostnames = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1']);
+
+type ApiLikeError = {
+  code?: string;
+  status?: number;
+  body?: unknown;
+};
+
+type ApiFunction = (...args: unknown[]) => Promise<unknown>;
+
+const authRetryBlockedMethods = new Set([
+  'login',
+  'register',
+  'google',
+  'loginTwoFactor',
+  'refresh',
+  'logout',
+  'logoutAll',
+  'forgotPassword',
+  'resetPassword',
+]);
+
+let refreshSessionPromise: Promise<AuthResponse | null> | null = null;
 
 function getDefaultDevApiUrl() {
   if (Platform.OS === 'android') {
@@ -62,9 +85,88 @@ function getMobileApiUrl() {
   throw new Error('EXPO_PUBLIC_API_URL is required for production mobile builds.');
 }
 
+function isUnauthorizedError(error: unknown) {
+  return Boolean(error && typeof error === 'object' && (error as ApiLikeError).status === 401);
+}
+
+function shouldRetryUnauthorized(path: string[]) {
+  const [namespace, method] = path;
+  if (namespace === 'auth' && method && authRetryBlockedMethods.has(method)) return false;
+  return true;
+}
+
+async function parseRefreshError(response: Response): Promise<never> {
+  let body: unknown = null;
+  try { body = await response.json(); } catch { /* ignore malformed error body */ }
+  const error = new Error(`API request failed: ${response.status}`);
+  Object.assign(error, { code: 'HELLOWHEN_API_ERROR', status: response.status, body });
+  throw error;
+}
+
+async function refreshMobileSessionOnce() {
+  const refreshToken = await getRefreshToken();
+  if (!refreshToken) return null;
+
+  const response = await fetch(`${API_URL}/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  });
+
+  if (!response.ok) await parseRefreshError(response);
+
+  const result = await response.json() as AuthResponse;
+  await setAccessToken(result.accessToken);
+  if (result.refreshToken) await setRefreshToken(result.refreshToken);
+  return result;
+}
+
+export async function refreshMobileSession() {
+  if (!refreshSessionPromise) {
+    refreshSessionPromise = refreshMobileSessionOnce().finally(() => {
+      refreshSessionPromise = null;
+    });
+  }
+
+  return refreshSessionPromise;
+}
+
+function wrapApiFunction(fn: ApiFunction, path: string[]): ApiFunction {
+  return async (...args: unknown[]) => {
+    try {
+      return await fn(...args);
+    } catch (error) {
+      if (!isUnauthorizedError(error) || !shouldRetryUnauthorized(path)) throw error;
+
+      const refreshed = await refreshMobileSession().catch(() => null);
+      if (!refreshed) throw error;
+
+      return fn(...args);
+    }
+  };
+}
+
+function withMobileAuthRetry<T>(node: T, path: string[] = []): T {
+  if (typeof node === 'function') {
+    return wrapApiFunction(node as ApiFunction, path) as T;
+  }
+
+  if (!node || typeof node !== 'object') return node;
+
+  return new Proxy(node as Record<PropertyKey, unknown>, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (typeof property === 'symbol') return value;
+      return withMobileAuthRetry(value, [...path, property]);
+    },
+  }) as T;
+}
+
 export const API_URL = getMobileApiUrl();
 
-export const api = createApiClient({
+const baseApi = createApiClient({
   baseUrl: API_URL,
   getAccessToken,
 });
+
+export const api: HellowhenApiClient = withMobileAuthRetry(baseApi);

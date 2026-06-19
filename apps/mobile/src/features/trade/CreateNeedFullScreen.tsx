@@ -220,7 +220,7 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
 
   return (
     <AppScreen>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
         <AppHeader title={t('inventory.form.saveNeedTitle')} onBack={() => navigation.goBack()} />
         <View style={styles.header}>
           <SemanticBadge label={t('inventory.labels.need')} tone="need" />

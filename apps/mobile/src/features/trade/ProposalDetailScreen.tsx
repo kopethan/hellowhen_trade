@@ -22,6 +22,7 @@ import { useTranslation } from '../../providers/MobileI18nProvider';
 import { UserIdentityPressable } from '../users/UserIdentityPressable';
 import { MediaStrip } from './components/MediaStrip';
 import type { NeedItem, OfferItem, ProposalMessageItem, TradeDeckItem, TradeProposalItem } from './types';
+import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ProposalDetail'>;
 type ProposalResponse = { proposal: TradeProposalItem; trade?: TradeDeckItem };
@@ -823,7 +824,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       <AppScreen style={styles.screen}>
         <View style={styles.infoScreenRoot}>
           <AppHeader title={t(messageReportTarget.titleKey)} onBack={() => setMessageReportTarget(null)} />
-          <ScrollView contentContainerStyle={styles.infoScreenContent} keyboardShouldPersistTaps="handled">
+          <ScrollView contentContainerStyle={styles.infoScreenContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
             <ReportContentPanel targetType={messageReportTarget.targetType} targetId={messageReportTarget.targetId} helperKey={messageReportTarget.helperKey} initialOpen />
           </ScrollView>
         </View>
@@ -918,7 +919,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       />
 
       {!proposal ? (
-        <ScrollView contentContainerStyle={styles.loadingContent} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />}>
+        <ScrollView contentContainerStyle={styles.loadingContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />}>
           <View style={[styles.loadingCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
             <SemanticBadge label={t('trade.proposals.tradeProposal')} tone="proposal" />
             {error ? <DetailEmptyState icon="warning" title={t('trade.detail.tradeError')} body={error} actionLabel={t('common.actions.tryAgain')} onAction={() => { void loadProposal(); }} /> : <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.loadingProposal')}</AppText>}
@@ -930,6 +931,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
             style={styles.chatScroll}
             contentContainerStyle={styles.chatContent}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
             scrollEventThrottle={16}
             onScroll={(event) => {
               const nextCompact = event.nativeEvent.contentOffset.y > 84;
@@ -1668,7 +1670,7 @@ function ProposalNoteChatBubble({ proposal, mine, canEdit, canReport, editing, d
       <Pressable
         disabled={!canOpenOptions}
         onLongPress={canOpenOptions ? onOptions : undefined}
-        style={[
+                      style={[
           styles.chatBubble,
           { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border },
           mine ? styles.chatBubbleMine : styles.chatBubbleOther,
@@ -1680,7 +1682,7 @@ function ProposalNoteChatBubble({ proposal, mine, canEdit, canReport, editing, d
         </View>
         {editing ? (
           <View style={styles.noteEditBox}>
-            <TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.proposalNote')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+            <TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.proposalNote')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
             {error ? <AppText style={styles.errorText}>{error}</AppText> : null}
             <View style={styles.inlineActions}>
               <SmallActionButton label={actionLoading === 'proposal-note' ? t('common.states.saving') : t('trade.proposals.saveProposal')} onPress={onSave} disabled={Boolean(actionLoading)} />
@@ -1714,7 +1716,7 @@ function PrivateMessageBubble({ message, mine, canEdit, canReport, editing, draf
       <Pressable
         disabled={!canOpenOptions}
         onLongPress={canOpenOptions ? onOptions : undefined}
-        style={[
+                      style={[
           styles.chatBubble,
           { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border },
           mine ? styles.chatBubbleMine : styles.chatBubbleOther,
@@ -1726,7 +1728,7 @@ function PrivateMessageBubble({ message, mine, canEdit, canReport, editing, draf
         </View>
         {editing ? (
           <View style={styles.noteEditBox}>
-            <TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.writeMessage')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+            <TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.writeMessage')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
             {error ? <AppText style={styles.errorText}>{error}</AppText> : null}
             <View style={styles.inlineActions}>
               <SmallActionButton label={actionLoading === 'message-edit' ? t('common.states.saving') : t('trade.proposals.saveMessage')} onPress={onSaveEdit} disabled={Boolean(actionLoading)} />
@@ -1766,7 +1768,7 @@ function ProposalDetailsSheet({ visible, proposal, requiredPackageSide, selected
   return (
     <View style={styles.infoScreenRoot}>
       <AppHeader title={t('trade.proposals.showProposalItemDetails')} onBack={onClose} />
-      <ScrollView contentContainerStyle={styles.infoScreenContent} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={styles.infoScreenContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
         <View style={[styles.infoHero, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}> 
           <SemanticBadge label={proposalPackageTitle(proposal, t)} tone="proposal" size="sm" />
           <AppText style={styles.infoHeroTitle}>{proposal.trade?.title ?? t('trade.proposals.tradeProposal')}</AppText>
@@ -1791,7 +1793,7 @@ function ProposalDetailsSheet({ visible, proposal, requiredPackageSide, selected
             {canEditProposalContent ? (
               <View style={[styles.sheetSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
                 <SemanticBadge label={t('trade.proposals.proposalNote')} tone="proposal" size="sm" />
-                {editingProposalNote ? <View style={styles.noteEditBox}><TextInput value={proposalNoteDraft} onChangeText={onChangeProposalNote} multiline autoFocus placeholder={t('trade.proposals.proposalNote')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{proposalNoteError ? <AppText style={styles.errorText}>{proposalNoteError}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={actionLoading === 'proposal-note' ? t('common.states.saving') : t('trade.proposals.saveProposal')} onPress={onSaveProposalNote} disabled={Boolean(actionLoading)} /><SmallActionButton label={t('common.actions.cancel')} onPress={onCancelProposalNoteEdit} disabled={Boolean(actionLoading)} muted /></View></View> : <View style={styles.inlineActions}><SmallActionButton label={proposal.messageDeletedAt ? t('trade.proposals.addProposalNote') : t('trade.proposals.editProposal')} onPress={onStartProposalNoteEdit} disabled={Boolean(actionLoading)} />{!proposal.messageDeletedAt ? <SmallActionButton label={t('trade.proposals.deleteProposalNote')} onPress={onDeleteProposalNote} disabled={Boolean(actionLoading)} danger /> : null}</View>}
+                {editingProposalNote ? <View style={styles.noteEditBox}><TextInput value={proposalNoteDraft} onChangeText={onChangeProposalNote} multiline autoFocus placeholder={t('trade.proposals.proposalNote')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{proposalNoteError ? <AppText style={styles.errorText}>{proposalNoteError}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={actionLoading === 'proposal-note' ? t('common.states.saving') : t('trade.proposals.saveProposal')} onPress={onSaveProposalNote} disabled={Boolean(actionLoading)} /><SmallActionButton label={t('common.actions.cancel')} onPress={onCancelProposalNoteEdit} disabled={Boolean(actionLoading)} muted /></View></View> : <View style={styles.inlineActions}><SmallActionButton label={proposal.messageDeletedAt ? t('trade.proposals.addProposalNote') : t('trade.proposals.editProposal')} onPress={onStartProposalNoteEdit} disabled={Boolean(actionLoading)} />{!proposal.messageDeletedAt ? <SmallActionButton label={t('trade.proposals.deleteProposalNote')} onPress={onDeleteProposalNote} disabled={Boolean(actionLoading)} danger /> : null}</View>}
               </View>
             ) : null}
 
@@ -1968,7 +1970,10 @@ function ProblemReportSheet({ visible, summary, error, loading, onChangeSummary,
             textAlignVertical="top"
             placeholder={t('trade.deal.problemReportPlaceholder')}
             placeholderTextColor={theme.color.muted}
-            style={[styles.problemTextArea, { backgroundColor: theme.color.subtleSurface, borderColor: error ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]}
+            inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
+                      returnKeyType="default"
+                      blurOnSubmit={false}
+                      style={[styles.problemTextArea, { backgroundColor: theme.color.subtleSurface, borderColor: error ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]}
           />
           {error ? <AppText style={styles.errorText}>{error}</AppText> : null}
           <View style={styles.inlineActions}>
@@ -1983,7 +1988,7 @@ function ProblemReportSheet({ visible, summary, error, loading, onChangeSummary,
 
 function CancelTradeForm({ reason, error, loading, onChangeReason, onCancel, onSubmit, t }: { reason: string; error: string | null; loading: boolean; onChangeReason: (text: string) => void; onCancel: () => void; onSubmit: () => void; t: TFunction }) {
   const theme = useThemeTokens();
-  return <View style={[styles.cancelBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={styles.cancelTitle}>{t('trade.proposals.cancelAcceptedTradeTitle')}</AppText><AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.cancelAcceptedTradeBody')}</AppText><TextInput value={reason} onChangeText={onChangeReason} multiline placeholder={t('trade.proposals.cancelReasonPlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{error ? <AppText style={styles.errorText}>{error}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={loading ? t('trade.proposals.cancellingTrade') : t('trade.proposals.cancelAcceptedTradeAction')} onPress={onSubmit} disabled={loading} danger /><SmallActionButton label={t('trade.proposals.keepAcceptedTrade')} onPress={onCancel} disabled={loading} muted /></View></View>;
+  return <View style={[styles.cancelBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={styles.cancelTitle}>{t('trade.proposals.cancelAcceptedTradeTitle')}</AppText><AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.cancelAcceptedTradeBody')}</AppText><TextInput value={reason} onChangeText={onChangeReason} multiline placeholder={t('trade.proposals.cancelReasonPlaceholder')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{error ? <AppText style={styles.errorText}>{error}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={loading ? t('trade.proposals.cancellingTrade') : t('trade.proposals.cancelAcceptedTradeAction')} onPress={onSubmit} disabled={loading} danger /><SmallActionButton label={t('trade.proposals.keepAcceptedTrade')} onPress={onCancel} disabled={loading} muted /></View></View>;
 }
 
 function SmallActionButton({ label, onPress, disabled, danger, muted }: { label: string; onPress: () => void; disabled?: boolean; danger?: boolean; muted?: boolean }) {

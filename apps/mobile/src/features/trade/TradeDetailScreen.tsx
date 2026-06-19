@@ -28,6 +28,7 @@ import { UserIdentityPressable } from '../users/UserIdentityPressable';
 import { resolveMediaUrl } from './mediaUrls';
 import { durationPresetLabel } from './components/InventoryFormFields';
 import type { NeedItem, OfferItem, TradeDeckItem, TradeProposalItem } from './types';
+import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
 
  type Props = NativeStackScreenProps<RootStackParamList, 'TradeDetail'>;
 type TradeResponse = { trade: TradeDeckItem };
@@ -303,7 +304,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
         accessibilityLabel={t('trade.detail.shareTrade')}
         disabled={actionLoading === 'share'}
         onPress={() => { void shareTrade(); }}
-        style={({ pressed }) => [styles.headerShareButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (pressed || actionLoading === 'share') && styles.pressed]}
+                      style={({ pressed }) => [styles.headerShareButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (pressed || actionLoading === 'share') && styles.pressed]}
       >
         <MobileIcon name="share" size={19} color={theme.color.text} />
       </Pressable>
@@ -318,7 +319,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
 
   return <AppFixedHeaderScreen header={header}>
     <>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
       <DetailHero
         eyebrow={`${formatStatus(trade.status, t)} · ${postTypeLabel(trade, t)}`}
         title={detailTitle(trade, t)}
@@ -399,7 +400,7 @@ function DetailIdentityPill({ label, user, userId }: { label: string; user?: Tra
 
 function TradeDetailLoadingState({ title, theme }: { title: string; theme: ThemeTokens }) {
   return (
-    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
       <View style={styles.loadingBlock}>
         <AppText style={[styles.loadingTitle, { color: theme.color.text }]}>{title}</AppText>
         <View style={styles.loadingGroup}>
@@ -452,7 +453,7 @@ function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, load
 
       <View style={styles.messageComposerBlock}>
         <AppText style={styles.threadLabel}>{t('trade.labels.message')}</AppText>
-        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit || messageTooShort ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
+        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit || messageTooShort ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
         <View style={styles.messageCounterRow}>
           <AppText style={[styles.messageLimitText, { color: theme.color.muted }]}>{t('trade.proposals.messageLimitHelper', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
           <AppText style={[styles.messageCounterText, { color: messageOverLimit || messageTooShort ? theme.semantic.danger.text : theme.color.muted }]}>{t('trade.proposals.messageCounter', { count: messageLength, max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>

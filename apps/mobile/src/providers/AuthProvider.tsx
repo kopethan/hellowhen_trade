@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import type { AuthUser, ForgotPasswordResponse, ResetPasswordResponse } from '@hellowhen/contracts';
-import { api } from '../lib/api';
+import { api, refreshMobileSession } from '../lib/api';
 import { useAppSettings } from './AppSettingsProvider';
 import { clearAuthTokens, getAccessToken, getRefreshToken, setAccessToken, setRefreshToken } from '../lib/tokenStore';
 
@@ -53,9 +54,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function refreshSession() {
-    const refreshToken = await getRefreshToken();
-    if (!refreshToken) return null;
-    const result = await api.auth.refresh({ refreshToken }) as AuthMeResponse;
+    const result = await refreshMobileSession() as AuthMeResponse | null;
+    if (!result) return null;
     await applyAuthResult(result);
     return result;
   }
@@ -81,12 +81,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const refreshToken = await getRefreshToken();
         if (!token && !refreshToken) return;
         try {
-          const result = token ? await api.auth.me() as AuthMeResponse : await api.auth.refresh({ refreshToken: refreshToken! }) as AuthMeResponse;
+          const result = token ? await api.auth.me() as AuthMeResponse : await refreshMobileSession() as AuthMeResponse | null;
+          if (!result) return;
           if (!mounted) return;
           await applyAuthResult(result);
         } catch (error) {
           if (isAuthError(error) && refreshToken) {
-            const result = await api.auth.refresh({ refreshToken }) as AuthMeResponse;
+            const result = await refreshMobileSession() as AuthMeResponse | null;
+            if (!result) return;
             if (!mounted) return;
             await applyAuthResult(result);
           } else {
@@ -104,6 +106,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     void hydrate();
     return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    let lastState: AppStateStatus = AppState.currentState;
+
+    async function refreshOnResume() {
+      const refreshToken = await getRefreshToken();
+      if (!refreshToken) return;
+
+      try {
+        const result = await refreshMobileSession() as AuthMeResponse | null;
+        if (!result || !mounted) return;
+        await applyAuthResult(result);
+      } catch (error) {
+        if (isAuthError(error)) {
+          await clearAuthTokens();
+          if (mounted) setUser(null);
+        }
+      }
+    }
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const wasInactive = lastState === 'inactive' || lastState === 'background';
+      lastState = nextState;
+      if (nextState === 'active' && wasInactive) {
+        void refreshOnResume();
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
   }, []);
 
   const value = useMemo<AuthContextValue>(() => ({

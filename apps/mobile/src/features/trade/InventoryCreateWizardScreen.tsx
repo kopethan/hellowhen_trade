@@ -393,7 +393,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
         accessibilityState={{ expanded, disabled }}
         disabled={disabled}
         onPress={onPress}
-        style={({ pressed }) => [
+                      style={({ pressed }) => [
           styles.compactToggle,
           { backgroundColor: theme.color.surface, borderColor: theme.color.border },
           disabled && styles.disabled,

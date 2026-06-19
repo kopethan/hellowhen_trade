@@ -5,6 +5,7 @@ import { findInventoryCategoryOption, getAlternateInventoryLanguage, inventoryCa
 import { AppText } from '../../../components/AppText';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { useTranslation } from '../../../providers/MobileI18nProvider';
+import { KEYBOARD_DONE_ACCESSORY_ID } from '../../../components/KeyboardDoneAccessory';
 
 export const inventoryItemTypes: InventoryItemType[] = ['service', 'goods', 'other'];
 export const exchangeModes: TradeExchangeMode[] = ['remote', 'local', 'hybrid'];
@@ -152,7 +153,10 @@ export function InventoryTextField({
         multiline={multiline}
         maxLength={maxLength}
         textAlignVertical={multiline ? 'top' : 'center'}
-        style={[styles.input, { backgroundColor: theme.color.surface, borderColor: error ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }, multiline && styles.textarea]}
+        inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
+                      returnKeyType={multiline ? 'default' : 'done'}
+                      blurOnSubmit={!multiline}
+                      style={[styles.input, { backgroundColor: theme.color.surface, borderColor: error ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }, multiline && styles.textarea]}
       />
       {error ? <AppText style={[styles.fieldError, { color: theme.semantic.danger.text }]}>{error}</AppText> : null}
     </View>
@@ -210,7 +214,7 @@ export function AddTranslationButton({ defaultLanguage, onAdd, disabled }: { def
       <Pressable
         disabled={disabled}
         onPress={onAdd}
-        style={({ pressed }) => [styles.modeButton, styles.addLanguageButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, disabled && styles.disabled, pressed && styles.pressed]}
+                      style={({ pressed }) => [styles.modeButton, styles.addLanguageButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, disabled && styles.disabled, pressed && styles.pressed]}
       >
         <AppText style={[styles.modeButtonText, { color: theme.color.text }]}>{t('inventory.actions.addLanguage')} · {inventoryLanguageLabel(translationLanguage, t)}</AppText>
       </Pressable>

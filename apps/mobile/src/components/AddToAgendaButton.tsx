@@ -14,6 +14,7 @@ import { useThemeTokens } from '../providers/ThemeProvider';
 import { AppText } from './AppText';
 import { MobileIcon } from './MobileIcon';
 import { SemanticBadge, toneForKind } from './SemanticUI';
+import { KEYBOARD_DONE_ACCESSORY_ID } from './KeyboardDoneAccessory';
 
 type LinkedAgendaSourceType = Exclude<AgendaItemSourceType, 'custom'>;
 
@@ -189,7 +190,7 @@ export function AddToAgendaButton({
         accessibilityLabel={label}
         disabled={disabled || saving}
         onPress={openSheet}
-        style={({ pressed }) => [
+                      style={({ pressed }) => [
           compact || !showLabel ? styles.iconButton : styles.button,
           { backgroundColor: compact || !showLabel ? theme.color.surface : theme.semantic.proposal.softBg, borderColor: compact || !showLabel ? theme.color.border : theme.semantic.proposal.border },
           pressed && !(disabled || saving) && styles.pressed,
@@ -227,16 +228,19 @@ export function AddToAgendaButton({
                       onChangeText={setDate}
                       placeholder={t('account.agenda.datePlaceholder')}
                       placeholderTextColor={theme.color.muted}
+                      inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
+                      returnKeyType="done"
+                      blurOnSubmit={true}
                       style={[styles.input, styles.dateInput, { backgroundColor: theme.color.surface, borderColor: dateError ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]}
                     />
-                    {!allDay ? <TextInput value={time} onChangeText={setTime} placeholder={t('account.agenda.timePlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, styles.shortInput, { backgroundColor: theme.color.surface, borderColor: dateError ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]} /> : null}
+                    {!allDay ? <TextInput value={time} onChangeText={setTime} placeholder={t('account.agenda.timePlaceholder')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="done" blurOnSubmit={true} style={[styles.input, styles.shortInput, { backgroundColor: theme.color.surface, borderColor: dateError ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]} /> : null}
                   </View>
                 </View>
 
                 {!allDay ? (
                   <View style={styles.fieldBlock}>
                     <AppText style={styles.fieldLabel}>{t('account.agenda.editor.endLabel')}</AppText>
-                    <TextInput value={endTime} onChangeText={setEndTime} placeholder={t('account.agenda.optionalEndPlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: dateError ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]} />
+                    <TextInput value={endTime} onChangeText={setEndTime} placeholder={t('account.agenda.optionalEndPlaceholder')} placeholderTextColor={theme.color.muted} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="done" blurOnSubmit={true} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: dateError ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]} />
                   </View>
                 ) : null}
 
@@ -259,7 +263,10 @@ export function AddToAgendaButton({
                     textAlignVertical="top"
                     placeholder={t('account.agenda.add.notePlaceholder')}
                     placeholderTextColor={theme.color.muted}
-                    style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
+                    inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
+                      returnKeyType="default"
+                      blurOnSubmit={false}
+                      style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
                   />
                 </View>
 

@@ -22,6 +22,7 @@ import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { UserIdentityPressable } from '../users/UserIdentityPressable';
 import type { TradeOwnerPreview } from './types';
+import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TradePublicDiscussion'>;
 type MessagesResponse = { messages: TradePublicMessageItem[] };
@@ -274,6 +275,7 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadMessages(); }} />}
         >
           {error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}
@@ -308,7 +310,10 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
             placeholderTextColor={theme.color.muted}
             multiline
             textAlignVertical="top"
-            style={[styles.composerInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
+            inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
+                      returnKeyType="default"
+                      blurOnSubmit={false}
+                      style={[styles.composerInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
           />
           <Pressable accessibilityRole="button" disabled={!canSend} onPress={() => { void sendMessage(); }} style={({ pressed }) => [styles.sendButton, { backgroundColor: theme.color.text }, (!canSend) && styles.disabled, pressed && canSend && styles.pressed]}>
             <MobileIcon name="proposal" size={18} color={theme.color.background} />
@@ -369,7 +374,7 @@ function PublicThreadGuideScreen({ onClose, t }: { onClose: () => void; t: TFunc
 
   return (
     <AppFixedHeaderScreen header={<AppHeader title={t('trade.publicDiscussion.guideTitle')} onBack={onClose} />}>
-      <ScrollView contentContainerStyle={styles.infoContent} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.infoContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
         <AppText style={styles.infoTitle}>{t('trade.publicDiscussion.guideIntroTitle')}</AppText>
         <AppText style={[styles.infoBody, { color: theme.color.muted }]}>{t('trade.publicDiscussion.guideIntroBody')}</AppText>
         <View style={[styles.fullBleedDivider, { backgroundColor: theme.color.border }]} />
@@ -423,7 +428,7 @@ function PublicMessageRow({ message, currentUserId, actionTarget, editDraft, sen
       </View>
       {actionMode === 'edit' ? (
         <View style={styles.editBox}>
-          <TextInput value={editDraft} onChangeText={onChangeEdit} multiline textAlignVertical="top" style={[styles.editInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+          <TextInput value={editDraft} onChangeText={onChangeEdit} multiline textAlignVertical="top" inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.editInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
           <View style={styles.actionRow}>
             <SmallAction label={t('common.actions.save')} disabled={sending || editDraft.trim().length < 1} tone="primary" theme={theme} onPress={onSaveEdit} />
             <SmallAction label={t('common.actions.cancel')} disabled={sending} tone="ghost" theme={theme} onPress={onCancelAction} />

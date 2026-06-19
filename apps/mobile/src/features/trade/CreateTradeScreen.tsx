@@ -795,7 +795,7 @@ function ExchangeSideBlock({ theme, side, stepPrefix, title, emptyTitle, selecti
       <Pressable
         accessibilityRole="button"
         onPress={onOpenSourceSheet}
-        style={({ pressed }) => [styles.sourceLauncherButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
+                      style={({ pressed }) => [styles.sourceLauncherButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
       >
         <View style={[styles.sourceLauncherIcon, { backgroundColor: theme.semantic[tone].softBg, borderColor: theme.semantic[tone].border }]}>
           <MobileIcon name={side} size={17} color={theme.semantic[tone].text} />
@@ -843,7 +843,7 @@ function DetailsStep({ theme, expiryDays, onExpiryChange }: { theme: ThemeTokens
       <Pressable
         accessibilityRole="button"
         onPress={() => setExpiryExpanded((expanded) => !expanded)}
-        style={({ pressed }) => [styles.detailsCompactRow, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
+                      style={({ pressed }) => [styles.detailsCompactRow, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
       >
         <View style={styles.detailsCompactCopy}>
           <AppText style={styles.detailsCompactLabel}>{t('trade.create.expiryTitle')}</AppText>

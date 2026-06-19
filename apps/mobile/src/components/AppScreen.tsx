@@ -1,7 +1,8 @@
 import React from 'react';
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Keyboard, StyleSheet, TouchableWithoutFeedback, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeTokens } from '../providers/ThemeProvider';
+import { KeyboardDoneAccessory } from './KeyboardDoneAccessory';
 
 export const APP_SCREEN_HORIZONTAL_PADDING = 18;
 
@@ -10,18 +11,21 @@ export function AppScreen({ children, style }: { children: React.ReactNode; styl
   const insets = useSafeAreaInsets();
 
   return (
-    <View
-      style={[
-        styles.screen,
-        {
-          backgroundColor: theme.color.background,
-          paddingTop: insets.top + 18,
-        },
-        style,
-      ]}
-    >
-      {children}
-    </View>
+    <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
+      <View
+                      style={[
+          styles.screen,
+          {
+            backgroundColor: theme.color.background,
+            paddingTop: insets.top + 18,
+          },
+          style,
+        ]}
+      >
+        {children}
+        <KeyboardDoneAccessory />
+      </View>
+    </TouchableWithoutFeedback>
   );
 }
 

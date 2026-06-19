@@ -22,7 +22,8 @@
       },
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Hellowhen lets you choose photos for your profile, needs, offers, trade references, reports, and support screenshots."
-      }
+      },
+      "icon": "./assets/ios-icon.png"
     },
     "android": {
       "adaptiveIcon": {

@@ -10,6 +10,7 @@ import { useThemeTokens } from '../providers/ThemeProvider';
 import { AppText } from './AppText';
 import { MobileIcon } from './MobileIcon';
 import { InfoNotice } from './SemanticUI';
+import { KEYBOARD_DONE_ACCESSORY_ID } from './KeyboardDoneAccessory';
 
 type ReportContentPanelProps = {
   targetType: ReportTargetType;
@@ -57,7 +58,7 @@ export function ReportContentPanel({ targetType, targetId, labelKey = 'report.bu
         accessibilityRole="button"
         onPress={() => setOpen((value) => !value)}
         disabled={loading}
-        style={({ pressed }) => [styles.button, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, loading && styles.disabled]}
+                      style={({ pressed }) => [styles.button, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, loading && styles.disabled]}
       >
         <MobileIcon name="report-flag" size={17} color={theme.semantic.danger.text} />
         <AppText style={[styles.buttonText, { color: theme.semantic.danger.text }]}>{open ? t('report.cancel') : t(labelKey)}</AppText>
@@ -84,7 +85,7 @@ function ReportForm({ theme, reason, details, loading, helper, onReasonChange, o
         })}
       </View>
       <AppText style={styles.label}>{t('report.detailsOptional')}</AppText>
-      <TextInput value={details} onChangeText={onDetailsChange} placeholder={t('report.detailsPlaceholder')} placeholderTextColor={theme.color.muted} multiline textAlignVertical="top" style={[styles.input, { color: theme.color.text, backgroundColor: theme.color.surface, borderColor: theme.color.border }]} />
+      <TextInput value={details} onChangeText={onDetailsChange} placeholder={t('report.detailsPlaceholder')} placeholderTextColor={theme.color.muted} multiline textAlignVertical="top" inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType="default" blurOnSubmit={false} style={[styles.input, { color: theme.color.text, backgroundColor: theme.color.surface, borderColor: theme.color.border }]} />
       <Pressable accessibilityRole="button" disabled={loading} onPress={onSubmit} style={({ pressed }) => [styles.submit, { backgroundColor: theme.color.text }, pressed && styles.pressed, loading && styles.disabled]}>
         <AppText style={[styles.submitText, { color: theme.color.background }]}>{loading ? t('report.sending') : t('report.send')}</AppText>
       </Pressable>
