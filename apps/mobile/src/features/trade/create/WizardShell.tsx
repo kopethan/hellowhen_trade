@@ -52,6 +52,7 @@ export function WizardShell<TStepId extends string>({
     >
       <ScrollView
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, contentContainerStyle]}
       >

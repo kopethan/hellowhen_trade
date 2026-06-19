@@ -1,5 +1,5 @@
 import React from 'react';
-import { Keyboard, StyleSheet, TouchableWithoutFeedback, View, type StyleProp, type ViewStyle } from 'react-native';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeTokens } from '../providers/ThemeProvider';
 import { KeyboardDoneAccessory } from './KeyboardDoneAccessory';
@@ -11,21 +11,19 @@ export function AppScreen({ children, style }: { children: React.ReactNode; styl
   const insets = useSafeAreaInsets();
 
   return (
-    <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
-      <View
-                      style={[
-          styles.screen,
-          {
-            backgroundColor: theme.color.background,
-            paddingTop: insets.top + 18,
-          },
-          style,
-        ]}
-      >
-        {children}
-        <KeyboardDoneAccessory />
-      </View>
-    </TouchableWithoutFeedback>
+    <View
+      style={[
+        styles.screen,
+        {
+          backgroundColor: theme.color.background,
+          paddingTop: insets.top + 18,
+        },
+        style,
+      ]}
+    >
+      {children}
+      <KeyboardDoneAccessory />
+    </View>
   );
 }
 

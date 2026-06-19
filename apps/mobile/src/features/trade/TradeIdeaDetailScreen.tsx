@@ -189,7 +189,12 @@ export function TradeIdeaDetailScreen({ route, navigation }: Props) {
         <AppText style={[styles.headerTitle, { color: theme.color.text }]}>{t('trade.ideaDetail.header')}</AppText>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        contentContainerStyle={styles.content}
+      >
         <View style={[styles.heroCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
           <SemanticBadge label={`${t(getIdeaTypeLabelKey(ideaKey))} · ${pack}`} tone="instruction" />
           <AppText style={[styles.heroTitle, { color: theme.color.text }]}>{title}</AppText>

@@ -261,6 +261,8 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProfile(); }} tintColor={theme.color.text} />}
       >
         {notice ? <InfoNotice tone="success" title={t('common.states.done')} body={notice} /> : null}
