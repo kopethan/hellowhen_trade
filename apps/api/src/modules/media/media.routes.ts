@@ -5,6 +5,7 @@ import path from 'node:path';
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import multer from 'multer';
+import sharp from 'sharp';
 import { listMyMediaQuerySchema } from '@hellowhen/contracts';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
@@ -13,6 +14,11 @@ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { createRateLimiter } from '../../middleware/rateLimit.js';
 
 const maxImageBytes = 5 * 1024 * 1024;
+const maxOptimizedImageDimension = 1600;
+const optimizedJpegQuality = 86;
+const optimizedWebpQuality = 84;
+const activeUploadCacheSeconds = 24 * 60 * 60;
+const reviewUploadCacheSeconds = 5 * 60;
 const maxUnattachedActiveImagesPerUser = 20;
 const publicUploadNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:jpg|jpeg|png|webp)$/i;
 const supportedImageMimeTypes = ['image/jpeg', 'image/png', 'image/webp'] as const;
@@ -80,6 +86,29 @@ async function removeUploadedFile(filePath: string) {
   await fsp.rm(filePath, { force: true }).catch(() => undefined);
 }
 
+async function optimizeUploadedImage(buffer: Buffer, mimeType: SupportedImageMimeType): Promise<Buffer | null> {
+  try {
+    const pipeline = sharp(buffer, { failOn: 'none', animated: false })
+      .rotate()
+      .resize({
+        width: maxOptimizedImageDimension,
+        height: maxOptimizedImageDimension,
+        fit: 'inside',
+        withoutEnlargement: true
+      });
+
+    if (mimeType === 'image/jpeg') {
+      return await pipeline.jpeg({ quality: optimizedJpegQuality, progressive: true, mozjpeg: true }).toBuffer();
+    }
+    if (mimeType === 'image/png') {
+      return await pipeline.png({ compressionLevel: 9, adaptiveFiltering: true }).toBuffer();
+    }
+    return await pipeline.webp({ quality: optimizedWebpQuality, effort: 4 }).toBuffer();
+  } catch {
+    return null;
+  }
+}
+
 async function verifyUploadedImage(file: Express.Multer.File): Promise<VerifiedUpload | null> {
   const buffer = await fsp.readFile(file.path);
   const detected = detectImageType(buffer);
@@ -88,11 +117,23 @@ async function verifyUploadedImage(file: Express.Multer.File): Promise<VerifiedU
     return null;
   }
 
+  const optimizedBuffer = await optimizeUploadedImage(buffer, detected.mimeType);
+  const optimizedDetected = optimizedBuffer ? detectImageType(optimizedBuffer) : null;
+  const shouldUseOptimized = Boolean(
+    optimizedBuffer
+    && optimizedDetected?.mimeType === detected.mimeType
+    && optimizedDetected.extension === detected.extension
+    && optimizedBuffer.length > 0
+    && optimizedBuffer.length < buffer.length
+  );
+
+  const finalBuffer = shouldUseOptimized ? optimizedBuffer! : buffer;
   const safeBase = path.basename(file.filename, path.extname(file.filename));
   const verifiedFilename = `${safeBase}${detected.extension}`;
   const verifiedPath = path.join(env.uploadDir, verifiedFilename);
-  if (verifiedPath !== file.path) await fsp.rename(file.path, verifiedPath);
-  return { filename: verifiedFilename, mimeType: detected.mimeType, sizeBytes: buffer.length };
+  await fsp.writeFile(verifiedPath, finalBuffer);
+  if (verifiedPath !== file.path) await removeUploadedFile(file.path);
+  return { filename: verifiedFilename, mimeType: detected.mimeType, sizeBytes: finalBuffer.length };
 }
 
 function resolveUploadPath(storageKey: string) {
@@ -111,6 +152,15 @@ function setUploadResponseHeaders(res: Response) {
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+}
+
+function getUploadCacheControl(status: string) {
+  if (status === 'active') return `public, max-age=${activeUploadCacheSeconds}, stale-while-revalidate=${activeUploadCacheSeconds}`;
+  return `private, max-age=${reviewUploadCacheSeconds}, stale-while-revalidate=${reviewUploadCacheSeconds}`;
+}
+
+function getUploadEtag(stat: fs.Stats) {
+  return `W/\"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}\"`;
 }
 
 async function requireUnattachedUploadSlot(req: Request, res: Response, next: NextFunction) {
@@ -147,7 +197,7 @@ export async function serveUploadedMedia(req: Request, res: Response, next: Next
     // pending/flagged images by unguessable storage key so owners and admins can
     // preview review-state images without making removed media available.
     where: { storageKey, status: { in: ['active', 'pending_review', 'flagged'] } },
-    select: { storageKey: true, filename: true, mimeType: true, sizeBytes: true }
+    select: { storageKey: true, filename: true, mimeType: true, sizeBytes: true, status: true }
   });
   if (!media || !isSupportedImageMimeType(media.mimeType)) {
     return res.status(404).json({ error: 'not_found' });
@@ -159,7 +209,12 @@ export async function serveUploadedMedia(req: Request, res: Response, next: Next
   const stat = await fsp.stat(filePath).catch(() => null);
   if (!stat?.isFile()) return res.status(404).json({ error: 'not_found' });
 
-  res.setHeader('Cache-Control', 'no-store');
+  const etag = getUploadEtag(stat);
+  res.setHeader('Cache-Control', getUploadCacheControl(media.status));
+  res.setHeader('ETag', etag);
+  res.setHeader('Last-Modified', stat.mtime.toUTCString());
+  if (req.headers['if-none-match'] === etag) return res.status(304).end();
+
   res.setHeader('Content-Type', media.mimeType);
   res.setHeader('Content-Length', String(stat.size));
   res.setHeader('Content-Disposition', `inline; filename="${headerSafeFilename(media.filename || media.storageKey)}"`);
