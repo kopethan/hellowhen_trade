@@ -1,0 +1,154 @@
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index bb346c9..51305e5 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -54,6 +54,8 @@ type Props = NativeStackScreenProps<RootStackParamList, 'CreateTrade'>;
+ type NeedsResponse = { needs: NeedItem[] };
+ type OffersResponse = { offers: OfferItem[] };
+ type CreateTradeResponse = { trade: TradeDeckItem };
++type CreateNeedResponse = { need: NeedItem };
++type CreateOfferResponse = { offer: OfferItem };
+ 
+ type InventoryTemplatesResponse = { templates?: InventoryTemplateDto[] };
+ type CloneInventoryTemplateResponse = { need?: NeedItem; offer?: OfferItem };
+@@ -76,6 +78,18 @@ function clonedOfferFromResponse(value: unknown): OfferItem | null {
+   return offer && typeof offer.id === 'string' ? offer : null;
+ }
+ 
++function firstMetaPart(value: string) {
++  return value.split('·')[0]?.trim() || undefined;
++}
++
++function modeFromMeta(value: string): TradeExchangeMode | undefined {
++  const lower = value.toLowerCase();
++  if (lower.includes('hybrid')) return 'hybrid';
++  if (lower.includes('local') || lower.includes('paris')) return 'local';
++  if (lower.includes('remote')) return 'remote';
++  return undefined;
++}
++
+ 
+ type PostTypeOption = { value: TradePostType; labelKey: string; badgeKey: string; titleKey: string; bodyKey: string; icon: 'trade' | 'need' | 'offer'; tone: 'trade' | 'need' | 'offer' };
+ type TradeWizardStepId = 'type' | 'exchange' | 'details' | 'review';
+@@ -340,6 +354,67 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+     void applyFeedIdeaToDraft(routeIdeaKey);
+   }, [appliedIdeaKey, applyingIdea, auth.hydrated, auth.isAuthenticated, autoApplyAttemptedIdeaKey, resourcesLoaded, routeIdeaKey, selectedFeedIdea]);
+ 
++  async function loadStarterTemplate(kind: 'need' | 'offer', templateKey: string) {
++    const templatesResponse = await api.inventoryTemplates.list({ sourceType: 'hellowhen', kind, language, take: 100 });
++    const templateKeys = getLocalizedTemplateKeyCandidates(templateKey);
++    return normalizeTemplateResponse(templatesResponse).find((template) => template.kind === kind && templateKeys.includes(template.key)) ?? null;
++  }
++
++  async function createFallbackNeedFromFeedIdea(ideaKey: FeedTradeIdeaKey) {
++    const needMetaText = t(`trade.feedIdeas.items.${ideaKey}.needMeta`);
++    const response = await api.needs.create({
++      title: t(`trade.feedIdeas.items.${ideaKey}.need`),
++      description: t(`trade.feedIdeas.items.${ideaKey}.body`),
++      defaultLanguage: language,
++      translations: [],
++      itemType: 'service',
++      category: firstMetaPart(needMetaText),
++      mode: modeFromMeta(needMetaText),
++      tags: [],
++      previewTheme: 'default',
++      status: 'active',
++    }) as CreateNeedResponse;
++    return response.need;
++  }
++
++  async function createFallbackOfferFromFeedIdea(ideaKey: FeedTradeIdeaKey) {
++    const offerMetaText = t(`trade.feedIdeas.items.${ideaKey}.offerMeta`);
++    const response = await api.offers.create({
++      title: t(`trade.feedIdeas.items.${ideaKey}.offer`),
++      description: t(`trade.feedIdeas.items.${ideaKey}.body`),
++      defaultLanguage: language,
++      translations: [],
++      itemType: 'service',
++      category: firstMetaPart(offerMetaText),
++      mode: modeFromMeta(offerMetaText),
++      includes: [],
++      tags: [],
++      previewTheme: 'default',
++      status: 'active',
++    }) as CreateOfferResponse;
++    return response.offer;
++  }
++
++  async function cloneOrCreateStarterNeed(ideaKey: FeedTradeIdeaKey, templateKey: string) {
++    const template = await loadStarterTemplate('need', templateKey);
++    if (template) {
++      const response = await api.inventoryTemplates.clone(template.id, { status: 'active' });
++      const clonedNeed = clonedNeedFromResponse(response);
++      if (clonedNeed) return clonedNeed;
++    }
++    return createFallbackNeedFromFeedIdea(ideaKey);
++  }
++
++  async function cloneOrCreateStarterOffer(ideaKey: FeedTradeIdeaKey, templateKey: string) {
++    const template = await loadStarterTemplate('offer', templateKey);
++    if (template) {
++      const response = await api.inventoryTemplates.clone(template.id, { status: 'active' });
++      const clonedOffer = clonedOfferFromResponse(response);
++      if (clonedOffer) return clonedOffer;
++    }
++    return createFallbackOfferFromFeedIdea(ideaKey);
++  }
++
+   async function applyFeedIdeaToDraft(ideaKey: FeedTradeIdeaKey) {
+     const idea = feedTradeIdeas[ideaKey];
+     if (!auth.isAuthenticated) {
+@@ -349,23 +424,10 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+     setApplyingIdea(ideaKey);
+     setError(null);
+     try {
+-      const templatesResponse = await api.inventoryTemplates.list({ sourceType: 'hellowhen', language, take: 100 });
+-      const templates = normalizeTemplateResponse(templatesResponse);
+-      const needTemplateKeys = feedTradeIdeaHasNeed(idea) ? getLocalizedTemplateKeyCandidates(idea.needTemplateKey) : [];
+-      const offerTemplateKeys = feedTradeIdeaHasOffer(idea) ? getLocalizedTemplateKeyCandidates(idea.offerTemplateKey) : [];
+-      const needTemplate = feedTradeIdeaHasNeed(idea) ? templates.find((template) => needTemplateKeys.includes(template.key) && template.kind === 'need') : null;
+-      const offerTemplate = feedTradeIdeaHasOffer(idea) ? templates.find((template) => offerTemplateKeys.includes(template.key) && template.kind === 'offer') : null;
+-      if (feedTradeIdeaHasNeed(idea) && !needTemplate) throw new Error(t('trade.feedIdeas.applyMissingNeed'));
+-      if (feedTradeIdeaHasOffer(idea) && !offerTemplate) throw new Error(t('trade.feedIdeas.applyMissingOffer'));
+-
+-      const [needResponse, offerResponse] = await Promise.all([
+-        needTemplate ? api.inventoryTemplates.clone(needTemplate.id, { status: 'active' }) : Promise.resolve(null),
+-        offerTemplate ? api.inventoryTemplates.clone(offerTemplate.id, { status: 'active' }) : Promise.resolve(null),
++      const [clonedNeed, clonedOffer] = await Promise.all([
++        feedTradeIdeaHasNeed(idea) ? cloneOrCreateStarterNeed(ideaKey, idea.needTemplateKey) : Promise.resolve(null),
++        feedTradeIdeaHasOffer(idea) ? cloneOrCreateStarterOffer(ideaKey, idea.offerTemplateKey) : Promise.resolve(null),
+       ]);
+-      const clonedNeed = needResponse ? clonedNeedFromResponse(needResponse) : null;
+-      const clonedOffer = offerResponse ? clonedOfferFromResponse(offerResponse) : null;
+-      if (feedTradeIdeaHasNeed(idea) && !clonedNeed) throw new Error(t('trade.feedIdeas.applyError'));
+-      if (feedTradeIdeaHasOffer(idea) && !clonedOffer) throw new Error(t('trade.feedIdeas.applyError'));
+       const nextPostType = getFeedTradeIdeaPostType(idea);
+ 
+       if (clonedNeed) setNeeds((current) => [clonedNeed, ...current.filter((need) => need.id !== clonedNeed.id)]);
+@@ -450,7 +512,12 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+     return null;
+   }
+ 
+-  function handleNext() {
++  async function handleNext() {
++    if (showFeedIdeaPanel && routeIdeaKey && !applyingIdea) {
++      await applyFeedIdeaToDraft(routeIdeaKey);
++      return;
++    }
++
+     const validationError = validateStep(activeStepId);
+     if (validationError) {
+       setError(validationError);
+@@ -613,9 +680,9 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+       footer={(
+         <WizardFooter
+           primaryLabel={isReviewStep ? publishButtonLabel : t('common.actions.continue')}
+-          primaryLoading={submitting}
+-          primaryLoadingLabel={t('trade.create.publishing')}
+-          primaryDisabled={loading}
++          primaryLoading={submitting || Boolean(applyingIdea)}
++          primaryLoadingLabel={applyingIdea ? t('trade.feedIdeas.applySaving') : t('trade.create.publishing')}
++          primaryDisabled={loading || Boolean(applyingIdea)}
+           onPrimary={isReviewStep ? handlePublish : handleNext}
+           secondaryLabel={isFirstStep ? undefined : t('common.actions.back')}
+           onSecondary={isFirstStep ? undefined : handlePrevious}
