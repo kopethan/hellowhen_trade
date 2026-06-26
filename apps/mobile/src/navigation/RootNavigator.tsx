@@ -64,6 +64,8 @@ type InventoryCreateParams = { returnTo?: InventoryCreateReturnTarget; tradeId?:
 
 export type RootStackParamList = {
   TradeTabs: undefined;
+  MyNeeds: undefined;
+  MyOffers: undefined;
   AccountProfile: undefined;
   Notifications: undefined;
   SavedLibrary: undefined;
@@ -269,6 +271,8 @@ export function RootNavigator() {
     <Stack.Navigator initialRouteName={onboardingGuide.completed ? 'TradeTabs' : 'OnboardingGuide'} screenOptions={{ headerShown: false }}>
       <Stack.Screen name="TradeTabs" component={TradeTabs} />
       <Stack.Screen name="TradeDetail" component={TradeDetailScreen} />
+      <Stack.Screen name="MyNeeds" component={ProtectedMyNeedsScreen} />
+      <Stack.Screen name="MyOffers" component={ProtectedMyOffersScreen} />
       <Stack.Screen name="TradeIdeaDetail" component={TradeIdeaDetailScreen} />
       <Stack.Screen name="UserProfile" component={PublicUserProfileScreen} />
       <Stack.Screen name="OnboardingGuide" component={OnboardingGuideScreen} initialParams={{ replay: false }} />

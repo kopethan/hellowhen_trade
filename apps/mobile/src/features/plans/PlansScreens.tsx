@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { MediaAssetDto, PlaceDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
@@ -336,7 +336,7 @@ function PlaceRow({ place, onPress }: { place: PlaceDto; onPress?: () => void })
   );
 }
 
-function PlanList({ scope, navigation }: { scope: PlanListScope; navigation: NativeStackNavigationProp<RootStackParamList> }) {
+function PlanList({ scope, navigation }: { scope: PlanListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'> }) {
   const theme = useThemeTokens();
   const [plans, setPlans] = useState<PlanDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -410,7 +410,7 @@ function PlanDeckSection({ plan, index, total, onPress }: { plan: PlanDto; index
   );
 }
 
-function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: NativeStackNavigationProp<RootStackParamList> }) {
+function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'> }) {
   const theme = useThemeTokens();
   const [places, setPlaces] = useState<PlaceDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -481,7 +481,9 @@ function SkeletonNotice({ title, body }: { title: string; body: string }) {
   );
 }
 
-export function PlansScreen({ navigation }: PlansScreenProps) {
+export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
+  const fallbackNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = (props.navigation ?? fallbackNavigation) as NativeStackNavigationProp<RootStackParamList>;
   const theme = useThemeTokens();
   const [scope, setScope] = useState<PlanListScope>('feed');
   const [menuOpen, setMenuOpen] = useState(false);

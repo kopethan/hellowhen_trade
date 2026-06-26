@@ -70,7 +70,7 @@ function clampTake(value: unknown, fallback = 100, max = 250) {
   return Math.min(Math.max(parsed, 1), max);
 }
 
-async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' | 'trade' | 'inventory_template' | 'profile' | 'support_ticket' | 'support_message' | 'plan' | 'plan_place' | null; entityId: string | null }>(media: T[]) {
+async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' | 'trade' | 'inventory_template' | 'profile' | 'support_ticket' | 'support_message' | 'plan' | 'plan_place' | 'place' | null; entityId: string | null }>(media: T[]) {
   const needIds = media.filter((item) => item.entityType === 'need' && item.entityId).map((item) => item.entityId!);
   const offerIds = media.filter((item) => item.entityType === 'offer' && item.entityId).map((item) => item.entityId!);
   const tradeIds = media.filter((item) => item.entityType === 'trade' && item.entityId).map((item) => item.entityId!);
@@ -80,8 +80,9 @@ async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' |
   const supportMessageIds = media.filter((item) => item.entityType === 'support_message' && item.entityId).map((item) => item.entityId!);
   const planIds = media.filter((item) => item.entityType === 'plan' && item.entityId).map((item) => item.entityId!);
   const planPlaceIds = media.filter((item) => item.entityType === 'plan_place' && item.entityId).map((item) => item.entityId!);
+  const placeIds = media.filter((item) => item.entityType === 'place' && item.entityId).map((item) => item.entityId!);
 
-  const [needs, offers, trades, inventoryTemplates, profiles, supportTickets, supportMessages, plans, planPlaces] = await Promise.all([
+  const [needs, offers, trades, inventoryTemplates, profiles, supportTickets, supportMessages, plans, planPlaces, places] = await Promise.all([
     needIds.length ? prisma.need.findMany({ where: { id: { in: needIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, timing: true, availabilityPreset: true, estimatedDurationPreset: true, mode: true, locationLabel: true } }) : [],
     offerIds.length ? prisma.offer.findMany({ where: { id: { in: offerIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, availability: true, availabilityPreset: true, typicalDurationPreset: true, mode: true, locationLabel: true } }) : [],
     tradeIds.length ? prisma.trade.findMany({ where: { id: { in: tradeIds } }, select: { id: true, ownerId: true, title: true, status: true, needId: true, offerId: true, creditAmount: true } }) : [],
@@ -90,7 +91,8 @@ async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' |
     supportTicketIds.length ? prisma.supportTicket.findMany({ where: { id: { in: supportTicketIds } }, select: { id: true, userId: true, subject: true, status: true, priority: true, category: true } }) : [],
     supportMessageIds.length ? prisma.supportTicketMessage.findMany({ where: { id: { in: supportMessageIds } }, select: { id: true, ticketId: true, senderId: true, senderRole: true, body: true, createdAt: true } }) : [],
     planIds.length ? prisma.plan.findMany({ where: { id: { in: planIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, mode: true, locationLabel: true, startsAt: true, endsAt: true } }) : [],
-    planPlaceIds.length ? prisma.planPlace.findMany({ where: { id: { in: planPlaceIds } }, select: { id: true, planId: true, title: true, note: true, addressPublicText: true, startsAt: true, endsAt: true } }) : []
+    planPlaceIds.length ? prisma.planPlace.findMany({ where: { id: { in: planPlaceIds } }, select: { id: true, planId: true, title: true, note: true, addressPublicText: true, startsAt: true, endsAt: true } }) : [],
+    placeIds.length ? prisma.place.findMany({ where: { id: { in: placeIds } }, select: { id: true, ownerId: true, source: true, title: true, status: true, visibility: true, category: true, mode: true, areaLabel: true, onlineLabel: true } }) : []
   ]);
 
   const needsById = new Map(needs.map((need) => [need.id, need]));
@@ -102,6 +104,7 @@ async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' |
   const supportMessagesById = new Map(supportMessages.map((message) => [message.id, message]));
   const plansById = new Map(plans.map((plan) => [plan.id, plan]));
   const planPlacesById = new Map(planPlaces.map((place) => [place.id, place]));
+  const placesById = new Map(places.map((place) => [place.id, place]));
 
   return media.map((item) => {
     if (item.entityType === 'need' && item.entityId) return { ...item, entity: needsById.get(item.entityId) ?? null };
@@ -113,6 +116,7 @@ async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' |
     if (item.entityType === 'support_message' && item.entityId) return { ...item, entity: supportMessagesById.get(item.entityId) ?? null };
     if (item.entityType === 'plan' && item.entityId) return { ...item, entity: plansById.get(item.entityId) ?? null };
     if (item.entityType === 'plan_place' && item.entityId) return { ...item, entity: planPlacesById.get(item.entityId) ?? null };
+    if (item.entityType === 'place' && item.entityId) return { ...item, entity: placesById.get(item.entityId) ?? null };
     return { ...item, entity: null };
   });
 }

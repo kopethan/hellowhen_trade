@@ -13,7 +13,7 @@ import { AppCard } from '../../components/AppCard';
 import { AppConfirmSheet } from '../../components/AppConfirmSheet';
 import { AppCollapsibleHeaderScreen, type AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
 import { AppText } from '../../components/AppText';
-import { MobileIcon } from '../../components/MobileIcon';
+import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useAuth } from '../../providers/AuthProvider';
@@ -94,6 +94,7 @@ export function TradeDeckFeedScreen() {
   const { t, language } = useTranslation();
   const [activityTab, setActivityTab] = useState<TradeActivityTab>('mine');
   const [activityModalVisible, setActivityModalVisible] = useState(false);
+  const [wizardModalVisible, setWizardModalVisible] = useState(false);
   const [trades, setTrades] = useState<TradeDeckItem[]>([]);
   const [query, setQuery] = useState('');
   const [draftQuery, setDraftQuery] = useState('');
@@ -221,6 +222,77 @@ export function TradeDeckFeedScreen() {
     navigation.navigate('CreateTrade');
   }, [auth.isAuthenticated, navigation]);
 
+  const createOpenNeed = useCallback(() => {
+    if (!auth.isAuthenticated) {
+      navigation.navigate('Login');
+      return;
+    }
+    navigation.navigate('CreateTrade', { initialPostType: 'open_need' });
+  }, [auth.isAuthenticated, navigation]);
+
+  const createOpenOffer = useCallback(() => {
+    if (!auth.isAuthenticated) {
+      navigation.navigate('Login');
+      return;
+    }
+    navigation.navigate('CreateTrade', { initialPostType: 'open_offer' });
+  }, [auth.isAuthenticated, navigation]);
+
+  const openTradeWizardAction = useCallback((action: TradeWizardAction) => {
+    if (action === 'browse_trades') {
+      setPostTypeFilter('all');
+      setSeenTradeIds([]);
+      setRefreshSeed(createFeedRefreshSeed());
+      setWizardModalVisible(false);
+      return;
+    }
+    if (action === 'browse_open_needs' || action === 'browse_open_offers') {
+      setPostTypeFilter(action === 'browse_open_needs' ? 'open_need' : 'open_offer');
+      setSeenTradeIds([]);
+      setRefreshSeed(createFeedRefreshSeed());
+      setWizardModalVisible(false);
+      return;
+    }
+    if (action === 'my_trades' || action === 'involved_trades' || action === 'proposals') {
+      setActivityTab(action === 'my_trades' ? 'mine' : 'involved');
+      setWizardModalVisible(false);
+      setActivityModalVisible(true);
+      return;
+    }
+    if (action === 'my_needs') {
+      setWizardModalVisible(false);
+      navigation.navigate('MyNeeds');
+      return;
+    }
+    if (action === 'my_offers') {
+      setWizardModalVisible(false);
+      navigation.navigate('MyOffers');
+      return;
+    }
+    if (action === 'create_need') {
+      setWizardModalVisible(false);
+      navigation.navigate('CreateNeed');
+      return;
+    }
+    if (action === 'create_offer') {
+      setWizardModalVisible(false);
+      navigation.navigate('CreateOffer');
+      return;
+    }
+    if (action === 'create_open_need') {
+      setWizardModalVisible(false);
+      createOpenNeed();
+      return;
+    }
+    if (action === 'create_open_offer') {
+      setWizardModalVisible(false);
+      createOpenOffer();
+      return;
+    }
+    setWizardModalVisible(false);
+    createTrade();
+  }, [createOpenNeed, createOpenOffer, createTrade, navigation]);
+
   const openTradeIdea = useCallback((ideaKey: FeedTradeIdeaKey) => {
     navigation.navigate('TradeIdeaDetail', { ideaId: ideaKey });
   }, [navigation]);
@@ -278,8 +350,8 @@ export function TradeDeckFeedScreen() {
             <MobileIcon name="filter" size={18} color={(toolsModal === 'filters' || hasFilters) ? theme.semantic.info.text : theme.color.text} />
             {hasFilters ? <View style={styles.filterDot}><AppText style={styles.filterDotText}>{activeFilterCount}</AppText></View> : null}
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={t('trade.activity.open')} onPress={() => setActivityModalVisible(true)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-            <MobileIcon name="activity" size={19} color={theme.color.text} />
+          <Pressable accessibilityRole="button" accessibilityLabel={t('trade.wizard.open')} onPress={() => setWizardModalVisible(true)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, wizardModalVisible && { backgroundColor: theme.semantic.instruction.softBg, borderColor: theme.semantic.instruction.border }, pressed && styles.pressed]}>
+            <MobileIcon name="activity" size={19} color={wizardModalVisible ? theme.semantic.instruction.text : theme.color.text} />
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel={t('trade.create.title')} onPress={() => createTrade()} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
             <MobileIcon name="add" size={23} color={theme.color.background} />
@@ -312,6 +384,11 @@ export function TradeDeckFeedScreen() {
               <EmptyTradesState loading={loading} hasTrades={hasTrades} hasFilters={hasFilters} onCreate={createTrade} onRefresh={refreshDiscoveryOrder} onClear={clearFilters} />
             )}
           </ScrollView>
+          <TradeWizardMenuModal
+            visible={wizardModalVisible}
+            onClose={() => setWizardModalVisible(false)}
+            onSelect={openTradeWizardAction}
+          />
           <TradeActivityModal
             activeTab={activityTab}
             visible={activityModalVisible}
@@ -489,6 +566,119 @@ function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: F
 
 function TradeFeedInlineIdeaCard({ ideaKey, onOpenIdea }: { ideaKey: FeedTradeIdeaKey; onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void }) {
   return <TradeFeedIdeaCard ideaKey={ideaKey} onOpenIdea={onOpenIdea} inline />;
+}
+
+
+type TradeWizardAction =
+  | 'browse_trades'
+  | 'browse_open_needs'
+  | 'browse_open_offers'
+  | 'my_trades'
+  | 'involved_trades'
+  | 'proposals'
+  | 'my_needs'
+  | 'create_need'
+  | 'my_offers'
+  | 'create_offer'
+  | 'create_trade'
+  | 'create_open_need'
+  | 'create_open_offer';
+
+type TradeWizardMenuModalProps = {
+  visible: boolean;
+  onClose: () => void;
+  onSelect: (action: TradeWizardAction) => void;
+};
+
+function TradeWizardMenuModal({ visible, onClose, onSelect }: TradeWizardMenuModalProps) {
+  const theme = useThemeTokens();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const isWideLayout = width >= 720;
+  const { t } = useTranslation();
+
+  const groups: Array<{ title: string; items: Array<{ action: TradeWizardAction; icon: MobileIconName; title: string; body: string; tone: 'trade' | 'need' | 'offer' | 'info' }> }> = [
+    {
+      title: t('trade.wizard.groups.trade'),
+      items: [
+        { action: 'browse_trades', icon: 'trade', title: t('trade.wizard.actions.browseTrades.title'), body: t('trade.wizard.actions.browseTrades.body'), tone: 'trade' },
+        { action: 'my_trades', icon: 'activity', title: t('trade.wizard.actions.myTrades.title'), body: t('trade.wizard.actions.myTrades.body'), tone: 'trade' },
+        { action: 'involved_trades', icon: 'proposal', title: t('trade.wizard.actions.involvedTrades.title'), body: t('trade.wizard.actions.involvedTrades.body'), tone: 'info' },
+        { action: 'proposals', icon: 'proposal-accepted', title: t('trade.wizard.actions.proposals.title'), body: t('trade.wizard.actions.proposals.body'), tone: 'info' },
+      ],
+    },
+    {
+      title: t('trade.wizard.groups.needs'),
+      items: [
+        { action: 'browse_open_needs', icon: 'need', title: t('trade.wizard.actions.openNeeds.title'), body: t('trade.wizard.actions.openNeeds.body'), tone: 'need' },
+        { action: 'my_needs', icon: 'save', title: t('trade.wizard.actions.myNeeds.title'), body: t('trade.wizard.actions.myNeeds.body'), tone: 'need' },
+        { action: 'create_need', icon: 'add', title: t('trade.wizard.actions.createNeed.title'), body: t('trade.wizard.actions.createNeed.body'), tone: 'need' },
+      ],
+    },
+    {
+      title: t('trade.wizard.groups.offers'),
+      items: [
+        { action: 'browse_open_offers', icon: 'offer', title: t('trade.wizard.actions.openOffers.title'), body: t('trade.wizard.actions.openOffers.body'), tone: 'offer' },
+        { action: 'my_offers', icon: 'save', title: t('trade.wizard.actions.myOffers.title'), body: t('trade.wizard.actions.myOffers.body'), tone: 'offer' },
+        { action: 'create_offer', icon: 'add', title: t('trade.wizard.actions.createOffer.title'), body: t('trade.wizard.actions.createOffer.body'), tone: 'offer' },
+      ],
+    },
+    {
+      title: t('trade.wizard.groups.create'),
+      items: [
+        { action: 'create_trade', icon: 'trade', title: t('trade.wizard.actions.createTrade.title'), body: t('trade.wizard.actions.createTrade.body'), tone: 'trade' },
+        { action: 'create_open_need', icon: 'need', title: t('trade.wizard.actions.createOpenNeed.title'), body: t('trade.wizard.actions.createOpenNeed.body'), tone: 'need' },
+        { action: 'create_open_offer', icon: 'offer', title: t('trade.wizard.actions.createOpenOffer.title'), body: t('trade.wizard.actions.createOpenOffer.body'), tone: 'offer' },
+      ],
+    },
+  ];
+
+  function toneColors(tone: 'trade' | 'need' | 'offer' | 'info') {
+    if (tone === 'need') return theme.semantic.need;
+    if (tone === 'offer') return theme.semantic.offer;
+    if (tone === 'info') return theme.semantic.info;
+    return theme.semantic.trade;
+  }
+
+  return (
+    <Modal visible={visible} animationType={isWideLayout ? 'fade' : 'slide'} onRequestClose={onClose} presentationStyle={isWideLayout ? 'overFullScreen' : 'fullScreen'} transparent={isWideLayout}>
+      <View style={isWideLayout ? styles.modalDesktopBackdrop : styles.modalPlainRoot}>
+        <View style={[styles.activityModalScreen, { backgroundColor: theme.color.background, paddingTop: isWideLayout ? 18 : insets.top + 18, paddingBottom: isWideLayout ? 18 : Math.max(insets.bottom, 10) }, isWideLayout && [styles.activityModalSheet, { borderColor: theme.color.border }]]}>
+          <View style={styles.activityHeaderRow}>
+            <View style={styles.activityHeaderCopy}>
+              <AppText style={styles.activityTitle}>{t('trade.wizard.title')}</AppText>
+              <AppText style={[styles.activityBody, { color: theme.color.muted }]}>{t('trade.wizard.body')}</AppText>
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.close')} onPress={onClose} style={({ pressed }) => [styles.toolsCloseButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+              <MobileIcon name="close" size={18} color={theme.color.text} />
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={styles.wizardContent} showsVerticalScrollIndicator={false}>
+            {groups.map((group) => (
+              <View key={group.title} style={styles.wizardGroup}>
+                <AppText style={[styles.wizardGroupTitle, { color: theme.color.muted }]}>{group.title}</AppText>
+                <View style={styles.wizardItems}>
+                  {group.items.map((item) => {
+                    const colors = toneColors(item.tone);
+                    return (
+                      <Pressable key={item.action} accessibilityRole="button" onPress={() => onSelect(item.action)} style={({ pressed }) => [styles.wizardItem, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                        <View style={[styles.wizardIcon, { backgroundColor: colors.softBg, borderColor: colors.border }]}><MobileIcon name={item.icon} size={17} color={colors.text} /></View>
+                        <View style={styles.wizardCopy}>
+                          <AppText style={styles.wizardTitle}>{item.title}</AppText>
+                          <AppText style={[styles.wizardBody, { color: theme.color.muted }]}>{item.body}</AppText>
+                        </View>
+                        <MobileIcon name="chevron-right" size={20} color={theme.color.muted} />
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 type TradeActivityModalProps = {
@@ -1099,6 +1289,15 @@ const styles = StyleSheet.create({
   activityTab: { flex: 1, minHeight: 38, borderRadius: 999, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   activityTabText: { fontSize: 13, fontWeight: '900' },
   activityBodyWrap: { flex: 1, minHeight: 0 },
+  wizardContent: { gap: 18, paddingBottom: 24 },
+  wizardGroup: { gap: 9 },
+  wizardGroupTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9, textTransform: 'uppercase', paddingHorizontal: 4 },
+  wizardItems: { gap: 8 },
+  wizardItem: { minHeight: 72, borderRadius: 22, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  wizardIcon: { width: 40, height: 40, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  wizardCopy: { flex: 1, minWidth: 0, gap: 3 },
+  wizardTitle: { fontSize: 15, lineHeight: 19, fontWeight: '900' },
+  wizardBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },

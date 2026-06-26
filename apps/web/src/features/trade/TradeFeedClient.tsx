@@ -6,7 +6,7 @@ import type { TradeDto, TradePostType, TradeSearchKeywordSource, TradeSearchSugg
 import { getTradeOwnerVisibilityState, isTradeOwnerCloseAllowed, isTradeOwnerRenewAllowed } from '@hellowhen/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../lib/api';
-import { WebIcon } from '../../components/WebIcon';
+import { WebIcon, type WebIconName } from '../../components/WebIcon';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockTrades } from '../../lib/mockData';
@@ -103,7 +103,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   const [loadError, setLoadError] = useState('');
   const [searchSuggestions, setSearchSuggestions] = useState<TradeSearchSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const [activeToolPanel, setActiveToolPanel] = useState<'filter' | 'activity' | null>(null);
+  const [activeToolPanel, setActiveToolPanel] = useState<'filter' | 'menu' | 'activity' | null>(null);
   const [refreshSeed, setRefreshSeed] = useState(() => createFeedRefreshSeed());
   const [seenTradeIds, setSeenTradeIds] = useState<string[]>([]);
   const pendingSearchRecordRef = useRef<{ q: string; source: TradeSearchKeywordSource } | null>(null);
@@ -113,6 +113,8 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   const demoDataEnabled = isWebDemoDataEnabled();
   const auth = useWebAuth();
   const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
+  const createOpenNeedHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create%3FpostType%3Dopen_need' : '/trades/create?postType=open_need';
+  const createOpenOfferHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create%3FpostType%3Dopen_offer' : '/trades/create?postType=open_offer';
   const createTradeIdeaHref = useCallback((ideaKey: FeedTradeIdeaKey) => createFeedIdeaTradeHref(ideaKey), []);
   const shouldShowHomeIntro = showHomeIntro && homeIntroReady && auth.hydrated && !auth.isAuthenticated && !homeIntroDismissed;
 
@@ -283,6 +285,10 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
     setRefreshSeed(createFeedRefreshSeed());
   }
 
+  function browsePostType(postType: FeedFilters['postType']) {
+    submitFilters({ ...initialFilters, postType });
+  }
+
   useEffect(() => {
     if (!activeToolPanel) return undefined;
     const root = document.documentElement;
@@ -306,9 +312,9 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
           <WebIcon name="filter" size={17} decorative />
           <span className="trade-action-label">{t('trade.filters.searchAndFilters')}</span>
         </button>
-        <button type="button" className="trade-activity-pill" onClick={() => setActiveToolPanel((value) => value === 'activity' ? null : 'activity')} aria-expanded={activeToolPanel === 'activity'} aria-label={t('trade.activity.open')} title={t('trade.activity.open')}>
+        <button type="button" className="trade-activity-pill" onClick={() => setActiveToolPanel((value) => value === 'menu' ? null : 'menu')} aria-expanded={activeToolPanel === 'menu'} aria-label={t('trade.wizard.open')} title={t('trade.wizard.open')}>
           <WebIcon name="activity" size={18} decorative />
-          <span className="trade-action-label">{t('trade.activity.title')}</span>
+          <span className="trade-action-label">{t('trade.wizard.title')}</span>
         </button>
         <Link href={createTradeHref} className="trade-create-pill" aria-label={t('trade.create.title')} title={t('trade.create.title')}>
           <WebIcon name="add" size={21} decorative />
@@ -374,6 +380,17 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
       </form>
 
       {activeToolPanel ? <button type="button" className="trade-tools-backdrop" aria-label={t('common.actions.close')} onClick={() => setActiveToolPanel(null)} /> : null}
+
+      {activeToolPanel === 'menu' ? (
+        <TradeWizardPanel
+          createTradeHref={createTradeHref}
+          createOpenNeedHref={createOpenNeedHref}
+          createOpenOfferHref={createOpenOfferHref}
+          onBrowsePostType={browsePostType}
+          onClose={() => setActiveToolPanel(null)}
+          onOpenActivity={(tab) => { setActivityTab(tab); setActiveToolPanel('activity'); }}
+        />
+      ) : null}
 
       {activeToolPanel === 'activity' ? (
         <TradeActivityPanel
@@ -619,6 +636,93 @@ function HomeTradeIntroBanner({ onDismiss }: HomeTradeIntroBannerProps) {
   );
 }
 
+
+
+type TradeWizardPanelProps = {
+  createTradeHref: string;
+  createOpenNeedHref: string;
+  createOpenOfferHref: string;
+  onBrowsePostType: (postType: FeedFilters['postType']) => void;
+  onClose: () => void;
+  onOpenActivity: (tab: TradeActivityTab) => void;
+};
+
+function TradeWizardPanel({ createTradeHref, createOpenNeedHref, createOpenOfferHref, onBrowsePostType, onClose, onOpenActivity }: TradeWizardPanelProps) {
+  const { t } = useWebTranslation();
+  const groups: Array<{ title: string; items: Array<{ key: string; icon: WebIconName; title: string; body: string; href?: string; onClick?: () => void; tone: 'trade' | 'need' | 'offer' | 'info' }> }> = [
+    {
+      title: t('trade.wizard.groups.trade'),
+      items: [
+        { key: 'browse-trades', icon: 'trade', title: t('trade.wizard.actions.browseTrades.title'), body: t('trade.wizard.actions.browseTrades.body'), onClick: () => onBrowsePostType(''), tone: 'trade' },
+        { key: 'my-trades', icon: 'activity', title: t('trade.wizard.actions.myTrades.title'), body: t('trade.wizard.actions.myTrades.body'), onClick: () => onOpenActivity('mine'), tone: 'trade' },
+        { key: 'involved-trades', icon: 'proposal', title: t('trade.wizard.actions.involvedTrades.title'), body: t('trade.wizard.actions.involvedTrades.body'), onClick: () => onOpenActivity('involved'), tone: 'info' },
+        { key: 'proposals', icon: 'proposal-accepted', title: t('trade.wizard.actions.proposals.title'), body: t('trade.wizard.actions.proposals.body'), onClick: () => onOpenActivity('involved'), tone: 'info' },
+      ],
+    },
+    {
+      title: t('trade.wizard.groups.needs'),
+      items: [
+        { key: 'open-needs', icon: 'need', title: t('trade.wizard.actions.openNeeds.title'), body: t('trade.wizard.actions.openNeeds.body'), onClick: () => onBrowsePostType('open_need'), tone: 'need' },
+        { key: 'my-needs', icon: 'save', title: t('trade.wizard.actions.myNeeds.title'), body: t('trade.wizard.actions.myNeeds.body'), href: '/needs', tone: 'need' },
+        { key: 'create-need', icon: 'add', title: t('trade.wizard.actions.createNeed.title'), body: t('trade.wizard.actions.createNeed.body'), href: '/needs/new', tone: 'need' },
+      ],
+    },
+    {
+      title: t('trade.wizard.groups.offers'),
+      items: [
+        { key: 'open-offers', icon: 'offer', title: t('trade.wizard.actions.openOffers.title'), body: t('trade.wizard.actions.openOffers.body'), onClick: () => onBrowsePostType('open_offer'), tone: 'offer' },
+        { key: 'my-offers', icon: 'save', title: t('trade.wizard.actions.myOffers.title'), body: t('trade.wizard.actions.myOffers.body'), href: '/offers', tone: 'offer' },
+        { key: 'create-offer', icon: 'add', title: t('trade.wizard.actions.createOffer.title'), body: t('trade.wizard.actions.createOffer.body'), href: '/offers/new', tone: 'offer' },
+      ],
+    },
+    {
+      title: t('trade.wizard.groups.create'),
+      items: [
+        { key: 'create-trade', icon: 'trade', title: t('trade.wizard.actions.createTrade.title'), body: t('trade.wizard.actions.createTrade.body'), href: createTradeHref, tone: 'trade' },
+        { key: 'create-open-need', icon: 'need', title: t('trade.wizard.actions.createOpenNeed.title'), body: t('trade.wizard.actions.createOpenNeed.body'), href: createOpenNeedHref, tone: 'need' },
+        { key: 'create-open-offer', icon: 'offer', title: t('trade.wizard.actions.createOpenOffer.title'), body: t('trade.wizard.actions.createOpenOffer.body'), href: createOpenOfferHref, tone: 'offer' },
+      ],
+    },
+  ];
+
+  function renderItem(item: (typeof groups)[number]['items'][number]) {
+    const content = (
+      <>
+        <span className={`trade-wizard-panel__item-icon trade-wizard-panel__item-icon--${item.tone}`}><WebIcon name={item.icon} size={18} decorative /></span>
+        <span className="trade-wizard-panel__item-copy">
+          <strong>{item.title}</strong>
+          <small>{item.body}</small>
+        </span>
+        <WebIcon name="arrow-right" size={17} decorative className="trade-wizard-panel__arrow" />
+      </>
+    );
+    if (item.href) {
+      return <Link key={item.key} href={item.href} className="trade-wizard-panel__item" onClick={onClose}>{content}</Link>;
+    }
+    return <button key={item.key} type="button" className="trade-wizard-panel__item" onClick={() => { item.onClick?.(); }}>{content}</button>;
+  }
+
+  return (
+    <section className="trade-wizard-panel" role="dialog" aria-modal="true" aria-labelledby="trade-wizard-panel-title">
+      <div className="trade-filter-panel__header trade-wizard-panel__header">
+        <div>
+          <span className="eyebrow">{t('trade.wizard.badge')}</span>
+          <h2 id="trade-wizard-panel-title">{t('trade.wizard.title')}</h2>
+          <p>{t('trade.wizard.body')}</p>
+        </div>
+        <button type="button" className="trade-filter-panel__close" onClick={onClose} aria-label={t('common.actions.close')}>×</button>
+      </div>
+      <div className="trade-wizard-panel__body">
+        {groups.map((group) => (
+          <section key={group.title} className="trade-wizard-panel__group" aria-label={group.title}>
+            <h3>{group.title}</h3>
+            <div className="trade-wizard-panel__items">{group.items.map(renderItem)}</div>
+          </section>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 type TradeActivityPanelProps = {
   activeTab: TradeActivityTab;

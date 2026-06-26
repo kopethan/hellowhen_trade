@@ -278,7 +278,7 @@ async function joinPlanFreely(planId: string, userId: string, message?: string |
   }
 
   const acceptedCount = (plan.participants ?? []).filter((participant: any) => participant.status === 'accepted').length;
-  if (plan.maxParticipants && acceptedCount >= plan.maxParticipants && existing?.status !== 'accepted') {
+  if (plan.maxParticipants && acceptedCount >= plan.maxParticipants) {
     throw createPlanRequestError('plan_full', 'This plan is full.', 409);
   }
 
@@ -415,14 +415,18 @@ plansRoutes.patch('/:planId/places/:placeId', requireAuth, requireActiveAccount,
 }));
 
 plansRoutes.post('/:planId/join', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const planId = req.params.planId;
+  if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
   const input = createPlanJoinRequestSchema.parse(req.body ?? {});
-  const participant = await joinPlanFreely(req.params.planId, req.user!.id, input.message);
+  const participant = await joinPlanFreely(planId, req.user!.id, input.message);
   res.status(201).json({ participant });
 }));
 
 plansRoutes.post('/:planId/join-requests', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const planId = req.params.planId;
+  if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
   const input = createPlanJoinRequestSchema.parse(req.body ?? {});
-  const participant = await joinPlanFreely(req.params.planId, req.user!.id, input.message);
+  const participant = await joinPlanFreely(planId, req.user!.id, input.message);
   res.status(201).json({ participant });
 }));
 
@@ -454,7 +458,9 @@ plansRoutes.patch('/:planId/join-requests/:participantId', requireAuth, requireA
 }));
 
 plansRoutes.post('/:planId/leave', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
-  const participant = await leaveJoinedPlan(req.params.planId, req.user!.id);
+  const planId = req.params.planId;
+  if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
+  const participant = await leaveJoinedPlan(planId, req.user!.id);
   res.json({ participant });
 }));
 
