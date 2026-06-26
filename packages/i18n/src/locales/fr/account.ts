@@ -9,6 +9,7 @@ export const account = {
   headerBody: 'Profil, paramètres et assistance sont regroupés ici.',
   sections: {
     activity: 'Activité',
+    plans: 'Plans',
     settings: 'Paramètres et sécurité',
     future: 'Outils futurs',
   },
@@ -1094,6 +1095,49 @@ export const account = {
       body: 'Rappels, relances, échéances et dates d’échanges privés.',
       bodyNative: 'Rappels privés et dates d’échanges.',
       badge: 'Agenda',
+    },
+    plansFeature: {
+      title: 'Plans',
+      body: 'Plans à rejoindre avec Mes lieux et la bibliothèque de lieux Hellowhen.',
+      bodyNative: 'Plans à rejoindre, Mes lieux et bibliothèque.',
+      badge: 'Plans',
+      action: 'Ouvrir',
+    },
+    myPlansFeature: {
+      title: 'Mes plans',
+      body: 'Plans que vous avez créés et que vous pouvez gérer.',
+      bodyNative: 'Plans que vous avez créés et pouvez gérer.',
+      badge: 'Mes plans',
+    },
+    joinedPlansFeature: {
+      title: 'Plans rejoints',
+      body: 'Plans que vous avez rejoints librement.',
+      bodyNative: 'Plans que vous avez rejoints.',
+      badge: 'Rejoints',
+    },
+    myPlacesFeature: {
+      title: 'Mes lieux',
+      body: 'Lieux hors ligne ou en ligne réutilisables pour de futurs Plans.',
+      bodyNative: 'Lieux hors ligne ou en ligne réutilisables.',
+      badge: 'Lieux',
+    },
+    placeLibraryFeature: {
+      title: 'Bibliothèque de lieux Hellowhen',
+      body: 'Lieux de départ/bibliothèque à ajouter aux Plans.',
+      bodyNative: 'Lieux de bibliothèque pour Plans.',
+      badge: 'Bibliothèque',
+    },
+    createPlanFeature: {
+      title: 'Créer un plan',
+      body: 'Choisissez des lieux, organisez-les et créez un Plan à rejoindre librement.',
+      bodyNative: 'Choisissez des lieux et créez un Plan libre.',
+      badge: 'Créer',
+    },
+    createPlaceFeature: {
+      title: 'Créer un lieu',
+      body: 'Enregistrez un lieu privé réutilisable pour de futurs Plans.',
+      bodyNative: 'Enregistrez un lieu privé réutilisable.',
+      badge: 'Créer',
     },
     membership: {
       title: 'Membership',

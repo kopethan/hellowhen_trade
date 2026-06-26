@@ -1,0 +1,638 @@
+diff --git a/apps/mobile/src/features/account/AccountScreen.tsx b/apps/mobile/src/features/account/AccountScreen.tsx
+index d0f9b65..9caf94a 100644
+--- a/apps/mobile/src/features/account/AccountScreen.tsx
++++ b/apps/mobile/src/features/account/AccountScreen.tsx
+@@ -20,7 +20,7 @@ import { DetailInfoList, DetailSection } from '../../components/detail';
+ import { resolveMediaUrl } from '../trade/mediaUrls';
+ 
+ type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
+-type AccountRoute = 'AccountProfile' | 'Notifications' | 'SavedLibrary' | 'Agenda' | 'OnboardingGuide' | 'Membership' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
++type AccountRoute = 'AccountProfile' | 'Notifications' | 'SavedLibrary' | 'Agenda' | 'Plans' | 'OnboardingGuide' | 'Membership' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
+ type AccountGroupKey = 'activity' | 'settings' | 'future';
+ 
+ type AccountAction = {
+@@ -38,6 +38,7 @@ const accountActions: AccountAction[] = [
+   { titleKey: 'account.items.notifications.title', descriptionKey: 'account.items.notifications.bodyNative', badgeKey: 'account.items.notifications.badge', tone: 'proposal', route: 'Notifications', icon: 'bell', group: 'activity' },
+   ...(betaFeatures.savedLibraryEnabled ? [{ titleKey: 'account.items.saved.title', descriptionKey: 'account.items.saved.bodyNative', badgeKey: 'account.items.saved.badge', tone: 'proposal' as SemanticColorName, route: 'SavedLibrary' as AccountRoute, icon: 'save' as MobileIconName, group: 'activity' as AccountGroupKey }] : []),
+   ...(betaFeatures.agendaEnabled ? [{ titleKey: 'account.items.agenda.title', descriptionKey: 'account.items.agenda.bodyNative', badgeKey: 'account.items.agenda.badge', tone: 'instruction' as SemanticColorName, route: 'Agenda' as AccountRoute, icon: 'bell' as MobileIconName, group: 'activity' as AccountGroupKey }] : []),
++  ...(betaFeatures.plansVisible ? [{ titleKey: 'account.items.plansFeature.title', descriptionKey: 'account.items.plansFeature.bodyNative', badgeKey: 'account.items.plansFeature.badge', tone: 'instruction' as SemanticColorName, route: 'Plans' as AccountRoute, icon: 'calendar' as MobileIconName, group: 'activity' as AccountGroupKey }] : []),
+   { titleKey: 'account.items.guide.title', descriptionKey: 'account.items.guide.bodyNative', badgeKey: 'account.items.guide.badge', tone: 'info', route: 'OnboardingGuide', icon: 'help', group: 'activity' },
+   { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'success', route: 'SupportCenter', icon: 'help', group: 'activity' },
+   { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings', group: 'settings' },
+@@ -140,6 +141,7 @@ export function AccountScreen() {
+     else if (route === 'Notifications') navigation.navigate('Notifications');
+     else if (route === 'SavedLibrary') navigation.navigate('SavedLibrary');
+     else if (route === 'Agenda') navigation.navigate('Agenda');
++    else if (route === 'Plans') navigation.navigate('Plans');
+     else if (route === 'OnboardingGuide') navigation.navigate('OnboardingGuide', { replay: true });
+     else if (route === 'Membership') navigation.navigate('Membership');
+     else if (route === 'ProPlans') navigation.navigate('ProPlans');
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+new file mode 100644
+index 0000000..453d0b8
+--- /dev/null
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -0,0 +1,475 @@
++import React, { useCallback, useMemo, useState } from 'react';
++import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
++import { useFocusEffect } from '@react-navigation/native';
++import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
++import type { PlaceDto, PlanDto } from '@hellowhen/contracts';
++import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
++import { AppHeader } from '../../components/AppHeader';
++import { AppText } from '../../components/AppText';
++import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
++import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
++import { api } from '../../lib/api';
++import { betaFeatures } from '../../lib/betaFeatures';
++import { getFriendlyApiErrorMessage } from '../../lib/errors';
++import type { RootStackParamList } from '../../navigation/RootNavigator';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++
++type PlansScreenProps = NativeStackScreenProps<RootStackParamList, 'Plans'>;
++type PlanDetailProps = NativeStackScreenProps<RootStackParamList, 'PlanDetail'>;
++type SimpleScreenProps<RouteName extends keyof RootStackParamList> = NativeStackScreenProps<RootStackParamList, RouteName>;
++type PlanListScope = 'feed' | 'mine' | 'joined';
++type PlaceListScope = 'mine' | 'library';
++
++type PlanMenuItem = {
++  title: string;
++  body: string;
++  icon: MobileIconName;
++  onPress: () => void;
++};
++
++function isPlansVisible() {
++  return betaFeatures.plansEnabled && betaFeatures.plansVisible;
++}
++
++function formatDate(value?: string | null) {
++  if (!value) return 'Flexible time';
++  const date = new Date(value);
++  if (Number.isNaN(date.getTime())) return value;
++  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
++}
++
++function getOwnerName(plan: PlanDto) {
++  return plan.owner?.profile?.displayName || plan.owner?.profile?.handle || 'Hellowhen member';
++}
++
++function getPlanMeta(plan: PlanDto) {
++  const placeCount = plan.places?.length ?? 0;
++  const participantCount = plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
++  return `${placeCount} ${placeCount === 1 ? 'place' : 'places'} · ${participantCount} joined`;
++}
++
++function DisabledPlansScreen({ onBack }: { onBack: () => void }) {
++  const theme = useThemeTokens();
++  return (
++    <AppFixedHeaderScreen header={<AppHeader title="Plans" onBack={onBack} />}>
++      <View style={styles.centerState}>
++        <View style={[styles.largeIcon, { backgroundColor: theme.semantic.instruction.softBg, borderColor: theme.semantic.instruction.border }]}>
++          <MobileIcon name="calendar" color={theme.semantic.instruction.text} size={30} />
++        </View>
++        <AppText style={styles.centerTitle}>Plans are hidden</AppText>
++        <AppText style={[styles.centerBody, { color: theme.color.muted }]}>The mobile Plan route skeleton is ready, but Plans stay hidden until the Plan feature flags are enabled.</AppText>
++      </View>
++    </AppFixedHeaderScreen>
++  );
++}
++
++function HeaderAction({ icon, label, onPress }: { icon: MobileIconName; label: string; onPress: () => void }) {
++  const theme = useThemeTokens();
++  return (
++    <Pressable
++      accessibilityRole="button"
++      accessibilityLabel={label}
++      onPress={onPress}
++      style={({ pressed }) => [styles.headerAction, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
++    >
++      <MobileIcon name={icon} size={20} color={theme.color.text} />
++    </Pressable>
++  );
++}
++
++function PlanRow({ plan, onPress }: { plan: PlanDto; onPress: () => void }) {
++  const theme = useThemeTokens();
++  const firstPlace = plan.places?.[0];
++  return (
++    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.rowCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++      <View style={styles.rowTop}>
++        <SemanticBadge label={plan.status} tone={plan.status === 'open' ? 'success' : 'muted'} size="sm" />
++        {plan.myParticipantStatus ? <SemanticBadge label={plan.myParticipantStatus === 'accepted' ? 'Joined' : plan.myParticipantStatus} tone="proposal" size="sm" /> : null}
++      </View>
++      <AppText style={styles.rowTitle}>{plan.title}</AppText>
++      <AppText style={[styles.rowBody, { color: theme.color.muted }]} numberOfLines={2}>{plan.description}</AppText>
++      <View style={styles.metaRow}>
++        <MobileIcon name="profile" size={15} color={theme.color.muted} />
++        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{getOwnerName(plan)}</AppText>
++      </View>
++      <View style={styles.metaRow}>
++        <MobileIcon name="calendar" size={15} color={theme.color.muted} />
++        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{formatDate(plan.startsAt)}</AppText>
++      </View>
++      <View style={styles.metaRow}>
++        <MobileIcon name="activity" size={15} color={theme.color.muted} />
++        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{getPlanMeta(plan)}</AppText>
++      </View>
++      {firstPlace ? <AppText style={[styles.placePreview, { color: theme.semantic.instruction.text }]}>Starts with {firstPlace.title}</AppText> : null}
++    </Pressable>
++  );
++}
++
++function PlaceRow({ place, onPress }: { place: PlaceDto; onPress?: () => void }) {
++  const theme = useThemeTokens();
++  const isLibrary = place.source === 'hellowhen_library';
++  return (
++    <Pressable accessibilityRole={onPress ? 'button' : undefined} onPress={onPress} style={({ pressed }) => [styles.rowCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && onPress && styles.pressed]}>
++      <View style={styles.rowTop}>
++        <SemanticBadge label={isLibrary ? 'Library place' : 'My place'} tone={isLibrary ? 'instruction' : 'proposal'} size="sm" />
++        <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
++      </View>
++      <AppText style={styles.rowTitle}>{place.title}</AppText>
++      <AppText style={[styles.rowBody, { color: theme.color.muted }]} numberOfLines={2}>{place.description || place.defaultNote || 'Reusable place for future Plans.'}</AppText>
++      <View style={styles.metaRow}>
++        <MobileIcon name={place.mode === 'remote' ? 'send' : 'calendar'} size={15} color={theme.color.muted} />
++        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{place.mode === 'remote' ? (place.onlineLabel || place.onlineUrl || 'Online place') : (place.areaLabel || place.addressPublicText || 'Offline place')}</AppText>
++      </View>
++    </Pressable>
++  );
++}
++
++function PlanList({ scope, navigation }: { scope: PlanListScope; navigation: NativeStackNavigationProp<RootStackParamList> }) {
++  const theme = useThemeTokens();
++  const [plans, setPlans] = useState<PlanDto[]>([]);
++  const [loading, setLoading] = useState(true);
++  const [refreshing, setRefreshing] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++
++  const load = useCallback(async ({ refresh = false }: { refresh?: boolean } = {}) => {
++    if (!isPlansVisible()) { setLoading(false); return; }
++    if (refresh) setRefreshing(true); else setLoading(true);
++    setError(null);
++    try {
++      const response = scope === 'mine' ? await api.plans.mine() : scope === 'joined' ? await api.plans.joined() : await api.plans.feed();
++      setPlans(response.plans ?? []);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++      setPlans([]);
++    } finally {
++      setLoading(false);
++      setRefreshing(false);
++    }
++  }, [scope]);
++
++  useFocusEffect(useCallback(() => { void load(); }, [load]));
++
++  if (loading) {
++    return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Plans...</AppText></View>;
++  }
++
++  if (error) return <InfoNotice tone="warning" title="Could not load Plans" body={error} />;
++
++  if (plans.length === 0) {
++    const body = scope === 'mine'
++      ? 'Created Plans will appear here once you create one.'
++      : scope === 'joined'
++        ? 'Plans you join will appear here.'
++        : 'Open Plans will appear here while the feature is enabled for internal testing.';
++    return <EmptyBlock title="No Plans yet" body={body} actionLabel={scope === 'mine' ? 'Create plan' : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlan') : undefined} />;
++  }
++
++  return (
++    <ScrollView
++      contentContainerStyle={styles.listContent}
++      showsVerticalScrollIndicator={false}
++      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
++    >
++      {plans.map((plan) => <PlanRow key={plan.id} plan={plan} onPress={() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title })} />)}
++    </ScrollView>
++  );
++}
++
++function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: NativeStackNavigationProp<RootStackParamList> }) {
++  const theme = useThemeTokens();
++  const [places, setPlaces] = useState<PlaceDto[]>([]);
++  const [loading, setLoading] = useState(true);
++  const [refreshing, setRefreshing] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++
++  const load = useCallback(async ({ refresh = false }: { refresh?: boolean } = {}) => {
++    if (!isPlansVisible()) { setLoading(false); return; }
++    if (refresh) setRefreshing(true); else setLoading(true);
++    setError(null);
++    try {
++      const response = scope === 'library' ? await api.places.library() : await api.places.mine();
++      setPlaces(response.places ?? []);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++      setPlaces([]);
++    } finally {
++      setLoading(false);
++      setRefreshing(false);
++    }
++  }, [scope]);
++
++  useFocusEffect(useCallback(() => { void load(); }, [load]));
++
++  if (loading) {
++    return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Places...</AppText></View>;
++  }
++
++  if (error) return <InfoNotice tone="warning" title="Could not load Places" body={error} />;
++
++  if (places.length === 0) {
++    return <EmptyBlock title={scope === 'library' ? 'Library is empty' : 'No Places yet'} body={scope === 'library' ? 'Hellowhen Place Library items will appear here later.' : 'Create reusable Places first, then pick them while creating a Plan.'} actionLabel={scope === 'mine' ? 'Create place' : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined} />;
++  }
++
++  return (
++    <ScrollView
++      contentContainerStyle={styles.listContent}
++      showsVerticalScrollIndicator={false}
++      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
++    >
++      {places.map((place) => <PlaceRow key={place.id} place={place} />)}
++    </ScrollView>
++  );
++}
++
++function EmptyBlock({ title, body, actionLabel, onAction }: { title: string; body: string; actionLabel?: string; onAction?: () => void }) {
++  const theme = useThemeTokens();
++  return (
++    <View style={[styles.emptyBlock, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++      <MobileIcon name="calendar" size={28} color={theme.color.muted} />
++      <AppText style={styles.emptyTitle}>{title}</AppText>
++      <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{body}</AppText>
++      {actionLabel && onAction ? (
++        <Pressable accessibilityRole="button" onPress={onAction} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
++          <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{actionLabel}</AppText>
++        </Pressable>
++      ) : null}
++    </View>
++  );
++}
++
++function SkeletonNotice({ title, body }: { title: string; body: string }) {
++  return (
++    <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
++      <InfoNotice tone="instruction" title={title} body={body} />
++      <EmptyBlock title="Coming in the next Plan patch" body="This mobile route is intentionally wired now so later Plan feed/detail/create patches can attach real UI without changing navigation again." />
++    </ScrollView>
++  );
++}
++
++export function PlansScreen({ navigation }: PlansScreenProps) {
++  const theme = useThemeTokens();
++  const [scope, setScope] = useState<PlanListScope>('feed');
++  const [menuOpen, setMenuOpen] = useState(false);
++
++  if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
++
++  const menuItems: PlanMenuItem[] = [
++    { title: 'My plans', body: 'Plans you created.', icon: 'calendar', onPress: () => { setMenuOpen(false); navigation.navigate('MyPlans'); } },
++    { title: 'Joined plans', body: 'Plans you joined freely.', icon: 'activity', onPress: () => { setMenuOpen(false); navigation.navigate('JoinedPlans'); } },
++    { title: 'My places', body: 'Reusable offline or online places.', icon: 'save', onPress: () => { setMenuOpen(false); navigation.navigate('MyPlaces'); } },
++    { title: 'Hellowhen Place Library', body: 'Starter/library places for Plans.', icon: 'search', onPress: () => { setMenuOpen(false); navigation.navigate('PlaceLibrary'); } },
++    { title: 'Create place', body: 'Prepare a reusable place.', icon: 'add', onPress: () => { setMenuOpen(false); navigation.navigate('CreatePlace'); } },
++    { title: 'Create plan', body: 'Choose places and arrange them.', icon: 'add', onPress: () => { setMenuOpen(false); navigation.navigate('CreatePlan'); } },
++  ];
++
++  const header = (
++    <View style={styles.feedHeader}>
++      <View style={styles.feedTitleWrap}>
++        <SemanticBadge label="Hidden preview" tone="instruction" size="sm" />
++        <AppText style={styles.feedTitle}>Plans</AppText>
++      </View>
++      <View style={styles.headerActions}>
++        <HeaderAction icon="filter" label="Filter Plans" onPress={() => setScope((current) => current === 'feed' ? 'mine' : current === 'mine' ? 'joined' : 'feed')} />
++        <HeaderAction icon="more" label="Open Plan menu" onPress={() => setMenuOpen((value) => !value)} />
++        <HeaderAction icon="add" label="Create Plan" onPress={() => navigation.navigate('CreatePlan')} />
++      </View>
++    </View>
++  );
++
++  return (
++    <AppFixedHeaderScreen header={header}>
++      <View style={styles.bodyWrap}>
++        <View style={styles.filterRow}>
++          {(['feed', 'mine', 'joined'] as PlanListScope[]).map((value) => (
++            <Pressable key={value} accessibilityRole="button" onPress={() => setScope(value)} style={({ pressed }) => [styles.filterChip, { borderColor: scope === value ? theme.color.text : theme.color.border, backgroundColor: scope === value ? theme.color.text : theme.color.surface }, pressed && styles.pressed]}>
++              <AppText style={[styles.filterChipText, { color: scope === value ? theme.color.background : theme.color.text }]}>{value === 'feed' ? 'Open' : value === 'mine' ? 'My plans' : 'Joined'}</AppText>
++            </Pressable>
++          ))}
++        </View>
++        {menuOpen ? (
++          <View style={[styles.menuPanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++            {menuItems.map((item) => <MenuItem key={item.title} item={item} />)}
++          </View>
++        ) : null}
++        <PlanList scope={scope} navigation={navigation} />
++      </View>
++    </AppFixedHeaderScreen>
++  );
++}
++
++function MenuItem({ item }: { item: PlanMenuItem }) {
++  const theme = useThemeTokens();
++  return (
++    <Pressable accessibilityRole="button" onPress={item.onPress} style={({ pressed }) => [styles.menuItem, { borderBottomColor: theme.color.border }, pressed && styles.pressed]}>
++      <View style={[styles.menuIcon, { backgroundColor: theme.semantic.instruction.softBg, borderColor: theme.semantic.instruction.border }]}><MobileIcon name={item.icon} size={17} color={theme.semantic.instruction.text} /></View>
++      <View style={styles.menuCopy}>
++        <AppText style={styles.menuTitle}>{item.title}</AppText>
++        <AppText style={[styles.menuBody, { color: theme.color.muted }]}>{item.body}</AppText>
++      </View>
++      <MobileIcon name="chevron-right" size={20} color={theme.color.muted} />
++    </Pressable>
++  );
++}
++
++export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
++  const theme = useThemeTokens();
++  const [plan, setPlan] = useState<PlanDto | null>(null);
++  const [loading, setLoading] = useState(isPlansVisible());
++  const [busy, setBusy] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++
++  const load = useCallback(async () => {
++    if (!isPlansVisible()) { setLoading(false); return; }
++    setLoading(true);
++    setError(null);
++    try {
++      const response = await api.plans.get(route.params.planId);
++      setPlan(response.plan);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++      setPlan(null);
++    } finally {
++      setLoading(false);
++    }
++  }, [route.params.planId]);
++
++  useFocusEffect(useCallback(() => { void load(); }, [load]));
++
++  async function joinOrLeave() {
++    if (!plan) return;
++    setBusy(true);
++    setError(null);
++    try {
++      if (plan.myParticipantStatus === 'accepted') await api.plans.leave(plan.id);
++      else await api.plans.join(plan.id);
++      await load();
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setBusy(false);
++    }
++  }
++
++  if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
++
++  return (
++    <AppFixedHeaderScreen header={<AppHeader title={route.params.title ?? 'Plan'} onBack={() => navigation.goBack()} />}>
++      {loading ? <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Plan...</AppText></View> : null}
++      {!loading && error ? <View style={styles.contentPad}><InfoNotice tone="warning" title="Could not load Plan" body={error} /></View> : null}
++      {!loading && plan ? (
++        <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
++          <View style={[styles.hero, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++            <View style={styles.rowTop}>
++              <SemanticBadge label={plan.status} tone={plan.status === 'open' ? 'success' : 'muted'} />
++              {plan.myParticipantStatus === 'accepted' ? <SemanticBadge label="Joined" tone="proposal" /> : null}
++            </View>
++            <AppText style={styles.heroTitle}>{plan.title}</AppText>
++            <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{plan.description}</AppText>
++            <View style={styles.metaRow}><MobileIcon name="calendar" size={16} color={theme.color.muted} /><AppText style={[styles.metaText, { color: theme.color.muted }]}>{formatDate(plan.startsAt)}</AppText></View>
++            <View style={styles.metaRow}><MobileIcon name="activity" size={16} color={theme.color.muted} /><AppText style={[styles.metaText, { color: theme.color.muted }]}>{getPlanMeta(plan)}</AppText></View>
++            <Pressable disabled={busy} accessibilityRole="button" onPress={joinOrLeave} style={({ pressed }) => [styles.primaryButton, { backgroundColor: plan.myParticipantStatus === 'accepted' ? theme.color.surface : theme.color.text, borderColor: theme.color.border, borderWidth: plan.myParticipantStatus === 'accepted' ? 1 : 0 }, pressed && styles.pressed, busy && styles.disabled]}>
++              <AppText style={[styles.primaryButtonText, { color: plan.myParticipantStatus === 'accepted' ? theme.color.text : theme.color.background }]}>{busy ? 'Updating...' : plan.myParticipantStatus === 'accepted' ? 'Leave plan' : 'Join plan'}</AppText>
++            </Pressable>
++          </View>
++
++          <View style={styles.sectionTitleRow}><AppText style={styles.sectionTitle}>Places</AppText><SemanticBadge label={`${plan.places?.length ?? 0}`} tone="instruction" size="sm" /></View>
++          {(plan.places ?? []).length === 0 ? <EmptyBlock title="No places yet" body="This Plan does not have places attached yet." /> : null}
++          {(plan.places ?? []).map((place, index) => (
++            <View key={place.id} style={[styles.timelineCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++              <View style={[styles.timelineNumber, { backgroundColor: theme.color.text }]}><AppText style={[styles.timelineNumberText, { color: theme.color.background }]}>{index + 1}</AppText></View>
++              <View style={styles.timelineCopy}>
++                <View style={styles.rowTop}>
++                  <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
++                  {place.source ? <SemanticBadge label={place.source === 'custom' ? 'Custom' : 'Saved place'} tone="instruction" size="sm" /> : null}
++                </View>
++                <AppText style={styles.rowTitle}>{place.title}</AppText>
++                {place.note ? <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{place.note}</AppText> : null}
++                <AppText style={[styles.metaText, { color: theme.color.muted }]}>{place.mode === 'remote' ? (place.onlineLabel || place.onlineUrl || 'Online place') : (place.addressPublicText || 'Offline place')}</AppText>
++                <AppText style={[styles.metaText, { color: theme.color.muted }]}>{formatDate(place.startsAt)}</AppText>
++              </View>
++            </View>
++          ))}
++        </ScrollView>
++      ) : null}
++    </AppFixedHeaderScreen>
++  );
++}
++
++export function MyPlansScreen({ navigation }: SimpleScreenProps<'MyPlans'>) {
++  if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
++  return <AppFixedHeaderScreen header={<AppHeader title="My plans" onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label="Create Plan" onPress={() => navigation.navigate('CreatePlan')} />} />}><PlanList scope="mine" navigation={navigation} /></AppFixedHeaderScreen>;
++}
++
++export function JoinedPlansScreen({ navigation }: SimpleScreenProps<'JoinedPlans'>) {
++  if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
++  return <AppFixedHeaderScreen header={<AppHeader title="Joined plans" onBack={() => navigation.goBack()} />}><PlanList scope="joined" navigation={navigation} /></AppFixedHeaderScreen>;
++}
++
++export function MyPlacesScreen({ navigation }: SimpleScreenProps<'MyPlaces'>) {
++  if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
++  return <AppFixedHeaderScreen header={<AppHeader title="My places" onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label="Create Place" onPress={() => navigation.navigate('CreatePlace')} />} />}><PlaceList scope="mine" navigation={navigation} /></AppFixedHeaderScreen>;
++}
++
++export function PlaceLibraryScreen({ navigation }: SimpleScreenProps<'PlaceLibrary'>) {
++  if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
++  return <AppFixedHeaderScreen header={<AppHeader title="Place Library" onBack={() => navigation.goBack()} />}><PlaceList scope="library" navigation={navigation} /></AppFixedHeaderScreen>;
++}
++
++export function CreatePlanScreen({ navigation }: SimpleScreenProps<'CreatePlan'>) {
++  if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
++  return <AppFixedHeaderScreen header={<AppHeader title="Create plan" onBack={() => navigation.goBack()} />}><SkeletonNotice title="Create Plan skeleton" body="The mobile route is wired. The full mobile create flow with My Places, Hellowhen Place Library, ordering, and time editing comes in PLAN-PROD10." /></AppFixedHeaderScreen>;
++}
++
++export function CreatePlaceScreen({ navigation }: SimpleScreenProps<'CreatePlace'>) {
++  if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
++  return <AppFixedHeaderScreen header={<AppHeader title="Create place" onBack={() => navigation.goBack()} />}><SkeletonNotice title="Create Place skeleton" body="The mobile route is wired. The full reusable Place form and image limits come with the mobile Place Library patch." /></AppFixedHeaderScreen>;
++}
++
++const styles = StyleSheet.create({
++  bodyWrap: { flex: 1, minHeight: 0, gap: 10 },
++  contentPad: { paddingVertical: 12 },
++  centerState: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 24 },
++  largeIcon: { width: 64, height: 64, borderRadius: 32, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  centerTitle: { fontSize: 25, fontWeight: '900', textAlign: 'center', letterSpacing: -0.4 },
++  centerBody: { textAlign: 'center', lineHeight: 21, fontWeight: '700' },
++  feedHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
++  feedTitleWrap: { flex: 1, gap: 6 },
++  feedTitle: { fontSize: 35, lineHeight: 40, fontWeight: '900', letterSpacing: -1 },
++  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
++  headerAction: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  filterRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
++  filterChip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
++  filterChipText: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
++  menuPanel: { borderRadius: 22, borderWidth: 1, overflow: 'hidden' },
++  menuItem: { minHeight: 70, borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', gap: 11 },
++  menuIcon: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  menuCopy: { flex: 1, minWidth: 0, gap: 2 },
++  menuTitle: { fontSize: 16, fontWeight: '900' },
++  menuBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
++  listContent: { gap: 12, paddingBottom: 34 },
++  inlineLoading: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
++  loadingText: { fontWeight: '800' },
++  rowCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 9 },
++  rowTop: { flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap' },
++  rowTitle: { fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.3 },
++  rowBody: { lineHeight: 20, fontWeight: '700' },
++  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
++  metaText: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: '800' },
++  placePreview: { fontSize: 13, fontWeight: '900' },
++  emptyBlock: { borderRadius: 24, borderWidth: 1, alignItems: 'center', padding: 22, gap: 10 },
++  emptyTitle: { fontSize: 22, fontWeight: '900', textAlign: 'center' },
++  emptyBody: { textAlign: 'center', lineHeight: 21, fontWeight: '700' },
++  primaryButton: { minHeight: 48, borderRadius: 17, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 13, alignSelf: 'stretch' },
++  primaryButtonText: { fontWeight: '900' },
++  hero: { borderRadius: 28, borderWidth: 1, padding: 18, gap: 12 },
++  heroTitle: { fontSize: 30, lineHeight: 35, fontWeight: '900', letterSpacing: -0.9 },
++  heroBody: { lineHeight: 21, fontWeight: '700' },
++  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
++  sectionTitle: { fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },
++  timelineCard: { borderRadius: 24, borderWidth: 1, padding: 14, flexDirection: 'row', gap: 12 },
++  timelineNumber: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
++  timelineNumberText: { fontSize: 13, fontWeight: '900' },
++  timelineCopy: { flex: 1, gap: 7 },
++  disabled: { opacity: 0.6 },
++  pressed: { opacity: 0.76, transform: [{ scale: 0.99 }] },
++});
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index 67783ee..daa4598 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -45,6 +45,7 @@ import { TradePublicDiscussionScreen } from '../features/trade/TradePublicDiscus
+ import { TradeDeckFeedScreen } from '../features/trade/TradeDeckFeedScreen';
+ import { TradeDetailScreen } from '../features/trade/TradeDetailScreen';
+ import { TradeIdeaDetailScreen } from '../features/trade/TradeIdeaDetailScreen';
++import { CreatePlaceScreen, CreatePlanScreen, JoinedPlansScreen, MyPlacesScreen, MyPlansScreen, PlaceLibraryScreen, PlanDetailScreen, PlansScreen } from '../features/plans/PlansScreens';
+ import { WalletScreen } from '../features/wallet/WalletScreen';
+ import { PayoutsScreen } from '../features/wallet/PayoutsScreen';
+ import { useAuth } from '../providers/AuthProvider';
+@@ -67,6 +68,14 @@ export type RootStackParamList = {
+   Notifications: undefined;
+   SavedLibrary: undefined;
+   Agenda: undefined;
++  Plans: undefined;
++  PlanDetail: { planId: string; title?: string };
++  MyPlans: undefined;
++  JoinedPlans: undefined;
++  MyPlaces: undefined;
++  PlaceLibrary: undefined;
++  CreatePlan: undefined;
++  CreatePlace: undefined;
+   SavedLibraryCollection: { collectionId: string; title?: string };
+   Membership: undefined;
+   ProPlans: undefined;
+@@ -149,6 +158,14 @@ const ProtectedProfileScreen = withAuth(ProfileScreen);
+ const ProtectedNotificationsScreen = withAuth(NotificationsScreen);
+ const ProtectedSavedLibraryScreen = withAuth(SavedLibraryScreen);
+ const ProtectedAgendaScreen = withAuth(AgendaScreen);
++const ProtectedPlansScreen = withAuth(PlansScreen, 'Login to open Plans', 'Plans are joinable place-based activities, so you need an account before joining or creating them.');
++const ProtectedPlanDetailScreen = withAuth(PlanDetailScreen);
++const ProtectedMyPlansScreen = withAuth(MyPlansScreen);
++const ProtectedJoinedPlansScreen = withAuth(JoinedPlansScreen);
++const ProtectedMyPlacesScreen = withAuth(MyPlacesScreen);
++const ProtectedPlaceLibraryScreen = withAuth(PlaceLibraryScreen);
++const ProtectedCreatePlanScreen = withAuth(CreatePlanScreen, 'Login to create a plan', 'Create Plans after signing in so they stay attached to your account.');
++const ProtectedCreatePlaceScreen = withAuth(CreatePlaceScreen, 'Login to create a place', 'Create reusable Places after signing in so they stay attached to your account.');
+ const ProtectedSavedCollectionDetailScreen = withAuth(SavedCollectionDetailScreen);
+ const ProtectedMembershipScreen = withAuth(MembershipScreen);
+ const ProtectedPlanSelectionScreen = withAuth(PlanSelectionScreen);
+@@ -249,6 +266,14 @@ export function RootNavigator() {
+       <Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />
+       <Stack.Screen name="SavedLibrary" component={ProtectedSavedLibraryScreen} />
+       <Stack.Screen name="Agenda" component={ProtectedAgendaScreen} />
++      {betaFeatures.plansEnabled ? <Stack.Screen name="Plans" component={ProtectedPlansScreen} /> : null}
++      {betaFeatures.plansEnabled ? <Stack.Screen name="PlanDetail" component={ProtectedPlanDetailScreen} /> : null}
++      {betaFeatures.plansEnabled ? <Stack.Screen name="MyPlans" component={ProtectedMyPlansScreen} /> : null}
++      {betaFeatures.plansEnabled ? <Stack.Screen name="JoinedPlans" component={ProtectedJoinedPlansScreen} /> : null}
++      {betaFeatures.plansEnabled ? <Stack.Screen name="MyPlaces" component={ProtectedMyPlacesScreen} /> : null}
++      {betaFeatures.plansEnabled ? <Stack.Screen name="PlaceLibrary" component={ProtectedPlaceLibraryScreen} /> : null}
++      {betaFeatures.plansEnabled ? <Stack.Screen name="CreatePlan" component={ProtectedCreatePlanScreen} /> : null}
++      {betaFeatures.plansEnabled ? <Stack.Screen name="CreatePlace" component={ProtectedCreatePlaceScreen} /> : null}
+       <Stack.Screen name="SavedLibraryCollection" component={ProtectedSavedCollectionDetailScreen} />
+       {betaFeatures.mobileMembershipVisible ? <Stack.Screen name="Membership" component={ProtectedMembershipScreen} /> : null}
+       {betaFeatures.plusSubscriptionFeatures.plusPublic ? <Stack.Screen name="ProPlans" component={ProtectedPlanSelectionScreen} /> : null}
+diff --git a/docs/product/hidden-plans-foundation.md b/docs/product/hidden-plans-foundation.md
+index 2458bde..d53fb14 100644
+--- a/docs/product/hidden-plans-foundation.md
++++ b/docs/product/hidden-plans-foundation.md
+@@ -237,3 +237,20 @@ The create flow still saves `PlanPlace` snapshots. Editing a reusable `Place` la
+ 2. Decide whether exact addresses need owner-approval/private visibility again before any public Plans launch.
+ 3. Add hidden native Plans screens only when explicitly selected.
+ 4. Add optional smoke coverage for media/report flows once a dedicated non-polluting test fixture is available.
++
++## PLAN-PROD7 mobile route skeleton
++
++The native app now has hidden, feature-gated Plan routes wired behind the existing `EXPO_PUBLIC_PLANS_ENABLED` and `EXPO_PUBLIC_PLANS_VISIBLE` flags. This patch does not replace the production bottom navigation, and it does not remove the existing Trade / Needs / Offers / Account tabs.
++
++When the flags are enabled for internal testing, Account can show a Plans entry that opens the native Plan hub. The skeleton includes routes for:
++
++- `Plans`
++- `PlanDetail`
++- `MyPlans`
++- `JoinedPlans`
++- `MyPlaces`
++- `PlaceLibrary`
++- `CreatePlan`
++- `CreatePlace`
++
++The native Plan hub can call the hidden Plan and Place Library APIs for feed, mine, joined, My Places, and Hellowhen Place Library lists. Create Plan and Create Place are intentionally placeholder routes until the dedicated mobile create/picker patch. This keeps navigation stable before the mobile deck and full create flow are added.
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+index 4f712e4..7b926ef 100644
+--- a/packages/i18n/src/locales/en/account.ts
++++ b/packages/i18n/src/locales/en/account.ts
+@@ -1095,6 +1095,12 @@ export const account = {
+       bodyNative: 'Private reminders and trade dates.',
+       badge: 'Agenda',
+     },
++    plansFeature: {
++      title: 'Plans',
++      body: 'Joinable place-based Plans with My Places and Hellowhen Place Library.',
++      bodyNative: 'Joinable Plans, My Places, and Place Library.',
++      badge: 'Hidden',
++    },
+     membership: {
+       title: 'Membership',
+       body: 'Compare Free / Basic, Plus, Pro, and the separate Business identity type.',
+diff --git a/packages/i18n/src/locales/es/account.ts b/packages/i18n/src/locales/es/account.ts
+index 09e637e..95f6f56 100644
+--- a/packages/i18n/src/locales/es/account.ts
++++ b/packages/i18n/src/locales/es/account.ts
+@@ -1038,6 +1038,7 @@ export const account = {
+     business: { ...enAccount.items.business, title: 'Empresa / marca', body: 'Crea futuros perfiles de empresa, agencia, marca o gran empresa para onboarding listo para KYB.', bodyNative: 'Futuros perfiles de empresa, agencia, marca y gran empresa.', badge: 'Marca' },
+     saved: { ...enAccount.items.saved, title: 'Biblioteca guardada', body: 'Intercambios, necesidades, ofertas, personas y colecciones guardadas de forma privada para más tarde.', bodyNative: 'Intercambios, ofertas, necesidades y personas guardadas de forma privada.', badge: 'Guardado' },
+     agenda: { ...enAccount.items.agenda, title: 'Agenda', body: 'Recordatorios privados, seguimientos, fechas límite y fechas de intercambios.', bodyNative: 'Recordatorios privados y fechas de intercambios.', badge: 'Agenda' },
++    plansFeature: { ...enAccount.items.plansFeature, title: 'Planes', body: 'Planes por lugares con Mis lugares y la biblioteca de lugares de Hellowhen.', bodyNative: 'Planes, Mis lugares y biblioteca de lugares.', badge: 'Oculto' },
+     membership: { ...enAccount.items.membership, title: 'Membresía', body: 'Compara Gratis / Básico, Plus, Pro y el tipo separado de identidad Business.', bodyNative: 'Compara Gratis / Básico, Plus, Pro e identidad Business.', badge: 'Membresía' },
+     notifications: { ...enAccount.items.notifications, title: 'Notificaciones', body: 'Decisiones de propuestas, respuestas privadas y actualizaciones relacionadas con tus intercambios.', bodyNative: 'Decisiones de propuestas, respuestas privadas y actualizaciones de intercambios.', badge: 'Bandeja' },
+     guide: { ...enAccount.items.guide, title: 'Guía', body: 'Repite la breve guía de onboarding de Hellowhen, incluyendo las siete diapositivas introductorias, idioma y controles de apariencia.', bodyNative: 'Repite la guía de onboarding cuando quieras.', badge: 'Guía', action: 'Repetir' },
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+index d74f249..52573f8 100644
+--- a/packages/i18n/src/locales/fr/account.ts
++++ b/packages/i18n/src/locales/fr/account.ts
+@@ -1095,6 +1095,12 @@ export const account = {
+       bodyNative: 'Rappels privés et dates d’échanges.',
+       badge: 'Agenda',
+     },
++    plansFeature: {
++      title: 'Plans',
++      body: 'Plans à rejoindre avec Mes lieux et la bibliothèque de lieux Hellowhen.',
++      bodyNative: 'Plans à rejoindre, Mes lieux et bibliothèque.',
++      badge: 'Caché',
++    },
+     membership: {
+       title: 'Membership',
+       body: 'Comparez Free / Basic, Plus, Pro et le type d’identité Business séparé.',

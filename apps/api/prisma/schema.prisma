@@ -276,6 +276,7 @@ enum MediaEntityType {
   profile
   support_ticket
   support_message
+  place
   plan
   plan_place
 }
@@ -718,6 +719,24 @@ enum PlanPlaceMode {
   remote
 }
 
+enum PlaceSource {
+  user
+  hellowhen_library
+}
+
+enum PlaceStatus {
+  draft
+  active
+  archived
+  hidden
+}
+
+enum PlaceVisibility {
+  private
+  public
+  library
+}
+
 
 enum ContentClassificationTargetType {
   need
@@ -906,6 +925,7 @@ model User {
   blocksCreated UserBlock[] @relation("UserBlocksCreated")
   blocksReceived UserBlock[] @relation("UserBlocksReceived")
   plans       Plan[] @relation("OwnedPlans")
+  places      Place[] @relation("OwnedPlaces")
   planParticipants PlanParticipant[] @relation("PlanParticipants")
   decidedPlanParticipants PlanParticipant[] @relation("PlanParticipantDecisions")
   usageHeartbeats UsageHeartbeat[]
@@ -2600,6 +2620,38 @@ model UserBlock {
 }
 
 
+model Place {
+  id                         String          @id @default(cuid())
+  ownerId                    String?
+  source                     PlaceSource     @default(user)
+  status                     PlaceStatus     @default(active)
+  visibility                 PlaceVisibility @default(private)
+  mode                       PlanPlaceMode   @default(local)
+  title                      String
+  description                String?
+  category                   String?
+  tags                       String[]        @default([])
+  areaLabel                  String?
+  addressPublicText          String?
+  addressPrivateText         String?
+  onlineLabel                String?
+  onlineUrl                  String?
+  defaultDurationMinutes     Int?
+  defaultNote                String?
+  defaultMeetingInstructions String?
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
+  archivedAt                 DateTime?
+
+  owner      User?       @relation("OwnedPlaces", fields: [ownerId], references: [id], onDelete: Cascade)
+  planPlaces PlanPlace[] @relation("PlanPlaceSource")
+
+  @@index([ownerId, status, updatedAt])
+  @@index([source, status, visibility])
+  @@index([mode])
+  @@index([category])
+}
+
 model Plan {
   id               String               @id @default(cuid())
   ownerId          String
@@ -2629,22 +2681,27 @@ model Plan {
 }
 
 model PlanPlace {
-  id                 String   @id @default(cuid())
+  id                 String        @id @default(cuid())
   planId             String
-  order              Int      @default(0)
+  placeId            String?
+  order              Int           @default(0)
   mode               PlanPlaceMode @default(local)
   title              String
   note               String?
   addressPublicText  String?
   addressPrivateText String?
+  onlineLabel        String?
+  onlineUrl          String?
   startsAt           DateTime?
   endsAt             DateTime?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
-  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  plan        Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+  sourcePlace Place? @relation("PlanPlaceSource", fields: [placeId], references: [id], onDelete: SetNull)
 
   @@index([planId, order])
+  @@index([placeId])
   @@index([mode])
   @@index([startsAt])
 }

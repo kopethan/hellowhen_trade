@@ -1,0 +1,686 @@
+diff --git a/apps/api/prisma/migrations/20260626112000_plan_place_reusable_foundation/migration.sql b/apps/api/prisma/migrations/20260626112000_plan_place_reusable_foundation/migration.sql
+new file mode 100644
+index 0000000..d6de016
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260626112000_plan_place_reusable_foundation/migration.sql
+@@ -0,0 +1,67 @@
++-- PLAN-PROD1: reusable Place foundation for production Plans.
++-- Places are reusable library items. PlanPlace remains the per-plan snapshot
++-- so existing/future plans do not silently change when a saved Place is edited.
++ALTER TYPE "MediaEntityType" ADD VALUE IF NOT EXISTS 'place';
++
++CREATE TYPE "PlaceSource" AS ENUM (
++  'user',
++  'hellowhen_library'
++);
++
++CREATE TYPE "PlaceStatus" AS ENUM (
++  'draft',
++  'active',
++  'archived',
++  'hidden'
++);
++
++CREATE TYPE "PlaceVisibility" AS ENUM (
++  'private',
++  'public',
++  'library'
++);
++
++CREATE TABLE "Place" (
++  "id" TEXT NOT NULL,
++  "ownerId" TEXT,
++  "source" "PlaceSource" NOT NULL DEFAULT 'user',
++  "status" "PlaceStatus" NOT NULL DEFAULT 'active',
++  "visibility" "PlaceVisibility" NOT NULL DEFAULT 'private',
++  "mode" "PlanPlaceMode" NOT NULL DEFAULT 'local',
++  "title" TEXT NOT NULL,
++  "description" TEXT,
++  "category" TEXT,
++  "tags" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
++  "areaLabel" TEXT,
++  "addressPublicText" TEXT,
++  "addressPrivateText" TEXT,
++  "onlineLabel" TEXT,
++  "onlineUrl" TEXT,
++  "defaultDurationMinutes" INTEGER,
++  "defaultNote" TEXT,
++  "defaultMeetingInstructions" TEXT,
++  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  "updatedAt" TIMESTAMP(3) NOT NULL,
++  "archivedAt" TIMESTAMP(3),
++
++  CONSTRAINT "Place_pkey" PRIMARY KEY ("id")
++);
++
++ALTER TABLE "PlanPlace" ADD COLUMN "placeId" TEXT;
++ALTER TABLE "PlanPlace" ADD COLUMN "onlineLabel" TEXT;
++ALTER TABLE "PlanPlace" ADD COLUMN "onlineUrl" TEXT;
++
++CREATE INDEX "Place_ownerId_status_updatedAt_idx" ON "Place"("ownerId", "status", "updatedAt");
++CREATE INDEX "Place_source_status_visibility_idx" ON "Place"("source", "status", "visibility");
++CREATE INDEX "Place_mode_idx" ON "Place"("mode");
++CREATE INDEX "Place_category_idx" ON "Place"("category");
++CREATE INDEX "PlanPlace_placeId_idx" ON "PlanPlace"("placeId");
++
++ALTER TABLE "Place" ADD CONSTRAINT "Place_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "PlanPlace" ADD CONSTRAINT "PlanPlace_placeId_fkey" FOREIGN KEY ("placeId") REFERENCES "Place"("id") ON DELETE SET NULL ON UPDATE CASCADE;
++
++ALTER TABLE "Place" ADD CONSTRAINT "Place_user_source_requires_owner_check" CHECK (
++  ("source" = 'user' AND "ownerId" IS NOT NULL)
++  OR
++  ("source" = 'hellowhen_library')
++);
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 424a52e..d318419 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -276,6 +276,7 @@ enum MediaEntityType {
+   profile
+   support_ticket
+   support_message
++  place
+   plan
+   plan_place
+ }
+@@ -718,6 +719,24 @@ enum PlanPlaceMode {
+   remote
+ }
+ 
++enum PlaceSource {
++  user
++  hellowhen_library
++}
++
++enum PlaceStatus {
++  draft
++  active
++  archived
++  hidden
++}
++
++enum PlaceVisibility {
++  private
++  public
++  library
++}
++
+ 
+ enum ContentClassificationTargetType {
+   need
+@@ -906,6 +925,7 @@ model User {
+   blocksCreated UserBlock[] @relation("UserBlocksCreated")
+   blocksReceived UserBlock[] @relation("UserBlocksReceived")
+   plans       Plan[] @relation("OwnedPlans")
++  places      Place[] @relation("OwnedPlaces")
+   planParticipants PlanParticipant[] @relation("PlanParticipants")
+   decidedPlanParticipants PlanParticipant[] @relation("PlanParticipantDecisions")
+   usageHeartbeats UsageHeartbeat[]
+@@ -2600,6 +2620,38 @@ model UserBlock {
+ }
+ 
+ 
++model Place {
++  id                         String          @id @default(cuid())
++  ownerId                    String?
++  source                     PlaceSource     @default(user)
++  status                     PlaceStatus     @default(active)
++  visibility                 PlaceVisibility @default(private)
++  mode                       PlanPlaceMode   @default(local)
++  title                      String
++  description                String?
++  category                   String?
++  tags                       String[]        @default([])
++  areaLabel                  String?
++  addressPublicText          String?
++  addressPrivateText         String?
++  onlineLabel                String?
++  onlineUrl                  String?
++  defaultDurationMinutes     Int?
++  defaultNote                String?
++  defaultMeetingInstructions String?
++  createdAt                  DateTime        @default(now())
++  updatedAt                  DateTime        @updatedAt
++  archivedAt                 DateTime?
++
++  owner      User?       @relation("OwnedPlaces", fields: [ownerId], references: [id], onDelete: Cascade)
++  planPlaces PlanPlace[] @relation("PlanPlaceSource")
++
++  @@index([ownerId, status, updatedAt])
++  @@index([source, status, visibility])
++  @@index([mode])
++  @@index([category])
++}
++
+ model Plan {
+   id               String               @id @default(cuid())
+   ownerId          String
+@@ -2629,22 +2681,27 @@ model Plan {
+ }
+ 
+ model PlanPlace {
+-  id                 String   @id @default(cuid())
++  id                 String        @id @default(cuid())
+   planId             String
+-  order              Int      @default(0)
++  placeId            String?
++  order              Int           @default(0)
+   mode               PlanPlaceMode @default(local)
+   title              String
+   note               String?
+   addressPublicText  String?
+   addressPrivateText String?
++  onlineLabel        String?
++  onlineUrl          String?
+   startsAt           DateTime?
+   endsAt             DateTime?
+-  createdAt          DateTime @default(now())
+-  updatedAt          DateTime @updatedAt
++  createdAt          DateTime      @default(now())
++  updatedAt          DateTime      @updatedAt
+ 
+-  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
++  plan        Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
++  sourcePlace Place? @relation("PlanPlaceSource", fields: [placeId], references: [id], onDelete: SetNull)
+ 
+   @@index([planId, order])
++  @@index([placeId])
+   @@index([mode])
+   @@index([startsAt])
+ }
+diff --git a/apps/api/src/modules/media/media.helpers.ts b/apps/api/src/modules/media/media.helpers.ts
+index f97fd67..d6cce8b 100644
+--- a/apps/api/src/modules/media/media.helpers.ts
++++ b/apps/api/src/modules/media/media.helpers.ts
+@@ -28,6 +28,7 @@ export type AttachMediaOptions = {
+   coverMediaId?: string | null;
+   enableOrderAndCover?: boolean;
+   syncSelection?: boolean;
++  maxImages?: number;
+ };
+ 
+ export async function attachUploadedMediaToEntity(
+@@ -40,8 +41,9 @@ export async function attachUploadedMediaToEntity(
+   if (mediaIds === undefined) return;
+ 
+   const ids = Array.from(new Set(mediaIds));
+-  if (ids.length > 5) {
+-    throw createMediaRequestError('too_many_images', 'You can attach up to 5 images. Remove one image before adding another.');
++  const maxImages = options.maxImages ?? 5;
++  if (ids.length > maxImages) {
++    throw createMediaRequestError('too_many_images', `You can attach up to ${maxImages} images. Remove one image before adding another.`);
+   }
+ 
+   const [selectedMedia, existingEntityMedia] = await Promise.all([
+@@ -62,8 +64,8 @@ export async function attachUploadedMediaToEntity(
+ 
+   const existingIds = new Set(existingEntityMedia.map((item) => item.id));
+   const newIds = ids.filter((id) => !existingIds.has(id));
+-  if (existingEntityMedia.length + newIds.length > 5) {
+-    throw createMediaRequestError('too_many_images', 'You can attach up to 5 images. Remove one image before adding another.');
++  if (existingEntityMedia.length + newIds.length > maxImages) {
++    throw createMediaRequestError('too_many_images', `You can attach up to ${maxImages} images. Remove one image before adding another.`);
+   }
+ 
+   if (options.syncSelection) {
+diff --git a/apps/api/src/modules/moderation/moderation.mediaPipeline.ts b/apps/api/src/modules/moderation/moderation.mediaPipeline.ts
+index cb8c60d..f506781 100644
+--- a/apps/api/src/modules/moderation/moderation.mediaPipeline.ts
++++ b/apps/api/src/modules/moderation/moderation.mediaPipeline.ts
+@@ -5,7 +5,7 @@ import { buildMinimalModerationPayload } from './moderation.payloads.js';
+ import { scanWithConfiguredModerationProvider } from './moderation.provider.js';
+ import { storeModerationProviderResult } from './moderation.results.js';
+ 
+-const publicImageEntityTypes = new Set<MediaEntityType>(['need', 'offer', 'trade', 'profile']);
++const publicImageEntityTypes = new Set<MediaEntityType>(['need', 'offer', 'trade', 'profile', 'place', 'plan', 'plan_place']);
+ const imageModerationContentTypes = new Set<ModerationContentType>(['media', 'profile_image', 'trade_image', 'need_image', 'offer_image']);
+ const openModerationCaseStatuses = new Set<ModerationCaseStatus>(['pending', 'needs_review', 'failed', 'limited']);
+ 
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+index d3852f7..dc61b95 100644
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -1,5 +1,6 @@
+ import { Router } from 'express';
+ import {
++  PLAN_PLACE_MEDIA_LIMITS,
+   createPlanJoinRequestSchema,
+   createPlanPlaceRequestSchema,
+   createPlanRequestSchema,
+@@ -31,7 +32,10 @@ function cleanTags(value: string[] | undefined) {
+ function planInclude() {
+   return {
+     owner: { select: userSummarySelect },
+-    places: { orderBy: [{ order: 'asc' as const }, { createdAt: 'asc' as const }] },
++    places: {
++      include: { sourcePlace: { include: { owner: { select: userSummarySelect } } } },
++      orderBy: [{ order: 'asc' as const }, { createdAt: 'asc' as const }],
++    },
+     participants: { include: { user: { select: userSummarySelect } }, orderBy: { createdAt: 'asc' as const } },
+   };
+ }
+@@ -73,6 +77,27 @@ async function decoratePlans(plans: any[], viewerId?: string | null) {
+   return planMediaMap.map((plan: any) => serializePlan({ ...plan, places: (plan.places ?? []).map((place: any) => placeById.get(place.id) ?? place) }, viewerId ?? null));
+ }
+ 
++function createPlanRequestError(code: string, publicMessage: string, statusCode = 400) {
++  return Object.assign(new Error(publicMessage), { code, publicMessage, statusCode });
++}
++
++function cleanReusablePlaceForViewer(place: any, canSeePrivateDetails: boolean) {
++  if (!place) return null;
++  return {
++    ...place,
++    mode: place.mode ?? 'local',
++    source: place.source ?? 'user',
++    visibility: place.visibility ?? (place.source === 'hellowhen_library' ? 'library' : 'private'),
++    addressPrivateText: canSeePrivateDetails ? place.addressPrivateText ?? null : null,
++    defaultMeetingInstructions: canSeePrivateDetails ? place.defaultMeetingInstructions ?? null : null,
++  };
++}
++
++function planPlaceSourceFor(place: any) {
++  if (!place?.placeId) return 'custom';
++  return place.sourcePlace?.source === 'hellowhen_library' ? 'hellowhen_library' : 'my_place';
++}
++
+ function serializePlan(plan: any, viewerId: string | null) {
+   const isOwner = Boolean(viewerId && plan.ownerId === viewerId);
+   const myParticipant = viewerId ? (plan.participants ?? []).find((participant: any) => participant.userId === viewerId) : null;
+@@ -82,11 +107,14 @@ function serializePlan(plan: any, viewerId: string | null) {
+   const visibleParticipants = isOwner
+     ? (plan.participants ?? [])
+     : [...acceptedParticipants, ...(myParticipant && myParticipant.status !== 'accepted' ? [myParticipant] : [])];
++  const canSeeSourcePlace = isOwner;
+ 
+   return {
+     ...plan,
+     places: (plan.places ?? []).map((place: any) => ({
+       ...place,
++      source: planPlaceSourceFor(place),
++      sourcePlace: canSeeSourcePlace ? cleanReusablePlaceForViewer(place.sourcePlace, canSeePrivatePlaceDetails) : null,
+       mode: place.mode ?? 'local',
+       addressPrivateText: canSeePrivatePlaceDetails ? place.addressPrivateText ?? null : null,
+     })),
+@@ -149,28 +177,63 @@ function planUpdateData(input: ReturnType<typeof updatePlanRequestSchema.parse>)
+   };
+ }
+ 
+-function placeCreateData(planId: string, input: ReturnType<typeof createPlanPlaceRequestSchema.parse>, fallbackOrder = 0) {
++async function loadReusablePlaceForSnapshot(placeId: string, userId: string) {
++  return prisma.place.findFirst({
++    where: {
++      id: placeId,
++      status: 'active' as any,
++      OR: [
++        { ownerId: userId },
++        { source: 'hellowhen_library' as any, visibility: 'library' as any },
++        { visibility: 'public' as any },
++      ],
++    },
++  });
++}
++
++function planPlaceSnapshotData(planId: string, input: ReturnType<typeof createPlanPlaceRequestSchema.parse> | ReturnType<typeof updatePlanPlaceRequestSchema.parse>, fallbackOrder = 0, reusablePlace?: any | null) {
+   return {
+     planId,
++    placeId: reusablePlace?.id ?? input.placeId ?? null,
+     order: input.order ?? fallbackOrder,
+-    mode: input.mode ?? 'local',
+-    title: input.title,
+-    note: input.note ?? null,
+-    addressPublicText: input.addressPublicText ?? null,
+-    addressPrivateText: input.addressPrivateText ?? null,
++    mode: input.mode ?? reusablePlace?.mode ?? 'local',
++    title: input.title ?? reusablePlace?.title,
++    note: input.note ?? reusablePlace?.defaultNote ?? null,
++    addressPublicText: input.addressPublicText ?? reusablePlace?.addressPublicText ?? null,
++    addressPrivateText: input.addressPrivateText ?? reusablePlace?.addressPrivateText ?? null,
++    onlineLabel: input.onlineLabel ?? reusablePlace?.onlineLabel ?? null,
++    onlineUrl: input.onlineUrl ?? reusablePlace?.onlineUrl ?? null,
+     startsAt: input.startsAt ? new Date(input.startsAt) : null,
+     endsAt: input.endsAt ? new Date(input.endsAt) : null,
+   };
+ }
+ 
+-function placeUpdateData(input: ReturnType<typeof updatePlanPlaceRequestSchema.parse>) {
++async function placeCreateData(planId: string, ownerId: string, input: ReturnType<typeof createPlanPlaceRequestSchema.parse>, fallbackOrder = 0) {
++  const reusablePlace = input.placeId ? await loadReusablePlaceForSnapshot(input.placeId, ownerId) : null;
++  if (input.placeId && !reusablePlace) {
++    throw createPlanRequestError('place_not_found', 'Choose one of your places or a Hellowhen library place.', 404);
++  }
++  const data = planPlaceSnapshotData(planId, input, fallbackOrder, reusablePlace);
++  if (!data.title) throw createPlanRequestError('missing_place_title', 'Add a place title before saving this plan place.');
++  return data;
++}
++
++async function placeUpdateData(ownerId: string, input: ReturnType<typeof updatePlanPlaceRequestSchema.parse>) {
++  const reusablePlace = input.placeId ? await loadReusablePlaceForSnapshot(input.placeId, ownerId) : null;
++  if (input.placeId && !reusablePlace) {
++    throw createPlanRequestError('place_not_found', 'Choose one of your places or a Hellowhen library place.', 404);
++  }
++  const snapshot = reusablePlace ? planPlaceSnapshotData('', input, 0, reusablePlace) : null;
+   return {
++    ...(input.placeId !== undefined ? { placeId: reusablePlace?.id ?? null } : {}),
+     ...(input.order !== undefined ? { order: input.order } : {}),
+-    ...(input.mode !== undefined ? { mode: input.mode } : {}),
+-    ...(input.title !== undefined ? { title: input.title } : {}),
+-    ...(input.note !== undefined ? { note: input.note } : {}),
+-    ...(input.addressPublicText !== undefined ? { addressPublicText: input.addressPublicText } : {}),
+-    ...(input.addressPrivateText !== undefined ? { addressPrivateText: input.addressPrivateText } : {}),
++    ...(input.mode !== undefined || reusablePlace ? { mode: input.mode ?? reusablePlace?.mode ?? 'local' } : {}),
++    ...(input.title !== undefined || reusablePlace ? { title: input.title ?? reusablePlace?.title } : {}),
++    ...(input.note !== undefined || reusablePlace ? { note: input.note ?? snapshot?.note ?? null } : {}),
++    ...(input.addressPublicText !== undefined || reusablePlace ? { addressPublicText: input.addressPublicText ?? snapshot?.addressPublicText ?? null } : {}),
++    ...(input.addressPrivateText !== undefined || reusablePlace ? { addressPrivateText: input.addressPrivateText ?? snapshot?.addressPrivateText ?? null } : {}),
++    ...(input.onlineLabel !== undefined || reusablePlace ? { onlineLabel: input.onlineLabel ?? snapshot?.onlineLabel ?? null } : {}),
++    ...(input.onlineUrl !== undefined || reusablePlace ? { onlineUrl: input.onlineUrl ?? snapshot?.onlineUrl ?? null } : {}),
+     ...(input.startsAt !== undefined ? { startsAt: input.startsAt ? new Date(input.startsAt) : null } : {}),
+     ...(input.endsAt !== undefined ? { endsAt: input.endsAt ? new Date(input.endsAt) : null } : {}),
+   };
+@@ -212,8 +275,8 @@ plansRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req,
+   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan' as any, plan.id);
+ 
+   for (const [index, placeInput] of (input.places ?? []).entries()) {
+-    const place = await prisma.planPlace.create({ data: placeCreateData(plan.id, placeInput, index) as any });
+-    await attachUploadedMediaToEntity(req.user!.id, placeInput.mediaIds, 'plan_place' as any, place.id);
++    const place = await prisma.planPlace.create({ data: await placeCreateData(plan.id, req.user!.id, placeInput, index) as any });
++    await attachUploadedMediaToEntity(req.user!.id, placeInput.mediaIds, 'plan_place' as any, place.id, { maxImages: PLAN_PLACE_MEDIA_LIMITS.plus });
+   }
+ 
+   const created = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
+@@ -237,8 +300,8 @@ plansRoutes.post('/:planId/places', requireAuth, requireActiveAccount, asyncRout
+   if (!plan) return res.status(404).json({ error: 'not_found' });
+   const existingCount = await prisma.planPlace.count({ where: { planId: plan.id } });
+   if (existingCount >= 12) return res.status(409).json({ error: 'too_many_places', message: 'A plan can include up to 12 places for now.' });
+-  const place = await prisma.planPlace.create({ data: placeCreateData(plan.id, input, existingCount) as any });
+-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan_place' as any, place.id);
++  const place = await prisma.planPlace.create({ data: await placeCreateData(plan.id, req.user!.id, input, existingCount) as any });
++  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan_place' as any, place.id, { maxImages: PLAN_PLACE_MEDIA_LIMITS.plus });
+   const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
+   res.status(201).json({ plan: await decoratePlan(updated, req.user!.id) });
+ }));
+@@ -249,8 +312,8 @@ plansRoutes.patch('/:planId/places/:placeId', requireAuth, requireActiveAccount,
+   if (!plan) return res.status(404).json({ error: 'not_found' });
+   const place = await prisma.planPlace.findFirst({ where: { id: req.params.placeId, planId: plan.id } });
+   if (!place) return res.status(404).json({ error: 'not_found' });
+-  await prisma.planPlace.update({ where: { id: place.id }, data: placeUpdateData(input) as any });
+-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan_place' as any, place.id);
++  await prisma.planPlace.update({ where: { id: place.id }, data: await placeUpdateData(req.user!.id, input) as any });
++  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan_place' as any, place.id, { maxImages: PLAN_PLACE_MEDIA_LIMITS.plus });
+   const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
+   res.json({ plan: await decoratePlan(updated, req.user!.id) });
+ }));
+diff --git a/docs/product/hidden-plans-foundation.md b/docs/product/hidden-plans-foundation.md
+index e97afae..98e3130 100644
+--- a/docs/product/hidden-plans-foundation.md
++++ b/docs/product/hidden-plans-foundation.md
+@@ -55,10 +55,11 @@ Plans are not money features. Do not add paid helpers, wallet amounts, payouts,
+ ## Foundation models
+ 
+ - `Plan`: title, description, calculated timing range, category/tags, status, owner, and future participant-limit fields.
+-- `PlanPlace`: ordered stops with Local/Remote mode, explicit date/time, name, visible address or online link, notes/purpose, and optional media.
++- `Place`: reusable library item for future My Places and Hellowhen Place Library surfaces.
++- `PlanPlace`: ordered per-Plan snapshot with Local/Remote mode, explicit date/time, name, visible address or online link, notes/purpose, optional media, and optional `placeId` link back to a reusable Place.
+ - `PlanParticipant`: instant joins and participant lifecycle; pending approval status remains for later use.
+-- Media can attach to `plan` or `plan_place` through `MediaAsset.entityType`, but the simplified hidden web UI only creates Place images.
+-- Place media reuse the authenticated JPEG/PNG/WEBP upload route. The hidden web UI limits this to one image per place for now.
++- Media can attach to `place`, `plan`, or `plan_place` through `MediaAsset.entityType`, but the simplified hidden web UI only creates Plan Place images.
++- Place media reuse the authenticated JPEG/PNG/WEBP upload route. The hidden web UI limits Plan Place images to one image per place for now; shared contracts prepare 1 Free, 5 Plus, and 6 admin/library images for reusable Places.
+ - Reports can target `plan` and `plan_place`; hiding a reported Plan Place hides its parent Plan from public/internal discovery.
+ 
+ ## Current API foundation
+diff --git a/docs/product/plan-place-foundation.md b/docs/product/plan-place-foundation.md
+new file mode 100644
+index 0000000..7535d70
+--- /dev/null
++++ b/docs/product/plan-place-foundation.md
+@@ -0,0 +1,41 @@
++# PLAN-PROD1 reusable Place foundation
++
++PLAN-PROD1 keeps the hidden production Plan feature behind the existing Plan flags and adds the data/contracts needed for a future production Place Library.
++
++## Product rule
++
++A reusable `Place` is a library item. A `PlanPlace` is still the snapshot that appears inside a specific Plan.
++
++That means a user can later edit a saved Place without silently changing an already-created Plan.
++
++## Library structure prepared
++
++- `Place.source = user` prepares **My Places**.
++- `Place.source = hellowhen_library` prepares **Hellowhen Place Library**.
++- `PlanPlace.placeId` optionally links a Plan snapshot back to the reusable Place it came from.
++- Existing Plans can continue to use custom embedded Plan places with no reusable Place link.
++
++## Media limits prepared
++
++Shared contracts expose `PLAN_PLACE_MEDIA_LIMITS`:
++
++- Free user Place: `1` image
++- Plus user Place: `5` images
++- Admin / Hellowhen library Place: `6` images
++
++The media helper now accepts a per-entity `maxImages` option. Existing callers keep the previous default limit of 5 images unless they opt into a different limit.
++
++## First-version boundaries
++
++PLAN-PROD1 does not add visible navigation or production UI.
++
++It does not add:
++
++- public Plan navigation
++- mobile Plan screens
++- Place Library API routes
++- backend connection to Trade / Need / Offer / Agenda
++- payment, approval, or owner-approval Plan flows
++- public Plan discussion
++
++Those belong in later PLAN-PROD patches.
+diff --git a/packages/contracts/src/media.ts b/packages/contracts/src/media.ts
+index 58c30d7..d3fe0f3 100644
+--- a/packages/contracts/src/media.ts
++++ b/packages/contracts/src/media.ts
+@@ -1,6 +1,6 @@
+ import { z } from 'zod';
+ 
+-export const mediaEntityTypeSchema = z.enum(['need', 'offer', 'trade', 'inventory_template', 'profile', 'support_ticket', 'support_message', 'plan', 'plan_place']);
++export const mediaEntityTypeSchema = z.enum(['need', 'offer', 'trade', 'inventory_template', 'profile', 'support_ticket', 'support_message', 'place', 'plan', 'plan_place']);
+ export const mediaAssetStatusSchema = z.enum(['active', 'flagged', 'removed', 'pending_review']);
+ 
+ export const publicMediaAccessSchema = z.object({
+diff --git a/packages/contracts/src/plans.ts b/packages/contracts/src/plans.ts
+index 77efc7d..bf223a3 100644
+--- a/packages/contracts/src/plans.ts
++++ b/packages/contracts/src/plans.ts
+@@ -7,24 +7,87 @@ export const planPublicStatusSchema = z.enum(['open', 'full', 'started']);
+ export const planJoinApprovalModeSchema = z.enum(['owner_approval', 'automatic']);
+ export const planParticipantStatusSchema = z.enum(['pending', 'accepted', 'declined', 'cancelled', 'left', 'removed']);
+ export const planPlaceModeSchema = z.enum(['local', 'remote']);
++export const placeSourceSchema = z.enum(['user', 'hellowhen_library']);
++export const placeStatusSchema = z.enum(['draft', 'active', 'archived', 'hidden']);
++export const placeVisibilitySchema = z.enum(['private', 'public', 'library']);
++export const planPlaceSourceSchema = z.enum(['custom', 'my_place', 'hellowhen_library']);
++
++export const PLAN_PLACE_MEDIA_LIMITS = {
++  free: 1,
++  plus: 5,
++  adminLibrary: 6,
++} as const;
++
+ export const planOwnerParticipantActionSchema = z.enum(['accepted', 'declined', 'removed']);
+ export const planSelfParticipantActionSchema = z.enum(['cancelled', 'left']);
+ 
+ const planTagSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
++const placeTagSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
++const placeMediaIdsSchema = z.array(z.string()).max(PLAN_PLACE_MEDIA_LIMITS.adminLibrary).optional();
++const planPlaceMediaIdsSchema = z.array(z.string()).max(PLAN_PLACE_MEDIA_LIMITS.plus).optional();
+ 
+-const planPlaceInputBaseSchema = z.object({
++const reusablePlaceInputBaseSchema = z.object({
+   mode: planPlaceModeSchema.optional(),
+   title: z.string().trim().min(3).max(120),
++  description: z.string().trim().min(1).max(2000).optional(),
++  category: z.string().trim().min(1).max(80).optional(),
++  tags: placeTagSchema,
++  areaLabel: z.string().trim().min(1).max(160).optional(),
++  addressPublicText: z.string().trim().min(1).max(240).optional(),
++  addressPrivateText: z.string().trim().min(1).max(240).optional(),
++  onlineLabel: z.string().trim().min(1).max(120).optional(),
++  onlineUrl: z.string().trim().url().max(500).optional(),
++  defaultDurationMinutes: z.number().int().min(5).max(24 * 60).optional(),
++  defaultNote: z.string().trim().min(1).max(1000).optional(),
++  defaultMeetingInstructions: z.string().trim().min(1).max(1000).optional(),
++  mediaIds: placeMediaIdsSchema,
++});
++
++export const createPlaceRequestSchema = reusablePlaceInputBaseSchema.extend({
++  source: placeSourceSchema.optional().default('user'),
++  visibility: placeVisibilitySchema.optional().default('private'),
++  status: z.enum(['draft', 'active']).optional().default('active'),
++});
++
++export const updatePlaceRequestSchema = reusablePlaceInputBaseSchema.partial().extend({
++  status: z.enum(['draft', 'active', 'archived']).optional(),
++  visibility: placeVisibilitySchema.optional(),
++}).refine((value) => Object.keys(value).length > 0, {
++  message: 'Update at least one place field.',
++});
++
++export const listPlacesQuerySchema = z.object({
++  q: z.string().trim().min(1).max(120).optional(),
++  source: placeSourceSchema.optional(),
++  status: placeStatusSchema.optional(),
++  mode: planPlaceModeSchema.optional(),
++  category: z.string().trim().min(1).max(80).optional(),
++  take: z.coerce.number().int().min(1).max(100).optional(),
++});
++
++const planPlaceInputBaseSchema = z.object({
++  placeId: z.string().trim().min(1).max(120).optional(),
++  mode: planPlaceModeSchema.optional(),
++  title: z.string().trim().min(3).max(120).optional(),
+   note: z.string().trim().min(1).max(1000).optional(),
+   addressPublicText: z.string().trim().min(1).max(240).optional(),
+   addressPrivateText: z.string().trim().min(1).max(240).optional(),
++  onlineLabel: z.string().trim().min(1).max(120).optional(),
++  onlineUrl: z.string().trim().url().max(500).optional(),
+   startsAt: z.string().datetime().optional(),
+   endsAt: z.string().datetime().optional(),
+   order: z.number().int().min(0).max(50).optional(),
+-  mediaIds: z.array(z.string()).max(5).optional(),
++  mediaIds: planPlaceMediaIdsSchema,
+ });
+ 
+-export const planPlaceInputSchema = planPlaceInputBaseSchema.refine((value) => {
++function hasPlaceIdOrTitle(value: { placeId?: string; title?: string }) {
++  return Boolean(value.placeId || value.title);
++}
++
++export const planPlaceInputSchema = planPlaceInputBaseSchema.refine(hasPlaceIdOrTitle, {
++  message: 'Choose a saved place or enter a place title.',
++  path: ['title'],
++}).refine((value) => {
+   if (!value.startsAt || !value.endsAt) return true;
+   return new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime();
+ }, { message: 'Place end time must be after the start time.', path: ['endsAt'] });
+@@ -69,6 +132,12 @@ export const updatePlanRequestSchema = z.object({
+ export const createPlanPlaceRequestSchema = planPlaceInputSchema;
+ export const updatePlanPlaceRequestSchema = planPlaceInputBaseSchema.partial().refine((value) => Object.keys(value).length > 0, {
+   message: 'Update at least one place field.',
++}).refine((value) => {
++  if (value.placeId === undefined && value.title === undefined) return true;
++  return hasPlaceIdOrTitle(value);
++}, {
++  message: 'Choose a saved place or enter a place title.',
++  path: ['title'],
+ }).refine((value) => {
+   if (!value.startsAt || !value.endsAt) return true;
+   return new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime();
+@@ -105,19 +174,50 @@ const publicUserSummarySchema = z.object({
+   }).nullable().optional(),
+ }).passthrough();
+ 
++export const placeSchema = z.object({
++  id: z.string(),
++  ownerId: z.string().nullable().optional(),
++  source: placeSourceSchema,
++  status: placeStatusSchema,
++  visibility: placeVisibilitySchema,
++  mode: planPlaceModeSchema.default('local'),
++  title: z.string(),
++  description: z.string().nullable().optional(),
++  category: z.string().nullable().optional(),
++  tags: z.array(z.string()).optional(),
++  areaLabel: z.string().nullable().optional(),
++  addressPublicText: z.string().nullable().optional(),
++  addressPrivateText: z.string().nullable().optional(),
++  onlineLabel: z.string().nullable().optional(),
++  onlineUrl: z.string().nullable().optional(),
++  defaultDurationMinutes: z.number().int().nullable().optional(),
++  defaultNote: z.string().nullable().optional(),
++  defaultMeetingInstructions: z.string().nullable().optional(),
++  createdAt: z.string(),
++  updatedAt: z.string(),
++  archivedAt: z.string().nullable().optional(),
++  owner: publicUserSummarySchema.nullable().optional(),
++  media: z.array(mediaAssetSchema).optional(),
++}).passthrough();
++
+ export const planPlaceSchema = z.object({
+   id: z.string(),
+   planId: z.string(),
++  placeId: z.string().nullable().optional(),
++  source: planPlaceSourceSchema.optional(),
+   order: z.number().int(),
+   mode: planPlaceModeSchema.default('local'),
+   title: z.string(),
+   note: z.string().nullable().optional(),
+   addressPublicText: z.string().nullable().optional(),
+   addressPrivateText: z.string().nullable().optional(),
++  onlineLabel: z.string().nullable().optional(),
++  onlineUrl: z.string().nullable().optional(),
+   startsAt: z.string().nullable().optional(),
+   endsAt: z.string().nullable().optional(),
+   createdAt: z.string(),
+   updatedAt: z.string(),
++  sourcePlace: placeSchema.nullable().optional(),
+   media: z.array(mediaAssetSchema).optional(),
+ }).passthrough();
+ 
+@@ -161,6 +261,8 @@ export const planSchema = z.object({
+   canSeePrivatePlaceDetails: z.boolean().optional(),
+ }).passthrough();
+ 
++export const placesResponseSchema = z.object({ places: z.array(placeSchema) });
++export const placeResponseSchema = z.object({ place: placeSchema });
+ export const plansResponseSchema = z.object({ plans: z.array(planSchema) });
+ export const planResponseSchema = z.object({ plan: planSchema });
+ export const planParticipantResponseSchema = z.object({ participant: planParticipantSchema });
+@@ -170,6 +272,13 @@ export type PlanStatus = z.infer<typeof planStatusSchema>;
+ export type PlanJoinApprovalMode = z.infer<typeof planJoinApprovalModeSchema>;
+ export type PlanParticipantStatus = z.infer<typeof planParticipantStatusSchema>;
+ export type PlanPlaceMode = z.infer<typeof planPlaceModeSchema>;
++export type PlaceSource = z.infer<typeof placeSourceSchema>;
++export type PlaceStatus = z.infer<typeof placeStatusSchema>;
++export type PlaceVisibility = z.infer<typeof placeVisibilitySchema>;
++export type PlanPlaceSource = z.infer<typeof planPlaceSourceSchema>;
++export type CreatePlaceRequest = z.infer<typeof createPlaceRequestSchema>;
++export type UpdatePlaceRequest = z.infer<typeof updatePlaceRequestSchema>;
++export type ListPlacesQuery = z.infer<typeof listPlacesQuerySchema>;
+ export type CreatePlanRequest = z.infer<typeof createPlanRequestSchema>;
+ export type UpdatePlanRequest = z.infer<typeof updatePlanRequestSchema>;
+ export type CreatePlanPlaceRequest = z.infer<typeof createPlanPlaceRequestSchema>;
+@@ -178,9 +287,12 @@ export type ListPlansQuery = z.infer<typeof listPlansQuerySchema>;
+ export type CreatePlanJoinRequest = z.infer<typeof createPlanJoinRequestSchema>;
+ export type UpdatePlanParticipantRequest = z.infer<typeof updatePlanParticipantRequestSchema>;
+ export type UpdateMyPlanParticipantRequest = z.infer<typeof updateMyPlanParticipantRequestSchema>;
++export type PlaceDto = z.infer<typeof placeSchema>;
+ export type PlanDto = z.infer<typeof planSchema>;
+ export type PlanPlaceDto = z.infer<typeof planPlaceSchema>;
+ export type PlanParticipantDto = z.infer<typeof planParticipantSchema>;
++export type PlaceResponse = z.infer<typeof placeResponseSchema>;
++export type PlacesResponse = z.infer<typeof placesResponseSchema>;
+ export type PlanResponse = z.infer<typeof planResponseSchema>;
+ export type PlansResponse = z.infer<typeof plansResponseSchema>;
+ export type PlanParticipantResponse = z.infer<typeof planParticipantResponseSchema>;

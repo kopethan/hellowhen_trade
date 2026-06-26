@@ -9,6 +9,7 @@ export const account = {
   headerBody: 'Profile, settings, and support live here.',
   sections: {
     activity: 'Activity',
+    plans: 'Plans',
     settings: 'Settings & safety',
     future: 'Future tools',
   },
@@ -1094,6 +1095,49 @@ export const account = {
       body: 'Private reminders, follow-ups, deadlines, and trade dates.',
       bodyNative: 'Private reminders and trade dates.',
       badge: 'Agenda',
+    },
+    plansFeature: {
+      title: 'Plans',
+      body: 'Joinable place-based Plans with My Places and Hellowhen Place Library.',
+      bodyNative: 'Joinable Plans, My Places, and Place Library.',
+      badge: 'Plans',
+      action: 'Open',
+    },
+    myPlansFeature: {
+      title: 'My plans',
+      body: 'Plans you created and can manage.',
+      bodyNative: 'Plans you created and can manage.',
+      badge: 'Mine',
+    },
+    joinedPlansFeature: {
+      title: 'Joined plans',
+      body: 'Plans you freely joined.',
+      bodyNative: 'Plans you freely joined.',
+      badge: 'Joined',
+    },
+    myPlacesFeature: {
+      title: 'My places',
+      body: 'Reusable offline or online places for future Plans.',
+      bodyNative: 'Reusable offline or online places.',
+      badge: 'Places',
+    },
+    placeLibraryFeature: {
+      title: 'Hellowhen Place Library',
+      body: 'Starter/library places that can be added to Plans.',
+      bodyNative: 'Starter/library places for Plans.',
+      badge: 'Library',
+    },
+    createPlanFeature: {
+      title: 'Create plan',
+      body: 'Choose Places, arrange them, and create a free-join Plan.',
+      bodyNative: 'Choose Places and create a free-join Plan.',
+      badge: 'Create',
+    },
+    createPlaceFeature: {
+      title: 'Create place',
+      body: 'Save a reusable private Place for future Plans.',
+      bodyNative: 'Save a reusable private Place.',
+      badge: 'Create',
     },
     membership: {
       title: 'Membership',

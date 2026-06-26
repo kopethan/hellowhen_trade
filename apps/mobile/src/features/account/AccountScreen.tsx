@@ -20,8 +20,8 @@ import { DetailInfoList, DetailSection } from '../../components/detail';
 import { resolveMediaUrl } from '../trade/mediaUrls';
 
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
-type AccountRoute = 'AccountProfile' | 'Notifications' | 'SavedLibrary' | 'Agenda' | 'OnboardingGuide' | 'Membership' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
-type AccountGroupKey = 'activity' | 'settings' | 'future';
+type AccountRoute = 'AccountProfile' | 'Notifications' | 'SavedLibrary' | 'Agenda' | 'Plans' | 'MyPlans' | 'JoinedPlans' | 'MyPlaces' | 'PlaceLibrary' | 'CreatePlan' | 'CreatePlace' | 'OnboardingGuide' | 'Membership' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
+type AccountGroupKey = 'activity' | 'plans' | 'settings' | 'future';
 
 type AccountAction = {
   titleKey: string;
@@ -38,6 +38,15 @@ const accountActions: AccountAction[] = [
   { titleKey: 'account.items.notifications.title', descriptionKey: 'account.items.notifications.bodyNative', badgeKey: 'account.items.notifications.badge', tone: 'proposal', route: 'Notifications', icon: 'bell', group: 'activity' },
   ...(betaFeatures.savedLibraryEnabled ? [{ titleKey: 'account.items.saved.title', descriptionKey: 'account.items.saved.bodyNative', badgeKey: 'account.items.saved.badge', tone: 'proposal' as SemanticColorName, route: 'SavedLibrary' as AccountRoute, icon: 'save' as MobileIconName, group: 'activity' as AccountGroupKey }] : []),
   ...(betaFeatures.agendaEnabled ? [{ titleKey: 'account.items.agenda.title', descriptionKey: 'account.items.agenda.bodyNative', badgeKey: 'account.items.agenda.badge', tone: 'instruction' as SemanticColorName, route: 'Agenda' as AccountRoute, icon: 'bell' as MobileIconName, group: 'activity' as AccountGroupKey }] : []),
+  ...(betaFeatures.plansVisible ? [
+    { titleKey: 'account.items.plansFeature.title', descriptionKey: 'account.items.plansFeature.bodyNative', badgeKey: 'account.items.plansFeature.badge', tone: 'instruction' as SemanticColorName, route: 'Plans' as AccountRoute, icon: 'calendar' as MobileIconName, group: 'plans' as AccountGroupKey },
+    { titleKey: 'account.items.myPlansFeature.title', descriptionKey: 'account.items.myPlansFeature.bodyNative', badgeKey: 'account.items.myPlansFeature.badge', tone: 'info' as SemanticColorName, route: 'MyPlans' as AccountRoute, icon: 'activity' as MobileIconName, group: 'plans' as AccountGroupKey },
+    { titleKey: 'account.items.joinedPlansFeature.title', descriptionKey: 'account.items.joinedPlansFeature.bodyNative', badgeKey: 'account.items.joinedPlansFeature.badge', tone: 'success' as SemanticColorName, route: 'JoinedPlans' as AccountRoute, icon: 'proposal-accepted' as MobileIconName, group: 'plans' as AccountGroupKey },
+    { titleKey: 'account.items.myPlacesFeature.title', descriptionKey: 'account.items.myPlacesFeature.bodyNative', badgeKey: 'account.items.myPlacesFeature.badge', tone: 'proposal' as SemanticColorName, route: 'MyPlaces' as AccountRoute, icon: 'save' as MobileIconName, group: 'plans' as AccountGroupKey },
+    { titleKey: 'account.items.placeLibraryFeature.title', descriptionKey: 'account.items.placeLibraryFeature.bodyNative', badgeKey: 'account.items.placeLibraryFeature.badge', tone: 'instruction' as SemanticColorName, route: 'PlaceLibrary' as AccountRoute, icon: 'search' as MobileIconName, group: 'plans' as AccountGroupKey },
+    { titleKey: 'account.items.createPlanFeature.title', descriptionKey: 'account.items.createPlanFeature.bodyNative', badgeKey: 'account.items.createPlanFeature.badge', tone: 'success' as SemanticColorName, route: 'CreatePlan' as AccountRoute, icon: 'add' as MobileIconName, group: 'plans' as AccountGroupKey },
+    { titleKey: 'account.items.createPlaceFeature.title', descriptionKey: 'account.items.createPlaceFeature.bodyNative', badgeKey: 'account.items.createPlaceFeature.badge', tone: 'info' as SemanticColorName, route: 'CreatePlace' as AccountRoute, icon: 'add' as MobileIconName, group: 'plans' as AccountGroupKey },
+  ] : []),
   { titleKey: 'account.items.guide.title', descriptionKey: 'account.items.guide.bodyNative', badgeKey: 'account.items.guide.badge', tone: 'info', route: 'OnboardingGuide', icon: 'help', group: 'activity' },
   { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'success', route: 'SupportCenter', icon: 'help', group: 'activity' },
   { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings', group: 'settings' },
@@ -83,6 +92,7 @@ function getAvatarUri(user: AuthUser | null) {
 function groupActions(actions: AccountAction[]) {
   return {
     activity: actions.filter((action) => action.group === 'activity'),
+    plans: actions.filter((action) => action.group === 'plans'),
     settings: actions.filter((action) => action.group === 'settings'),
     future: actions.filter((action) => action.group === 'future'),
   };
@@ -140,6 +150,13 @@ export function AccountScreen() {
     else if (route === 'Notifications') navigation.navigate('Notifications');
     else if (route === 'SavedLibrary') navigation.navigate('SavedLibrary');
     else if (route === 'Agenda') navigation.navigate('Agenda');
+    else if (route === 'Plans') navigation.navigate('Plans');
+    else if (route === 'MyPlans') navigation.navigate('MyPlans');
+    else if (route === 'JoinedPlans') navigation.navigate('JoinedPlans');
+    else if (route === 'MyPlaces') navigation.navigate('MyPlaces');
+    else if (route === 'PlaceLibrary') navigation.navigate('PlaceLibrary');
+    else if (route === 'CreatePlan') navigation.navigate('CreatePlan');
+    else if (route === 'CreatePlace') navigation.navigate('CreatePlace');
     else if (route === 'OnboardingGuide') navigation.navigate('OnboardingGuide', { replay: true });
     else if (route === 'Membership') navigation.navigate('Membership');
     else if (route === 'ProPlans') navigation.navigate('ProPlans');
@@ -156,7 +173,7 @@ export function AccountScreen() {
   const header = (
     <View style={styles.header}>
       <View style={styles.headerBadgeRow}><SemanticBadge label={t('common.states.beta')} tone="instruction" /></View>
-      <AppText style={styles.title}>{t('account.title')}</AppText>
+      <AppText style={styles.title}>{t(betaFeatures.mainNavPlansMeTrade ? 'navigation.tabs.me' : 'account.title')}</AppText>
       <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.headerBody')}</AppText>
     </View>
   );
@@ -225,6 +242,7 @@ export function AccountScreen() {
         ) : null}
 
         <AccountActionGroup title={t('account.sections.activity')} actions={groupedActions.activity} unreadCount={notificationUnreadCount} onNavigate={navigate} />
+        {groupedActions.plans.length > 0 ? <AccountActionGroup title={t('account.sections.plans')} actions={groupedActions.plans} unreadCount={notificationUnreadCount} onNavigate={navigate} /> : null}
         <AccountActionGroup title={t('account.sections.settings')} actions={groupedActions.settings} unreadCount={notificationUnreadCount} onNavigate={navigate} />
         {groupedActions.future.length > 0 ? <AccountActionGroup title={t('account.sections.future')} actions={groupedActions.future} unreadCount={notificationUnreadCount} onNavigate={navigate} /> : null}
 

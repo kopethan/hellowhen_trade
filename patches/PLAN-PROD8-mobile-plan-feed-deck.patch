@@ -1,0 +1,372 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 453d0b8..c63f9f4 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -13,6 +13,7 @@ import { betaFeatures } from '../../lib/betaFeatures';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
++import { PlanSquareDeck } from './components/PlanSquareDeck';
+ 
+ type PlansScreenProps = NativeStackScreenProps<RootStackParamList, 'Plans'>;
+ type PlanDetailProps = NativeStackScreenProps<RootStackParamList, 'PlanDetail'>;
+@@ -160,21 +161,44 @@ function PlanList({ scope, navigation }: { scope: PlanListScope; navigation: Nat
+       ? 'Created Plans will appear here once you create one.'
+       : scope === 'joined'
+         ? 'Plans you join will appear here.'
+-        : 'Open Plans will appear here while the feature is enabled for internal testing.';
++        : 'Open Plans will appear here once people start creating them.';
+     return <EmptyBlock title="No Plans yet" body={body} actionLabel={scope === 'mine' ? 'Create plan' : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlan') : undefined} />;
+   }
+ 
++  const isDeckFeed = scope === 'feed';
++
+   return (
+     <ScrollView
+-      contentContainerStyle={styles.listContent}
++      contentContainerStyle={isDeckFeed ? styles.deckFeedContent : styles.listContent}
+       showsVerticalScrollIndicator={false}
+       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
+     >
+-      {plans.map((plan) => <PlanRow key={plan.id} plan={plan} onPress={() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title })} />)}
++      {plans.map((plan, index) => (
++        isDeckFeed
++          ? <PlanDeckSection key={plan.id} plan={plan} index={index} total={plans.length} onPress={() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title })} />
++          : <PlanRow key={plan.id} plan={plan} onPress={() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title })} />
++      ))}
+     </ScrollView>
+   );
+ }
+ 
++
++function PlanDeckSection({ plan, index, total, onPress }: { plan: PlanDto; index: number; total: number; onPress: () => void }) {
++  const theme = useThemeTokens();
++  return (
++    <View style={styles.deckSection}>
++      <View style={styles.deckSectionHeader}>
++        <View style={styles.deckSectionCopy}>
++          <AppText style={styles.deckSectionTitle} numberOfLines={1}>{plan.title}</AppText>
++          <AppText style={[styles.deckSectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{getOwnerName(plan)} · {getPlanMeta(plan)}</AppText>
++        </View>
++        <SemanticBadge label={`${index + 1}/${total}`} tone="muted" size="sm" />
++      </View>
++      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={onPress} />
++    </View>
++  );
++}
++
+ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: NativeStackNavigationProp<RootStackParamList> }) {
+   const theme = useThemeTokens();
+   const [places, setPlaces] = useState<PlaceDto[]>([]);
+@@ -265,7 +289,6 @@ export function PlansScreen({ navigation }: PlansScreenProps) {
+   const header = (
+     <View style={styles.feedHeader}>
+       <View style={styles.feedTitleWrap}>
+-        <SemanticBadge label="Hidden preview" tone="instruction" size="sm" />
+         <AppText style={styles.feedTitle}>Plans</AppText>
+       </View>
+       <View style={styles.headerActions}>
+@@ -447,6 +470,12 @@ const styles = StyleSheet.create({
+   menuTitle: { fontSize: 16, fontWeight: '900' },
+   menuBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
+   listContent: { gap: 12, paddingBottom: 34 },
++  deckFeedContent: { gap: 20, paddingTop: 2, paddingBottom: 34 },
++  deckSection: { gap: 10 },
++  deckSectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 2 },
++  deckSectionCopy: { flex: 1, minWidth: 0, gap: 2 },
++  deckSectionTitle: { fontSize: 19, lineHeight: 24, fontWeight: '900', letterSpacing: -0.3 },
++  deckSectionMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+   inlineLoading: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
+   loadingText: { fontWeight: '800' },
+   rowCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 9 },
+diff --git a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+new file mode 100644
+index 0000000..01a0e8a
+--- /dev/null
++++ b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+@@ -0,0 +1,241 @@
++import React, { useMemo } from 'react';
++import { Image, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
++import type { MediaAssetDto, PlanDto, PlanPlaceDto } from '@hellowhen/contracts';
++import { AppText } from '../../../components/AppText';
++import { MobileIcon } from '../../../components/MobileIcon';
++import { SemanticBadge } from '../../../components/SemanticUI';
++import { useThemeTokens } from '../../../providers/ThemeProvider';
++import { ContinuousSquareStackDeck, type SquareStackDeckCard } from '../../trade/deck';
++import { resolveMediaUrl } from '../../trade/mediaUrls';
++
++const MOBILE_PLAN_DECK_AVAILABLE_HEIGHT = 404;
++const MOBILE_PLAN_DECK_MAX_CARD_SIZE = 348;
++
++type PlanPlaceDeckCard = SquareStackDeckCard & {
++  kind: 'place' | 'emptyPlace';
++  plan: PlanDto;
++  place?: PlanPlaceDto;
++  placeIndex: number;
++  placeTotal: number;
++  media?: MediaAssetDto;
++};
++
++type PlanSquareDeckProps = {
++  plan: PlanDto;
++  index?: number;
++  total?: number;
++  onOpen?: () => void;
++  style?: StyleProp<ViewStyle>;
++};
++
++function activeMedia(media: MediaAssetDto[] | undefined) {
++  return (media ?? []).filter((asset) => asset.status === 'active');
++}
++
++function activeMediaUrl(media?: MediaAssetDto | null) {
++  if (!media?.url || media.status !== 'active') return null;
++  return resolveMediaUrl(media.url);
++}
++
++function getPlaceMedia(place: PlanPlaceDto | undefined) {
++  return activeMedia(place?.media)[0] ?? activeMedia(place?.sourcePlace?.media)[0];
++}
++
++function sortedPlanPlaces(plan: PlanDto) {
++  return [...(plan.places ?? [])].sort((first, second) => first.order - second.order);
++}
++
++function buildPlanPlaceDeckCards(plan: PlanDto): PlanPlaceDeckCard[] {
++  const places = sortedPlanPlaces(plan);
++  if (places.length === 0) {
++    return [{ id: `${plan.id}:empty-place`, kind: 'emptyPlace', plan, placeIndex: 0, placeTotal: 0 }];
++  }
++
++  return places.map((place, index) => ({
++    id: `${plan.id}:place:${place.id}`,
++    kind: 'place' as const,
++    plan,
++    place,
++    placeIndex: index,
++    placeTotal: places.length,
++    media: getPlaceMedia(place),
++  }));
++}
++
++function formatPlanPlaceDate(value?: string | null) {
++  if (!value) return 'Flexible time';
++  const date = new Date(value);
++  if (Number.isNaN(date.getTime())) return value;
++  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
++}
++
++function getPlaceLocationLabel(place: PlanPlaceDto | undefined) {
++  if (!place) return 'Add places to this Plan';
++  if (place.mode === 'remote') return place.onlineLabel || place.onlineUrl || 'Online place';
++  return place.addressPublicText || place.sourcePlace?.areaLabel || 'Offline place';
++}
++
++function getPlanOwnerName(plan: PlanDto) {
++  return plan.owner?.profile?.displayName || plan.owner?.profile?.handle || 'Hellowhen member';
++}
++
++function getPlanParticipantLabel(plan: PlanDto) {
++  const count = plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
++  return `${count} joined`;
++}
++
++function PlanPlaceDeckCardView({ card, onOpen }: { card: PlanPlaceDeckCard; onOpen: () => void }) {
++  const theme = useThemeTokens();
++  const imageUrl = activeMediaUrl(card.media);
++  const place = card.place;
++  const isEmpty = card.kind === 'emptyPlace' || !place;
++  const cardCounter = isEmpty ? '0 places' : `${String(card.placeIndex + 1).padStart(2, '0')}/${String(card.placeTotal).padStart(2, '0')}`;
++  const sourceLabel = place?.source === 'hellowhen_library' ? 'Library place' : place?.source === 'my_place' ? 'My place' : 'Custom place';
++  const modeLabel = place?.mode === 'remote' ? 'Online' : 'Offline';
++  const placeTitle = place?.title ?? 'No places yet';
++  const placeBody = place?.note || place?.sourcePlace?.description || getPlaceLocationLabel(place);
++
++  return (
++    <Pressable
++      accessibilityRole="button"
++      accessibilityLabel={`${card.plan.title}. ${isEmpty ? 'No places yet' : `Place ${card.placeIndex + 1}: ${placeTitle}`}. View plan.`}
++      onPress={onOpen}
++      style={({ pressed }) => [
++        styles.card,
++        { backgroundColor: imageUrl ? theme.color.surface : theme.semantic.instruction.softBg, borderColor: theme.color.border },
++        pressed && styles.pressed,
++      ]}
++    >
++      {imageUrl ? <Image source={{ uri: imageUrl }} resizeMode="cover" style={styles.cardImage} /> : null}
++      {imageUrl ? <View style={[styles.imageScrim, { backgroundColor: theme.color.background }]} /> : null}
++
++      <View style={styles.cardTopRow}>
++        <SemanticBadge label={`Place · ${cardCounter}`} tone="instruction" size="sm" />
++        {!isEmpty ? <SemanticBadge label={modeLabel} tone="muted" size="sm" /> : null}
++      </View>
++
++      <View style={styles.cardBody}>
++        <AppText style={[styles.planTitle, { color: theme.color.muted }]} numberOfLines={1}>{card.plan.title}</AppText>
++        <AppText style={[styles.placeTitle, { color: theme.color.text }]} numberOfLines={3}>{placeTitle}</AppText>
++        <AppText style={[styles.placeBody, { color: theme.color.muted }]} numberOfLines={3}>{isEmpty ? 'This Plan will appear as place cards once places are attached.' : placeBody}</AppText>
++      </View>
++
++      <View style={styles.cardFooter}>
++        <View style={styles.footerMetaStack}>
++          <View style={styles.footerMetaRow}>
++            <MobileIcon name={place?.mode === 'remote' ? 'send' : 'calendar'} size={15} color={theme.color.muted} />
++            <AppText style={[styles.footerMetaText, { color: theme.color.muted }]} numberOfLines={1}>{isEmpty ? getPlanOwnerName(card.plan) : getPlaceLocationLabel(place)}</AppText>
++          </View>
++          <View style={styles.footerMetaRow}>
++            <MobileIcon name="activity" size={15} color={theme.color.muted} />
++            <AppText style={[styles.footerMetaText, { color: theme.color.muted }]} numberOfLines={1}>{isEmpty ? getPlanParticipantLabel(card.plan) : `${sourceLabel} · ${formatPlanPlaceDate(place?.startsAt)}`}</AppText>
++          </View>
++        </View>
++        <View style={[styles.openPill, { backgroundColor: theme.color.text }]}>
++          <AppText style={[styles.openPillText, { color: theme.color.background }]}>View plan</AppText>
++        </View>
++      </View>
++    </Pressable>
++  );
++}
++
++export function PlanSquareDeck({ plan, onOpen, style }: PlanSquareDeckProps) {
++  const cards = useMemo(() => buildPlanPlaceDeckCards(plan), [plan]);
++  const handleOpen = onOpen ?? (() => {});
++
++  return (
++    <View style={[styles.container, style]}>
++      <ContinuousSquareStackDeck<PlanPlaceDeckCard>
++        cards={cards}
++        renderCard={({ card }) => <PlanPlaceDeckCardView card={card} onOpen={handleOpen} />}
++        renderWindow="all"
++        showDebugBadge={false}
++        depthEffect="motionOnly"
++        availableHeight={MOBILE_PLAN_DECK_AVAILABLE_HEIGHT}
++        maxCardSize={MOBILE_PLAN_DECK_MAX_CARD_SIZE}
++      />
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  container: {
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  card: {
++    flex: 1,
++    alignSelf: 'stretch',
++    borderRadius: 28,
++    borderWidth: 1,
++    overflow: 'hidden',
++    padding: 18,
++    justifyContent: 'space-between',
++  },
++  cardImage: {
++    ...StyleSheet.absoluteFillObject,
++  },
++  imageScrim: {
++    ...StyleSheet.absoluteFillObject,
++    opacity: 0.74,
++  },
++  cardTopRow: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'space-between',
++    gap: 8,
++    flexWrap: 'wrap',
++  },
++  cardBody: {
++    gap: 8,
++    paddingVertical: 14,
++  },
++  planTitle: {
++    fontSize: 13,
++    fontWeight: '900',
++    textTransform: 'uppercase',
++    letterSpacing: 0.8,
++  },
++  placeTitle: {
++    fontSize: 29,
++    lineHeight: 34,
++    fontWeight: '900',
++    letterSpacing: -0.9,
++  },
++  placeBody: {
++    fontSize: 15,
++    lineHeight: 21,
++    fontWeight: '700',
++  },
++  cardFooter: {
++    gap: 12,
++  },
++  footerMetaStack: {
++    gap: 7,
++  },
++  footerMetaRow: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 7,
++  },
++  footerMetaText: {
++    flex: 1,
++    fontSize: 13,
++    lineHeight: 18,
++    fontWeight: '800',
++  },
++  openPill: {
++    minHeight: 43,
++    borderRadius: 999,
++    alignItems: 'center',
++    justifyContent: 'center',
++    paddingHorizontal: 16,
++  },
++  openPillText: {
++    fontWeight: '900',
++  },
++  pressed: {
++    opacity: 0.76,
++    transform: [{ scale: 0.99 }],
++  },
++});
+diff --git a/docs/product/hidden-plans-foundation.md b/docs/product/hidden-plans-foundation.md
+index d53fb14..24c758e 100644
+--- a/docs/product/hidden-plans-foundation.md
++++ b/docs/product/hidden-plans-foundation.md
+@@ -223,7 +223,6 @@ The create flow still saves `PlanPlace` snapshots. Editing a reusable `Place` la
+ ## Not included yet
+ 
+ - Public Plans tab/menu.
+-- Native Plans screens.
+ - Maps or route previews.
+ - Notifications.
+ - Public chat.
+@@ -235,8 +234,7 @@ The create flow still saves `PlanPlace` snapshots. Editing a reusable `Place` la
+ 
+ 1. Add admin Plan moderation views if Plans need deeper internal review before visibility.
+ 2. Decide whether exact addresses need owner-approval/private visibility again before any public Plans launch.
+-3. Add hidden native Plans screens only when explicitly selected.
+-4. Add optional smoke coverage for media/report flows once a dedicated non-polluting test fixture is available.
++3. Add optional smoke coverage for media/report flows once a dedicated non-polluting test fixture is available.
+ 
+ ## PLAN-PROD7 mobile route skeleton
+ 
+@@ -254,3 +252,21 @@ When the flags are enabled for internal testing, Account can show a Plans entry
+ - `CreatePlace`
+ 
+ The native Plan hub can call the hidden Plan and Place Library APIs for feed, mine, joined, My Places, and Hellowhen Place Library lists. Create Plan and Create Place are intentionally placeholder routes until the dedicated mobile create/picker patch. This keeps navigation stable before the mobile deck and full create flow are added.
++
++
++## PLAN-PROD8 mobile Plan feed deck
++
++The hidden native Plan hub now renders the main open Plans feed as production-style square decks that reuse the same `ContinuousSquareStackDeck` gesture system as the Trade feed.
++
++The native Plan feed rules are:
++
++- keep Plans hidden behind `EXPO_PUBLIC_PLANS_ENABLED` and `EXPO_PUBLIC_PLANS_VISIBLE`
++- keep the existing Trade / Needs / Offers / Account tabs unchanged
++- keep the Plan header as title + filter icon + list/menu icon + create button
++- render open Plans as square decks
++- make each deck place-only: Place 1, then Place 2, then Place 3
++- do not insert a generated Plan summary card into the feed deck
++- keep the Plan summary hero on the detail screen
++- keep My Plans and Joined Plans as simple management lists for now
++
++The deck cards can use PlanPlace images or fall back to source reusable Place images when a PlanPlace was created from My Places or the Hellowhen Place Library.

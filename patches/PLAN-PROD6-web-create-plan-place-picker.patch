@@ -1,0 +1,670 @@
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+index 2329121..a7972ef 100644
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -61,10 +61,25 @@ async function syncPlanCapacityStatus(planId: string) {
+   }
+ }
+ 
++async function withPlanPlaceMediaFallback(places: any[], publicMediaVisibility: 'public' | 'public_anonymous') {
++  const planPlaceMedia = await withMedia('plan_place' as any, places, publicMediaVisibility);
++  const sourcePlaces = places
++    .map((place) => place.sourcePlace)
++    .filter((place): place is any => Boolean(place?.id));
++  if (!sourcePlaces.length) return planPlaceMedia;
++
++  const sourcePlaceMedia = await withMedia('place' as any, sourcePlaces, publicMediaVisibility);
++  const sourceMediaById = new Map(sourcePlaceMedia.map((place: any) => [place.id, place.media ?? []]));
++  return planPlaceMedia.map((place: any) => {
++    if (place.media?.length || !place.placeId) return place;
++    return { ...place, media: sourceMediaById.get(place.placeId) ?? [] };
++  });
++}
++
+ async function decoratePlan(plan: any, viewerId?: string | null) {
+   const publicMediaVisibility = viewerId ? 'public' : 'public_anonymous';
+   const [withPlanMedia] = await withMedia('plan' as any, [plan], publicMediaVisibility);
+-  const places = await withMedia('plan_place' as any, plan.places ?? [], publicMediaVisibility);
++  const places = await withPlanPlaceMediaFallback(plan.places ?? [], publicMediaVisibility);
+   return serializePlan({ ...withPlanMedia, places }, viewerId ?? null);
+ }
+ 
+@@ -72,7 +87,7 @@ async function decoratePlans(plans: any[], viewerId?: string | null) {
+   const publicMediaVisibility = viewerId ? 'public' : 'public_anonymous';
+   const planMediaMap = await withMedia('plan' as any, plans, publicMediaVisibility);
+   const allPlaces = plans.flatMap((plan) => plan.places ?? []);
+-  const placeMedia = await withMedia('plan_place' as any, allPlaces, publicMediaVisibility);
++  const placeMedia = await withPlanPlaceMediaFallback(allPlaces, publicMediaVisibility);
+   const placeById = new Map(placeMedia.map((place: any) => [place.id, place]));
+   return planMediaMap.map((plan: any) => serializePlan({ ...plan, places: (plan.places ?? []).map((place: any) => placeById.get(place.id) ?? place) }, viewerId ?? null));
+ }
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 3448c21..163f27c 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -8967,3 +8967,29 @@ html[data-theme="dark"] .onboarding-guide-primary {
+     grid-template-columns: 1fr;
+   }
+ }
++
++/* PLAN-PROD6 — Web Create Plan reusable Place picker */
++.plan-create-intro p { max-width: 620px; }
++.plan-source-place-strip { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; border: 1px solid var(--app-border); border-radius: 18px; background: var(--app-surface); padding: 8px; }
++.plan-source-place-strip p { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--app-text); font-size: 13px; font-weight: 900; }
++.plan-source-place-strip .button { min-height: 34px; padding: 0 11px; }
++.plan-place-picker-panel { display: grid; gap: 12px; }
++.plan-place-picker-panel label, .plan-create-place-box label { display: grid; gap: 7px; color: var(--app-text-muted); font-size: 12px; font-weight: 950; letter-spacing: 0.04em; text-transform: uppercase; }
++.plan-place-picker-panel input, .plan-place-picker-panel textarea { width: 100%; border: 1px solid var(--app-border-strong); border-radius: 18px; background: var(--app-surface-soft); color: var(--app-text); padding: 12px 13px; font: inherit; font-weight: 750; outline: none; }
++.plan-place-picker-panel textarea { min-height: 94px; resize: vertical; line-height: 1.35; }
++.plan-place-picker-list { display: grid; gap: 8px; max-height: 420px; overflow: auto; padding-right: 2px; }
++.plan-place-picker-card { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; border: 1px solid var(--app-border); border-radius: 20px; background: var(--app-surface-soft); color: inherit; padding: 8px; text-align: left; cursor: pointer; }
++.plan-place-picker-card:hover { border-color: var(--app-border-strong); background: var(--app-surface); }
++.plan-place-picker-card__media { display: grid; place-items: center; overflow: hidden; width: 58px; height: 58px; border-radius: 16px; background: var(--app-surface); color: var(--app-text-soft); font-size: 22px; font-weight: 950; }
++.plan-place-picker-card__media img { width: 100%; height: 100%; object-fit: cover; }
++.plan-place-picker-card__body { display: grid; gap: 3px; min-width: 0; }
++.plan-place-picker-card__body strong, .plan-place-picker-card__body small, .plan-place-picker-card__body span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.plan-place-picker-card__body strong { color: var(--app-text); font-size: 14px; font-weight: 950; }
++.plan-place-picker-card__body small { color: var(--app-text-muted); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; }
++.plan-place-picker-card__body span { color: var(--app-text-muted); font-size: 12px; font-weight: 800; }
++.plan-create-place-box { display: grid; gap: 11px; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface-soft); padding: 12px; }
++.plan-create-place-box h4 { margin: 0; letter-spacing: -0.02em; }
++@media (max-width: 520px) {
++  .plan-source-place-strip, .plan-place-picker-card { grid-template-columns: 1fr; }
++  .plan-place-picker-card__media { width: 100%; height: 130px; }
++}
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index 8c04ef4..73a701e 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -2,42 +2,76 @@
+ 
+ import { useRouter } from 'next/navigation';
+ import type { ChangeEvent, FormEvent } from 'react';
+-import type { MediaAssetDto, PlanPlaceMode } from '@hellowhen/contracts';
+-import { useMemo, useState } from 'react';
++import type { MediaAssetDto, PlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
++import { useEffect, useMemo, useState } from 'react';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
+ import { PlanPreviewDeck } from './PlanPreviewDeck';
+ import { buildPlanSchedule, toDateInputValue } from './planSchedule';
+-import { planMediaSrc } from './plansPresentation';
++import { planMediaSrc, planPlaceModeLabel } from './plansPresentation';
+ 
+ type PlaceFormState = {
+   id: string;
++  sourcePlaceId?: string;
++  sourcePlaceSource?: 'custom' | 'my_place' | 'hellowhen_library';
++  sourcePlaceTitle?: string;
+   mode: PlanPlaceMode;
+   date: string;
+   time: string;
+   title: string;
+   location: string;
++  onlineLabel: string;
++  onlineUrl: string;
+   note: string;
++  existingMedia: MediaAssetDto | null;
+   media: MediaAssetDto | null;
+   uploading: boolean;
+ };
+ 
++type NewReusablePlaceState = {
++  mode: PlanPlaceMode;
++  title: string;
++  description: string;
++  category: string;
++  location: string;
++  onlineLabel: string;
++  onlineUrl: string;
++  note: string;
++};
++
+ function makePlace(index: number, date = toDateInputValue()): PlaceFormState {
+   return {
+     id: `place-${Date.now()}-${index}`,
++    sourcePlaceSource: 'custom',
+     mode: 'local',
+     date,
+     time: index === 0 ? '13:00' : '',
+     title: index === 0 ? 'Meeting point' : '',
+     location: '',
++    onlineLabel: '',
++    onlineUrl: '',
+     note: '',
++    existingMedia: null,
+     media: null,
+     uploading: false,
+   };
+ }
+ 
++function makeNewReusablePlace(): NewReusablePlaceState {
++  return {
++    mode: 'local',
++    title: '',
++    description: '',
++    category: '',
++    location: '',
++    onlineLabel: '',
++    onlineUrl: '',
++    note: '',
++  };
++}
++
+ function normalizePlanMediaUpload(value: unknown): MediaAssetDto | null {
+   if (!value || typeof value !== 'object') return null;
+   const record = value as { media?: unknown; id?: unknown; url?: unknown };
+@@ -58,7 +92,56 @@ function planModeFromPlaces(places: PlaceFormState[]) {
+ 
+ function rangeLabelFromSchedule(schedule: ReturnType<typeof buildPlanSchedule>) {
+   if (!schedule.startsAt) return '';
+-  return `${new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} -> ${new Date(schedule.endsAt || schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
++  return `${new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} → ${new Date(schedule.endsAt || schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
++}
++
++function placeSourceLabel(place: PlaceDto) {
++  return place.source === 'hellowhen_library' ? 'hellowhen library' : 'my place';
++}
++
++function libraryPlaceSource(place: PlaceDto): PlaceFormState['sourcePlaceSource'] {
++  return place.source === 'hellowhen_library' ? 'hellowhen_library' : 'my_place';
++}
++
++function placeLocationForForm(place: PlaceDto) {
++  return place.mode === 'remote' ? '' : place.addressPublicText ?? place.areaLabel ?? '';
++}
++
++function placePreviewLocation(place: PlaceFormState) {
++  if (place.mode === 'remote') return place.onlineLabel.trim() || place.onlineUrl.trim() || place.location.trim();
++  return place.location.trim();
++}
++
++function applyReusablePlacePatch(place: PlaceDto): Partial<PlaceFormState> {
++  return {
++    sourcePlaceId: place.id,
++    sourcePlaceSource: libraryPlaceSource(place),
++    sourcePlaceTitle: place.title,
++    mode: place.mode ?? 'local',
++    title: place.title,
++    location: placeLocationForForm(place),
++    onlineLabel: place.onlineLabel ?? '',
++    onlineUrl: place.onlineUrl ?? '',
++    note: place.defaultNote ?? place.description ?? '',
++    existingMedia: place.media?.[0] ?? null,
++    media: null,
++  };
++}
++
++function resetToCustomPatch(): Partial<PlaceFormState> {
++  return {
++    sourcePlaceId: undefined,
++    sourcePlaceSource: 'custom',
++    sourcePlaceTitle: undefined,
++    existingMedia: null,
++  };
++}
++
++function filterPlaces(places: PlaceDto[], query: string) {
++  const normalized = query.trim().toLowerCase();
++  if (!normalized) return places;
++  return places.filter((place) => [place.title, place.description, place.category, place.areaLabel, place.addressPublicText, place.onlineLabel]
++    .some((value) => value?.toLowerCase().includes(normalized)));
+ }
+ 
+ function PlaceModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (value: PlanPlaceMode) => void }) {
+@@ -71,18 +154,19 @@ function PlaceModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange:
+ }
+ 
+ function PlaceImagePicker({ place, onUpload, onRemove }: { place: PlaceFormState; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; onRemove: () => void }) {
++  const visibleMedia = place.media ?? place.existingMedia;
+   return (
+     <div className="plan-place-image-picker">
+       <label className="image-upload-button">
+-        <input type="file" accept="image/jpeg,image/png,image/webp" disabled={place.uploading || Boolean(place.media)} onChange={onUpload} />
+-        {place.uploading ? 'Uploading...' : place.media ? 'One image selected' : 'Add place image'}
++        <input type="file" accept="image/jpeg,image/png,image/webp" disabled={place.uploading || Boolean(visibleMedia)} onChange={onUpload} />
++        {place.uploading ? 'Uploading...' : visibleMedia ? 'One image selected' : 'Add place image'}
+       </label>
+-      {place.media ? (
++      {visibleMedia ? (
+         <figure>
+-          <img src={planMediaSrc(place.media)} alt={place.media.filename ?? 'Place image'} />
++          <img src={planMediaSrc(visibleMedia)} alt={visibleMedia.filename ?? 'Place image'} />
+           <figcaption>
+             <span className="semantic-badge instruction">1 image</span>
+-            <button type="button" className="secondary" onClick={onRemove}>Remove</button>
++            {place.media ? <button type="button" className="secondary" onClick={onRemove}>Remove new image</button> : <span className="meta">Saved place image</span>}
+           </figcaption>
+         </figure>
+       ) : <p className="meta">One image per place for this first version.</p>}
+@@ -90,6 +174,41 @@ function PlaceImagePicker({ place, onUpload, onRemove }: { place: PlaceFormState
+   );
+ }
+ 
++function PlacePickerList({
++  places,
++  emptyLabel,
++  onChoose,
++}: {
++  places: PlaceDto[];
++  emptyLabel: string;
++  onChoose: (place: PlaceDto) => void;
++}) {
++  if (!places.length) return <p className="meta">{emptyLabel}</p>;
++  return (
++    <div className="plan-place-picker-list">
++      {places.map((place) => {
++        const media = place.media?.[0] ?? null;
++        const meta = [planPlaceModeLabel(place.mode), place.category, place.areaLabel || place.addressPublicText || place.onlineLabel]
++          .filter((value): value is string => Boolean(value && value.trim()))
++          .join(' · ');
++        return (
++          <button type="button" className="plan-place-picker-card" key={place.id} onClick={() => onChoose(place)}>
++            <span className="plan-place-picker-card__media">
++              {media ? <img src={planMediaSrc(media)} alt={media.filename ?? place.title} /> : '⌖'}
++            </span>
++            <span className="plan-place-picker-card__body">
++              <strong>{place.title}</strong>
++              <small>{meta || placeSourceLabel(place)}</small>
++              {place.description ? <span>{place.description}</span> : null}
++            </span>
++            <span className="semantic-badge instruction">Use</span>
++          </button>
++        );
++      })}
++    </div>
++  );
++}
++
+ type PlanCreateClientProps = {
+   plansEnabled?: boolean;
+   plansVisible?: boolean;
+@@ -102,6 +221,15 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   const [description, setDescription] = useState('');
+   const [category, setCategory] = useState('Culture');
+   const [places, setPlaces] = useState<PlaceFormState[]>([makePlace(0)]);
++  const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
++  const [libraryPlaces, setLibraryPlaces] = useState<PlaceDto[]>([]);
++  const [loadingPlaces, setLoadingPlaces] = useState(false);
++  const [pickerOpenForIndex, setPickerOpenForIndex] = useState<number | null>(null);
++  const [pickerTab, setPickerTab] = useState<'mine' | 'library'>('mine');
++  const [placeQuery, setPlaceQuery] = useState('');
++  const [createPlaceOpen, setCreatePlaceOpen] = useState(false);
++  const [newReusablePlace, setNewReusablePlace] = useState<NewReusablePlaceState>(makeNewReusablePlace());
++  const [creatingPlace, setCreatingPlace] = useState(false);
+   const [saving, setSaving] = useState(false);
+   const [message, setMessage] = useState('');
+   const [error, setError] = useState('');
+@@ -109,6 +237,29 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   const usablePlacesForPreview = useMemo(() => places.filter((place) => place.date.trim() && place.time.trim()), [places]);
+   const schedule = useMemo(() => buildPlanSchedule(usablePlacesForPreview), [usablePlacesForPreview]);
+   const rangeLabel = rangeLabelFromSchedule(schedule);
++  const filteredMyPlaces = useMemo(() => filterPlaces(myPlaces, placeQuery), [myPlaces, placeQuery]);
++  const filteredLibraryPlaces = useMemo(() => filterPlaces(libraryPlaces, placeQuery), [libraryPlaces, placeQuery]);
++
++  async function loadReusablePlaces() {
++    setLoadingPlaces(true);
++    try {
++      const [mineResponse, libraryResponse] = await Promise.all([
++        api.places.mine({ take: 100 }),
++        api.places.library({ take: 100 }),
++      ]);
++      setMyPlaces(mineResponse.places);
++      setLibraryPlaces(libraryResponse.places);
++    } catch (loadError) {
++      setError(getFriendlyApiErrorMessage(loadError, 'Could not load Place Library. You can still add custom places.'));
++    } finally {
++      setLoadingPlaces(false);
++    }
++  }
++
++  useEffect(() => {
++    if (!auth.hydrated || !auth.isAuthenticated) return;
++    void loadReusablePlaces();
++  }, [auth.hydrated, auth.isAuthenticated]);
+ 
+   function updatePlace(index: number, update: Partial<PlaceFormState>) {
+     setPlaces((current) => current.map((place, placeIndex) => placeIndex === index ? { ...place, ...update } : place));
+@@ -121,6 +272,15 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+     });
+   }
+ 
++  function addPlaceAndOpenPicker() {
++    const nextIndex = places.length;
++    const previous = places[places.length - 1];
++    setPlaces((current) => [...current, makePlace(nextIndex, previous?.date || toDateInputValue())]);
++    setPickerOpenForIndex(nextIndex);
++    setPickerTab(myPlaces.length ? 'mine' : 'library');
++    setCreatePlaceOpen(false);
++  }
++
+   function removePlace(index: number) {
+     setPlaces((current) => current.length <= 1 ? current : current.filter((_, placeIndex) => placeIndex !== index));
+   }
+@@ -139,6 +299,54 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+     });
+   }
+ 
++  function openPicker(index: number) {
++    setPickerOpenForIndex(index);
++    setPickerTab(myPlaces.length ? 'mine' : 'library');
++    setCreatePlaceOpen(false);
++    setPlaceQuery('');
++  }
++
++  function chooseReusablePlace(place: PlaceDto) {
++    const index = pickerOpenForIndex;
++    if (index === null) return;
++    updatePlace(index, applyReusablePlacePatch(place));
++    setPickerOpenForIndex(null);
++    setCreatePlaceOpen(false);
++    setMessage(`Added ${place.title} from ${placeSourceLabel(place)}.`);
++  }
++
++  async function createReusablePlaceForPicker() {
++    const index = pickerOpenForIndex;
++    if (index === null) return;
++    setCreatingPlace(true);
++    setError('');
++    setMessage('');
++    try {
++      const response = await api.places.create({
++        mode: newReusablePlace.mode,
++        title: newReusablePlace.title,
++        description: newReusablePlace.description.trim() || undefined,
++        category: newReusablePlace.category.trim() || undefined,
++        visibility: 'private',
++        status: 'active',
++        addressPublicText: newReusablePlace.mode === 'local' ? newReusablePlace.location.trim() || undefined : undefined,
++        onlineLabel: newReusablePlace.mode === 'remote' ? newReusablePlace.onlineLabel.trim() || undefined : undefined,
++        onlineUrl: newReusablePlace.mode === 'remote' ? newReusablePlace.onlineUrl.trim() || undefined : undefined,
++        defaultNote: newReusablePlace.note.trim() || undefined,
++      });
++      setMyPlaces((current) => [response.place, ...current.filter((place) => place.id !== response.place.id)]);
++      updatePlace(index, applyReusablePlacePatch(response.place));
++      setCreatePlaceOpen(false);
++      setPickerOpenForIndex(null);
++      setNewReusablePlace(makeNewReusablePlace());
++      setMessage('Place saved and added to this Plan.');
++    } catch (createError) {
++      setError(getFriendlyApiErrorMessage(createError, 'Could not create Place.'));
++    } finally {
++      setCreatingPlace(false);
++    }
++  }
++
+   async function uploadPlaceImage(index: number, files: FileList | null) {
+     const file = files?.[0];
+     if (!file) return;
+@@ -150,7 +358,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+       formData.append('image', file);
+       const response = await api.media.uploadImage(formData);
+       const uploaded = normalizePlanMediaUpload(response);
+-      if (uploaded) updatePlace(index, { media: uploaded });
++      if (uploaded) updatePlace(index, { media: uploaded, existingMedia: null });
+       setMessage('Place image uploaded.');
+     } catch (uploadError) {
+       setError(getFriendlyApiErrorMessage(uploadError, 'Could not upload place image.'));
+@@ -185,10 +393,13 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+         joinApprovalMode: 'automatic',
+         status: 'open',
+         places: usablePlaces.map((place, index) => ({
++          placeId: place.sourcePlaceId,
+           mode: place.mode,
+           title: place.title,
+           note: place.note.trim() || undefined,
+-          addressPublicText: place.location.trim() || undefined,
++          addressPublicText: place.mode === 'local' ? place.location.trim() || undefined : undefined,
++          onlineLabel: place.mode === 'remote' ? place.onlineLabel.trim() || place.location.trim() || undefined : undefined,
++          onlineUrl: place.mode === 'remote' ? place.onlineUrl.trim() || undefined : undefined,
+           startsAt: nextSchedule.placeStartsAt[index],
+           order: index,
+           mediaIds: selectedMediaIds(place.media),
+@@ -202,14 +413,16 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+     }
+   }
+ 
++  const activePickerPlace = pickerOpenForIndex === null ? null : places[pickerOpenForIndex] ?? null;
++
+   return (
+     <PlansFeatureGate plansEnabled={plansEnabled}>
+       <main className="mobile-page plans-page">
+-        <section className="page-intro">
++        <section className="page-intro plan-create-intro">
+           <div>
+             <PlansInternalBadge plansVisible={plansVisible} />
+             <h2>Create Plan</h2>
+-            <p>Add places with their own Local/Remote type, date, time, and one image. The feed deck is previewed below.</p>
++            <p>Choose reusable Places, arrange them in order and time, or add one-off custom stops. Places stay independent from Trade, Needs, Offers, Agenda, and payments.</p>
+           </div>
+         </section>
+ 
+@@ -241,20 +454,34 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+             <div className="plan-form__section-title">
+               <div>
+                 <h3>Places</h3>
+-                <p className="meta">Each place has its own date/time. New places copy the previous date, and the saved range follows the ordered places.</p>
++                <p className="meta">Pick from My Places or Hellowhen Place Library, then adjust order and time for this Plan.</p>
++              </div>
++              <div className="cta-row">
++                <button type="button" className="button secondary" onClick={addPlaceAndOpenPicker}>+ From library</button>
++                <button type="button" className="button secondary" onClick={addPlace}>+ Custom</button>
+               </div>
+             </div>
+ 
++            {loadingPlaces ? <p className="meta">Loading reusable Places...</p> : null}
++
+             {places.map((place, index) => (
+               <section className="plan-place-editor" key={place.id}>
+                 <div className="plan-place-editor__header">
+                   <span className="semantic-badge instruction">Place {index + 1}</span>
+                   <div className="cta-row">
++                    <button type="button" className="button secondary" onClick={() => openPicker(index)}>Choose saved place</button>
+                     <button type="button" className="button secondary" disabled={index === 0} onClick={() => movePlace(index, -1)}>Move up</button>
+                     <button type="button" className="button secondary" disabled={index === places.length - 1} onClick={() => movePlace(index, 1)}>Move down</button>
+                   </div>
+                 </div>
+-                <PlaceModeSegment value={place.mode} onChange={(mode) => updatePlace(index, { mode, location: '' })} />
++                {place.sourcePlaceId ? (
++                  <div className="plan-source-place-strip">
++                    <span className="semantic-badge success">{place.sourcePlaceSource === 'hellowhen_library' ? 'Library Place' : 'My Place'}</span>
++                    <p>{place.sourcePlaceTitle || place.title}</p>
++                    <button type="button" className="button secondary" onClick={() => updatePlace(index, resetToCustomPatch())}>Use as custom</button>
++                  </div>
++                ) : null}
++                <PlaceModeSegment value={place.mode} onChange={(mode) => updatePlace(index, { mode, location: mode === 'remote' ? '' : place.location })} />
+                 <div className="plan-form__row">
+                   <label>
+                     <span>Date</span>
+@@ -269,10 +496,23 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                   <span>Place name</span>
+                   <input value={place.title} onChange={(event) => updatePlace(index, { title: event.target.value })} minLength={3} maxLength={120} required placeholder={place.mode === 'remote' ? 'Planning call' : 'Coffee meeting point'} />
+                 </label>
+-                <label>
+-                  <span>{place.mode === 'remote' ? 'Online link or instructions' : 'Address or meeting point'}</span>
+-                  <input value={place.location} onChange={(event) => updatePlace(index, { location: event.target.value })} maxLength={240} placeholder={place.mode === 'remote' ? 'Zoom, Google Meet, Discord, website, or instructions' : 'Search or enter an address'} />
+-                </label>
++                {place.mode === 'remote' ? (
++                  <div className="plan-form__row">
++                    <label>
++                      <span>Online label</span>
++                      <input value={place.onlineLabel} onChange={(event) => updatePlace(index, { onlineLabel: event.target.value })} maxLength={120} placeholder="Zoom, Discord, website, livestream" />
++                    </label>
++                    <label>
++                      <span>Online URL</span>
++                      <input type="url" value={place.onlineUrl} onChange={(event) => updatePlace(index, { onlineUrl: event.target.value })} maxLength={500} placeholder="https://..." />
++                    </label>
++                  </div>
++                ) : (
++                  <label>
++                    <span>Address or meeting point</span>
++                    <input value={place.location} onChange={(event) => updatePlace(index, { location: event.target.value })} maxLength={240} placeholder="Search or enter an address" />
++                  </label>
++                )}
+                 <label>
+                   <span>Place notes / purpose</span>
+                   <textarea value={place.note} onChange={(event) => updatePlace(index, { note: event.target.value })} maxLength={1000} placeholder="Why this stop matters or what people should know." />
+@@ -286,8 +526,6 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+               </section>
+             ))}
+ 
+-            <button type="button" className="button secondary full" onClick={addPlace}>+ Add another place</button>
+-
+             <hr />
+             <section className="plan-form__preview">
+               <h3>Feed deck preview</h3>
+@@ -296,7 +534,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                   title={title}
+                   description={description}
+                   rangeLabel={rangeLabel}
+-                  places={places.map((place) => ({ id: place.id, mode: place.mode, title: place.title, note: place.note, location: place.location, date: place.date, time: place.time, media: place.media }))}
++                  places={places.map((place) => ({ id: place.id, mode: place.mode, title: place.title, note: place.note, location: placePreviewLocation(place), date: place.date, time: place.time, media: place.media ?? place.existingMedia }))}
+                   className="trade-stack-deck--create-preview"
+                 />
+               </div>
+@@ -305,9 +543,82 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+             {schedule.error ? <p className="form-error">{schedule.error}</p> : null}
+             {message ? <p className="success-message">{message}</p> : null}
+             {error ? <p className="form-error">{error}</p> : null}
+-            <button className="button primary full" type="submit" disabled={saving || places.some((place) => place.uploading)}>{saving ? 'Creating...' : 'Create hidden Plan'}</button>
++            <button className="button primary full" type="submit" disabled={saving || creatingPlace || places.some((place) => place.uploading)}>{saving ? 'Creating...' : 'Create hidden Plan'}</button>
+           </form>
+         ) : null}
++
++        {activePickerPlace ? (
++          <section className="mobile-card plan-place-picker-panel" aria-label="Place picker">
++            <div className="plan-detail-topbar">
++              <div>
++                <h3>Choose Place {pickerOpenForIndex !== null ? pickerOpenForIndex + 1 : ''}</h3>
++                <p className="meta">Saved Places are copied as snapshots into this Plan.</p>
++              </div>
++              <button type="button" className="plans-feed-icon-button" onClick={() => setPickerOpenForIndex(null)} aria-label="Close Place picker">×</button>
++            </div>
++            <div className="plans-tabs" role="tablist" aria-label="Place Library source">
++              <button type="button" className={pickerTab === 'mine' ? 'is-active' : ''} onClick={() => setPickerTab('mine')}>My Places</button>
++              <button type="button" className={pickerTab === 'library' ? 'is-active' : ''} onClick={() => setPickerTab('library')}>Hellowhen Library</button>
++            </div>
++            <label>
++              <span>Search Places</span>
++              <input value={placeQuery} onChange={(event) => setPlaceQuery(event.target.value)} placeholder="Search title, category, area..." />
++            </label>
++            {pickerTab === 'mine' ? (
++              <PlacePickerList places={filteredMyPlaces} emptyLabel="No matching My Places yet. Create one below or use a custom place." onChoose={chooseReusablePlace} />
++            ) : (
++              <PlacePickerList places={filteredLibraryPlaces} emptyLabel="No matching Hellowhen Library Places yet." onChoose={chooseReusablePlace} />
++            )}
++            <button type="button" className="button secondary full" onClick={() => setCreatePlaceOpen((current) => !current)}>
++              {createPlaceOpen ? 'Hide create place' : '+ Create My Place'}
++            </button>
++            {createPlaceOpen ? (
++              <div className="plan-create-place-box">
++                <h4>Create My Place</h4>
++                <PlaceModeSegment value={newReusablePlace.mode} onChange={(mode) => setNewReusablePlace((current) => ({ ...current, mode }))} />
++                <label>
++                  <span>Place name</span>
++                  <input value={newReusablePlace.title} onChange={(event) => setNewReusablePlace((current) => ({ ...current, title: event.target.value }))} minLength={3} maxLength={120} required placeholder="Quiet coffee near République" />
++                </label>
++                <div className="plan-form__row">
++                  <label>
++                    <span>Category</span>
++                    <input value={newReusablePlace.category} onChange={(event) => setNewReusablePlace((current) => ({ ...current, category: event.target.value }))} maxLength={80} placeholder="Culture, Work, Food..." />
++                  </label>
++                  {newReusablePlace.mode === 'local' ? (
++                    <label>
++                      <span>Area / address</span>
++                      <input value={newReusablePlace.location} onChange={(event) => setNewReusablePlace((current) => ({ ...current, location: event.target.value }))} maxLength={240} placeholder="Paris 11 or meeting point" />
++                    </label>
++                  ) : (
++                    <label>
++                      <span>Online label</span>
++                      <input value={newReusablePlace.onlineLabel} onChange={(event) => setNewReusablePlace((current) => ({ ...current, onlineLabel: event.target.value }))} maxLength={120} placeholder="Zoom, Discord, website" />
++                    </label>
++                  )}
++                </div>
++                {newReusablePlace.mode === 'remote' ? (
++                  <label>
++                    <span>Online URL</span>
++                    <input type="url" value={newReusablePlace.onlineUrl} onChange={(event) => setNewReusablePlace((current) => ({ ...current, onlineUrl: event.target.value }))} maxLength={500} placeholder="https://..." />
++                  </label>
++                ) : null}
++                <label>
++                  <span>Description</span>
++                  <textarea value={newReusablePlace.description} onChange={(event) => setNewReusablePlace((current) => ({ ...current, description: event.target.value }))} maxLength={2000} placeholder="Reusable place description." />
++                </label>
++                <label>
++                  <span>Default note</span>
++                  <textarea value={newReusablePlace.note} onChange={(event) => setNewReusablePlace((current) => ({ ...current, note: event.target.value }))} maxLength={1000} placeholder="What this place is good for." />
++                </label>
++                <div className="cta-row">
++                  <button type="button" className="button secondary" onClick={() => setNewReusablePlace(makeNewReusablePlace())}>Reset</button>
++                  <button type="button" className="button primary" disabled={creatingPlace || !newReusablePlace.title.trim()} onClick={() => void createReusablePlaceForPicker()}>{creatingPlace ? 'Saving...' : 'Save and use Place'}</button>
++                </div>
++              </div>
++            ) : null}
++          </section>
++        ) : null}
+       </main>
+     </PlansFeatureGate>
+   );
+diff --git a/apps/web/src/features/plans/PlanPreviewDeck.tsx b/apps/web/src/features/plans/PlanPreviewDeck.tsx
+index cd332f0..3b5aceb 100644
+--- a/apps/web/src/features/plans/PlanPreviewDeck.tsx
++++ b/apps/web/src/features/plans/PlanPreviewDeck.tsx
+@@ -123,7 +123,7 @@ export function PlanDtoPreviewDeck({ plan, className, onOpen, actionLabel }: Pla
+     mode: place.mode ?? 'local',
+     title: place.title,
+     note: place.note ?? undefined,
+-    location: place.addressPublicText ?? undefined,
++    location: place.addressPublicText ?? place.onlineLabel ?? place.onlineUrl ?? undefined,
+     date: place.startsAt ? toDateInputValue(place.startsAt) : undefined,
+     time: place.startsAt ? toTimeInputValue(place.startsAt) : undefined,
+     startsAt: place.startsAt ?? undefined,
+diff --git a/docs/product/hidden-plans-foundation.md b/docs/product/hidden-plans-foundation.md
+index 03eef22..2458bde 100644
+--- a/docs/product/hidden-plans-foundation.md
++++ b/docs/product/hidden-plans-foundation.md
+@@ -167,12 +167,17 @@ When `NEXT_PUBLIC_PLANS_ENABLED=true`, internal testers can open:
+ 
+ The hidden UI currently supports:
+ 
+-- feed vs mine list
++- feed vs mine vs joined list
+ - create Plan with ordered places
++- create Plan by choosing reusable My Places
++- create Plan by choosing Hellowhen Place Library items
++- inline Create My Place action from the create Plan picker
++- custom one-off Plan places when no reusable Place is needed
+ - per-place Local/Remote segmented controls
+ - per-place date and time
+-- one image per place
+-- add-place button at the bottom of the Places section
++- one image per custom Plan place
++- source Place image fallback for reusable Place snapshots when no Plan Place image is attached
++- add custom place and add from library actions at the top of the Places section
+ - Move up / Move down place ordering buttons
+ - automatic Plan start/end range calculation from ordered place date/time values
+ - feed deck preview at the end of create/edit forms
+@@ -200,6 +205,21 @@ The hidden web detail page now keeps the Plan summary on the detail route instea
+ 
+ Public discussion remains postponed. No Trade, Need, Offer, Agenda, payment, or owner-approval connection is added in this patch.
+ 
++
++## PLAN-PROD6 web create Plan + Place picker
++
++The hidden web create route now uses the reusable Place foundation instead of only hand-entered Plan places. Internal testers can:
++
++- choose an existing My Place
++- choose a Hellowhen Place Library item
++- create a private My Place inline from the picker
++- keep using custom one-off Plan places
++- reorder selected/custom places with Move up / Move down
++- set each selected place's Plan-specific date/time
++- adjust the snapshot title, public address, online label/URL, and note before publishing
++
++The create flow still saves `PlanPlace` snapshots. Editing a reusable `Place` later must not silently change existing Plans. Source Place media can be used as a fallback for Plan place cards when the Plan place itself has no image.
++
+ ## Not included yet
+ 
+ - Public Plans tab/menu.

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { getRouteHeader, webTabs } from '../lib/webRoutes';
+import { getRouteHeader, getWebTabs, type WebTab } from '../lib/webRoutes';
 import { betaFeatures } from '../lib/betaFeatures';
 import { useWebAuth } from '../providers/WebAuthProvider';
 import { useWebTranslation } from '../providers/WebI18nProvider';
@@ -15,13 +15,14 @@ function WebBetaHeaderBadge() {
   return <span className="web-header-beta-badge">{t('common.states.beta')}</span>;
 }
 
-function WebDesktopNav({ pathname, authenticated }: { pathname: string; authenticated: boolean }) {
+function WebDesktopNav({ pathname, authenticated, tabs }: { pathname: string; authenticated: boolean; tabs: WebTab[] }) {
   const { t } = useWebTranslation();
   return (
     <nav className="web-desktop-nav" aria-label={t('navigation.primary')}>
-      {webTabs.map((tab) => {
+      {tabs.map((tab) => {
         const active = tab.match(pathname);
-        const href = !authenticated && tab.key !== 'trades' ? `/auth?next=${encodeURIComponent(tab.href)}` : tab.href;
+        const publicTradeTab = tab.key === 'trades' || tab.key === 'trade';
+        const href = !authenticated && !publicTradeTab ? `/auth?next=${encodeURIComponent(tab.href)}` : tab.href;
         return (
           <Link key={tab.key} href={href} className={active ? 'web-desktop-nav__link is-active' : 'web-desktop-nav__link'}>
             <WebIcon name={tab.icon} size={17} decorative />
@@ -37,7 +38,9 @@ export function WebTopHeader({ hiddenOnMobile = false }: { hiddenOnMobile?: bool
   const pathname = usePathname() || '/trades';
   const auth = useWebAuth();
   const { t } = useWebTranslation();
-  const header = getRouteHeader(pathname);
+  const usePlansMeTradeNav = betaFeatures.mainNavPlansMeTrade;
+  const tabs = getWebTabs(usePlansMeTradeNav);
+  const header = getRouteHeader(pathname, { plansMeTradeNav: usePlansMeTradeNav });
   const authenticated = auth.hydrated && auth.isAuthenticated;
 
   const hiddenClassName = hiddenOnMobile ? ' web-top-header--mobile-hidden' : '';
@@ -50,7 +53,7 @@ export function WebTopHeader({ hiddenOnMobile = false }: { hiddenOnMobile?: bool
           <p className="web-kicker">{t('navigation.brand')}</p>
           <h1>{t(header.titleKey)}</h1>
         </div>
-        <WebDesktopNav pathname={pathname} authenticated={authenticated} />
+        <WebDesktopNav pathname={pathname} authenticated={authenticated} tabs={tabs} />
       </header>
     );
   }
@@ -64,7 +67,7 @@ export function WebTopHeader({ hiddenOnMobile = false }: { hiddenOnMobile?: bool
         </Link>
         <h1>{t(header.titleKey)}</h1>
       </div>
-      <WebDesktopNav pathname={pathname} authenticated={authenticated} />
+      <WebDesktopNav pathname={pathname} authenticated={authenticated} tabs={tabs} />
     </header>
   );
 }

@@ -5,7 +5,7 @@ import { buildMinimalModerationPayload } from './moderation.payloads.js';
 import { scanWithConfiguredModerationProvider } from './moderation.provider.js';
 import { storeModerationProviderResult } from './moderation.results.js';
 
-const publicImageEntityTypes = new Set<MediaEntityType>(['need', 'offer', 'trade', 'profile']);
+const publicImageEntityTypes = new Set<MediaEntityType>(['need', 'offer', 'trade', 'profile', 'place', 'plan', 'plan_place']);
 const imageModerationContentTypes = new Set<ModerationContentType>(['media', 'profile_image', 'trade_image', 'need_image', 'offer_image']);
 const openModerationCaseStatuses = new Set<ModerationCaseStatus>(['pending', 'needs_review', 'failed', 'limited']);
 

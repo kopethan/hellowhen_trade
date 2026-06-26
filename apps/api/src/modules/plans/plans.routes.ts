@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+  PLAN_PLACE_MEDIA_LIMITS,
   createPlanJoinRequestSchema,
   createPlanPlaceRequestSchema,
   createPlanRequestSchema,
@@ -31,7 +32,10 @@ function cleanTags(value: string[] | undefined) {
 function planInclude() {
   return {
     owner: { select: userSummarySelect },
-    places: { orderBy: [{ order: 'asc' as const }, { createdAt: 'asc' as const }] },
+    places: {
+      include: { sourcePlace: { include: { owner: { select: userSummarySelect } } } },
+      orderBy: [{ order: 'asc' as const }, { createdAt: 'asc' as const }],
+    },
     participants: { include: { user: { select: userSummarySelect } }, orderBy: { createdAt: 'asc' as const } },
   };
 }
@@ -57,10 +61,25 @@ async function syncPlanCapacityStatus(planId: string) {
   }
 }
 
+async function withPlanPlaceMediaFallback(places: any[], publicMediaVisibility: 'public' | 'public_anonymous') {
+  const planPlaceMedia = await withMedia('plan_place' as any, places, publicMediaVisibility);
+  const sourcePlaces = places
+    .map((place) => place.sourcePlace)
+    .filter((place): place is any => Boolean(place?.id));
+  if (!sourcePlaces.length) return planPlaceMedia;
+
+  const sourcePlaceMedia = await withMedia('place' as any, sourcePlaces, publicMediaVisibility);
+  const sourceMediaById = new Map(sourcePlaceMedia.map((place: any) => [place.id, place.media ?? []]));
+  return planPlaceMedia.map((place: any) => {
+    if (place.media?.length || !place.placeId) return place;
+    return { ...place, media: sourceMediaById.get(place.placeId) ?? [] };
+  });
+}
+
 async function decoratePlan(plan: any, viewerId?: string | null) {
   const publicMediaVisibility = viewerId ? 'public' : 'public_anonymous';
   const [withPlanMedia] = await withMedia('plan' as any, [plan], publicMediaVisibility);
-  const places = await withMedia('plan_place' as any, plan.places ?? [], publicMediaVisibility);
+  const places = await withPlanPlaceMediaFallback(plan.places ?? [], publicMediaVisibility);
   return serializePlan({ ...withPlanMedia, places }, viewerId ?? null);
 }
 
@@ -68,9 +87,30 @@ async function decoratePlans(plans: any[], viewerId?: string | null) {
   const publicMediaVisibility = viewerId ? 'public' : 'public_anonymous';
   const planMediaMap = await withMedia('plan' as any, plans, publicMediaVisibility);
   const allPlaces = plans.flatMap((plan) => plan.places ?? []);
-  const placeMedia = await withMedia('plan_place' as any, allPlaces, publicMediaVisibility);
+  const placeMedia = await withPlanPlaceMediaFallback(allPlaces, publicMediaVisibility);
   const placeById = new Map(placeMedia.map((place: any) => [place.id, place]));
   return planMediaMap.map((plan: any) => serializePlan({ ...plan, places: (plan.places ?? []).map((place: any) => placeById.get(place.id) ?? place) }, viewerId ?? null));
+}
+
+function createPlanRequestError(code: string, publicMessage: string, statusCode = 400) {
+  return Object.assign(new Error(publicMessage), { code, publicMessage, statusCode });
+}
+
+function cleanReusablePlaceForViewer(place: any, canSeePrivateDetails: boolean) {
+  if (!place) return null;
+  return {
+    ...place,
+    mode: place.mode ?? 'local',
+    source: place.source ?? 'user',
+    visibility: place.visibility ?? (place.source === 'hellowhen_library' ? 'library' : 'private'),
+    addressPrivateText: canSeePrivateDetails ? place.addressPrivateText ?? null : null,
+    defaultMeetingInstructions: canSeePrivateDetails ? place.defaultMeetingInstructions ?? null : null,
+  };
+}
+
+function planPlaceSourceFor(place: any) {
+  if (!place?.placeId) return 'custom';
+  return place.sourcePlace?.source === 'hellowhen_library' ? 'hellowhen_library' : 'my_place';
 }
 
 function serializePlan(plan: any, viewerId: string | null) {
@@ -82,11 +122,14 @@ function serializePlan(plan: any, viewerId: string | null) {
   const visibleParticipants = isOwner
     ? (plan.participants ?? [])
     : [...acceptedParticipants, ...(myParticipant && myParticipant.status !== 'accepted' ? [myParticipant] : [])];
+  const canSeeSourcePlace = isOwner;
 
   return {
     ...plan,
     places: (plan.places ?? []).map((place: any) => ({
       ...place,
+      source: planPlaceSourceFor(place),
+      sourcePlace: canSeeSourcePlace ? cleanReusablePlaceForViewer(place.sourcePlace, canSeePrivatePlaceDetails) : null,
       mode: place.mode ?? 'local',
       addressPrivateText: canSeePrivatePlaceDetails ? place.addressPrivateText ?? null : null,
     })),
@@ -149,31 +192,131 @@ function planUpdateData(input: ReturnType<typeof updatePlanRequestSchema.parse>)
   };
 }
 
-function placeCreateData(planId: string, input: ReturnType<typeof createPlanPlaceRequestSchema.parse>, fallbackOrder = 0) {
+async function loadReusablePlaceForSnapshot(placeId: string, userId: string) {
+  return prisma.place.findFirst({
+    where: {
+      id: placeId,
+      status: 'active' as any,
+      OR: [
+        { ownerId: userId },
+        { source: 'hellowhen_library' as any, visibility: 'library' as any },
+        { visibility: 'public' as any },
+      ],
+    },
+  });
+}
+
+function planPlaceSnapshotData(planId: string, input: ReturnType<typeof createPlanPlaceRequestSchema.parse> | ReturnType<typeof updatePlanPlaceRequestSchema.parse>, fallbackOrder = 0, reusablePlace?: any | null) {
   return {
     planId,
+    placeId: reusablePlace?.id ?? input.placeId ?? null,
     order: input.order ?? fallbackOrder,
-    mode: input.mode ?? 'local',
-    title: input.title,
-    note: input.note ?? null,
-    addressPublicText: input.addressPublicText ?? null,
-    addressPrivateText: input.addressPrivateText ?? null,
+    mode: input.mode ?? reusablePlace?.mode ?? 'local',
+    title: input.title ?? reusablePlace?.title,
+    note: input.note ?? reusablePlace?.defaultNote ?? null,
+    addressPublicText: input.addressPublicText ?? reusablePlace?.addressPublicText ?? null,
+    addressPrivateText: input.addressPrivateText ?? reusablePlace?.addressPrivateText ?? null,
+    onlineLabel: input.onlineLabel ?? reusablePlace?.onlineLabel ?? null,
+    onlineUrl: input.onlineUrl ?? reusablePlace?.onlineUrl ?? null,
     startsAt: input.startsAt ? new Date(input.startsAt) : null,
     endsAt: input.endsAt ? new Date(input.endsAt) : null,
   };
 }
 
-function placeUpdateData(input: ReturnType<typeof updatePlanPlaceRequestSchema.parse>) {
+async function placeCreateData(planId: string, ownerId: string, input: ReturnType<typeof createPlanPlaceRequestSchema.parse>, fallbackOrder = 0) {
+  const reusablePlace = input.placeId ? await loadReusablePlaceForSnapshot(input.placeId, ownerId) : null;
+  if (input.placeId && !reusablePlace) {
+    throw createPlanRequestError('place_not_found', 'Choose one of your places or a Hellowhen library place.', 404);
+  }
+  const data = planPlaceSnapshotData(planId, input, fallbackOrder, reusablePlace);
+  if (!data.title) throw createPlanRequestError('missing_place_title', 'Add a place title before saving this plan place.');
+  return data;
+}
+
+async function placeUpdateData(ownerId: string, input: ReturnType<typeof updatePlanPlaceRequestSchema.parse>) {
+  const reusablePlace = input.placeId ? await loadReusablePlaceForSnapshot(input.placeId, ownerId) : null;
+  if (input.placeId && !reusablePlace) {
+    throw createPlanRequestError('place_not_found', 'Choose one of your places or a Hellowhen library place.', 404);
+  }
+  const snapshot = reusablePlace ? planPlaceSnapshotData('', input, 0, reusablePlace) : null;
   return {
+    ...(input.placeId !== undefined ? { placeId: reusablePlace?.id ?? null } : {}),
     ...(input.order !== undefined ? { order: input.order } : {}),
-    ...(input.mode !== undefined ? { mode: input.mode } : {}),
-    ...(input.title !== undefined ? { title: input.title } : {}),
-    ...(input.note !== undefined ? { note: input.note } : {}),
-    ...(input.addressPublicText !== undefined ? { addressPublicText: input.addressPublicText } : {}),
-    ...(input.addressPrivateText !== undefined ? { addressPrivateText: input.addressPrivateText } : {}),
+    ...(input.mode !== undefined || reusablePlace ? { mode: input.mode ?? reusablePlace?.mode ?? 'local' } : {}),
+    ...(input.title !== undefined || reusablePlace ? { title: input.title ?? reusablePlace?.title } : {}),
+    ...(input.note !== undefined || reusablePlace ? { note: input.note ?? snapshot?.note ?? null } : {}),
+    ...(input.addressPublicText !== undefined || reusablePlace ? { addressPublicText: input.addressPublicText ?? snapshot?.addressPublicText ?? null } : {}),
+    ...(input.addressPrivateText !== undefined || reusablePlace ? { addressPrivateText: input.addressPrivateText ?? snapshot?.addressPrivateText ?? null } : {}),
+    ...(input.onlineLabel !== undefined || reusablePlace ? { onlineLabel: input.onlineLabel ?? snapshot?.onlineLabel ?? null } : {}),
+    ...(input.onlineUrl !== undefined || reusablePlace ? { onlineUrl: input.onlineUrl ?? snapshot?.onlineUrl ?? null } : {}),
     ...(input.startsAt !== undefined ? { startsAt: input.startsAt ? new Date(input.startsAt) : null } : {}),
     ...(input.endsAt !== undefined ? { endsAt: input.endsAt ? new Date(input.endsAt) : null } : {}),
   };
+}
+
+async function joinPlanFreely(planId: string, userId: string, message?: string | null) {
+  const plan = await prisma.plan.findUnique({
+    where: { id: planId },
+    include: { participants: true, owner: { select: { trustTier: true } } },
+  });
+  if (!plan || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') {
+    throw createPlanRequestError('not_found', 'Plan not found.', 404);
+  }
+  if (plan.ownerId === userId) {
+    throw createPlanRequestError('owner_cannot_join', 'You already own this plan.', 409);
+  }
+  if (await usersHaveBlockBetween(userId, plan.ownerId)) {
+    throw createPlanRequestError('blocked_user', 'You cannot join this plan.', 403);
+  }
+
+  const existing = (plan.participants ?? []).find((participant: any) => participant.userId === userId);
+  if (existing?.status === 'accepted') {
+    throw createPlanRequestError('already_joined', 'You already joined this plan.', 409);
+  }
+  if (existing?.status === 'removed') {
+    throw createPlanRequestError('participant_removed', 'The owner removed you from this plan.', 403);
+  }
+
+  const acceptedCount = (plan.participants ?? []).filter((participant: any) => participant.status === 'accepted').length;
+  if (plan.maxParticipants && acceptedCount >= plan.maxParticipants && existing?.status !== 'accepted') {
+    throw createPlanRequestError('plan_full', 'This plan is full.', 409);
+  }
+
+  const participant = await prisma.planParticipant.upsert({
+    where: { planId_userId: { planId: plan.id, userId } },
+    update: {
+      message: message?.trim() || null,
+      status: 'accepted' as any,
+      decidedAt: new Date(),
+      decidedById: plan.ownerId,
+    },
+    create: {
+      planId: plan.id,
+      userId,
+      message: message?.trim() || null,
+      status: 'accepted' as any,
+      decidedAt: new Date(),
+      decidedById: plan.ownerId,
+    },
+    include: { user: { select: userSummarySelect } },
+  });
+  await syncPlanCapacityStatus(plan.id);
+  return participant;
+}
+
+async function leaveJoinedPlan(planId: string, userId: string) {
+  const participant = await prisma.planParticipant.findUnique({ where: { planId_userId: { planId, userId } } });
+  if (!participant) throw createPlanRequestError('not_found', 'You have not joined this plan.', 404);
+  if (participant.status !== 'accepted') {
+    throw createPlanRequestError('cannot_leave_plan', 'Only joined participants can leave a plan.', 409);
+  }
+  const updated = await prisma.planParticipant.update({
+    where: { id: participant.id },
+    data: { status: 'left' as any, decidedAt: new Date(), decidedById: userId },
+    include: { user: { select: userSummarySelect } },
+  });
+  await syncPlanCapacityStatus(planId);
+  return updated;
 }
 
 plansRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
@@ -206,14 +349,30 @@ plansRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
   res.json({ plans: await decoratePlans(plans, req.user!.id) });
 }));
 
+plansRoutes.get('/joined', requireAuth, asyncRoute(async (req, res) => {
+  const blockedOwnerIds = await blockedUserIdsForViewer(req.user!.id);
+  const plans = await prisma.plan.findMany({
+    where: {
+      participants: { some: { userId: req.user!.id, status: 'accepted' as any } },
+      status: { in: [...publicPlanStatuses] },
+      owner: { trustTier: { not: 'restricted' } },
+      ...(blockedOwnerIds.length > 0 ? { ownerId: { notIn: blockedOwnerIds } } : {}),
+    },
+    include: planInclude(),
+    orderBy: [{ startsAt: 'asc' }, { createdAt: 'desc' }],
+    take: 100,
+  });
+  res.json({ plans: await decoratePlans(plans, req.user!.id) });
+}));
+
 plansRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createPlanRequestSchema.parse(req.body ?? {});
   const plan = await prisma.plan.create({ data: planCreateData(req.user!.id, input) as any });
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan' as any, plan.id);
 
   for (const [index, placeInput] of (input.places ?? []).entries()) {
-    const place = await prisma.planPlace.create({ data: placeCreateData(plan.id, placeInput, index) as any });
-    await attachUploadedMediaToEntity(req.user!.id, placeInput.mediaIds, 'plan_place' as any, place.id);
+    const place = await prisma.planPlace.create({ data: await placeCreateData(plan.id, req.user!.id, placeInput, index) as any });
+    await attachUploadedMediaToEntity(req.user!.id, placeInput.mediaIds, 'plan_place' as any, place.id, { maxImages: PLAN_PLACE_MEDIA_LIMITS.plus });
   }
 
   const created = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
@@ -237,8 +396,8 @@ plansRoutes.post('/:planId/places', requireAuth, requireActiveAccount, asyncRout
   if (!plan) return res.status(404).json({ error: 'not_found' });
   const existingCount = await prisma.planPlace.count({ where: { planId: plan.id } });
   if (existingCount >= 12) return res.status(409).json({ error: 'too_many_places', message: 'A plan can include up to 12 places for now.' });
-  const place = await prisma.planPlace.create({ data: placeCreateData(plan.id, input, existingCount) as any });
-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan_place' as any, place.id);
+  const place = await prisma.planPlace.create({ data: await placeCreateData(plan.id, req.user!.id, input, existingCount) as any });
+  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan_place' as any, place.id, { maxImages: PLAN_PLACE_MEDIA_LIMITS.plus });
   const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
   res.status(201).json({ plan: await decoratePlan(updated, req.user!.id) });
 }));
@@ -249,29 +408,21 @@ plansRoutes.patch('/:planId/places/:placeId', requireAuth, requireActiveAccount,
   if (!plan) return res.status(404).json({ error: 'not_found' });
   const place = await prisma.planPlace.findFirst({ where: { id: req.params.placeId, planId: plan.id } });
   if (!place) return res.status(404).json({ error: 'not_found' });
-  await prisma.planPlace.update({ where: { id: place.id }, data: placeUpdateData(input) as any });
-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan_place' as any, place.id);
+  await prisma.planPlace.update({ where: { id: place.id }, data: await placeUpdateData(req.user!.id, input) as any });
+  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan_place' as any, place.id, { maxImages: PLAN_PLACE_MEDIA_LIMITS.plus });
   const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
   res.json({ plan: await decoratePlan(updated, req.user!.id) });
 }));
 
+plansRoutes.post('/:planId/join', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const input = createPlanJoinRequestSchema.parse(req.body ?? {});
+  const participant = await joinPlanFreely(req.params.planId, req.user!.id, input.message);
+  res.status(201).json({ participant });
+}));
+
 plansRoutes.post('/:planId/join-requests', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createPlanJoinRequestSchema.parse(req.body ?? {});
-  const plan = await prisma.plan.findUnique({ where: { id: req.params.planId }, include: { participants: true, owner: { select: { trustTier: true } } } });
-  if (!plan || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') return res.status(404).json({ error: 'not_found' });
-  if (plan.ownerId === req.user!.id) return res.status(409).json({ error: 'owner_cannot_join', message: 'You already own this plan.' });
-  if (await usersHaveBlockBetween(req.user!.id, plan.ownerId)) return res.status(403).json({ error: 'blocked_user', message: 'You cannot request to join this plan.' });
-  const existing = (plan.participants ?? []).find((participant: any) => participant.userId === req.user!.id);
-  if (existing?.status === 'accepted') return res.status(409).json({ error: 'already_joined', message: 'You already joined this plan.' });
-  if (existing?.status === 'removed') return res.status(403).json({ error: 'participant_removed', message: 'The owner removed you from this plan.' });
-
-  const participant = await prisma.planParticipant.upsert({
-    where: { planId_userId: { planId: plan.id, userId: req.user!.id } },
-    update: { message: input.message?.trim() || null, status: 'accepted' as any, decidedAt: new Date(), decidedById: plan.ownerId },
-    create: { planId: plan.id, userId: req.user!.id, message: input.message?.trim() || null, status: 'accepted' as any, decidedAt: new Date(), decidedById: plan.ownerId },
-    include: { user: { select: userSummarySelect } },
-  });
-  await syncPlanCapacityStatus(plan.id);
+  const participant = await joinPlanFreely(req.params.planId, req.user!.id, input.message);
   res.status(201).json({ participant });
 }));
 
@@ -302,16 +453,27 @@ plansRoutes.patch('/:planId/join-requests/:participantId', requireAuth, requireA
   res.json({ participant: updated });
 }));
 
+plansRoutes.post('/:planId/leave', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const participant = await leaveJoinedPlan(req.params.planId, req.user!.id);
+  res.json({ participant });
+}));
+
 plansRoutes.patch('/:planId/my-join-request', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const planId = req.params.planId;
   if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
   const input = updateMyPlanParticipantRequestSchema.parse(req.body ?? {});
+  if (input.status === 'left') {
+    const participant = await leaveJoinedPlan(planId, req.user!.id);
+    return res.json({ participant });
+  }
   const participant = await prisma.planParticipant.findUnique({ where: { planId_userId: { planId, userId: req.user!.id } } });
   if (!participant) return res.status(404).json({ error: 'not_found' });
   if (input.status === 'cancelled' && participant.status !== 'pending') return res.status(409).json({ error: 'cannot_cancel_join_request', message: 'Only pending join requests can be cancelled.' });
-  if (input.status === 'left' && participant.status !== 'accepted') return res.status(409).json({ error: 'cannot_leave_plan', message: 'Only accepted participants can leave a plan.' });
-  const updated = await prisma.planParticipant.update({ where: { id: participant.id }, data: { status: input.status as any }, include: { user: { select: userSummarySelect } } });
-  if (input.status === 'left') await syncPlanCapacityStatus(planId);
+  const updated = await prisma.planParticipant.update({
+    where: { id: participant.id },
+    data: { status: input.status as any, decidedAt: new Date(), decidedById: req.user!.id },
+    include: { user: { select: userSummarySelect } },
+  });
   res.json({ participant: updated });
 }));
 

@@ -1,10 +1,10 @@
-export type RootTabKey = 'trades' | 'needs' | 'offers' | 'account';
+export type RootTabKey = 'trades' | 'needs' | 'offers' | 'account' | 'plans' | 'me' | 'trade';
 
 export type WebTab = {
   key: RootTabKey;
   labelKey: string;
   href: string;
-  icon: 'trade' | 'need' | 'offer' | 'profile';
+  icon: 'calendar' | 'trade' | 'need' | 'offer' | 'profile';
   match: (pathname: string) => boolean;
 };
 
@@ -38,6 +38,35 @@ export const webTabs: WebTab[] = [
     match: (pathname) => pathname.startsWith('/account') || pathname.startsWith('/legal'),
   },
 ];
+
+
+export const plansMeTradeWebTabs: WebTab[] = [
+  {
+    key: 'plans',
+    labelKey: 'navigation.tabs.plans',
+    href: '/plans',
+    icon: 'calendar',
+    match: (pathname) => pathname.startsWith('/plans'),
+  },
+  {
+    key: 'me',
+    labelKey: 'navigation.tabs.me',
+    href: '/account',
+    icon: 'profile',
+    match: (pathname) => pathname.startsWith('/account') || pathname.startsWith('/legal'),
+  },
+  {
+    key: 'trade',
+    labelKey: 'navigation.tabs.trade',
+    href: '/trades',
+    icon: 'trade',
+    match: (pathname) => pathname === '/' || pathname.startsWith('/trades') || pathname.startsWith('/users') || pathname.startsWith('/needs') || pathname.startsWith('/offers'),
+  },
+];
+
+export function getWebTabs(usePlansMeTradeNav = false) {
+  return usePlansMeTradeNav ? plansMeTradeWebTabs : webTabs;
+}
 
 export const utilityRoutePrefixes = ['/auth', '/admin', '/reset-password', '/credits', '/onboarding-guide'];
 
@@ -79,6 +108,10 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; titleKey: strin
   { match: (pathname) => pathname === '/legal/refund-dispute', titleKey: 'navigation.routes.refundDispute', backHref: '/legal' },
 ];
 
-export function getRouteHeader(pathname: string) {
-  return routeTitles.find((route) => route.match(pathname)) ?? { titleKey: 'navigation.routes.hellowhen', root: true };
+export function getRouteHeader(pathname: string, options?: { plansMeTradeNav?: boolean }) {
+  const route = routeTitles.find((candidate) => candidate.match(pathname)) ?? { titleKey: 'navigation.routes.hellowhen', root: true };
+  if (!options?.plansMeTradeNav) return route;
+  if (pathname === '/account') return { ...route, titleKey: 'navigation.routes.me' };
+  if (pathname === '/trades') return { ...route, titleKey: 'navigation.routes.trade' };
+  return route;
 }

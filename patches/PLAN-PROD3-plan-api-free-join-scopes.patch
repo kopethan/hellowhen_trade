@@ -1,0 +1,273 @@
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+index dc61b95..2329121 100644
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -239,6 +239,71 @@ async function placeUpdateData(ownerId: string, input: ReturnType<typeof updateP
+   };
+ }
+ 
++async function joinPlanFreely(planId: string, userId: string, message?: string | null) {
++  const plan = await prisma.plan.findUnique({
++    where: { id: planId },
++    include: { participants: true, owner: { select: { trustTier: true } } },
++  });
++  if (!plan || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') {
++    throw createPlanRequestError('not_found', 'Plan not found.', 404);
++  }
++  if (plan.ownerId === userId) {
++    throw createPlanRequestError('owner_cannot_join', 'You already own this plan.', 409);
++  }
++  if (await usersHaveBlockBetween(userId, plan.ownerId)) {
++    throw createPlanRequestError('blocked_user', 'You cannot join this plan.', 403);
++  }
++
++  const existing = (plan.participants ?? []).find((participant: any) => participant.userId === userId);
++  if (existing?.status === 'accepted') {
++    throw createPlanRequestError('already_joined', 'You already joined this plan.', 409);
++  }
++  if (existing?.status === 'removed') {
++    throw createPlanRequestError('participant_removed', 'The owner removed you from this plan.', 403);
++  }
++
++  const acceptedCount = (plan.participants ?? []).filter((participant: any) => participant.status === 'accepted').length;
++  if (plan.maxParticipants && acceptedCount >= plan.maxParticipants && existing?.status !== 'accepted') {
++    throw createPlanRequestError('plan_full', 'This plan is full.', 409);
++  }
++
++  const participant = await prisma.planParticipant.upsert({
++    where: { planId_userId: { planId: plan.id, userId } },
++    update: {
++      message: message?.trim() || null,
++      status: 'accepted' as any,
++      decidedAt: new Date(),
++      decidedById: plan.ownerId,
++    },
++    create: {
++      planId: plan.id,
++      userId,
++      message: message?.trim() || null,
++      status: 'accepted' as any,
++      decidedAt: new Date(),
++      decidedById: plan.ownerId,
++    },
++    include: { user: { select: userSummarySelect } },
++  });
++  await syncPlanCapacityStatus(plan.id);
++  return participant;
++}
++
++async function leaveJoinedPlan(planId: string, userId: string) {
++  const participant = await prisma.planParticipant.findUnique({ where: { planId_userId: { planId, userId } } });
++  if (!participant) throw createPlanRequestError('not_found', 'You have not joined this plan.', 404);
++  if (participant.status !== 'accepted') {
++    throw createPlanRequestError('cannot_leave_plan', 'Only joined participants can leave a plan.', 409);
++  }
++  const updated = await prisma.planParticipant.update({
++    where: { id: participant.id },
++    data: { status: 'left' as any, decidedAt: new Date(), decidedById: userId },
++    include: { user: { select: userSummarySelect } },
++  });
++  await syncPlanCapacityStatus(planId);
++  return updated;
++}
++
+ plansRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
+   const input = listPlansQuerySchema.parse(req.query ?? {});
+   const blockedOwnerIds = await blockedUserIdsForViewer(req.user?.id);
+@@ -269,6 +334,22 @@ plansRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
+   res.json({ plans: await decoratePlans(plans, req.user!.id) });
+ }));
+ 
++plansRoutes.get('/joined', requireAuth, asyncRoute(async (req, res) => {
++  const blockedOwnerIds = await blockedUserIdsForViewer(req.user!.id);
++  const plans = await prisma.plan.findMany({
++    where: {
++      participants: { some: { userId: req.user!.id, status: 'accepted' as any } },
++      status: { in: [...publicPlanStatuses] },
++      owner: { trustTier: { not: 'restricted' } },
++      ...(blockedOwnerIds.length > 0 ? { ownerId: { notIn: blockedOwnerIds } } : {}),
++    },
++    include: planInclude(),
++    orderBy: [{ startsAt: 'asc' }, { createdAt: 'desc' }],
++    take: 100,
++  });
++  res.json({ plans: await decoratePlans(plans, req.user!.id) });
++}));
++
+ plansRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = createPlanRequestSchema.parse(req.body ?? {});
+   const plan = await prisma.plan.create({ data: planCreateData(req.user!.id, input) as any });
+@@ -318,23 +399,15 @@ plansRoutes.patch('/:planId/places/:placeId', requireAuth, requireActiveAccount,
+   res.json({ plan: await decoratePlan(updated, req.user!.id) });
+ }));
+ 
+-plansRoutes.post('/:planId/join-requests', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
++plansRoutes.post('/:planId/join', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = createPlanJoinRequestSchema.parse(req.body ?? {});
+-  const plan = await prisma.plan.findUnique({ where: { id: req.params.planId }, include: { participants: true, owner: { select: { trustTier: true } } } });
+-  if (!plan || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') return res.status(404).json({ error: 'not_found' });
+-  if (plan.ownerId === req.user!.id) return res.status(409).json({ error: 'owner_cannot_join', message: 'You already own this plan.' });
+-  if (await usersHaveBlockBetween(req.user!.id, plan.ownerId)) return res.status(403).json({ error: 'blocked_user', message: 'You cannot request to join this plan.' });
+-  const existing = (plan.participants ?? []).find((participant: any) => participant.userId === req.user!.id);
+-  if (existing?.status === 'accepted') return res.status(409).json({ error: 'already_joined', message: 'You already joined this plan.' });
+-  if (existing?.status === 'removed') return res.status(403).json({ error: 'participant_removed', message: 'The owner removed you from this plan.' });
++  const participant = await joinPlanFreely(req.params.planId, req.user!.id, input.message);
++  res.status(201).json({ participant });
++}));
+ 
+-  const participant = await prisma.planParticipant.upsert({
+-    where: { planId_userId: { planId: plan.id, userId: req.user!.id } },
+-    update: { message: input.message?.trim() || null, status: 'accepted' as any, decidedAt: new Date(), decidedById: plan.ownerId },
+-    create: { planId: plan.id, userId: req.user!.id, message: input.message?.trim() || null, status: 'accepted' as any, decidedAt: new Date(), decidedById: plan.ownerId },
+-    include: { user: { select: userSummarySelect } },
+-  });
+-  await syncPlanCapacityStatus(plan.id);
++plansRoutes.post('/:planId/join-requests', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
++  const input = createPlanJoinRequestSchema.parse(req.body ?? {});
++  const participant = await joinPlanFreely(req.params.planId, req.user!.id, input.message);
+   res.status(201).json({ participant });
+ }));
+ 
+@@ -365,16 +438,27 @@ plansRoutes.patch('/:planId/join-requests/:participantId', requireAuth, requireA
+   res.json({ participant: updated });
+ }));
+ 
++plansRoutes.post('/:planId/leave', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
++  const participant = await leaveJoinedPlan(req.params.planId, req.user!.id);
++  res.json({ participant });
++}));
++
+ plansRoutes.patch('/:planId/my-join-request', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+   const planId = req.params.planId;
+   if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
+   const input = updateMyPlanParticipantRequestSchema.parse(req.body ?? {});
++  if (input.status === 'left') {
++    const participant = await leaveJoinedPlan(planId, req.user!.id);
++    return res.json({ participant });
++  }
+   const participant = await prisma.planParticipant.findUnique({ where: { planId_userId: { planId, userId: req.user!.id } } });
+   if (!participant) return res.status(404).json({ error: 'not_found' });
+   if (input.status === 'cancelled' && participant.status !== 'pending') return res.status(409).json({ error: 'cannot_cancel_join_request', message: 'Only pending join requests can be cancelled.' });
+-  if (input.status === 'left' && participant.status !== 'accepted') return res.status(409).json({ error: 'cannot_leave_plan', message: 'Only accepted participants can leave a plan.' });
+-  const updated = await prisma.planParticipant.update({ where: { id: participant.id }, data: { status: input.status as any }, include: { user: { select: userSummarySelect } } });
+-  if (input.status === 'left') await syncPlanCapacityStatus(planId);
++  const updated = await prisma.planParticipant.update({
++    where: { id: participant.id },
++    data: { status: input.status as any, decidedAt: new Date(), decidedById: req.user!.id },
++    include: { user: { select: userSummarySelect } },
++  });
+   res.json({ participant: updated });
+ }));
+ 
+diff --git a/apps/web/src/features/plans/PlanDetailClient.tsx b/apps/web/src/features/plans/PlanDetailClient.tsx
+index de88d84..9ca405c 100644
+--- a/apps/web/src/features/plans/PlanDetailClient.tsx
++++ b/apps/web/src/features/plans/PlanDetailClient.tsx
+@@ -124,7 +124,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+     if (!auth.isAuthenticated) return;
+     setAction({ loading: true, message: '', error: '' });
+     try {
+-      await api.plans.requestJoin(planId, {});
++      await api.plans.join(planId, {});
+       setAction({ loading: false, message: 'You joined this Plan.', error: '' });
+       await loadPlan();
+     } catch (joinError) {
+@@ -135,7 +135,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+   async function leavePlan() {
+     setAction({ loading: true, message: '', error: '' });
+     try {
+-      await api.plans.updateMyJoinRequest(planId, { status: 'left' });
++      await api.plans.leave(planId);
+       setAction({ loading: false, message: 'You left this Plan.', error: '' });
+       await loadPlan();
+     } catch (statusError) {
+diff --git a/docs/product/hidden-plans-foundation.md b/docs/product/hidden-plans-foundation.md
+index 68d5b68..7f0abfe 100644
+--- a/docs/product/hidden-plans-foundation.md
++++ b/docs/product/hidden-plans-foundation.md
+@@ -77,15 +77,32 @@ It also exposes the hidden Plans API:
+ 
+ - `GET /plans/feed`
+ - `GET /plans/mine`
++- `GET /plans/joined`
+ - `GET /plans/:planId`
+ - `POST /plans`
+ - `PATCH /plans/:planId`
+ - `POST /plans/:planId/places`
+ - `PATCH /plans/:planId/places/:placeId`
+-- `POST /plans/:planId/join-requests`
+-- `GET /plans/:planId/join-requests`
+-- `PATCH /plans/:planId/join-requests/:participantId`
+-- `PATCH /plans/:planId/my-join-request`
++- `POST /plans/:planId/join`
++- `POST /plans/:planId/leave`
++- `POST /plans/:planId/join-requests` — compatibility alias for free join
++- `GET /plans/:planId/join-requests` — owner/admin review surface kept hidden for now
++- `PATCH /plans/:planId/join-requests/:participantId` — compatibility/admin-only owner action
++- `PATCH /plans/:planId/my-join-request` — compatibility alias for cancel/leave
++
++
++## PLAN-PROD3 API cleanup
++
++The first public Plan version uses free join language. Keep owner-approval internals hidden until explicitly revived later.
++
++Preferred v1 endpoints:
++
++- `GET /plans/mine` — plans created by the current user
++- `GET /plans/joined` — open/full/started plans the current user has freely joined
++- `POST /plans/:planId/join` — free join; immediately creates or restores an accepted participant row
++- `POST /plans/:planId/leave` — leave a joined plan
++
++Compatibility routes remain available for older hidden clients, but new UI should prefer the clearer join/leave methods.
+ 
+ ## Hidden API smoke test
+ 
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 38483f3..34df466 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -74,7 +74,7 @@ export function createApiClient(options: ApiClientOptions) {
+     saved: { list: (query?: ListSavedItemsQuery) => requestJson<SavedItemsResponse>(options, `/saved${buildQueryString(query as Record<string, unknown> | undefined)}`), create: (body: CreateSavedItemRequest) => requestJson<SavedItemResponse>(options, '/saved', { method: 'POST', body: JSON.stringify(body) }), remove: (savedItemId: string) => requestJson<void>(options, `/saved/${savedItemId}`, { method: 'DELETE' }), status: (query: SavedItemStatusQuery) => requestJson<SavedItemStatusResponse>(options, `/saved/status${buildQueryString(query as Record<string, unknown>)}`), collections: () => requestJson<SavedCollectionsResponse>(options, '/saved/collections'), createCollection: (body: CreateSavedCollectionRequest) => requestJson<SavedCollectionResponse>(options, '/saved/collections', { method: 'POST', body: JSON.stringify(body) }), updateCollection: (collectionId: string, body: UpdateSavedCollectionRequest) => requestJson<SavedCollectionResponse>(options, `/saved/collections/${collectionId}`, { method: 'PATCH', body: JSON.stringify(body) }), removeCollection: (collectionId: string) => requestJson<void>(options, `/saved/collections/${collectionId}`, { method: 'DELETE' }), addCollectionItem: (collectionId: string, body: AddSavedCollectionItemRequest) => requestJson<SavedCollectionItemResponse>(options, `/saved/collections/${collectionId}/items`, { method: 'POST', body: JSON.stringify(body) }), removeCollectionItem: (collectionId: string, savedItemId: string) => requestJson<void>(options, `/saved/collections/${collectionId}/items/${savedItemId}`, { method: 'DELETE' }) },
+     agenda: { list: (query?: ListAgendaItemsQuery) => requestJson<AgendaItemsResponse>(options, `/agenda${buildQueryString(query as Record<string, unknown> | undefined)}`), exportIcs: (query?: AgendaIcsExportQuery) => requestText(options, `/agenda/ics${buildQueryString(query as Record<string, unknown> | undefined)}`), exportItemIcs: (itemId: string) => requestText(options, `/agenda/${itemId}/ics`), create: (body: CreateAgendaItemRequest) => requestJson<AgendaItemResponse>(options, '/agenda', { method: 'POST', body: JSON.stringify(body) }), update: (itemId: string, body: UpdateAgendaItemRequest) => requestJson<AgendaItemResponse>(options, `/agenda/${itemId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (itemId: string) => requestJson<void>(options, `/agenda/${itemId}`, { method: 'DELETE' }) },
+     users: { publicProfile: (userId: string) => requestJson<PublicProfileResponse>(options, `/users/${userId}/public-profile`), publicProfileByUsername: (username: string) => requestJson<PublicProfileResponse>(options, `/users/by-username/${encodeURIComponent(username)}/public-profile`), blocked: () => requestJson<UserBlocksResponse>(options, '/users/blocked'), block: (userId: string, body?: CreateUserBlockRequest) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'POST', body: JSON.stringify(body ?? {}) }), unblock: (userId: string) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'DELETE' }) },
+-    plans: { feed: (query?: ListPlansQuery) => requestJson<PlansResponse>(options, `/plans/feed${buildQueryString(query as Record<string, unknown> | undefined)}`), mine: () => requestJson<PlansResponse>(options, '/plans/mine'), get: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`), create: (body: CreatePlanRequest) => requestJson<PlanResponse>(options, '/plans', { method: 'POST', body: JSON.stringify(body) }), update: (planId: string, body: UpdatePlanRequest) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'PATCH', body: JSON.stringify(body) }), createPlace: (planId: string, body: CreatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places`, { method: 'POST', body: JSON.stringify(body) }), updatePlace: (planId: string, placeId: string, body: UpdatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places/${placeId}`, { method: 'PATCH', body: JSON.stringify(body) }), requestJoin: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests`, { method: 'POST', body: JSON.stringify(body ?? {}) }), joinRequests: (planId: string) => requestJson<PlanParticipantsResponse>(options, `/plans/${planId}/join-requests`), updateJoinRequest: (planId: string, participantId: string, body: UpdatePlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests/${participantId}`, { method: 'PATCH', body: JSON.stringify(body) }), updateMyJoinRequest: (planId: string, body: UpdateMyPlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/my-join-request`, { method: 'PATCH', body: JSON.stringify(body) }) },
++    plans: { feed: (query?: ListPlansQuery) => requestJson<PlansResponse>(options, `/plans/feed${buildQueryString(query as Record<string, unknown> | undefined)}`), mine: () => requestJson<PlansResponse>(options, '/plans/mine'), joined: () => requestJson<PlansResponse>(options, '/plans/joined'), get: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`), create: (body: CreatePlanRequest) => requestJson<PlanResponse>(options, '/plans', { method: 'POST', body: JSON.stringify(body) }), update: (planId: string, body: UpdatePlanRequest) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'PATCH', body: JSON.stringify(body) }), createPlace: (planId: string, body: CreatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places`, { method: 'POST', body: JSON.stringify(body) }), updatePlace: (planId: string, placeId: string, body: UpdatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places/${placeId}`, { method: 'PATCH', body: JSON.stringify(body) }), join: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join`, { method: 'POST', body: JSON.stringify(body ?? {}) }), leave: (planId: string) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/leave`, { method: 'POST' }), requestJoin: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests`, { method: 'POST', body: JSON.stringify(body ?? {}) }), joinRequests: (planId: string) => requestJson<PlanParticipantsResponse>(options, `/plans/${planId}/join-requests`), updateJoinRequest: (planId: string, participantId: string, body: UpdatePlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests/${participantId}`, { method: 'PATCH', body: JSON.stringify(body) }), updateMyJoinRequest: (planId: string, body: UpdateMyPlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/my-join-request`, { method: 'PATCH', body: JSON.stringify(body) }) },
+     reports: { create: (body: CreateReportRequest) => requestJson(options, '/reports', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/reports/mine') },
+     usage: { heartbeat: (body: UsageHeartbeatRequest) => requestJson<void>(options, '/usage/heartbeat', { method: 'POST', body: JSON.stringify(body) }) },
+ 
+diff --git a/scripts/plans-hidden-smoke.mjs b/scripts/plans-hidden-smoke.mjs
+index 8ec2637..93e4e5d 100644
+--- a/scripts/plans-hidden-smoke.mjs
++++ b/scripts/plans-hidden-smoke.mjs
+@@ -105,7 +105,7 @@ async function runEnabledSmoke() {
+   const publicPlan = await request(`/plans/${planId}`);
+   assert(publicPlan.plan?.places?.[0]?.addressPublicText === 'Paris area only', 'Anonymous viewer should see the simplified public place address.');
+ 
+-  const join = await request(`/plans/${planId}/join-requests`, {
++  const join = await request(`/plans/${planId}/join`, {
+     method: 'POST',
+     headers: authHeaders(helper.token),
+     body: JSON.stringify({}),
+@@ -116,6 +116,9 @@ async function runEnabledSmoke() {
+   assert(helperAfter.plan?.myParticipantStatus === 'accepted', 'Helper should be accepted immediately after joining.');
+   assert(helperAfter.plan?.participantCount === 1, 'Participant count should increase after instant join.');
+ 
++  const joinedPlans = await request('/plans/joined', { headers: authHeaders(helper.token) });
++  assert(joinedPlans.plans?.some((plan) => plan.id === planId), 'Joined plans should include the plan after free join.');
++
+   await request(`/plans/${planId}`, {
+     method: 'PATCH',
+     headers: authHeaders(owner.token),
+@@ -149,10 +152,9 @@ async function runEnabledSmoke() {
+   assert(helperAfterEdit.plan?.places?.some((place) => place.addressPublicText === 'Edited smoke-test meeting area'), 'Edited place address should be visible.');
+   assert(helperAfterEdit.plan?.places?.some((place) => place.title === 'Remote smoke stop' && place.mode === 'remote'), 'Owner should be able to add another remote place.');
+ 
+-  await request(`/plans/${planId}/my-join-request`, {
+-    method: 'PATCH',
++  await request(`/plans/${planId}/leave`, {
++    method: 'POST',
+     headers: authHeaders(helper.token),
+-    body: JSON.stringify({ status: 'left' }),
+   });
+ 
+   const ownerAfterLeave = await request(`/plans/${planId}`, { headers: authHeaders(owner.token) });

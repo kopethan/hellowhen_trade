@@ -48,6 +48,13 @@ export function AccountHubClient() {
   const [membershipPreviewLoaded, setMembershipPreviewLoaded] = useState(false);
   const [membershipPreviewError, setMembershipPreviewError] = useState(false);
 
+  const planWorkspaceItems = useMemo<AccountHubItem[]>(() => betaFeatures.plansVisible ? [
+    { href: '/plans', titleKey: 'account.items.plansFeature.title', bodyKey: 'account.items.plansFeature.body', icon: 'calendar', featured: true, badgeKey: 'account.items.plansFeature.badge', actionKey: 'account.items.plansFeature.action' },
+    { href: '/plans?view=mine', titleKey: 'account.items.myPlansFeature.title', bodyKey: 'account.items.myPlansFeature.body', icon: 'activity' },
+    { href: '/plans?view=joined', titleKey: 'account.items.joinedPlansFeature.title', bodyKey: 'account.items.joinedPlansFeature.body', icon: 'proposal-accepted' },
+    { href: '/plans/new', titleKey: 'account.items.createPlanFeature.title', bodyKey: 'account.items.createPlanFeature.body', icon: 'add' },
+  ] : [], []);
+
   const accountItems = useMemo<AccountHubItem[]>(() => [
     { href: '/account/profile', titleKey: 'account.items.profile.title', bodyKey: 'account.items.profile.body', icon: 'profile' },
     ...(betaFeatures.savedLibraryEnabled ? [{ href: '/account/saved', titleKey: 'account.items.saved.title', bodyKey: 'account.items.saved.body', icon: 'save' as WebIconName }] : []),
@@ -198,6 +205,36 @@ export function AccountHubClient() {
             <span>{t('account.availableEarnings')}</span>
             <strong>{formatMoney(wallet?.pendingPayoutCents ?? summary?.availableForPayoutCents ?? 0, currency)}</strong>
             <small>{t('account.payoutFee', { rate: formatPayoutFeeRate(platformFeeRateBps) })}</small>
+          </div>
+        </section>
+      ) : null}
+
+      {planWorkspaceItems.length > 0 ? (
+        <section className="account-hub-section" aria-label={t('account.sections.plans')}>
+          <div className="account-hub-section__header">
+            <span className="semantic-badge instruction">{t('account.items.plansFeature.badge')}</span>
+            <h3>{t('account.sections.plans')}</h3>
+          </div>
+          <div className="mobile-list">
+            {planWorkspaceItems.map((item) => {
+              const href = auth.hydrated && !auth.isAuthenticated && !item.publicAccess ? `/auth?next=${encodeURIComponent(item.href)}` : item.href;
+              const className = item.featured ? 'mobile-link-card mobile-link-card--featured' : 'mobile-link-card';
+              return (
+                <Link key={item.href} href={href} className={className}>
+                  {item.icon ? <WebIcon name={item.icon} size={item.featured ? 24 : 22} decorative className="mobile-link-card__icon" /> : null}
+                  <span className="mobile-link-card__body">
+                    <span className="mobile-link-card__title-row">
+                      <strong>{t(item.titleKey)}</strong>
+                      {item.badgeKey ? <span className="semantic-badge instruction">{t(item.badgeKey)}</span> : null}
+                    </span>
+                    <br />
+                    {t(item.bodyKey)}
+                  </span>
+                  {item.actionKey ? <span className="mobile-link-card__action-label">{t(item.actionKey)}</span> : null}
+                  <WebIcon name="arrow-right" size={17} decorative className="mobile-link-card__arrow" />
+                </Link>
+              );
+            })}
           </div>
         </section>
       ) : null}

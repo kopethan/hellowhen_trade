@@ -70,6 +70,8 @@ const proTradePackageFeatures = {
 const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE);
 const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED);
 const plansEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_PLANS_ENABLED);
+const plansVisible = plansEnabled && enabled(process.env.NEXT_PUBLIC_PLANS_VISIBLE);
+const mainNavPlansMeTrade = plansVisible && enabled(process.env.NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE);
 
 export const betaFeatures = {
   moneyProvider: forceFirstLaunchSafeFlags ? 'none' : rawMoneyProvider,
@@ -99,7 +101,8 @@ export const betaFeatures = {
   webAdsEnabled,
   adsDebugPlaceholders,
   plansEnabled,
-  plansVisible: plansEnabled && enabled(process.env.NEXT_PUBLIC_PLANS_VISIBLE),
+  plansVisible,
+  mainNavPlansMeTrade,
   aiFeatures,
 } as const;
 

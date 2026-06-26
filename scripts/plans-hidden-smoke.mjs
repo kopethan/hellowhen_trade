@@ -105,7 +105,7 @@ async function runEnabledSmoke() {
   const publicPlan = await request(`/plans/${planId}`);
   assert(publicPlan.plan?.places?.[0]?.addressPublicText === 'Paris area only', 'Anonymous viewer should see the simplified public place address.');
 
-  const join = await request(`/plans/${planId}/join-requests`, {
+  const join = await request(`/plans/${planId}/join`, {
     method: 'POST',
     headers: authHeaders(helper.token),
     body: JSON.stringify({}),
@@ -115,6 +115,9 @@ async function runEnabledSmoke() {
   const helperAfter = await request(`/plans/${planId}`, { headers: authHeaders(helper.token) });
   assert(helperAfter.plan?.myParticipantStatus === 'accepted', 'Helper should be accepted immediately after joining.');
   assert(helperAfter.plan?.participantCount === 1, 'Participant count should increase after instant join.');
+
+  const joinedPlans = await request('/plans/joined', { headers: authHeaders(helper.token) });
+  assert(joinedPlans.plans?.some((plan) => plan.id === planId), 'Joined plans should include the plan after free join.');
 
   await request(`/plans/${planId}`, {
     method: 'PATCH',
@@ -149,10 +152,9 @@ async function runEnabledSmoke() {
   assert(helperAfterEdit.plan?.places?.some((place) => place.addressPublicText === 'Edited smoke-test meeting area'), 'Edited place address should be visible.');
   assert(helperAfterEdit.plan?.places?.some((place) => place.title === 'Remote smoke stop' && place.mode === 'remote'), 'Owner should be able to add another remote place.');
 
-  await request(`/plans/${planId}/my-join-request`, {
-    method: 'PATCH',
+  await request(`/plans/${planId}/leave`, {
+    method: 'POST',
     headers: authHeaders(helper.token),
-    body: JSON.stringify({ status: 'left' }),
   });
 
   const ownerAfterLeave = await request(`/plans/${planId}`, { headers: authHeaders(owner.token) });

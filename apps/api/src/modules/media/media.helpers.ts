@@ -28,6 +28,7 @@ export type AttachMediaOptions = {
   coverMediaId?: string | null;
   enableOrderAndCover?: boolean;
   syncSelection?: boolean;
+  maxImages?: number;
 };
 
 export async function attachUploadedMediaToEntity(
@@ -40,8 +41,9 @@ export async function attachUploadedMediaToEntity(
   if (mediaIds === undefined) return;
 
   const ids = Array.from(new Set(mediaIds));
-  if (ids.length > 5) {
-    throw createMediaRequestError('too_many_images', 'You can attach up to 5 images. Remove one image before adding another.');
+  const maxImages = options.maxImages ?? 5;
+  if (ids.length > maxImages) {
+    throw createMediaRequestError('too_many_images', `You can attach up to ${maxImages} images. Remove one image before adding another.`);
   }
 
   const [selectedMedia, existingEntityMedia] = await Promise.all([
@@ -62,8 +64,8 @@ export async function attachUploadedMediaToEntity(
 
   const existingIds = new Set(existingEntityMedia.map((item) => item.id));
   const newIds = ids.filter((id) => !existingIds.has(id));
-  if (existingEntityMedia.length + newIds.length > 5) {
-    throw createMediaRequestError('too_many_images', 'You can attach up to 5 images. Remove one image before adding another.');
+  if (existingEntityMedia.length + newIds.length > maxImages) {
+    throw createMediaRequestError('too_many_images', `You can attach up to ${maxImages} images. Remove one image before adding another.`);
   }
 
   if (options.syncSelection) {

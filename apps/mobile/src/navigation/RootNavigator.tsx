@@ -45,6 +45,7 @@ import { TradePublicDiscussionScreen } from '../features/trade/TradePublicDiscus
 import { TradeDeckFeedScreen } from '../features/trade/TradeDeckFeedScreen';
 import { TradeDetailScreen } from '../features/trade/TradeDetailScreen';
 import { TradeIdeaDetailScreen } from '../features/trade/TradeIdeaDetailScreen';
+import { CreatePlaceScreen, CreatePlanScreen, JoinedPlansScreen, MyPlacesScreen, MyPlansScreen, PlaceLibraryScreen, PlanDetailScreen, PlansScreen } from '../features/plans/PlansScreens';
 import { WalletScreen } from '../features/wallet/WalletScreen';
 import { PayoutsScreen } from '../features/wallet/PayoutsScreen';
 import { useAuth } from '../providers/AuthProvider';
@@ -67,6 +68,14 @@ export type RootStackParamList = {
   Notifications: undefined;
   SavedLibrary: undefined;
   Agenda: undefined;
+  Plans: undefined;
+  PlanDetail: { planId: string; title?: string };
+  MyPlans: undefined;
+  JoinedPlans: undefined;
+  MyPlaces: undefined;
+  PlaceLibrary: undefined;
+  CreatePlan: undefined;
+  CreatePlace: undefined;
   SavedLibraryCollection: { collectionId: string; title?: string };
   Membership: undefined;
   ProPlans: undefined;
@@ -101,7 +110,7 @@ export type RootStackParamList = {
   Login: undefined;
 };
 
-type MainTabParamList = { Trades: undefined; Needs: undefined; Offers: undefined; Account: undefined };
+type MainTabParamList = { Trades: undefined; Needs: undefined; Offers: undefined; Account: undefined; PlanTab: undefined; MeTab: undefined; TradeTab: undefined };
 
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -149,6 +158,14 @@ const ProtectedProfileScreen = withAuth(ProfileScreen);
 const ProtectedNotificationsScreen = withAuth(NotificationsScreen);
 const ProtectedSavedLibraryScreen = withAuth(SavedLibraryScreen);
 const ProtectedAgendaScreen = withAuth(AgendaScreen);
+const ProtectedPlansScreen = withAuth(PlansScreen, 'Login to open Plans', 'Plans are joinable place-based activities, so you need an account before joining or creating them.');
+const ProtectedPlanDetailScreen = withAuth(PlanDetailScreen);
+const ProtectedMyPlansScreen = withAuth(MyPlansScreen);
+const ProtectedJoinedPlansScreen = withAuth(JoinedPlansScreen);
+const ProtectedMyPlacesScreen = withAuth(MyPlacesScreen);
+const ProtectedPlaceLibraryScreen = withAuth(PlaceLibraryScreen);
+const ProtectedCreatePlanScreen = withAuth(CreatePlanScreen, 'Login to create a plan', 'Create Plans after signing in so they stay attached to your account.');
+const ProtectedCreatePlaceScreen = withAuth(CreatePlaceScreen, 'Login to create a place', 'Create reusable Places after signing in so they stay attached to your account.');
 const ProtectedSavedCollectionDetailScreen = withAuth(SavedCollectionDetailScreen);
 const ProtectedMembershipScreen = withAuth(MembershipScreen);
 const ProtectedPlanSelectionScreen = withAuth(PlanSelectionScreen);
@@ -177,9 +194,10 @@ const ProtectedTradePublicDiscussionScreen = withAuth(TradePublicDiscussionScree
 const ProtectedTradePrivateProposalsScreen = withAuth(TradePrivateProposalsScreen, 'Login to view private proposals', 'Private proposal conversations are visible only to the trade owner and each applicant.');
 
 function getTabIconName(routeName: keyof MainTabParamList): MobileIconName {
-  if (routeName === 'Trades') return 'trade';
+  if (routeName === 'Trades' || routeName === 'TradeTab') return 'trade';
   if (routeName === 'Needs') return 'need';
   if (routeName === 'Offers') return 'offer';
+  if (routeName === 'PlanTab') return 'calendar';
   return 'profile';
 }
 
@@ -190,6 +208,7 @@ function TradeTabs() {
   const bottomInset = Math.max(insets.bottom, 0);
   const { t } = useTranslation();
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
+  const usePlansMeTradeNav = betaFeatures.mainNavPlansMeTrade;
 
   const loadNotificationUnreadCount = useCallback(async () => {
     if (!auth.isAuthenticated) { setNotificationUnreadCount(0); return; }
@@ -219,10 +238,20 @@ function TradeTabs() {
         tabBarInactiveTintColor: theme.color.muted,
       })}
     >
-      <Tabs.Screen name="Trades" component={TradeDeckFeedScreen} options={{ tabBarLabel: t('navigation.tabs.trades') }} />
-      <Tabs.Screen name="Needs" component={ProtectedMyNeedsScreen} options={{ tabBarLabel: t('navigation.tabs.needs') }} />
-      <Tabs.Screen name="Offers" component={ProtectedMyOffersScreen} options={{ tabBarLabel: t('navigation.tabs.offers') }} />
-      <Tabs.Screen name="Account" component={ProtectedAccountScreen} options={{ tabBarLabel: t('navigation.tabs.account'), tabBarBadge: notificationUnreadCount > 0 ? Math.min(notificationUnreadCount, 99) : undefined }} />
+      {usePlansMeTradeNav ? (
+        <>
+          <Tabs.Screen name="PlanTab" component={ProtectedPlansScreen} options={{ tabBarLabel: t('navigation.tabs.plans') }} />
+          <Tabs.Screen name="MeTab" component={ProtectedAccountScreen} options={{ tabBarLabel: t('navigation.tabs.me'), tabBarBadge: notificationUnreadCount > 0 ? Math.min(notificationUnreadCount, 99) : undefined }} />
+          <Tabs.Screen name="TradeTab" component={TradeDeckFeedScreen} options={{ tabBarLabel: t('navigation.tabs.trade') }} />
+        </>
+      ) : (
+        <>
+          <Tabs.Screen name="Trades" component={TradeDeckFeedScreen} options={{ tabBarLabel: t('navigation.tabs.trades') }} />
+          <Tabs.Screen name="Needs" component={ProtectedMyNeedsScreen} options={{ tabBarLabel: t('navigation.tabs.needs') }} />
+          <Tabs.Screen name="Offers" component={ProtectedMyOffersScreen} options={{ tabBarLabel: t('navigation.tabs.offers') }} />
+          <Tabs.Screen name="Account" component={ProtectedAccountScreen} options={{ tabBarLabel: t('navigation.tabs.account'), tabBarBadge: notificationUnreadCount > 0 ? Math.min(notificationUnreadCount, 99) : undefined }} />
+        </>
+      )}
     </Tabs.Navigator>
   );
 }
@@ -249,6 +278,14 @@ export function RootNavigator() {
       <Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />
       <Stack.Screen name="SavedLibrary" component={ProtectedSavedLibraryScreen} />
       <Stack.Screen name="Agenda" component={ProtectedAgendaScreen} />
+      {betaFeatures.plansEnabled ? <Stack.Screen name="Plans" component={ProtectedPlansScreen} /> : null}
+      {betaFeatures.plansEnabled ? <Stack.Screen name="PlanDetail" component={ProtectedPlanDetailScreen} /> : null}
+      {betaFeatures.plansEnabled ? <Stack.Screen name="MyPlans" component={ProtectedMyPlansScreen} /> : null}
+      {betaFeatures.plansEnabled ? <Stack.Screen name="JoinedPlans" component={ProtectedJoinedPlansScreen} /> : null}
+      {betaFeatures.plansEnabled ? <Stack.Screen name="MyPlaces" component={ProtectedMyPlacesScreen} /> : null}
+      {betaFeatures.plansEnabled ? <Stack.Screen name="PlaceLibrary" component={ProtectedPlaceLibraryScreen} /> : null}
+      {betaFeatures.plansEnabled ? <Stack.Screen name="CreatePlan" component={ProtectedCreatePlanScreen} /> : null}
+      {betaFeatures.plansEnabled ? <Stack.Screen name="CreatePlace" component={ProtectedCreatePlaceScreen} /> : null}
       <Stack.Screen name="SavedLibraryCollection" component={ProtectedSavedCollectionDetailScreen} />
       {betaFeatures.mobileMembershipVisible ? <Stack.Screen name="Membership" component={ProtectedMembershipScreen} /> : null}
       {betaFeatures.plusSubscriptionFeatures.plusPublic ? <Stack.Screen name="ProPlans" component={ProtectedPlanSelectionScreen} /> : null}

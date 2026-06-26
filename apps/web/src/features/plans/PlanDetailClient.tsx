@@ -9,8 +9,7 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
-import { PlanDtoPreviewDeck } from './PlanPreviewDeck';
-import { planDateTime, planMediaSrc, planMetadata, planOwnerName, planParticipantStatusLabel, planPlaceModeLabel } from './plansPresentation';
+import { planDateTime, planMediaSrc, planMetadata, planOwnerName, planParticipantStatusLabel, planPlaceModeLabel, planStatusLabel } from './plansPresentation';
 
 type ActionState = {
   loading: boolean;
@@ -18,17 +17,22 @@ type ActionState = {
   error: string;
 };
 
+function participantName(participant: PlanParticipantDto) {
+  return participant.user?.profile?.displayName || participant.user?.profile?.handle || 'Hellowhen user';
+}
+
 function ParticipantRow({ participant, ownerControls, onRemove }: { participant: PlanParticipantDto; ownerControls: boolean; onRemove: (participantId: string) => void }) {
-  const name = participant.user?.profile?.displayName || participant.user?.profile?.handle || 'Hellowhen user';
+  const name = participantName(participant);
   return (
-    <article className="plan-participant-row">
-      <div>
+    <article className="plan-participant-row plan-participant-row--polished">
+      <div className="plan-participant-row__avatar" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</div>
+      <div className="plan-participant-row__body">
         <strong>{name}</strong>
         <p className="meta">{planParticipantStatusLabel(participant.status)}</p>
         {participant.message ? <p>{participant.message}</p> : null}
       </div>
       {ownerControls && participant.status === 'accepted' ? (
-        <button type="button" className="button secondary" onClick={() => onRemove(participant.id)}>Remove</button>
+        <button type="button" className="button secondary compact" onClick={() => onRemove(participant.id)}>Remove</button>
       ) : null}
     </article>
   );
@@ -36,28 +40,38 @@ function ParticipantRow({ participant, ownerControls, onRemove }: { participant:
 
 function PlanPlaceImage({ media }: { media?: MediaAssetDto | null }) {
   const imageSrc = planMediaSrc(media);
-  if (!imageSrc) return <WebIcon name="trade" size={30} decorative />;
+  if (!imageSrc) return <WebIcon name="calendar" size={30} decorative />;
   return <img src={imageSrc} alt="" loading="lazy" />;
 }
 
 function PlanPlaceCard({ place, index, planStartsAt, showReport }: { place: PlanPlaceDto; index: number; planStartsAt: string; showReport: boolean }) {
   const media = place.media?.[0] ?? null;
+  const placeTime = planDateTime(place.startsAt ?? planStartsAt);
+  const addressLabel = place.mode === 'remote' ? (place.onlineLabel || 'Online') : 'Meeting point';
+  const visibleLocation = place.mode === 'remote' ? (place.onlineUrl || place.addressPublicText) : place.addressPublicText;
+
   return (
-    <article className="plan-place-card plan-place-card--detail">
-      <div className="plan-place-card__media" aria-hidden="true">
-        <PlanPlaceImage media={media} />
+    <article className="plan-place-timeline-row">
+      <div className="plan-place-timeline-row__rail" aria-hidden="true">
+        <span>{index + 1}</span>
       </div>
-      <div className="plan-place-card__body">
-        <div className="status-row">
-          <span className="semantic-badge instruction">Place {index + 1}</span>
-          <span className="semantic-badge neutral">{planPlaceModeLabel(place.mode)}</span>
+      <div className="plan-place-card plan-place-card--detail plan-place-card--timeline">
+        <div className="plan-place-card__media" aria-hidden="true">
+          <PlanPlaceImage media={media} />
         </div>
-        <h4>{place.title}</h4>
-        <p className="meta">{planDateTime(place.startsAt ?? planStartsAt)}</p>
-        {place.addressPublicText ? <p className="meta">{place.mode === 'remote' ? 'Link / online location' : 'Address'}: {place.addressPublicText}</p> : null}
-        {place.note ? <p>{place.note}</p> : null}
-        {media ? <img className="plan-place-card__full-image" src={planMediaSrc(media)} alt={media.filename ?? `${place.title} image`} loading="lazy" /> : null}
-        {showReport ? <ReportContentButton targetType="plan_place" targetId={place.id} /> : null}
+        <div className="plan-place-card__body">
+          <div className="status-row">
+            <span className="semantic-badge instruction">Place {index + 1}</span>
+            <span className="semantic-badge neutral">{planPlaceModeLabel(place.mode)}</span>
+            {place.source && place.source !== 'custom' ? <span className="semantic-badge neutral">Saved place</span> : null}
+          </div>
+          <h4>{place.title}</h4>
+          <p className="meta">{placeTime}</p>
+          {visibleLocation ? <p className="meta">{addressLabel}: {visibleLocation}</p> : null}
+          {place.note ? <p>{place.note}</p> : null}
+          {media ? <img className="plan-place-card__full-image" src={planMediaSrc(media)} alt={media.filename ?? `${place.title} image`} loading="lazy" /> : null}
+          {showReport ? <ReportContentButton targetType="plan_place" targetId={place.id} /> : null}
+        </div>
       </div>
     </article>
   );
@@ -81,6 +95,10 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
   const canJoin = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner && !['accepted', 'pending', 'removed'].includes(plan.myParticipantStatus ?? ''));
   const canLeave = plan?.myParticipantStatus === 'accepted';
   const showReportActions = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner);
+  const places = plan?.places ?? [];
+  const joinedCount = plan?.participantCount ?? 0;
+  const placeCount = places.length;
+  const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
 
   async function loadPlan() {
     setLoading(true);
@@ -124,7 +142,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
     if (!auth.isAuthenticated) return;
     setAction({ loading: true, message: '', error: '' });
     try {
-      await api.plans.requestJoin(planId, {});
+      await api.plans.join(planId, {});
       setAction({ loading: false, message: 'You joined this Plan.', error: '' });
       await loadPlan();
     } catch (joinError) {
@@ -135,7 +153,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
   async function leavePlan() {
     setAction({ loading: true, message: '', error: '' });
     try {
-      await api.plans.updateMyJoinRequest(planId, { status: 'left' });
+      await api.plans.leave(planId);
       setAction({ loading: false, message: 'You left this Plan.', error: '' });
       await loadPlan();
     } catch (statusError) {
@@ -156,14 +174,10 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
 
   return (
     <PlansFeatureGate plansEnabled={plansEnabled}>
-      <main className="mobile-page plans-page">
-        <section className="page-intro">
-          <div>
-            <PlansInternalBadge plansVisible={plansVisible} />
-            <h2>{plan?.title ?? 'Plan'}</h2>
-            <p>{plan ? planMetadata(plan) : 'Internal Plan preview.'}</p>
-          </div>
-          <Link className="button secondary page-intro__action" href="/plans">Plans</Link>
+      <main className="mobile-page plans-page plan-detail-page">
+        <section className="plan-detail-topbar" aria-label="Plan navigation">
+          <Link className="button secondary compact" href="/plans">← Plans</Link>
+          <PlansInternalBadge plansVisible={plansVisible} />
         </section>
 
         {loading ? <section className="mobile-card"><p className="meta">Loading Plan...</p></section> : null}
@@ -171,65 +185,68 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
 
         {plan ? (
           <>
-            <section className="mobile-card plan-detail-hero">
+            <section className="mobile-card plan-detail-hero plan-detail-hero--polished">
               <div className="status-row">
                 <span className="semantic-badge trade">Plan</span>
+                <span className="semantic-badge neutral">{planStatusLabel(plan.status)}</span>
                 {plan.myParticipantStatus === 'accepted' ? <span className="semantic-badge success">Joined</span> : null}
               </div>
-              <h3>{plan.title}</h3>
-              <p>{plan.description}</p>
-              <p className="meta">By {planOwnerName(plan)} · {planMetadata(plan)}</p>
-              <div className="plan-stat-grid">
-                <span><strong>{plan.participantCount ?? 0}</strong> joined</span>
-                <span><strong>{plan.places?.length ?? 0}</strong> places</span>
+              <div className="plan-detail-hero__copy">
+                <h1>{plan.title}</h1>
+                <p>{plan.description}</p>
+                <p className="meta">By {planOwnerName(plan)} · {planMetadata(plan)}</p>
               </div>
-              {isOwner ? (
-                <div className="cta-row">
-                  <Link className="button secondary" href={`/plans/${plan.id}/edit`}>Edit Plan</Link>
-                </div>
-              ) : null}
+              <div className="plan-stat-grid plan-stat-grid--polished">
+                <span><strong>{capacityLabel}</strong> joined</span>
+                <span><strong>{placeCount}</strong> places</span>
+                <span><strong>Free</strong> join</span>
+              </div>
+              <div className="plan-detail-actions">
+                {isOwner ? <Link className="button secondary" href={`/plans/${plan.id}/edit`}>Edit Plan</Link> : null}
+                {!auth.isAuthenticated ? <Link className="button primary" href={`/auth?next=/plans/${plan.id}`}>Log in to join</Link> : null}
+                {canJoin ? <button type="button" className="button primary" disabled={action.loading} onClick={joinPlan}>{action.loading ? 'Joining...' : 'Join Plan'}</button> : null}
+                {canLeave ? <button type="button" className="button secondary" disabled={action.loading} onClick={leavePlan}>Leave Plan</button> : null}
+              </div>
+              {isOwner ? <p className="meta">You own this Plan. People can join freely while this hidden v1 flow is enabled.</p> : null}
+              {!isOwner && auth.isAuthenticated && plan.myParticipantStatus && !canLeave && !canJoin ? <p className="meta">Your status: {planParticipantStatusLabel(plan.myParticipantStatus)}</p> : null}
+              {action.message ? <p className="success-message">{action.message}</p> : null}
+              {action.error ? <p className="form-error">{action.error}</p> : null}
               {showReportActions ? <ReportContentButton targetType="plan" targetId={plan.id} /> : null}
             </section>
 
-            <section className="mobile-card plan-form__preview">
-              <h3>Feed deck preview</h3>
-              <PlanDtoPreviewDeck plan={plan} />
-            </section>
-
-            <section className="mobile-card">
-              <h3>Places</h3>
-              <div className="mobile-list">
-                {(plan.places ?? []).map((place, index) => (
+            <section className="mobile-card plan-detail-section">
+              <div className="plan-detail-section__header">
+                <div>
+                  <h3>Plan route</h3>
+                  <p className="meta">Places are shown in order.</p>
+                </div>
+              </div>
+              <div className="plan-place-timeline">
+                {places.map((place, index) => (
                   <PlanPlaceCard key={place.id} place={place} index={index} planStartsAt={plan.startsAt} showReport={showReportActions} />
                 ))}
-                {(plan.places ?? []).length === 0 ? <p className="meta">No places added yet.</p> : null}
+                {places.length === 0 ? <p className="meta">No places added yet.</p> : null}
               </div>
             </section>
 
-            <section className="mobile-card">
-              <h3>Join</h3>
-              {!auth.isAuthenticated ? (
-                <p><Link href={`/auth?next=/plans/${plan.id}`}>Log in</Link> to join this internal Plan.</p>
-              ) : null}
-              {isOwner ? <p className="meta">You own this Plan. People can join instantly while this hidden flow is enabled.</p> : null}
-              {canJoin ? <button type="button" className="button primary full" disabled={action.loading} onClick={joinPlan}>{action.loading ? 'Joining...' : 'Join Plan'}</button> : null}
-              {canLeave ? <button type="button" className="button secondary full" disabled={action.loading} onClick={leavePlan}>Leave Plan</button> : null}
-              {plan.myParticipantStatus && !canLeave && !canJoin && !isOwner ? <p className="meta">Your status: {planParticipantStatusLabel(plan.myParticipantStatus)}</p> : null}
-              {action.message ? <p className="success-message">{action.message}</p> : null}
-              {action.error ? <p className="form-error">{action.error}</p> : null}
-            </section>
-
-            <section className="mobile-card">
-              <h3>Participants</h3>
+            <section className="mobile-card plan-detail-section">
+              <div className="plan-detail-section__header">
+                <div>
+                  <h3>Joined people</h3>
+                  <p className="meta">Free join is enabled for this first hidden production version.</p>
+                </div>
+              </div>
               <div className="mobile-list">
                 {visibleParticipants.map((participant) => <ParticipantRow key={participant.id} participant={participant} ownerControls={isOwner} onRemove={removeParticipant} />)}
                 {visibleParticipants.length === 0 ? <p className="meta">No participants yet.</p> : null}
               </div>
             </section>
 
-            <section className="mobile-card mobile-card--soft">
-              <h3>Safety and support</h3>
-              <p>Plans are hidden, 18+, and internal while testing. Use report or support if a Plan or place looks unsafe.</p>
+            <section className="mobile-card mobile-card--soft plan-detail-support">
+              <div>
+                <h3>Safety and support</h3>
+                <p>Plans are hidden, 18+, and internal while testing. Use report or support if a Plan or place looks unsafe.</p>
+              </div>
               <Link className="button secondary" href="/account/support">Contact support</Link>
             </section>
           </>

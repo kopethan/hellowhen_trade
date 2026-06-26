@@ -10,6 +10,9 @@ export const navigation = {
     needs: 'Necesidades',
     offers: 'Ofertas',
     account: 'Cuenta',
+    plans: 'Planes',
+    me: 'Yo',
+    trade: 'Intercambio',
   },
   routes: {
     ...enNavigation.routes,
@@ -17,6 +20,7 @@ export const navigation = {
     needs: 'Necesidades',
     offers: 'Ofertas',
     account: 'Cuenta',
+    me: 'Yo',
     membership: 'Membresía',
     createTrade: 'Crear intercambio',
     plan: 'Plan',
