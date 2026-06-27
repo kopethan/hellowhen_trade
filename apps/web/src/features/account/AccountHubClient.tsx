@@ -53,6 +53,7 @@ export function AccountHubClient() {
     { href: '/plans?view=mine', titleKey: 'account.items.myPlansFeature.title', bodyKey: 'account.items.myPlansFeature.body', icon: 'activity' },
     { href: '/plans?view=joined', titleKey: 'account.items.joinedPlansFeature.title', bodyKey: 'account.items.joinedPlansFeature.body', icon: 'proposal-accepted' },
     { href: '/plans/new', titleKey: 'account.items.createPlanFeature.title', bodyKey: 'account.items.createPlanFeature.body', icon: 'add' },
+    { href: '/places/new', titleKey: 'account.items.createPlaceFeature.title', bodyKey: 'account.items.createPlaceFeature.body', icon: 'add' },
   ] : [], []);
 
   const accountItems = useMemo<AccountHubItem[]>(() => [

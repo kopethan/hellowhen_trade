@@ -68,7 +68,6 @@ function PlanPlaceCard({ place, index, planStartsAt, showReport }: { place: Plan
           <h4>{place.title}</h4>
           <p className="meta">{placeTime}</p>
           {visibleLocation ? <p className="meta">{addressLabel}: {visibleLocation}</p> : null}
-          {place.note ? <p>{place.note}</p> : null}
           {media ? <img className="plan-place-card__full-image" src={planMediaSrc(media)} alt={media.filename ?? `${place.title} image`} loading="lazy" /> : null}
           {showReport ? <ReportContentButton targetType="plan_place" targetId={place.id} /> : null}
         </div>

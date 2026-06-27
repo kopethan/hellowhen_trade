@@ -12,6 +12,7 @@ import { prisma } from '../../lib/prisma.js';
 import { optionalAuth, requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { attachUploadedMediaToEntity, withMedia, type MediaVisibility } from '../media/media.helpers.js';
 import { stripAnonymousPublicProfileMedia } from '../users/publicUser.js';
+import { syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
 import { loadMembershipAccessStateForUser } from '../subscriptions/membershipEntitlements.js';
 import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
@@ -123,6 +124,7 @@ function createPlaceData(ownerId: string, input: ReturnType<typeof createPlaceRe
     mode: input.mode ?? 'local',
     title: input.title,
     description: input.description ?? null,
+    defaultLanguage: input.defaultLanguage ?? 'en',
     category: input.category ?? null,
     tags: cleanTags(input.tags),
     areaLabel: input.areaLabel ?? null,
@@ -142,6 +144,7 @@ function updatePlaceData(input: ReturnType<typeof updatePlaceRequestSchema.parse
     ...(input.mode !== undefined ? { mode: input.mode } : {}),
     ...(input.title !== undefined ? { title: input.title } : {}),
     ...(input.description !== undefined ? { description: input.description ?? null } : {}),
+    ...(input.defaultLanguage !== undefined ? { defaultLanguage: input.defaultLanguage ?? 'en' } : {}),
     ...(input.category !== undefined ? { category: input.category ?? null } : {}),
     ...(input.tags !== undefined ? { tags: cleanTags(input.tags) } : {}),
     ...(input.areaLabel !== undefined ? { areaLabel: input.areaLabel ?? null } : {}),
@@ -174,12 +177,14 @@ function cleanPlaceForViewer(place: any, viewerId?: string | null, actorRole?: s
 }
 
 async function decoratePlaces(places: any[], viewerId?: string | null, visibility: MediaVisibility = 'owner', actorRole?: string | null) {
-  const withPlaceMedia = await withMedia('place' as any, places, visibility);
+  const withTranslations = await withInventoryTranslations(prisma, 'place', places);
+  const withPlaceMedia = await withMedia('place' as any, withTranslations, visibility);
   return withPlaceMedia.map((place) => cleanPlaceForViewer(place, viewerId ?? null, actorRole ?? null));
 }
 
 async function decoratePlace(place: any, viewerId?: string | null, visibility: MediaVisibility = 'owner', actorRole?: string | null) {
-  const [decorated] = await decoratePlaces([place], viewerId, visibility, actorRole);
+  const withTranslations = await withOneInventoryTranslation(prisma, 'place', place);
+  const [decorated] = await decoratePlaces([withTranslations], viewerId, visibility, actorRole);
   return decorated;
 }
 
@@ -244,6 +249,7 @@ placesRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req,
   const normalized = normalizeCreateInput(input, actor);
   const mediaLimit = await placeMediaLimitFor(actor, normalized.source);
   const place = await prisma.place.create({ data: createPlaceData(req.user!.id, input, normalized) as any, include: placeInclude() });
+  await syncInventoryTranslations(prisma, 'place', place.id, req.user!.id, (place as any).defaultLanguage ?? input.defaultLanguage ?? 'en', input.translations ?? []);
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'place' as any, place.id, { maxImages: mediaLimit });
   const created = await prisma.place.findUnique({ where: { id: place.id }, include: placeInclude() });
   res.status(201).json({ place: await decoratePlace(created, req.user!.id, 'owner', actor.role) });
@@ -279,6 +285,7 @@ placesRoutes.patch('/:placeId', requireAuth, requireActiveAccount, asyncRoute(as
   const normalized = normalizeUpdateInput(input, existing as any, actor);
   const mediaLimit = await placeMediaLimitFor(actor, existing.source);
   const updated = await prisma.place.update({ where: { id: existing.id }, data: updatePlaceData(input, normalized) as any, include: placeInclude() });
+  await syncInventoryTranslations(prisma, 'place', updated.id, req.user!.id, (updated as any).defaultLanguage ?? input.defaultLanguage ?? 'en', input.translations);
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'place' as any, updated.id, { maxImages: mediaLimit });
   const refreshed = await prisma.place.findUnique({ where: { id: updated.id }, include: placeInclude() });
   res.json({ place: await decoratePlace(refreshed, req.user!.id, 'owner', actor.role) });

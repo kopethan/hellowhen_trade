@@ -1,0 +1,316 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index d4367f8..833fa5d 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -259,6 +259,17 @@ function placePreviewLocation(place: SelectedPlanPlaceState) {
+   return place.location.trim() || 'Offline place';
+ }
+ 
++
++function planPreviewPlaceTitle(place: SelectedPlanPlaceState, index: number) {
++  return place.title.trim() || place.sourcePlaceTitle?.trim() || `Place ${index + 1}`;
++}
++
++function planPreviewTimeLabel(place: SelectedPlanPlaceState, index: number) {
++  if (place.date && place.time) return `${place.date} · ${place.time}`;
++  if (place.time) return place.time;
++  return index === 0 ? 'Start time required' : 'Time optional';
++}
++
+ function getAcceptedParticipants(plan: PlanDto) {
+   return [...(plan.participants ?? [])].filter((participant) => participant.status === 'accepted').sort((first, second) => new Date(first.createdAt).getTime() - new Date(second.createdAt).getTime());
+ }
+@@ -1074,6 +1085,39 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   const generatedDescription = generatedPlanDisplay.description;
+   const previewTitle = advancedDetails.title.trim() || generatedTitle;
+   const previewDescription = advancedDetails.description.trim() || generatedDescription;
++  const previewPlan = useMemo(() => ({
++    id: 'create-plan-preview',
++    ownerId: 'preview',
++    title: previewTitle,
++    description: previewDescription,
++    category: advancedDetails.category.trim() || null,
++    tags: parsePlanTagsInput(advancedDetails.tags),
++    mode: planModeFromSelectedPlaces(placesForGeneratedDisplay),
++    locationLabel: placesForGeneratedDisplay.length === 0 ? null : `${placesForGeneratedDisplay.length} ${placesForGeneratedDisplay.length === 1 ? 'place' : 'places'}`,
++    startsAt: schedule.startsAt || new Date().toISOString(),
++    endsAt: explicitPlanEnd.endsAt || schedule.endsAt || null,
++    joinApprovalMode: 'automatic',
++    status: 'open',
++    createdAt: new Date().toISOString(),
++    updatedAt: new Date().toISOString(),
++    participantCount: 0,
++    places: places.map((place, index) => ({
++      id: `preview-place-${index}`,
++      planId: 'create-plan-preview',
++      placeId: place.sourcePlaceId,
++      source: place.sourcePlaceId ? (place.sourcePlaceSource === 'hellowhen_library' ? 'hellowhen_library' : 'my_place') : 'custom',
++      order: index,
++      mode: place.mode,
++      title: planPreviewPlaceTitle(place, index),
++      note: place.note.trim() || null,
++      addressPublicText: place.mode === 'local' ? place.location.trim() || null : null,
++      onlineLabel: place.mode === 'remote' ? place.onlineLabel.trim() || place.location.trim() || null : null,
++      onlineUrl: place.mode === 'remote' ? place.onlineUrl.trim() || null : null,
++      startsAt: schedule.placeStartsAt[index] ?? null,
++      createdAt: new Date().toISOString(),
++      updatedAt: new Date().toISOString(),
++    })),
++  }) as PlanDto, [advancedDetails.category, advancedDetails.tags, explicitPlanEnd.endsAt, places, placesForGeneratedDisplay, previewDescription, previewTitle, schedule.endsAt, schedule.placeStartsAt, schedule.startsAt]);
+ 
+   const loadReusablePlaces = useCallback(async () => {
+     if (!isPlansVisible()) return;
+@@ -1332,28 +1376,67 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+             </>
+           ) : (
+             <>
+-              <View style={[styles.previewCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-                <View style={styles.wizardStepRow}><View style={styles.timelineCopy}><AppText style={styles.sectionTitle}>Preview / Confirm</AppText><AppText style={[styles.metaText, { color: theme.color.muted }]}>Review the place-only deck before creating the Plan.</AppText></View><SemanticBadge label="Place-only feed deck" tone="plan" size="sm" /></View>
+-                <View style={[styles.snapshotStrip, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
++              <View style={[styles.previewConfirmStage, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
++                <View style={styles.previewConfirmHero}>
+                   <View style={styles.timelineCopy}>
+-                    <AppText style={styles.rowTitle}>{previewTitle}</AppText>
++                    <SemanticBadge label="Ready to publish" tone="plan" size="sm" />
++                    <AppText style={styles.previewConfirmTitle}>{previewTitle}</AppText>
+                     <AppText style={[styles.metaText, { color: theme.semantic.plan.text }]}>{previewDescription}</AppText>
+                   </View>
++                  <SecondaryButton label="Back to build" onPress={() => setStage('build')} />
+                 </View>
+-                {places.map((place, index) => (
+-                  <View key={`preview-${place.id}`} style={styles.previewPlaceRow}>
+-                    <View style={[styles.timelineNumber, { backgroundColor: theme.color.text }]}><AppText style={[styles.timelineNumberText, { color: theme.color.background }]}>{index + 1}</AppText></View>
+-                    <View style={styles.timelineCopy}>
+-                      <AppText style={styles.rowTitle}>{place.title || `Place ${index + 1}`}</AppText>
+-                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>{placePreviewLocation(place)} · {place.date || 'Date'} {place.time || 'Time'}</AppText>
+-                    </View>
++
++                <View style={styles.previewSummaryGrid}>
++                  <View style={[styles.previewSummaryCell, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
++                    <AppText style={[styles.previewSummaryLabel, { color: theme.color.muted }]}>Starts</AppText>
++                    <AppText style={styles.previewSummaryValue}>{schedule.startsAt ? formatDate(schedule.startsAt) : 'Not set'}</AppText>
++                  </View>
++                  <View style={[styles.previewSummaryCell, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
++                    <AppText style={[styles.previewSummaryLabel, { color: theme.color.muted }]}>Places</AppText>
++                    <AppText style={styles.previewSummaryValue}>{places.length} {places.length === 1 ? 'place' : 'places'}</AppText>
++                  </View>
++                  <View style={[styles.previewSummaryCell, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
++                    <AppText style={[styles.previewSummaryLabel, { color: theme.color.muted }]}>Join mode</AppText>
++                    <AppText style={styles.previewSummaryValue}>Free join</AppText>
++                  </View>
++                  <View style={[styles.previewSummaryCell, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
++                    <AppText style={[styles.previewSummaryLabel, { color: theme.color.muted }]}>Visibility</AppText>
++                    <AppText style={styles.previewSummaryValue}>Open / Public</AppText>
+                   </View>
+-                ))}
+-                <View style={styles.rowTop}>
+-                  <SemanticBadge label="Free join" tone="success" size="sm" />
+-                  <SemanticBadge label="Open / Public" tone="plan" size="sm" />
+-                  <SemanticBadge label={`${places.length} ${places.length === 1 ? 'place' : 'places'}`} tone="muted" size="sm" />
+                 </View>
++
++                <View style={[styles.previewSectionDivider, { borderTopColor: theme.color.border }]}>
++                  <View style={styles.timelineCopy}>
++                    <SemanticBadge label="Feed deck preview" tone="plan" size="sm" />
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>This is how the Plan cards will feel in the feed.</AppText>
++                  </View>
++                  <PlanSquareDeck plan={previewPlan} />
++                </View>
++
++                <View style={[styles.previewSectionDivider, { borderTopColor: theme.color.border }]}>
++                  <View style={styles.timelineCopy}>
++                    <SemanticBadge label="Place order" tone="place" size="sm" />
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Confirm the order and times before publishing.</AppText>
++                  </View>
++                  {places.map((place, index) => (
++                    <View key={`preview-${place.id}`} style={[styles.previewPlaceRow, { borderTopColor: theme.color.border }]}>
++                      <View style={[styles.timelineNumber, { backgroundColor: theme.semantic.place.softBg }]}>
++                        <AppText style={[styles.timelineNumberText, { color: theme.semantic.place.text }]}>{index + 1}</AppText>
++                      </View>
++                      <View style={styles.timelineCopy}>
++                        <AppText style={styles.rowTitle}>{planPreviewPlaceTitle(place, index)}</AppText>
++                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{planPreviewTimeLabel(place, index)} · {placePreviewLocation(place)}</AppText>
++                        {place.note.trim() ? <AppText style={[styles.snapshotText, { color: theme.color.muted }]}>{place.note.trim()}</AppText> : null}
++                      </View>
++                    </View>
++                  ))}
++                </View>
++
++                <View style={[styles.previewFinalNote, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
++                  <SemanticBadge label="Confirm" tone="plan" size="sm" />
++                  <AppText style={[styles.metaText, { color: theme.semantic.plan.text }]}>This creates an open public Plan with free join. You can still go back and edit places, times, or More options before publishing.</AppText>
++                </View>
++
+                 {schedule.error && places.length > 0 ? <InfoNotice tone="warning" title="Schedule check" body={schedule.error} /> : null}
+                 {explicitPlanEnd.error ? <InfoNotice tone="warning" title="End time" body={explicitPlanEnd.error} /> : null}
+               </View>
+@@ -1691,7 +1774,16 @@ const styles = StyleSheet.create({
+   advancedToggle: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10 },
+   advancedPanel: { gap: 12, paddingTop: 2 },
+   previewCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 12 },
+-  previewPlaceRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
++  previewConfirmStage: { borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, gap: 16, paddingVertical: 14 },
++  previewConfirmHero: { gap: 12 },
++  previewConfirmTitle: { fontSize: 31, lineHeight: 34, fontWeight: '900', letterSpacing: -0.9 },
++  previewSummaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
++  previewSummaryCell: { width: '48%', minHeight: 74, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, justifyContent: 'center', gap: 4, paddingVertical: 9 },
++  previewSummaryLabel: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
++  previewSummaryValue: { fontSize: 14, lineHeight: 18, fontWeight: '900' },
++  previewSectionDivider: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 14, gap: 12 },
++  previewPlaceRow: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
++  previewFinalNote: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 8 },
+   supportSection: { marginTop: 2 },
+   disabled: { opacity: 0.6 },
+   pressed: { opacity: 0.76, transform: [{ scale: 0.99 }] },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 81d5a13..bf86dae 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -9151,13 +9151,36 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .plan-place-detail-sheet { max-width: 680px; }
+ .plan-place-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; border-top: 1px solid var(--app-border); padding-top: 12px; }
+ .plan-source-place-strip span { min-width: 0; color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.35; }
+-.plan-preview-stage { border-top: 1px solid var(--app-divider); padding-top: 14px; }
++.plan-preview-stage { display: grid; gap: 18px; border-top: 1px solid var(--app-divider); padding-top: 14px; }
++.plan-preview-confirm-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; padding-bottom: 16px; border-bottom: 1px solid var(--app-divider); }
++.plan-preview-confirm-hero__copy { display: grid; gap: 7px; min-width: 0; }
++.plan-preview-confirm-hero__copy h3 { margin: 0; color: var(--app-text); font-size: clamp(26px, 5vw, 42px); line-height: 0.95; letter-spacing: -0.055em; }
++.plan-preview-confirm-hero__copy p { margin: 0; max-width: 680px; color: var(--app-text-muted); font-weight: 850; line-height: 1.45; }
++.plan-preview-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
++.plan-preview-summary-grid div { display: grid; gap: 5px; min-height: 84px; align-content: center; border-top: 1px solid var(--app-divider); border-bottom: 1px solid var(--app-divider); background: linear-gradient(180deg, color-mix(in srgb, var(--plan-bg) 26%, transparent), transparent); padding: 10px 0; }
++.plan-preview-summary-grid span { color: var(--app-text-muted); font-size: 11px; font-weight: 950; letter-spacing: 0.06em; text-transform: uppercase; }
++.plan-preview-summary-grid strong { color: var(--app-text); font-size: 14px; font-weight: 950; line-height: 1.25; }
++.plan-preview-deck-section, .plan-preview-itinerary { display: grid; gap: 12px; border-top: 1px solid var(--app-divider); padding-top: 16px; }
++.plan-preview-section-heading { display: grid; gap: 6px; }
++.plan-preview-section-heading .semantic-badge { width: fit-content; }
++.plan-preview-itinerary-row { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; align-items: start; border-top: 1px solid var(--app-divider); padding: 13px 0; }
++.plan-preview-itinerary-row:first-of-type { border-top: 0; }
++.plan-preview-itinerary-row__number { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--place-border); border-radius: 999px; background: var(--place-bg); color: var(--place-text); font-weight: 950; }
++.plan-preview-itinerary-row div { display: grid; gap: 4px; min-width: 0; }
++.plan-preview-itinerary-row strong { color: var(--app-text); font-size: 16px; font-weight: 950; }
++.plan-preview-itinerary-row small { color: var(--app-text-muted); font-size: 13px; font-weight: 850; line-height: 1.35; }
++.plan-preview-itinerary-row p { margin: 3px 0 0; color: var(--app-text-muted); font-size: 13px; font-weight: 750; line-height: 1.45; }
++.plan-preview-final-note { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; border-top: 1px solid var(--app-divider); border-bottom: 1px solid var(--app-divider); background: linear-gradient(90deg, color-mix(in srgb, var(--plan-bg) 34%, transparent), transparent 64%); padding: 14px 0; }
++.plan-preview-final-note p { margin: 0; color: var(--app-text-muted); font-size: 13px; font-weight: 850; line-height: 1.45; }
+ .plan-preview-confirmation, .plan-preview-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+-.plan-preview-actions { justify-content: flex-end; border-top: 1px solid var(--app-border); padding-top: 14px; }
++.plan-preview-actions { justify-content: flex-end; border-top: 1px solid var(--app-divider); padding-top: 14px; }
+ @media (max-width: 760px) {
+   .plan-timeline-row { grid-template-columns: 1fr; align-items: stretch; }
+   .plan-timeline-row__actions { justify-content: flex-start; }
+   .plan-timeline-row__fields { grid-template-columns: 1fr; }
+   .plan-timeline-row__fields--optional { max-width: none; }
++  .plan-preview-confirm-hero { grid-template-columns: 1fr; }
++  .plan-preview-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
++  .plan-preview-final-note { grid-template-columns: 1fr; }
+   .plan-preview-actions .button { width: 100%; }
+ }
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index cf64827..ba0f807 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -231,6 +231,17 @@ function placePreviewLocation(place: PlaceFormState) {
+   return place.location.trim();
+ }
+ 
++
++function planPreviewTimeLabel(place: PlaceFormState, index: number) {
++  if (place.date && place.time) return `${place.date} · ${place.time}`;
++  if (place.time) return place.time;
++  return index === 0 ? 'Start time required' : 'Time optional';
++}
++
++function planPreviewPlaceTitle(place: PlaceFormState, index: number) {
++  return place.title.trim() || place.sourcePlaceTitle?.trim() || `Place ${index + 1}`;
++}
++
+ function applyReusablePlacePatch(place: PlaceDto): Partial<PlaceFormState> {
+   return {
+     sourcePlaceId: place.id,
+@@ -803,26 +814,70 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+             ) : (
+               <>
+                 <section className="plan-form__preview plan-preview-stage">
+-                  <div className="plan-form__section-title">
+-                    <div>
+-                      <h3>Preview / Confirm</h3>
+-                      <p className="meta">Review the place-only deck before creating the Plan.</p>
++                  <div className="plan-preview-confirm-hero">
++                    <div className="plan-preview-confirm-hero__copy">
++                      <span className="semantic-badge plan">Ready to publish</span>
++                      <h3>{previewTitle}</h3>
++                      <p>{previewDescription}</p>
+                     </div>
+                     <button type="button" className="button secondary" onClick={() => setStage('build')}>Back to build</button>
+                   </div>
+-                  <div className="trade-create-preview__deck">
+-                    <PlanPreviewDeck
+-                      title={previewTitle}
+-                      description={previewDescription}
+-                      rangeLabel={rangeLabel}
+-                      places={places.map((place) => ({ id: place.id, mode: place.mode, title: place.title, note: place.note, location: placePreviewLocation(place), date: place.date, time: place.time, media: place.media ?? place.existingMedia }))}
+-                      className="trade-stack-deck--create-preview"
+-                    />
++
++                  <div className="plan-preview-summary-grid" aria-label="Plan confirmation summary">
++                    <div>
++                      <span>Starts</span>
++                      <strong>{schedule.startsAt ? new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Not set'}</strong>
++                    </div>
++                    <div>
++                      <span>Places</span>
++                      <strong>{places.length} {places.length === 1 ? 'place' : 'places'}</strong>
++                    </div>
++                    <div>
++                      <span>Join mode</span>
++                      <strong>Free join</strong>
++                    </div>
++                    <div>
++                      <span>Visibility</span>
++                      <strong>Open / Public</strong>
++                    </div>
++                  </div>
++
++                  <div className="plan-preview-deck-section">
++                    <div className="plan-preview-section-heading">
++                      <span className="semantic-badge plan">Feed deck preview</span>
++                      <p className="meta">This is how the Plan will feel in the feed before someone opens the details.</p>
++                    </div>
++                    <div className="trade-create-preview__deck">
++                      <PlanPreviewDeck
++                        title={previewTitle}
++                        description={previewDescription}
++                        rangeLabel={rangeLabel}
++                        places={places.map((place, index) => ({ id: place.id, mode: place.mode, title: planPreviewPlaceTitle(place, index), note: place.note, location: placePreviewLocation(place), date: place.date, time: place.time, media: place.media ?? place.existingMedia }))}
++                        className="trade-stack-deck--create-preview"
++                      />
++                    </div>
++                  </div>
++
++                  <div className="plan-preview-itinerary" aria-label="Plan itinerary confirmation">
++                    <div className="plan-preview-section-heading">
++                      <span className="semantic-badge place">Place order</span>
++                      <p className="meta">Confirm the order and times before publishing.</p>
++                    </div>
++                    {places.map((place, index) => (
++                      <div className="plan-preview-itinerary-row" key={`confirm-${place.id}`}>
++                        <span className="plan-preview-itinerary-row__number">{index + 1}</span>
++                        <div>
++                          <strong>{planPreviewPlaceTitle(place, index)}</strong>
++                          <small>{planPreviewTimeLabel(place, index)}{placePreviewLocation(place) ? ` · ${placePreviewLocation(place)}` : ''}</small>
++                          {place.note.trim() ? <p>{place.note.trim()}</p> : null}
++                        </div>
++                      </div>
++                    ))}
+                   </div>
+-                  <div className="plan-preview-confirmation">
+-                    <span className="semantic-badge plan">Free join</span>
+-                    <span className="semantic-badge plan">Open / Public</span>
+-                    <span className="semantic-badge muted">{places.length} {places.length === 1 ? 'place' : 'places'}</span>
++
++                  <div className="plan-preview-final-note">
++                    <span className="semantic-badge plan">Confirm</span>
++                    <p>This will create an open public Plan with free join. You can still go back and edit places, times, or More options before publishing.</p>
+                   </div>
+                 </section>
+                 {schedule.error && places.length > 0 ? <p className="form-error">{schedule.error}</p> : null}

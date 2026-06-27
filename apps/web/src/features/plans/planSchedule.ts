@@ -34,23 +34,38 @@ function parseLocalDateTime(dateValue: string, timeValue: string) {
 }
 
 export function buildPlanSchedule(places: PlanSchedulePlace[]) {
-  const validPlaces = places.map((place, index) => ({ ...place, index, dateTime: parseLocalDateTime(place.date, place.time) }));
-  if (validPlaces.length === 0 || validPlaces.some((place) => !place.dateTime)) {
-    return { startsAt: '', endsAt: '', placeStartsAt: [] as string[], error: 'Add at least one place with a valid date and time.' };
+  if (places.length === 0) {
+    return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Add at least one place with a valid date and time.' };
   }
 
-  for (let index = 1; index < validPlaces.length; index += 1) {
-    const previous = validPlaces[index - 1]?.dateTime;
-    const current = validPlaces[index]?.dateTime;
-    if (previous && current && current.getTime() < previous.getTime()) {
-      return { startsAt: '', endsAt: '', placeStartsAt: [] as string[], error: 'Each place must be at the same time or after the previous place.' };
+  const firstPlace = places[0];
+  const firstDateTime = firstPlace ? parseLocalDateTime(firstPlace.date, firstPlace.time) : null;
+  if (!firstDateTime) {
+    return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Add a valid date and time for Place 1.' };
+  }
+
+  let previousDateTime = firstDateTime;
+  let lastDateTime = firstDateTime;
+  const placeStartsAt: Array<string | undefined> = [firstDateTime.toISOString()];
+
+  for (let index = 1; index < places.length; index += 1) {
+    const place = places[index];
+    if (!place) continue;
+    const currentDateTime = parseLocalDateTime(place.date, place.time);
+    if (!currentDateTime) {
+      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: `Add a valid date and time for Place ${index + 1}.` };
     }
+    if (currentDateTime.getTime() < previousDateTime.getTime()) {
+      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Each place time must be at the same time or after the previous place.' };
+    }
+    placeStartsAt[index] = currentDateTime.toISOString();
+    previousDateTime = currentDateTime;
+    lastDateTime = currentDateTime;
   }
 
-  const placeStartsAt = validPlaces.map((place) => place.dateTime!.toISOString());
   return {
-    startsAt: placeStartsAt[0] ?? '',
-    endsAt: placeStartsAt[placeStartsAt.length - 1] ?? '',
+    startsAt: firstDateTime.toISOString(),
+    endsAt: lastDateTime.toISOString(),
     placeStartsAt,
     error: '',
   };

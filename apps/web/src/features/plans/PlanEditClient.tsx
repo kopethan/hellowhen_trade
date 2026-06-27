@@ -21,7 +21,6 @@ type PlaceFormState = {
   time: string;
   title: string;
   location: string;
-  note: string;
   existingMedia: MediaAssetDto | null;
   media: MediaAssetDto | null;
   uploading: boolean;
@@ -59,7 +58,6 @@ function placeFormFromPlace(place: PlanPlaceDto): PlaceFormState {
     time: toTimeInputValue(place.startsAt),
     title: place.title,
     location: place.addressPublicText ?? '',
-    note: place.note ?? '',
     existingMedia: place.media?.[0] ?? null,
     media: null,
     uploading: false,
@@ -74,7 +72,6 @@ function makeNewPlace(index: number, date = toDateInputValue()): PlaceFormState 
     time: '',
     title: '',
     location: '',
-    note: '',
     existingMedia: null,
     media: null,
     uploading: false,
@@ -247,7 +244,6 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
         const body = {
           mode: place.mode,
           title: place.title,
-          note: place.note.trim() || undefined,
           addressPublicText: place.location.trim() || undefined,
           startsAt: nextSchedule.placeStartsAt[index],
           order: index,
@@ -372,10 +368,6 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
                   <span>{place.mode === 'remote' ? 'Online link or instructions' : 'Address or meeting point'}</span>
                   <input value={place.location} onChange={(event) => updatePlace(index, { location: event.target.value })} maxLength={240} placeholder={place.mode === 'remote' ? 'Zoom, Google Meet, Discord, website, or instructions' : 'Search or enter an address'} />
                 </label>
-                <label>
-                  <span>Place notes / purpose</span>
-                  <textarea value={place.note} onChange={(event) => updatePlace(index, { note: event.target.value })} maxLength={1000} />
-                </label>
                 <PlaceImagePicker
                   place={place}
                   onUpload={(event) => { const files = event.target.files; event.currentTarget.value = ''; void uploadPlaceImage(index, files); }}
@@ -395,7 +387,7 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
                   title={title}
                   description={description}
                   rangeLabel={rangeLabel}
-                  places={places.map((place) => ({ id: place.id, mode: place.mode, title: place.title, note: place.note, location: place.location, date: place.date, time: place.time, media: place.media ?? place.existingMedia }))}
+                  places={places.map((place) => ({ id: place.id, mode: place.mode, title: place.title, location: place.location, date: place.date, time: place.time, media: place.media ?? place.existingMedia }))}
                   className="trade-stack-deck--create-preview"
                 />
               </div>

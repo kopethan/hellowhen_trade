@@ -83,6 +83,8 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; titleKey: strin
   { match: (pathname) => pathname === '/plans', titleKey: 'navigation.routes.plans', root: true },
   { match: (pathname) => pathname === '/trades/create', titleKey: 'navigation.routes.createTrade', backHref: '/trades' },
   { match: (pathname) => pathname === '/plans/new', titleKey: 'navigation.routes.createPlan', backHref: '/plans' },
+  { match: (pathname) => pathname === '/places/new', titleKey: 'navigation.routes.createPlace', backHref: '/plans' },
+  { match: (pathname) => /^\/places\/[^/]+\/edit$/.test(pathname), titleKey: 'navigation.routes.editPlace', backHref: '/plans' },
   { match: (pathname) => /^\/plans\/[^/]+\/edit$/.test(pathname), titleKey: 'navigation.routes.editPlan', backHref: '/plans' },
   { match: (pathname) => /^\/plans\/[^/]+$/.test(pathname), titleKey: 'navigation.routes.plan', backHref: '/plans' },
   { match: (pathname) => /^\/users\/[^/]+$/.test(pathname), titleKey: 'navigation.routes.profile', backHref: '/trades' },

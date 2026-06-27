@@ -1,0 +1,404 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index b3ce877..15b8b6e 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+-import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
++import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { MediaAssetDto, PlaceDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
+@@ -1085,6 +1085,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   const [advancedDetails, setAdvancedDetails] = useState<AdvancedPlanDetailsState>(() => makeAdvancedPlanDetails());
+   const [planEnd, setPlanEnd] = useState<PlanEndState>({ date: '', time: '' });
+   const [stage, setStage] = useState<PlanCreateStage>('build');
++  const [placeSourceSheetOpen, setPlaceSourceSheetOpen] = useState(false);
+   const [placePickerOpen, setPlacePickerOpen] = useState(false);
+   const [advancedDetailsOpen, setAdvancedDetailsOpen] = useState(false);
+   const handledCreatedPlaceNonceRef = useRef<number | undefined>(undefined);
+@@ -1138,12 +1139,32 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+ 
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+ 
++  function closePlaceSourceSheet() {
++    setPlaceSourceSheetOpen(false);
++    setPlacePickerOpen(false);
++    setPlaceQuery('');
++  }
++
++  function openPlaceSourceSheet() {
++    setPlaceSourceSheetOpen(true);
++    setPlacePickerOpen(false);
++    setPlaceQuery('');
++  }
++
++  function choosePlaceSource(source: PlacePickerTab) {
++    setPickerTab(source);
++    setPlacePickerOpen(true);
++    setPlaceQuery('');
++  }
++
+   function addCustomPlace() {
+     setPlaces((current) => [...current, makeSelectedPlanPlace(current.length, current[current.length - 1]?.date || toDateInputValue())]);
++    closePlaceSourceSheet();
+   }
+ 
+   function addReusablePlace(place: PlaceDto) {
+     setPlaces((current) => [...current, selectedPlaceFromReusable(place, current.length, current[current.length - 1]?.date || toDateInputValue())]);
++    closePlaceSourceSheet();
+     setMessage(`Added ${place.title}.`);
+     setError(null);
+   }
+@@ -1290,33 +1311,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                     <AppText style={[styles.metaText, { color: theme.color.muted }]}>Open place choices only when needed, so this screen stays light.</AppText>
+                   </View>
+                   <View style={styles.actionGrid}>
+-                    <SecondaryButton label="Choose place" icon="search" onPress={() => setPlacePickerOpen((open) => !open)} />
+-                    <SecondaryButton label="Create My Place" icon="save" onPress={() => navigation.navigate('CreatePlace', { returnToCreatePlan: true })} />
+-                    <SecondaryButton label="Custom stop" icon="add" onPress={addCustomPlace} />
++                    <SecondaryButton label="Add place" icon="add" onPress={openPlaceSourceSheet} />
+                   </View>
+                 </View>
+ 
+-                {placePickerOpen ? (
+-                  <View style={[styles.placePickerPanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-                    <View style={styles.wizardStepRow}>
+-                      <View style={styles.timelineCopy}>
+-                        <AppText style={styles.sectionTitle}>Choose place source</AppText>
+-                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>Pick one saved Place, then return to the route.</AppText>
+-                      </View>
+-                      <SecondaryButton label="Close" onPress={() => setPlacePickerOpen(false)} />
+-                    </View>
+-                    <View style={styles.filterRow}>
+-                      <PillButton label="My Places" active={pickerTab === 'mine'} onPress={() => setPickerTab('mine')} />
+-                      <PillButton label="Hellowhen Library" active={pickerTab === 'library'} onPress={() => setPickerTab('library')} />
+-                      <PillButton label="Refresh" onPress={() => { void loadReusablePlaces(); }} />
+-                    </View>
+-                    <TextField label="Search Places" value={placeQuery} onChangeText={setPlaceQuery} placeholder="Search title, category, area..." />
+-                    {loadingPlaces ? <View style={styles.inlineSmallLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Places...</AppText></View> : null}
+-                    {!loadingPlaces && activeList.length === 0 ? <EmptyBlock title="No matching Places" body={pickerTab === 'mine' ? 'Create a My Place on its own screen or add a custom one-off place.' : 'No matching Hellowhen Library Places yet.'} /> : null}
+-                    {activeList.map((place) => <PlaceChoiceCard key={place.id} place={place} onAdd={() => addReusablePlace(place)} />)}
+-                  </View>
+-                ) : null}
+-
+                 <View style={styles.planTimelineLineItem}>
+                   <View style={styles.timelineCopy}>
+                     <SemanticBadge label="Optional" tone="muted" size="sm" />
+@@ -1386,6 +1384,62 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+             </>
+           )}
+         </ScrollView>
++        <Modal visible={placeSourceSheetOpen} transparent animationType="slide" onRequestClose={closePlaceSourceSheet}>
++          <View style={styles.sourceSheetOverlay}>
++            <Pressable accessibilityRole="button" accessibilityLabel="Close place source" onPress={closePlaceSourceSheet} style={styles.sourceSheetScrim} />
++            <View style={[styles.sourceSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++              <View style={styles.wizardStepRow}>
++                <View style={styles.timelineCopy}>
++                  <AppText style={styles.sectionTitle}>{placePickerOpen ? (pickerTab === 'mine' ? 'Choose from My Places' : 'Choose from Hellowhen Library') : 'Choose place source'}</AppText>
++                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>Add one Place without overloading the Plan screen.</AppText>
++                </View>
++                <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={closePlaceSourceSheet} style={[styles.headerAction, { borderColor: theme.color.border }]}>
++                  <MobileIcon name="close" color={theme.color.text} size={18} />
++                </Pressable>
++              </View>
++
++              {!placePickerOpen ? (
++                <View style={styles.sourceOptionList}>
++                  <Pressable accessibilityRole="button" onPress={() => choosePlaceSource('mine')} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.semantic.instruction.softBg, borderColor: theme.semantic.instruction.border }, pressed && styles.pressed]}>
++                    <View style={[styles.sourceOptionIcon, { borderColor: theme.semantic.instruction.border }]}><MobileIcon name="save" color={theme.semantic.instruction.text} size={19} /></View>
++                    <View style={styles.timelineCopy}><AppText style={styles.sourceOptionTitle}>Use one of mine</AppText><AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose from your private saved Places.</AppText></View>
++                    <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
++                  </Pressable>
++                  <Pressable accessibilityRole="button" onPress={() => choosePlaceSource('library')} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++                    <View style={[styles.sourceOptionIcon, { borderColor: theme.color.border }]}><MobileIcon name="search" color={theme.color.text} size={19} /></View>
++                    <View style={styles.timelineCopy}><AppText style={styles.sourceOptionTitle}>Use Hellowhen Library</AppText><AppText style={[styles.metaText, { color: theme.color.muted }]}>Start from reusable Hellowhen Places.</AppText></View>
++                    <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
++                  </Pressable>
++                  <Pressable accessibilityRole="button" onPress={() => { closePlaceSourceSheet(); navigation.navigate('CreatePlace', { returnToCreatePlan: true }); }} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++                    <View style={[styles.sourceOptionIcon, { borderColor: theme.color.border }]}><MobileIcon name="add" color={theme.color.text} size={19} /></View>
++                    <View style={styles.timelineCopy}><AppText style={styles.sourceOptionTitle}>Create a new Place</AppText><AppText style={[styles.metaText, { color: theme.color.muted }]}>Save it, then return with it selected.</AppText></View>
++                    <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
++                  </Pressable>
++                  <Pressable accessibilityRole="button" onPress={addCustomPlace} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++                    <View style={[styles.sourceOptionIcon, { borderColor: theme.color.border }]}><MobileIcon name="more" color={theme.color.text} size={19} /></View>
++                    <View style={styles.timelineCopy}><AppText style={styles.sourceOptionTitle}>Custom one-off stop</AppText><AppText style={[styles.metaText, { color: theme.color.muted }]}>Use only inside this Plan.</AppText></View>
++                    <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
++                  </Pressable>
++                </View>
++              ) : (
++                <View style={styles.sourceOptionList}>
++                  <View style={styles.filterRow}>
++                    <PillButton label="My Places" active={pickerTab === 'mine'} onPress={() => choosePlaceSource('mine')} />
++                    <PillButton label="Hellowhen Library" active={pickerTab === 'library'} onPress={() => choosePlaceSource('library')} />
++                    <PillButton label="Refresh" onPress={() => { void loadReusablePlaces(); }} />
++                  </View>
++                  <TextField label="Search Places" value={placeQuery} onChangeText={setPlaceQuery} placeholder="Search title, category, area..." />
++                  {loadingPlaces ? <View style={styles.inlineSmallLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Places...</AppText></View> : null}
++                  {!loadingPlaces && activeList.length === 0 ? <EmptyBlock title="No matching Places" body={pickerTab === 'mine' ? 'Create a My Place from the source menu or use a custom stop.' : 'No matching Hellowhen Library Places yet.'} /> : null}
++                  <ScrollView style={styles.sourceListScroll} keyboardShouldPersistTaps="handled">
++                    {activeList.map((place) => <PlaceChoiceCard key={place.id} place={place} onAdd={() => addReusablePlace(place)} />)}
++                  </ScrollView>
++                  <SecondaryButton label="Back to sources" onPress={() => setPlacePickerOpen(false)} />
++                </View>
++              )}
++            </View>
++          </View>
++        </Modal>
+         <KeyboardDoneAccessory />
+       </KeyboardAvoidingView>
+     </AppFixedHeaderScreen>
+@@ -1496,6 +1550,14 @@ const styles = StyleSheet.create({
+   timelineDividerBlock: { gap: 0 },
+   planTimelineLineItem: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 15, gap: 12 },
+   placePickerPanel: { borderRadius: 24, borderWidth: 1, padding: 14, gap: 12 },
++  sourceSheetOverlay: { flex: 1, justifyContent: 'flex-end' },
++  sourceSheetScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.38)' },
++  sourceSheet: { maxHeight: '86%', borderTopLeftRadius: 30, borderTopRightRadius: 30, borderWidth: 1, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 26, gap: 14 },
++  sourceOptionList: { gap: 10 },
++  sourceOption: { minHeight: 74, borderRadius: 20, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
++  sourceOptionIcon: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  sourceOptionTitle: { fontSize: 16, fontWeight: '900' },
++  sourceListScroll: { maxHeight: 360 },
+   deckFeedContent: { gap: 20, paddingTop: 2, paddingBottom: 34 },
+   deckSection: { gap: 10 },
+   deckSectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 2 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 98ce22a..8438419 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -9060,6 +9060,22 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .plan-place-picker-card__body strong { color: var(--app-text); font-size: 14px; font-weight: 950; }
+ .plan-place-picker-card__body small { color: var(--app-text-muted); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; }
+ .plan-place-picker-card__body span { color: var(--app-text-muted); font-size: 12px; font-weight: 800; }
++.plan-place-source-overlay { position: fixed; inset: 0; z-index: 80; display: grid; align-items: end; justify-items: stretch; padding: 16px; }
++.plan-place-source-backdrop { position: absolute; inset: 0; border: 0; background: rgba(9, 9, 11, 0.48); cursor: pointer; }
++.plan-place-source-sheet { position: relative; z-index: 1; display: grid; gap: 14px; width: min(100%, 620px); max-height: min(86vh, 760px); overflow: auto; border: 1px solid var(--app-border); border-radius: 30px 30px 24px 24px; background: var(--app-surface); box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28); padding: 16px; }
++.plan-place-source-grid { display: grid; gap: 10px; }
++.plan-place-source-option { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 12px; width: 100%; min-height: 78px; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface-soft); color: inherit; padding: 12px; text-align: left; cursor: pointer; }
++.plan-place-source-option:hover { border-color: var(--app-border-strong); background: var(--app-surface); }
++.plan-place-source-option--primary { border-color: color-mix(in srgb, var(--app-accent, #14b8a6) 34%, var(--app-border)); background: color-mix(in srgb, var(--app-accent, #14b8a6) 14%, var(--app-surface)); }
++.plan-place-source-option__icon { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text); font-size: 18px; font-weight: 950; }
++.plan-place-source-option span:last-child { display: grid; gap: 3px; min-width: 0; }
++.plan-place-source-option strong { color: var(--app-text); font-size: 15px; font-weight: 950; }
++.plan-place-source-option small { color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.35; }
++.plan-place-picker-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
++@media (min-width: 721px) {
++  .plan-place-source-overlay { align-items: center; justify-items: center; }
++  .plan-place-source-sheet { border-radius: 28px; }
++}
+ .plan-create-place-box { display: grid; gap: 11px; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface-soft); padding: 12px; }
+ .plan-create-place-box h4 { margin: 0; letter-spacing: -0.02em; }
+ @media (max-width: 520px) {
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index c14a27f..679e809 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -68,6 +68,8 @@ type PlanEndState = {
+ };
+ 
+ type PlanCreateStage = 'build' | 'preview';
++type PlacePickerTarget = number | 'new';
++type PlacePickerView = 'source' | 'list';
+ 
+ const EMPTY_ADVANCED_PLAN_DETAILS: AdvancedPlanDetailsState = {
+   title: '',
+@@ -399,7 +401,8 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
+   const [libraryPlaces, setLibraryPlaces] = useState<PlaceDto[]>([]);
+   const [loadingPlaces, setLoadingPlaces] = useState(false);
+-  const [pickerOpenForIndex, setPickerOpenForIndex] = useState<number | null>(null);
++  const [pickerTarget, setPickerTarget] = useState<PlacePickerTarget | null>(null);
++  const [pickerView, setPickerView] = useState<PlacePickerView>('source');
+   const [pickerTab, setPickerTab] = useState<'mine' | 'library'>('mine');
+   const [placeQuery, setPlaceQuery] = useState('');
+   const [saving, setSaving] = useState(false);
+@@ -485,11 +488,28 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   }
+ 
+   function addPlaceAndOpenPicker() {
+-    const nextIndex = places.length;
+-    const previous = places[places.length - 1];
+-    setPlaces((current) => [...current, makePlace(nextIndex, previous?.date || toDateInputValue())]);
+-    setPickerOpenForIndex(nextIndex);
++    setPickerTarget('new');
++    setPickerView('source');
+     setPickerTab(myPlaces.length ? 'mine' : 'library');
++    setPlaceQuery('');
++  }
++
++  function closePlacePicker() {
++    setPickerTarget(null);
++    setPickerView('source');
++    setPlaceQuery('');
++  }
++
++  function openPickerList(source: 'mine' | 'library') {
++    setPickerTab(source);
++    setPickerView('list');
++    setPlaceQuery('');
++  }
++
++  function useCustomPlaceFromPicker() {
++    if (pickerTarget === 'new') addPlace();
++    if (typeof pickerTarget === 'number') updatePlace(pickerTarget, resetToCustomPatch());
++    closePlacePicker();
+   }
+ 
+   function removePlace(index: number) {
+@@ -511,22 +531,35 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   }
+ 
+   function openPicker(index: number) {
+-    setPickerOpenForIndex(index);
++    setPickerTarget(index);
++    setPickerView('source');
+     setPickerTab(myPlaces.length ? 'mine' : 'library');
+     setPlaceQuery('');
+   }
+ 
+-  function openCreatePlaceForPlan(replaceIndex: number | null = null) {
++  function openCreatePlaceFromPicker() {
+     storePlanDraft(places, advancedDetails, planEnd);
+-    setPendingCreatedPlaceIndex(replaceIndex);
++    setPendingCreatedPlaceIndex(typeof pickerTarget === 'number' ? pickerTarget : null);
+     router.push('/places/new?returnTo=plan');
+   }
+ 
+   function chooseReusablePlace(place: PlaceDto) {
+-    const index = pickerOpenForIndex;
+-    if (index === null) return;
+-    updatePlace(index, applyReusablePlacePatch(place));
+-    setPickerOpenForIndex(null);
++    if (pickerTarget === null) return;
++    if (pickerTarget === 'new') {
++      setPlaces((current) => {
++        const previous = current[current.length - 1];
++        return [
++          ...current,
++          {
++            ...makePlace(current.length, previous?.date || toDateInputValue()),
++            ...applyReusablePlacePatch(place),
++          },
++        ];
++      });
++    } else {
++      updatePlace(pickerTarget, applyReusablePlacePatch(place));
++    }
++    closePlacePicker();
+     setMessage(`Added ${place.title} from ${placeSourceLabel(place)}.`);
+   }
+ 
+@@ -579,6 +612,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+     const customDescription = advancedDetails.description.trim();
+     const customCategory = advancedDetails.category.trim();
+     const customTags = parsePlanTagsInput(advancedDetails.tags);
++    const nextExplicitEnd = parseOptionalPlanEnd(planEnd, nextSchedule.startsAt);
+     if (nextSchedule.error || !nextSchedule.startsAt || usablePlaces.length === 0) {
+       setError(nextSchedule.error || 'Add at least one place with a valid date and time.');
+       return;
+@@ -637,7 +671,8 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+     }
+   }
+ 
+-  const activePickerPlace = pickerOpenForIndex === null ? null : places[pickerOpenForIndex] ?? null;
++  const pickerIsOpen = pickerTarget !== null;
++  const pickerTitle = pickerTarget === 'new' ? 'Choose place source' : `Choose Place ${typeof pickerTarget === 'number' ? pickerTarget + 1 : ''}`;
+ 
+   return (
+     <PlansFeatureGate plansEnabled={plansEnabled}>
+@@ -768,8 +803,6 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                     </div>
+                     <div className="plan-timeline-row__actions">
+                       <button type="button" className="button primary" onClick={addPlaceAndOpenPicker}>+ Add place</button>
+-                      <button type="button" className="button secondary" onClick={() => openCreatePlaceForPlan(null)}>Create My Place</button>
+-                      <button type="button" className="button secondary" onClick={addPlace}>Custom stop</button>
+                     </div>
+                   </div>
+ 
+@@ -845,32 +878,60 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+           </form>
+         ) : null}
+ 
+-        {activePickerPlace ? (
+-          <section className="mobile-card plan-place-picker-panel" aria-label="Place picker">
+-            <div className="plan-detail-topbar">
+-              <div>
+-                <h3>Choose Place {pickerOpenForIndex !== null ? pickerOpenForIndex + 1 : ''}</h3>
+-                <p className="meta">Saved Places are copied as snapshots into this Plan.</p>
++        {pickerIsOpen ? (
++          <div className="plan-place-source-overlay" role="presentation">
++            <button type="button" className="plan-place-source-backdrop" aria-label="Close place source" onClick={closePlacePicker} />
++            <section className="plan-place-source-sheet" role="dialog" aria-modal="true" aria-label={pickerTitle}>
++              <div className="plan-detail-topbar">
++                <div>
++                  <h3>{pickerView === 'source' ? 'Choose place source' : pickerTab === 'mine' ? 'Choose from My Places' : 'Choose from Hellowhen Library'}</h3>
++                  <p className="meta">Saved Places are copied as snapshots into this Plan.</p>
++                </div>
++                <button type="button" className="plans-feed-icon-button" onClick={closePlacePicker} aria-label="Close Place picker">×</button>
+               </div>
+-              <button type="button" className="plans-feed-icon-button" onClick={() => setPickerOpenForIndex(null)} aria-label="Close Place picker">×</button>
+-            </div>
+-            <div className="plans-tabs" role="tablist" aria-label="Place Library source">
+-              <button type="button" className={pickerTab === 'mine' ? 'is-active' : ''} onClick={() => setPickerTab('mine')}>My Places</button>
+-              <button type="button" className={pickerTab === 'library' ? 'is-active' : ''} onClick={() => setPickerTab('library')}>Hellowhen Library</button>
+-            </div>
+-            <label>
+-              <span>Search Places</span>
+-              <input value={placeQuery} onChange={(event) => setPlaceQuery(event.target.value)} placeholder="Search title, category, area..." />
+-            </label>
+-            {pickerTab === 'mine' ? (
+-              <PlacePickerList places={filteredMyPlaces} emptyLabel="No matching My Places yet. Create one below or use a custom place." onChoose={chooseReusablePlace} />
+-            ) : (
+-              <PlacePickerList places={filteredLibraryPlaces} emptyLabel="No matching Hellowhen Library Places yet." onChoose={chooseReusablePlace} />
+-            )}
+-            <button type="button" className="button secondary full" onClick={() => openCreatePlaceForPlan(pickerOpenForIndex)}>
+-              Create new My Place on its own screen
+-            </button>
+-          </section>
++
++              {pickerView === 'source' ? (
++                <div className="plan-place-source-grid">
++                  <button type="button" className="plan-place-source-option plan-place-source-option--primary" onClick={() => openPickerList('mine')}>
++                    <span className="plan-place-source-option__icon">⌖</span>
++                    <span><strong>Use one of mine</strong><small>Choose from your private saved Places.</small></span>
++                  </button>
++                  <button type="button" className="plan-place-source-option" onClick={() => openPickerList('library')}>
++                    <span className="plan-place-source-option__icon">✦</span>
++                    <span><strong>Use Hellowhen Library</strong><small>Start from reusable Hellowhen Places.</small></span>
++                  </button>
++                  <button type="button" className="plan-place-source-option" onClick={openCreatePlaceFromPicker}>
++                    <span className="plan-place-source-option__icon">＋</span>
++                    <span><strong>Create a new Place</strong><small>Save it, then return with it selected.</small></span>
++                  </button>
++                  <button type="button" className="plan-place-source-option" onClick={useCustomPlaceFromPicker}>
++                    <span className="plan-place-source-option__icon">•••</span>
++                    <span><strong>Custom one-off stop</strong><small>Use only inside this Plan.</small></span>
++                  </button>
++                </div>
++              ) : (
++                <div className="plan-place-picker-panel">
++                  <div className="plans-tabs" role="tablist" aria-label="Place Library source">
++                    <button type="button" className={pickerTab === 'mine' ? 'is-active' : ''} onClick={() => openPickerList('mine')}>My Places</button>
++                    <button type="button" className={pickerTab === 'library' ? 'is-active' : ''} onClick={() => openPickerList('library')}>Hellowhen Library</button>
++                  </div>
++                  <label>
++                    <span>Search Places</span>
++                    <input value={placeQuery} onChange={(event) => setPlaceQuery(event.target.value)} placeholder="Search title, category, area..." />
++                  </label>
++                  {pickerTab === 'mine' ? (
++                    <PlacePickerList places={filteredMyPlaces} emptyLabel="No matching My Places yet. Create one from the source menu or use a custom stop." onChoose={chooseReusablePlace} />
++                  ) : (
++                    <PlacePickerList places={filteredLibraryPlaces} emptyLabel="No matching Hellowhen Library Places yet." onChoose={chooseReusablePlace} />
++                  )}
++                  <div className="plan-place-picker-actions">
++                    <button type="button" className="button secondary" onClick={() => setPickerView('source')}>Back to sources</button>
++                    <button type="button" className="button secondary" onClick={openCreatePlaceFromPicker}>Create new Place</button>
++                  </div>
++                </div>
++              )}
++            </section>
++          </div>
+         ) : null}
+       </main>
+     </PlansFeatureGate>

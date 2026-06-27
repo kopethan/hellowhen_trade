@@ -26,8 +26,8 @@ export const planPlaceInputSchema = planPlaceInputBaseSchema.refine((value) => {
     return new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime();
 }, { message: 'Place end time must be after the start time.', path: ['endsAt'] });
 export const createPlanRequestSchema = z.object({
-    title: z.string().trim().min(3).max(120),
-    description: z.string().trim().min(10).max(2000),
+    title: z.string().trim().min(3).max(120).optional(),
+    description: z.string().trim().min(10).max(2000).optional(),
     category: z.string().trim().min(1).max(80).optional(),
     tags: planTagSchema,
     mode: tradeExchangeModeSchema.optional(),

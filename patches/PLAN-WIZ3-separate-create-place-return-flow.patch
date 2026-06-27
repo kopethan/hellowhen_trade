@@ -1,0 +1,814 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 7cd799f..03c048d 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1,4 +1,4 @@
+-import React, { useCallback, useMemo, useState } from 'react';
++import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+ import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+@@ -954,35 +954,7 @@ function PlaceEditorCard({
+   );
+ }
+ 
+-function QuickCreatePlaceBox({ state, onChange, onSave, saving }: { state: PlaceCreateFormState; onChange: (state: PlaceCreateFormState) => void; onSave: () => void; saving?: boolean }) {
+-  const theme = useThemeTokens();
+-  return (
+-    <View style={[styles.quickCreateBox, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-      <View style={styles.sectionTitleRow}>
+-        <AppText style={styles.sectionTitle}>Create My Place</AppText>
+-        <SemanticBadge label="Private" tone="proposal" size="sm" />
+-      </View>
+-      <ModeSegment value={state.mode} onChange={(mode) => onChange({ ...state, mode })} />
+-      <TextField label="Place name" value={state.title} onChangeText={(title) => onChange({ ...state, title })} placeholder="Quiet coffee near République" maxLength={120} />
+-      <TextField label="Category" value={state.category} onChangeText={(category) => onChange({ ...state, category })} placeholder="Work, culture, food..." maxLength={80} />
+-      {state.mode === 'remote' ? (
+-        <>
+-          <TextField label="Online label" value={state.onlineLabel} onChangeText={(onlineLabel) => onChange({ ...state, onlineLabel })} placeholder="Zoom, Discord, website" maxLength={120} />
+-          <TextField label="Online URL" value={state.onlineUrl} onChangeText={(onlineUrl) => onChange({ ...state, onlineUrl })} placeholder="https://..." keyboardType="url" maxLength={500} />
+-        </>
+-      ) : (
+-        <TextField label="Area / address" value={state.location} onChangeText={(location) => onChange({ ...state, location })} placeholder="Paris 11 or meeting point" maxLength={240} />
+-      )}
+-      <TextField label="Description" value={state.description} onChangeText={(description) => onChange({ ...state, description })} placeholder="Reusable Place description." multiline maxLength={2000} />
+-      <TextField label="Default note" value={state.note} onChangeText={(note) => onChange({ ...state, note })} placeholder="What this Place is good for." multiline maxLength={1000} />
+-      <Pressable accessibilityRole="button" disabled={saving || state.title.trim().length < 3} onPress={onSave} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed, (saving || state.title.trim().length < 3) && styles.disabled]}>
+-        <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? 'Saving...' : 'Save My Place'}</AppText>
+-      </Pressable>
+-    </View>
+-  );
+-}
+-
+-export function CreatePlanScreen({ navigation }: SimpleScreenProps<'CreatePlan'>) {
++export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'CreatePlan'>) {
+   const theme = useThemeTokens();
+   const [places, setPlaces] = useState<SelectedPlanPlaceState[]>([]);
+   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
+@@ -991,9 +963,7 @@ export function CreatePlanScreen({ navigation }: SimpleScreenProps<'CreatePlan'>
+   const [placeQuery, setPlaceQuery] = useState('');
+   const [loadingPlaces, setLoadingPlaces] = useState(false);
+   const [saving, setSaving] = useState(false);
+-  const [quickCreateOpen, setQuickCreateOpen] = useState(false);
+-  const [quickPlace, setQuickPlace] = useState<PlaceCreateFormState>(makePlaceCreateForm());
+-  const [creatingPlace, setCreatingPlace] = useState(false);
++  const handledCreatedPlaceNonceRef = useRef<number | undefined>(undefined);
+   const [message, setMessage] = useState<string | null>(null);
+   const [error, setError] = useState<string | null>(null);
+ 
+@@ -1027,6 +997,17 @@ export function CreatePlanScreen({ navigation }: SimpleScreenProps<'CreatePlan'>
+ 
+   useFocusEffect(useCallback(() => { void loadReusablePlaces(); }, [loadReusablePlaces]));
+ 
++
++  useEffect(() => {
++    const createdPlace = route.params?.createdPlace;
++    const createdPlaceNonce = route.params?.createdPlaceNonce;
++    if (!createdPlace || !createdPlaceNonce || handledCreatedPlaceNonceRef.current === createdPlaceNonce) return;
++    handledCreatedPlaceNonceRef.current = createdPlaceNonce;
++    setMyPlaces((current) => [createdPlace, ...current.filter((place) => place.id !== createdPlace.id)]);
++    addReusablePlace(createdPlace);
++    navigation.setParams({ createdPlace: undefined, createdPlaceNonce: undefined });
++  }, [navigation, route.params?.createdPlace, route.params?.createdPlaceNonce]);
++
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+ 
+   function addCustomPlace() {
+@@ -1057,35 +1038,6 @@ export function CreatePlanScreen({ navigation }: SimpleScreenProps<'CreatePlan'>
+     });
+   }
+ 
+-  async function createPlaceAndAdd() {
+-    setCreatingPlace(true);
+-    setError(null);
+-    setMessage(null);
+-    try {
+-      const response = await api.places.create({
+-        mode: quickPlace.mode,
+-        title: quickPlace.title,
+-        description: quickPlace.description.trim() || undefined,
+-        category: quickPlace.category.trim() || undefined,
+-        visibility: 'private',
+-        status: 'active',
+-        addressPublicText: quickPlace.mode === 'local' ? quickPlace.location.trim() || undefined : undefined,
+-        onlineLabel: quickPlace.mode === 'remote' ? quickPlace.onlineLabel.trim() || undefined : undefined,
+-        onlineUrl: quickPlace.mode === 'remote' ? quickPlace.onlineUrl.trim() || undefined : undefined,
+-        defaultNote: quickPlace.note.trim() || undefined,
+-      });
+-      setMyPlaces((current) => [response.place, ...current.filter((place) => place.id !== response.place.id)]);
+-      addReusablePlace(response.place);
+-      setQuickPlace(makePlaceCreateForm());
+-      setQuickCreateOpen(false);
+-      setMessage('Place saved and added to this Plan.');
+-    } catch (caughtError) {
+-      setError(getFriendlyApiErrorMessage(caughtError));
+-    } finally {
+-      setCreatingPlace(false);
+-    }
+-  }
+-
+   async function submit() {
+     const usablePlaces = places.filter((place) => place.title.trim() && place.date.trim() && place.time.trim());
+     const nextSchedule = buildMobilePlanSchedule(usablePlaces);
+@@ -1138,7 +1090,7 @@ export function CreatePlanScreen({ navigation }: SimpleScreenProps<'CreatePlan'>
+           <View style={[styles.hero, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+             <SemanticBadge label="Free join" tone="success" />
+             <AppText style={styles.heroTitle}>Create a Plan from Places</AppText>
+-            <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Choose places and times first. Hellowhen generates the Plan title and summary from the route, so users do not need to write global Plan details.</AppText>
++            <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Choose existing Places and times first. Create a new reusable Place on its own screen, then return here with your draft preserved.</AppText>
+           </View>
+ 
+ 
+@@ -1153,20 +1105,19 @@ export function CreatePlanScreen({ navigation }: SimpleScreenProps<'CreatePlan'>
+           </View>
+           <TextField label="Search Places" value={placeQuery} onChangeText={setPlaceQuery} placeholder="Search title, category, area..." />
+           {loadingPlaces ? <View style={styles.inlineSmallLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Places...</AppText></View> : null}
+-          {!loadingPlaces && activeList.length === 0 ? <EmptyBlock title="No matching Places" body={pickerTab === 'mine' ? 'Create a My Place below or add a custom one-off place.' : 'No matching Hellowhen Library Places yet.'} /> : null}
++          {!loadingPlaces && activeList.length === 0 ? <EmptyBlock title="No matching Places" body={pickerTab === 'mine' ? 'Create a My Place on its own screen or add a custom one-off place.' : 'No matching Hellowhen Library Places yet.'} /> : null}
+           {activeList.map((place) => <PlaceChoiceCard key={place.id} place={place} onAdd={() => addReusablePlace(place)} />)}
+ 
+           <View style={styles.actionGrid}>
+             <SecondaryButton label="Add custom place" icon="add" onPress={addCustomPlace} />
+-            <SecondaryButton label={quickCreateOpen ? 'Hide create place' : 'Create My Place'} icon="save" onPress={() => setQuickCreateOpen((value) => !value)} />
++            <SecondaryButton label="Create My Place" icon="save" onPress={() => navigation.navigate('CreatePlace', { returnToCreatePlan: true })} />
+           </View>
+-          {quickCreateOpen ? <QuickCreatePlaceBox state={quickPlace} onChange={setQuickPlace} saving={creatingPlace} onSave={() => { void createPlaceAndAdd(); }} /> : null}
+ 
+           <View style={styles.sectionTitleRow}>
+             <AppText style={styles.sectionTitle}>Selected Places</AppText>
+             <SemanticBadge label={`${places.length}`} tone="proposal" size="sm" />
+           </View>
+-          {places.length === 0 ? <EmptyBlock title="No places selected" body="Choose a My Place, choose a Hellowhen Library Place, or add a custom one-off place." actionLabel="Add custom place" onAction={addCustomPlace} /> : null}
++          {places.length === 0 ? <EmptyBlock title="No places selected" body="Choose a My Place, choose a Hellowhen Library Place, create a new My Place, or add a custom one-off place." actionLabel="Add custom place" onAction={addCustomPlace} /> : null}
+           {places.map((place, index) => (
+             <PlaceEditorCard
+               key={place.id}
+@@ -1203,7 +1154,7 @@ export function CreatePlanScreen({ navigation }: SimpleScreenProps<'CreatePlan'>
+ 
+           {message ? <InfoNotice tone="success" title="Plans" body={message} /> : null}
+           {error ? <InfoNotice tone="warning" title="Could not save" body={error} /> : null}
+-          <Pressable accessibilityRole="button" disabled={saving || creatingPlace} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed, (saving || creatingPlace) && styles.disabled]}>
++          <Pressable accessibilityRole="button" disabled={saving} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed, saving && styles.disabled]}>
+             <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? 'Creating...' : 'Create Plan'}</AppText>
+           </Pressable>
+         </ScrollView>
+@@ -1213,7 +1164,7 @@ export function CreatePlanScreen({ navigation }: SimpleScreenProps<'CreatePlan'>
+   );
+ }
+ 
+-export function CreatePlaceScreen({ navigation }: SimpleScreenProps<'CreatePlace'>) {
++export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'CreatePlace'>) {
+   const theme = useThemeTokens();
+   const [state, setState] = useState<PlaceCreateFormState>(makePlaceCreateForm());
+   const [saving, setSaving] = useState(false);
+@@ -1240,6 +1191,10 @@ export function CreatePlaceScreen({ navigation }: SimpleScreenProps<'CreatePlace
+         onlineUrl: state.mode === 'remote' ? state.onlineUrl.trim() || undefined : undefined,
+         defaultNote: state.note.trim() || undefined,
+       });
++      if (route.params?.returnToCreatePlan) {
++        navigation.navigate('CreatePlan', { createdPlace: response.place, createdPlaceNonce: Date.now() });
++        return;
++      }
+       setMessage(`${response.place.title} was saved to My Places.`);
+       setState(makePlaceCreateForm());
+     } catch (caughtError) {
+@@ -1276,7 +1231,7 @@ export function CreatePlaceScreen({ navigation }: SimpleScreenProps<'CreatePlace
+             {message ? <InfoNotice tone="success" title="Place saved" body={message} /> : null}
+             {error ? <InfoNotice tone="warning" title="Could not save Place" body={error} /> : null}
+             <Pressable accessibilityRole="button" disabled={saving || state.title.trim().length < 3} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed, (saving || state.title.trim().length < 3) && styles.disabled]}>
+-              <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? 'Saving...' : 'Save Place'}</AppText>
++              <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? 'Saving...' : route.params?.returnToCreatePlan ? 'Save and return to Plan' : 'Save Place'}</AppText>
+             </Pressable>
+           </View>
+         </ScrollView>
+@@ -1383,7 +1338,6 @@ const styles = StyleSheet.create({
+   choiceMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+   addMini: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+   actionGrid: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+-  quickCreateBox: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 13 },
+   placeEditorCard: { borderRadius: 24, borderWidth: 1, padding: 14, gap: 12 },
+   placeEditorHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+   smallButtonRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index f388bf3..45b9563 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -5,7 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+-import type { TradePostType } from '@hellowhen/contracts';
++import type { PlaceDto, TradePostType } from '@hellowhen/contracts';
+ import { AccountScreen } from '../features/account/AccountScreen';
+ import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen';
+ import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
+@@ -76,8 +76,8 @@ export type RootStackParamList = {
+   JoinedPlans: undefined;
+   MyPlaces: undefined;
+   PlaceLibrary: undefined;
+-  CreatePlan: undefined;
+-  CreatePlace: undefined;
++  CreatePlan: { createdPlace?: PlaceDto; createdPlaceNonce?: number } | undefined;
++  CreatePlace: { returnToCreatePlan?: boolean } | undefined;
+   SavedLibraryCollection: { collectionId: string; title?: string };
+   Membership: undefined;
+   ProPlans: undefined;
+diff --git a/apps/web/src/app/places/new/page.tsx b/apps/web/src/app/places/new/page.tsx
+new file mode 100644
+index 0000000..ca5e80a
+--- /dev/null
++++ b/apps/web/src/app/places/new/page.tsx
+@@ -0,0 +1,13 @@
++import { permanentRedirect } from 'next/navigation';
++import { noIndexMetadata } from '../../../lib/seo';
++import { PlaceCreateClient } from '../../../features/plans/PlaceCreateClient';
++import { getPlansWebFlags } from '../../../lib/serverFeatureFlags';
++
++export const metadata = noIndexMetadata('Create Place — Hellowhen Trade');
++
++export default function NewPlacePage() {
++  const flags = getPlansWebFlags();
++  if (!flags.plansEnabled) permanentRedirect('/trades');
++
++  return <PlaceCreateClient {...flags} />;
++}
+diff --git a/apps/web/src/features/account/AccountHubClient.tsx b/apps/web/src/features/account/AccountHubClient.tsx
+index fffdd52..4ae14f3 100644
+--- a/apps/web/src/features/account/AccountHubClient.tsx
++++ b/apps/web/src/features/account/AccountHubClient.tsx
+@@ -53,6 +53,7 @@ export function AccountHubClient() {
+     { href: '/plans?view=mine', titleKey: 'account.items.myPlansFeature.title', bodyKey: 'account.items.myPlansFeature.body', icon: 'activity' },
+     { href: '/plans?view=joined', titleKey: 'account.items.joinedPlansFeature.title', bodyKey: 'account.items.joinedPlansFeature.body', icon: 'proposal-accepted' },
+     { href: '/plans/new', titleKey: 'account.items.createPlanFeature.title', bodyKey: 'account.items.createPlanFeature.body', icon: 'add' },
++    { href: '/places/new', titleKey: 'account.items.createPlaceFeature.title', bodyKey: 'account.items.createPlaceFeature.body', icon: 'add' },
+   ] : [], []);
+ 
+   const accountItems = useMemo<AccountHubItem[]>(() => [
+diff --git a/apps/web/src/features/plans/PlaceCreateClient.tsx b/apps/web/src/features/plans/PlaceCreateClient.tsx
+new file mode 100644
+index 0000000..e0b68d5
+--- /dev/null
++++ b/apps/web/src/features/plans/PlaceCreateClient.tsx
+@@ -0,0 +1,178 @@
++'use client';
++
++import Link from 'next/link';
++import { useRouter, useSearchParams } from 'next/navigation';
++import type { FormEvent } from 'react';
++import { useState } from 'react';
++import type { PlanPlaceMode } from '@hellowhen/contracts';
++import { api } from '../../lib/api';
++import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
++import { useWebAuth } from '../../providers/WebAuthProvider';
++import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
++
++type PlaceCreateClientProps = {
++  plansEnabled?: boolean;
++  plansVisible?: boolean;
++};
++
++type PlaceCreateFormState = {
++  mode: PlanPlaceMode;
++  title: string;
++  description: string;
++  category: string;
++  location: string;
++  onlineLabel: string;
++  onlineUrl: string;
++  note: string;
++};
++
++function makePlaceCreateForm(): PlaceCreateFormState {
++  return {
++    mode: 'local',
++    title: '',
++    description: '',
++    category: '',
++    location: '',
++    onlineLabel: '',
++    onlineUrl: '',
++    note: '',
++  };
++}
++
++function PlaceModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (value: PlanPlaceMode) => void }) {
++  return (
++    <div className="plan-mode-segment" aria-label="Place type">
++      <button type="button" className={value === 'local' ? 'is-active' : ''} onClick={() => onChange('local')}>Local</button>
++      <button type="button" className={value === 'remote' ? 'is-active' : ''} onClick={() => onChange('remote')}>Remote</button>
++    </div>
++  );
++}
++
++export function PlaceCreateClient({ plansEnabled, plansVisible }: PlaceCreateClientProps) {
++  const router = useRouter();
++  const searchParams = useSearchParams();
++  const auth = useWebAuth();
++  const returnToPlan = searchParams.get('returnTo') === 'plan';
++  const [state, setState] = useState<PlaceCreateFormState>(makePlaceCreateForm());
++  const [saving, setSaving] = useState(false);
++  const [message, setMessage] = useState('');
++  const [error, setError] = useState('');
++
++  async function submit(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    if (!auth.isAuthenticated) {
++      router.push(`/auth?next=${encodeURIComponent(returnToPlan ? '/places/new?returnTo=plan' : '/places/new')}`);
++      return;
++    }
++    if (state.title.trim().length < 3) {
++      setError('Add a Place name.');
++      return;
++    }
++
++    setSaving(true);
++    setMessage('');
++    setError('');
++    try {
++      const response = await api.places.create({
++        mode: state.mode,
++        title: state.title,
++        description: state.description.trim() || undefined,
++        category: state.category.trim() || undefined,
++        visibility: 'private',
++        status: 'active',
++        addressPublicText: state.mode === 'local' ? state.location.trim() || undefined : undefined,
++        onlineLabel: state.mode === 'remote' ? state.onlineLabel.trim() || undefined : undefined,
++        onlineUrl: state.mode === 'remote' ? state.onlineUrl.trim() || undefined : undefined,
++        defaultNote: state.note.trim() || undefined,
++      });
++
++      if (returnToPlan) {
++        router.replace(`/plans/new?createdPlaceId=${encodeURIComponent(response.place.id)}`);
++        return;
++      }
++
++      setMessage(`${response.place.title} was saved to My Places.`);
++      setState(makePlaceCreateForm());
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError, 'Could not create Place.'));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  return (
++    <PlansFeatureGate plansEnabled={plansEnabled}>
++      <main className="mobile-page plans-page">
++        <section className="page-intro plan-create-intro">
++          <div>
++            <PlansInternalBadge plansVisible={plansVisible} />
++            <h2>Create Place</h2>
++            <p>{returnToPlan ? 'Save a reusable Place, then return to Create Plan with your draft preserved.' : 'Save a reusable offline or online Place for future Plans.'}</p>
++          </div>
++        </section>
++
++        {!auth.hydrated ? <section className="mobile-card"><p className="meta">Checking session...</p></section> : null}
++        {auth.hydrated && !auth.isAuthenticated ? (
++          <section className="mobile-card mobile-card--soft">
++            <h3>Log in required</h3>
++            <p>Create private reusable Places after signing in.</p>
++            <button type="button" className="button primary" onClick={() => router.push(`/auth?next=${encodeURIComponent(returnToPlan ? '/places/new?returnTo=plan' : '/places/new')}`)}>Log in</button>
++          </section>
++        ) : null}
++
++        {auth.isAuthenticated ? (
++          <form className="mobile-card plan-form" onSubmit={submit}>
++            <div className="plan-form__section-title">
++              <div>
++                <h3>Place details</h3>
++                <p className="meta">This Place is private by default and can be reused in future Plans.</p>
++              </div>
++              <span className="semantic-badge instruction">My Place</span>
++            </div>
++            <PlaceModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
++            <label>
++              <span>Place name</span>
++              <input value={state.title} onChange={(event) => setState((current) => ({ ...current, title: event.target.value }))} minLength={3} maxLength={120} required placeholder="Quiet coffee near République" />
++            </label>
++            <label>
++              <span>Category</span>
++              <input value={state.category} onChange={(event) => setState((current) => ({ ...current, category: event.target.value }))} maxLength={80} placeholder="Work, culture, food..." />
++            </label>
++            {state.mode === 'remote' ? (
++              <div className="plan-form__row">
++                <label>
++                  <span>Online label</span>
++                  <input value={state.onlineLabel} onChange={(event) => setState((current) => ({ ...current, onlineLabel: event.target.value }))} maxLength={120} placeholder="Zoom, Discord, website" />
++                </label>
++                <label>
++                  <span>Online URL</span>
++                  <input type="url" value={state.onlineUrl} onChange={(event) => setState((current) => ({ ...current, onlineUrl: event.target.value }))} maxLength={500} placeholder="https://..." />
++                </label>
++              </div>
++            ) : (
++              <label>
++                <span>Area / address</span>
++                <input value={state.location} onChange={(event) => setState((current) => ({ ...current, location: event.target.value }))} maxLength={240} placeholder="Paris 11 or a public meeting point" />
++              </label>
++            )}
++            <label>
++              <span>Description</span>
++              <textarea value={state.description} onChange={(event) => setState((current) => ({ ...current, description: event.target.value }))} maxLength={2000} placeholder="Reusable Place description." />
++            </label>
++            <label>
++              <span>Default note</span>
++              <textarea value={state.note} onChange={(event) => setState((current) => ({ ...current, note: event.target.value }))} maxLength={1000} placeholder="What this Place is good for." />
++            </label>
++            <p className="meta">Media upload for reusable Places can be polished separately. Plans can still add a one-image snapshot per place.</p>
++            {message ? <p className="success-message">{message}</p> : null}
++            {error ? <p className="form-error">{error}</p> : null}
++            <div className="cta-row">
++              <button className="button primary" type="submit" disabled={saving || state.title.trim().length < 3}>{saving ? 'Saving...' : returnToPlan ? 'Save and return to Plan' : 'Save Place'}</button>
++              <Link className="button secondary" href={returnToPlan ? '/plans/new' : '/plans'}>{returnToPlan ? 'Back to Plan draft' : 'Back to Plans'}</Link>
++            </div>
++          </form>
++        ) : null}
++      </main>
++    </PlansFeatureGate>
++  );
++}
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index 17a2fd1..0c4580d 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -1,10 +1,10 @@
+ 'use client';
+ 
+-import { useRouter } from 'next/navigation';
++import { useRouter, useSearchParams } from 'next/navigation';
+ import type { ChangeEvent, FormEvent } from 'react';
+ import type { MediaAssetDto, PlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
+ import { buildGeneratedPlanDisplay } from '@hellowhen/shared';
+-import { useEffect, useMemo, useState } from 'react';
++import { useEffect, useMemo, useRef, useState } from 'react';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+@@ -31,17 +31,6 @@ type PlaceFormState = {
+   uploading: boolean;
+ };
+ 
+-type NewReusablePlaceState = {
+-  mode: PlanPlaceMode;
+-  title: string;
+-  description: string;
+-  category: string;
+-  location: string;
+-  onlineLabel: string;
+-  onlineUrl: string;
+-  note: string;
+-};
+-
+ function makePlace(index: number, date = toDateInputValue()): PlaceFormState {
+   return {
+     id: `place-${Date.now()}-${index}`,
+@@ -49,7 +38,7 @@ function makePlace(index: number, date = toDateInputValue()): PlaceFormState {
+     mode: 'local',
+     date,
+     time: index === 0 ? '13:00' : '',
+-    title: index === 0 ? 'Meeting point' : '',
++    title: '',
+     location: '',
+     onlineLabel: '',
+     onlineUrl: '',
+@@ -60,17 +49,66 @@ function makePlace(index: number, date = toDateInputValue()): PlaceFormState {
+   };
+ }
+ 
+-function makeNewReusablePlace(): NewReusablePlaceState {
+-  return {
+-    mode: 'local',
+-    title: '',
+-    description: '',
+-    category: '',
+-    location: '',
+-    onlineLabel: '',
+-    onlineUrl: '',
+-    note: '',
+-  };
++
++const PLAN_CREATE_DRAFT_STORAGE_KEY = 'hellowhen.planCreateDraft.v1';
++const PLAN_CREATE_PENDING_PLACE_INDEX_KEY = 'hellowhen.planCreateDraft.pendingPlaceIndex.v1';
++
++type StoredPlaceFormState = Omit<PlaceFormState, 'uploading'>;
++
++function safeReadPlanDraft(): PlaceFormState[] {
++  if (typeof window === 'undefined') return [];
++  try {
++    const rawDraft = window.sessionStorage.getItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
++    if (!rawDraft) return [];
++    const parsed = JSON.parse(rawDraft) as { places?: StoredPlaceFormState[] };
++    if (!Array.isArray(parsed.places)) return [];
++    return parsed.places.map((place, index) => ({
++      id: typeof place.id === 'string' ? place.id : `place-${Date.now()}-${index}`,
++      sourcePlaceId: place.sourcePlaceId,
++      sourcePlaceSource: place.sourcePlaceSource ?? 'custom',
++      sourcePlaceTitle: place.sourcePlaceTitle,
++      mode: place.mode === 'remote' ? 'remote' : 'local',
++      date: place.date || toDateInputValue(),
++      time: place.time || '',
++      title: place.title || '',
++      location: place.location || '',
++      onlineLabel: place.onlineLabel || '',
++      onlineUrl: place.onlineUrl || '',
++      note: place.note || '',
++      existingMedia: place.existingMedia ?? null,
++      media: place.media ?? null,
++      uploading: false,
++    }));
++  } catch {
++    return [];
++  }
++}
++
++function storePlanDraft(places: PlaceFormState[]) {
++  if (typeof window === 'undefined') return;
++  const safePlaces: StoredPlaceFormState[] = places.map(({ uploading: _uploading, ...place }) => place);
++  window.sessionStorage.setItem(PLAN_CREATE_DRAFT_STORAGE_KEY, JSON.stringify({ places: safePlaces }));
++}
++
++function clearPlanDraft() {
++  if (typeof window === 'undefined') return;
++  window.sessionStorage.removeItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
++  window.sessionStorage.removeItem(PLAN_CREATE_PENDING_PLACE_INDEX_KEY);
++}
++
++function setPendingCreatedPlaceIndex(index: number | null) {
++  if (typeof window === 'undefined') return;
++  if (index === null) window.sessionStorage.removeItem(PLAN_CREATE_PENDING_PLACE_INDEX_KEY);
++  else window.sessionStorage.setItem(PLAN_CREATE_PENDING_PLACE_INDEX_KEY, String(index));
++}
++
++function takePendingCreatedPlaceIndex() {
++  if (typeof window === 'undefined') return null;
++  const rawIndex = window.sessionStorage.getItem(PLAN_CREATE_PENDING_PLACE_INDEX_KEY);
++  window.sessionStorage.removeItem(PLAN_CREATE_PENDING_PLACE_INDEX_KEY);
++  if (rawIndex === null) return null;
++  const index = Number(rawIndex);
++  return Number.isInteger(index) && index >= 0 ? index : null;
+ }
+ 
+ function normalizePlanMediaUpload(value: unknown): MediaAssetDto | null {
+@@ -217,17 +255,17 @@ type PlanCreateClientProps = {
+ 
+ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClientProps) {
+   const router = useRouter();
++  const searchParams = useSearchParams();
+   const auth = useWebAuth();
+-  const [places, setPlaces] = useState<PlaceFormState[]>([]);
++  const createdPlaceId = searchParams.get('createdPlaceId');
++  const handledCreatedPlaceIdRef = useRef<string | null>(null);
++  const [places, setPlaces] = useState<PlaceFormState[]>(() => safeReadPlanDraft());
+   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
+   const [libraryPlaces, setLibraryPlaces] = useState<PlaceDto[]>([]);
+   const [loadingPlaces, setLoadingPlaces] = useState(false);
+   const [pickerOpenForIndex, setPickerOpenForIndex] = useState<number | null>(null);
+   const [pickerTab, setPickerTab] = useState<'mine' | 'library'>('mine');
+   const [placeQuery, setPlaceQuery] = useState('');
+-  const [createPlaceOpen, setCreatePlaceOpen] = useState(false);
+-  const [newReusablePlace, setNewReusablePlace] = useState<NewReusablePlaceState>(makeNewReusablePlace());
+-  const [creatingPlace, setCreatingPlace] = useState(false);
+   const [saving, setSaving] = useState(false);
+   const [message, setMessage] = useState('');
+   const [error, setError] = useState('');
+@@ -267,6 +305,34 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+     void loadReusablePlaces();
+   }, [auth.hydrated, auth.isAuthenticated]);
+ 
++
++  useEffect(() => {
++    storePlanDraft(places);
++  }, [places]);
++
++  useEffect(() => {
++    if (!createdPlaceId || handledCreatedPlaceIdRef.current === createdPlaceId) return;
++    const createdPlace = myPlaces.find((place) => place.id === createdPlaceId);
++    if (!createdPlace) return;
++    handledCreatedPlaceIdRef.current = createdPlaceId;
++    const pendingIndex = takePendingCreatedPlaceIndex();
++    setPlaces((current) => {
++      if (pendingIndex !== null && current[pendingIndex]) {
++        return current.map((place, placeIndex) => placeIndex === pendingIndex ? { ...place, ...applyReusablePlacePatch(createdPlace) } : place);
++      }
++      const previous = current[current.length - 1];
++      return [
++        ...current,
++        {
++          ...makePlace(current.length, previous?.date || toDateInputValue()),
++          ...applyReusablePlacePatch(createdPlace),
++        },
++      ];
++    });
++    setMessage(`Place saved and added to this Plan.`);
++    router.replace('/plans/new', { scroll: false });
++  }, [createdPlaceId, myPlaces, router]);
++
+   function updatePlace(index: number, update: Partial<PlaceFormState>) {
+     setPlaces((current) => current.map((place, placeIndex) => placeIndex === index ? { ...place, ...update } : place));
+   }
+@@ -284,7 +350,6 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+     setPlaces((current) => [...current, makePlace(nextIndex, previous?.date || toDateInputValue())]);
+     setPickerOpenForIndex(nextIndex);
+     setPickerTab(myPlaces.length ? 'mine' : 'library');
+-    setCreatePlaceOpen(false);
+   }
+ 
+   function removePlace(index: number) {
+@@ -308,51 +373,23 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   function openPicker(index: number) {
+     setPickerOpenForIndex(index);
+     setPickerTab(myPlaces.length ? 'mine' : 'library');
+-    setCreatePlaceOpen(false);
+     setPlaceQuery('');
+   }
+ 
++  function openCreatePlaceForPlan(replaceIndex: number | null = null) {
++    storePlanDraft(places);
++    setPendingCreatedPlaceIndex(replaceIndex);
++    router.push('/places/new?returnTo=plan');
++  }
++
+   function chooseReusablePlace(place: PlaceDto) {
+     const index = pickerOpenForIndex;
+     if (index === null) return;
+     updatePlace(index, applyReusablePlacePatch(place));
+     setPickerOpenForIndex(null);
+-    setCreatePlaceOpen(false);
+     setMessage(`Added ${place.title} from ${placeSourceLabel(place)}.`);
+   }
+ 
+-  async function createReusablePlaceForPicker() {
+-    const index = pickerOpenForIndex;
+-    if (index === null) return;
+-    setCreatingPlace(true);
+-    setError('');
+-    setMessage('');
+-    try {
+-      const response = await api.places.create({
+-        mode: newReusablePlace.mode,
+-        title: newReusablePlace.title,
+-        description: newReusablePlace.description.trim() || undefined,
+-        category: newReusablePlace.category.trim() || undefined,
+-        visibility: 'private',
+-        status: 'active',
+-        addressPublicText: newReusablePlace.mode === 'local' ? newReusablePlace.location.trim() || undefined : undefined,
+-        onlineLabel: newReusablePlace.mode === 'remote' ? newReusablePlace.onlineLabel.trim() || undefined : undefined,
+-        onlineUrl: newReusablePlace.mode === 'remote' ? newReusablePlace.onlineUrl.trim() || undefined : undefined,
+-        defaultNote: newReusablePlace.note.trim() || undefined,
+-      });
+-      setMyPlaces((current) => [response.place, ...current.filter((place) => place.id !== response.place.id)]);
+-      updatePlace(index, applyReusablePlacePatch(response.place));
+-      setCreatePlaceOpen(false);
+-      setPickerOpenForIndex(null);
+-      setNewReusablePlace(makeNewReusablePlace());
+-      setMessage('Place saved and added to this Plan.');
+-    } catch (createError) {
+-      setError(getFriendlyApiErrorMessage(createError, 'Could not create Place.'));
+-    } finally {
+-      setCreatingPlace(false);
+-    }
+-  }
+-
+   async function uploadPlaceImage(index: number, files: FileList | null) {
+     const file = files?.[0];
+     if (!file) return;
+@@ -416,6 +453,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+           mediaIds: selectedMediaIds(place.media),
+         })),
+       });
++      clearPlanDraft();
+       router.replace(`/plans/${response.plan.id}`);
+     } catch (saveError) {
+       setError(getFriendlyApiErrorMessage(saveError, 'Could not create Plan.'));
+@@ -433,7 +471,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+           <div>
+             <PlansInternalBadge plansVisible={plansVisible} />
+             <h2>Create Plan</h2>
+-            <p>Choose places and times first. Hellowhen generates the Plan title and summary from the route, so users do not need to write global Plan details.</p>
++            <p>Choose existing Places and times first. Create a new reusable Place on its own screen, then return here with your draft preserved.</p>
+           </div>
+         </section>
+ 
+@@ -455,6 +493,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+               </div>
+               <div className="cta-row">
+                 <button type="button" className="button secondary" onClick={addPlaceAndOpenPicker}>+ Choose place</button>
++                <button type="button" className="button secondary" onClick={() => openCreatePlaceForPlan(null)}>+ Create My Place</button>
+                 <button type="button" className="button secondary" onClick={addPlace}>+ Custom</button>
+               </div>
+             </div>
+@@ -463,9 +502,10 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+             {places.length === 0 ? (
+               <section className="mobile-card mobile-card--soft">
+                 <h3>No places selected yet</h3>
+-                <p>Start with an existing Place from My Places or the Hellowhen Library. You can also add a custom one-off stop.</p>
++                <p>Start with an existing Place from My Places or the Hellowhen Library. If you need a new reusable Place, create it on the Place screen and come back here.</p>
+                 <div className="cta-row">
+                   <button type="button" className="button primary" onClick={addPlaceAndOpenPicker}>Choose first place</button>
++                  <button type="button" className="button secondary" onClick={() => openCreatePlaceForPlan(null)}>Create My Place</button>
+                   <button type="button" className="button secondary" onClick={addPlace}>Add custom place</button>
+                 </div>
+               </section>
+@@ -550,7 +590,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+             {schedule.error && places.length > 0 ? <p className="form-error">{schedule.error}</p> : null}
+             {message ? <p className="success-message">{message}</p> : null}
+             {error ? <p className="form-error">{error}</p> : null}
+-            <button className="button primary full" type="submit" disabled={saving || creatingPlace || places.some((place) => place.uploading)}>{saving ? 'Creating...' : 'Create Plan'}</button>
++            <button className="button primary full" type="submit" disabled={saving || places.some((place) => place.uploading)}>{saving ? 'Creating...' : 'Create Plan'}</button>
+           </form>
+         ) : null}
+ 
+@@ -576,54 +616,9 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+             ) : (
+               <PlacePickerList places={filteredLibraryPlaces} emptyLabel="No matching Hellowhen Library Places yet." onChoose={chooseReusablePlace} />
+             )}
+-            <button type="button" className="button secondary full" onClick={() => setCreatePlaceOpen((current) => !current)}>
+-              {createPlaceOpen ? 'Hide create place' : '+ Create My Place'}
++            <button type="button" className="button secondary full" onClick={() => openCreatePlaceForPlan(pickerOpenForIndex)}>
++              Create new My Place on its own screen
+             </button>
+-            {createPlaceOpen ? (
+-              <div className="plan-create-place-box">
+-                <h4>Create My Place</h4>
+-                <PlaceModeSegment value={newReusablePlace.mode} onChange={(mode) => setNewReusablePlace((current) => ({ ...current, mode }))} />
+-                <label>
+-                  <span>Place name</span>
+-                  <input value={newReusablePlace.title} onChange={(event) => setNewReusablePlace((current) => ({ ...current, title: event.target.value }))} minLength={3} maxLength={120} required placeholder="Quiet coffee near République" />
+-                </label>
+-                <div className="plan-form__row">
+-                  <label>
+-                    <span>Category</span>
+-                    <input value={newReusablePlace.category} onChange={(event) => setNewReusablePlace((current) => ({ ...current, category: event.target.value }))} maxLength={80} placeholder="Culture, Work, Food..." />
+-                  </label>
+-                  {newReusablePlace.mode === 'local' ? (
+-                    <label>
+-                      <span>Area / address</span>
+-                      <input value={newReusablePlace.location} onChange={(event) => setNewReusablePlace((current) => ({ ...current, location: event.target.value }))} maxLength={240} placeholder="Paris 11 or meeting point" />
+-                    </label>
+-                  ) : (
+-                    <label>
+-                      <span>Online label</span>
+-                      <input value={newReusablePlace.onlineLabel} onChange={(event) => setNewReusablePlace((current) => ({ ...current, onlineLabel: event.target.value }))} maxLength={120} placeholder="Zoom, Discord, website" />
+-                    </label>
+-                  )}
+-                </div>
+-                {newReusablePlace.mode === 'remote' ? (
+-                  <label>
+-                    <span>Online URL</span>
+-                    <input type="url" value={newReusablePlace.onlineUrl} onChange={(event) => setNewReusablePlace((current) => ({ ...current, onlineUrl: event.target.value }))} maxLength={500} placeholder="https://..." />
+-                  </label>
+-                ) : null}
+-                <label>
+-                  <span>Description</span>
+-                  <textarea value={newReusablePlace.description} onChange={(event) => setNewReusablePlace((current) => ({ ...current, description: event.target.value }))} maxLength={2000} placeholder="Reusable place description." />
+-                </label>
+-                <label>
+-                  <span>Default note</span>
+-                  <textarea value={newReusablePlace.note} onChange={(event) => setNewReusablePlace((current) => ({ ...current, note: event.target.value }))} maxLength={1000} placeholder="What this place is good for." />
+-                </label>
+-                <div className="cta-row">
+-                  <button type="button" className="button secondary" onClick={() => setNewReusablePlace(makeNewReusablePlace())}>Reset</button>
+-                  <button type="button" className="button primary" disabled={creatingPlace || !newReusablePlace.title.trim()} onClick={() => void createReusablePlaceForPicker()}>{creatingPlace ? 'Saving...' : 'Save and use Place'}</button>
+-                </div>
+-              </div>
+-            ) : null}
+           </section>
+         ) : null}
+       </main>
+diff --git a/apps/web/src/lib/webRoutes.ts b/apps/web/src/lib/webRoutes.ts
+index c953f48..1c5dbc6 100644
+--- a/apps/web/src/lib/webRoutes.ts
++++ b/apps/web/src/lib/webRoutes.ts
+@@ -83,6 +83,7 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; titleKey: strin
+   { match: (pathname) => pathname === '/plans', titleKey: 'navigation.routes.plans', root: true },
+   { match: (pathname) => pathname === '/trades/create', titleKey: 'navigation.routes.createTrade', backHref: '/trades' },
+   { match: (pathname) => pathname === '/plans/new', titleKey: 'navigation.routes.createPlan', backHref: '/plans' },
++  { match: (pathname) => pathname === '/places/new', titleKey: 'navigation.routes.createPlace', backHref: '/plans' },
+   { match: (pathname) => /^\/plans\/[^/]+\/edit$/.test(pathname), titleKey: 'navigation.routes.editPlan', backHref: '/plans' },
+   { match: (pathname) => /^\/plans\/[^/]+$/.test(pathname), titleKey: 'navigation.routes.plan', backHref: '/plans' },
+   { match: (pathname) => /^\/users\/[^/]+$/.test(pathname), titleKey: 'navigation.routes.profile', backHref: '/trades' },
+diff --git a/packages/i18n/src/locales/en/navigation.ts b/packages/i18n/src/locales/en/navigation.ts
+index 8da514d..648e82d 100644
+--- a/packages/i18n/src/locales/en/navigation.ts
++++ b/packages/i18n/src/locales/en/navigation.ts
+@@ -22,6 +22,7 @@ export const navigation = {
+     plan: 'Plan',
+     plans: 'Plans',
+     createPlan: 'Create plan',
++    createPlace: 'Create place',
+     editPlan: 'Edit plan',
+     profile: 'Profile',
+     trade: 'Trade',
+diff --git a/packages/i18n/src/locales/fr/navigation.ts b/packages/i18n/src/locales/fr/navigation.ts
+index 090fad5..913ecf5 100644
+--- a/packages/i18n/src/locales/fr/navigation.ts
++++ b/packages/i18n/src/locales/fr/navigation.ts
+@@ -22,6 +22,7 @@ export const navigation = {
+     plan: 'Plan',
+     plans: 'Plans',
+     createPlan: 'Créer un plan',
++    createPlace: 'Créer un lieu',
+     editPlan: 'Modifier le plan',
+     profile: 'Profil',
+     trade: 'Échange',

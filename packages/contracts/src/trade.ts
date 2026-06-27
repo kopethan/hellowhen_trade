@@ -95,7 +95,7 @@ export const cashPromiseInputSchema = z.object({
 
 export const inventoryTranslationSchema = z.object({
   id: z.string().optional(),
-  targetType: z.enum(['need', 'offer']).optional(),
+  targetType: z.enum(['need', 'offer', 'place']).optional(),
   targetId: z.string().optional(),
   languageCode: discoveryLanguageSchema,
   title: z.string(),

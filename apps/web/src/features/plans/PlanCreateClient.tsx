@@ -1,9 +1,10 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { ChangeEvent, FormEvent } from 'react';
 import type { MediaAssetDto, PlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
-import { useEffect, useMemo, useState } from 'react';
+import { buildGeneratedPlanDisplay } from '@hellowhen/shared';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
@@ -24,21 +25,9 @@ type PlaceFormState = {
   location: string;
   onlineLabel: string;
   onlineUrl: string;
-  note: string;
   existingMedia: MediaAssetDto | null;
   media: MediaAssetDto | null;
   uploading: boolean;
-};
-
-type NewReusablePlaceState = {
-  mode: PlanPlaceMode;
-  title: string;
-  description: string;
-  category: string;
-  location: string;
-  onlineLabel: string;
-  onlineUrl: string;
-  note: string;
 };
 
 function makePlace(index: number, date = toDateInputValue()): PlaceFormState {
@@ -48,28 +37,135 @@ function makePlace(index: number, date = toDateInputValue()): PlaceFormState {
     mode: 'local',
     date,
     time: index === 0 ? '13:00' : '',
-    title: index === 0 ? 'Meeting point' : '',
+    title: '',
     location: '',
     onlineLabel: '',
     onlineUrl: '',
-    note: '',
     existingMedia: null,
     media: null,
     uploading: false,
   };
 }
 
-function makeNewReusablePlace(): NewReusablePlaceState {
-  return {
-    mode: 'local',
-    title: '',
-    description: '',
-    category: '',
-    location: '',
-    onlineLabel: '',
-    onlineUrl: '',
-    note: '',
-  };
+
+const PLAN_CREATE_DRAFT_STORAGE_KEY = 'hellowhen.planCreateDraft.v1';
+const PLAN_CREATE_PENDING_PLACE_INDEX_KEY = 'hellowhen.planCreateDraft.pendingPlaceIndex.v1';
+
+type StoredPlaceFormState = Omit<PlaceFormState, 'uploading'>;
+
+type AdvancedPlanDetailsState = {
+  title: string;
+  description: string;
+  category: string;
+  tags: string;
+};
+
+type PlanEndState = {
+  date: string;
+  time: string;
+};
+
+type PlanCreateStage = 'build' | 'preview';
+type PlacePickerTarget = number | 'new';
+type PlacePickerView = 'source' | 'list';
+
+const EMPTY_ADVANCED_PLAN_DETAILS: AdvancedPlanDetailsState = {
+  title: '',
+  description: '',
+  category: '',
+  tags: '',
+};
+
+const EMPTY_PLAN_END_STATE: PlanEndState = {
+  date: '',
+  time: '',
+};
+
+function safeReadAdvancedPlanDetails(): AdvancedPlanDetailsState {
+  if (typeof window === 'undefined') return EMPTY_ADVANCED_PLAN_DETAILS;
+  try {
+    const rawDraft = window.sessionStorage.getItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
+    if (!rawDraft) return EMPTY_ADVANCED_PLAN_DETAILS;
+    const parsed = JSON.parse(rawDraft) as { advanced?: Partial<AdvancedPlanDetailsState> };
+    return {
+      title: typeof parsed.advanced?.title === 'string' ? parsed.advanced.title : '',
+      description: typeof parsed.advanced?.description === 'string' ? parsed.advanced.description : '',
+      category: typeof parsed.advanced?.category === 'string' ? parsed.advanced.category : '',
+      tags: typeof parsed.advanced?.tags === 'string' ? parsed.advanced.tags : '',
+    };
+  } catch {
+    return EMPTY_ADVANCED_PLAN_DETAILS;
+  }
+}
+
+function safeReadPlanEndState(): PlanEndState {
+  if (typeof window === 'undefined') return EMPTY_PLAN_END_STATE;
+  try {
+    const rawDraft = window.sessionStorage.getItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
+    if (!rawDraft) return EMPTY_PLAN_END_STATE;
+    const parsed = JSON.parse(rawDraft) as { end?: Partial<PlanEndState> };
+    return {
+      date: typeof parsed.end?.date === 'string' ? parsed.end.date : '',
+      time: typeof parsed.end?.time === 'string' ? parsed.end.time : '',
+    };
+  } catch {
+    return EMPTY_PLAN_END_STATE;
+  }
+}
+
+function safeReadPlanDraft(): PlaceFormState[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const rawDraft = window.sessionStorage.getItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
+    if (!rawDraft) return [];
+    const parsed = JSON.parse(rawDraft) as { places?: StoredPlaceFormState[] };
+    if (!Array.isArray(parsed.places)) return [];
+    return parsed.places.map((place, index) => ({
+      id: typeof place.id === 'string' ? place.id : `place-${Date.now()}-${index}`,
+      sourcePlaceId: place.sourcePlaceId,
+      sourcePlaceSource: place.sourcePlaceSource ?? 'custom',
+      sourcePlaceTitle: place.sourcePlaceTitle,
+      mode: place.mode === 'remote' ? 'remote' : 'local',
+      date: place.date || toDateInputValue(),
+      time: place.time || '',
+      title: place.title || '',
+      location: place.location || '',
+      onlineLabel: place.onlineLabel || '',
+      onlineUrl: place.onlineUrl || '',
+      existingMedia: place.existingMedia ?? null,
+      media: place.media ?? null,
+      uploading: false,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function storePlanDraft(places: PlaceFormState[], advanced: AdvancedPlanDetailsState = EMPTY_ADVANCED_PLAN_DETAILS, end: PlanEndState = EMPTY_PLAN_END_STATE) {
+  if (typeof window === 'undefined') return;
+  const safePlaces: StoredPlaceFormState[] = places.map(({ uploading: _uploading, ...place }) => place);
+  window.sessionStorage.setItem(PLAN_CREATE_DRAFT_STORAGE_KEY, JSON.stringify({ places: safePlaces, advanced, end }));
+}
+
+function clearPlanDraft() {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.removeItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
+  window.sessionStorage.removeItem(PLAN_CREATE_PENDING_PLACE_INDEX_KEY);
+}
+
+function setPendingCreatedPlaceIndex(index: number | null) {
+  if (typeof window === 'undefined') return;
+  if (index === null) window.sessionStorage.removeItem(PLAN_CREATE_PENDING_PLACE_INDEX_KEY);
+  else window.sessionStorage.setItem(PLAN_CREATE_PENDING_PLACE_INDEX_KEY, String(index));
+}
+
+function takePendingCreatedPlaceIndex() {
+  if (typeof window === 'undefined') return null;
+  const rawIndex = window.sessionStorage.getItem(PLAN_CREATE_PENDING_PLACE_INDEX_KEY);
+  window.sessionStorage.removeItem(PLAN_CREATE_PENDING_PLACE_INDEX_KEY);
+  if (rawIndex === null) return null;
+  const index = Number(rawIndex);
+  return Number.isInteger(index) && index >= 0 ? index : null;
 }
 
 function normalizePlanMediaUpload(value: unknown): MediaAssetDto | null {
@@ -84,6 +180,10 @@ function selectedMediaIds(media: MediaAssetDto | null) {
   return media?.id ? [media.id] : undefined;
 }
 
+function parsePlanTagsInput(value: string) {
+  return Array.from(new Set(value.split(/[,\n]/).map((tag) => tag.trim()).filter(Boolean)));
+}
+
 function planModeFromPlaces(places: PlaceFormState[]) {
   const modes = new Set(places.map((place) => place.mode));
   if (modes.size > 1) return 'hybrid' as const;
@@ -93,6 +193,22 @@ function planModeFromPlaces(places: PlaceFormState[]) {
 function rangeLabelFromSchedule(schedule: ReturnType<typeof buildPlanSchedule>) {
   if (!schedule.startsAt) return '';
   return `${new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} → ${new Date(schedule.endsAt || schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
+}
+
+function parseOptionalPlanEnd(end: PlanEndState, fallbackStartAt: string) {
+  if (!end.date.trim() && !end.time.trim()) return { endsAt: '', error: '' };
+  if (!end.date.trim() || !end.time.trim()) return { endsAt: '', error: 'Add both an end date and end time, or leave the end empty.' };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(end.date.trim()) || !/^\d{2}:\d{2}$/.test(end.time.trim())) return { endsAt: '', error: 'Add a valid end date and time, or leave the end empty.' };
+  const parsed = new Date(`${end.date}T${end.time}:00`);
+  if (Number.isNaN(parsed.getTime())) return { endsAt: '', error: 'Add a valid end date and time, or leave the end empty.' };
+  if (fallbackStartAt && parsed.getTime() < new Date(fallbackStartAt).getTime()) return { endsAt: '', error: 'End time must be after the Plan start.' };
+  return { endsAt: parsed.toISOString(), error: '' };
+}
+
+function rangeLabelWithEnd(schedule: ReturnType<typeof buildPlanSchedule>, end: PlanEndState) {
+  if (!schedule.startsAt) return '';
+  const parsedEnd = parseOptionalPlanEnd(end, schedule.startsAt);
+  return rangeLabelFromSchedule({ ...schedule, endsAt: parsedEnd.endsAt || schedule.endsAt });
 }
 
 function placeSourceLabel(place: PlaceDto) {
@@ -112,6 +228,17 @@ function placePreviewLocation(place: PlaceFormState) {
   return place.location.trim();
 }
 
+
+function planPreviewTimeLabel(place: PlaceFormState) {
+  if (place.date && place.time) return `${place.date} · ${place.time}`;
+  if (place.time) return place.time;
+  return 'Time required';
+}
+
+function planPreviewPlaceTitle(place: PlaceFormState, index: number) {
+  return place.title.trim() || place.sourcePlaceTitle?.trim() || `Place ${index + 1}`;
+}
+
 function applyReusablePlacePatch(place: PlaceDto): Partial<PlaceFormState> {
   return {
     sourcePlaceId: place.id,
@@ -122,7 +249,6 @@ function applyReusablePlacePatch(place: PlaceDto): Partial<PlaceFormState> {
     location: placeLocationForForm(place),
     onlineLabel: place.onlineLabel ?? '',
     onlineUrl: place.onlineUrl ?? '',
-    note: place.defaultNote ?? place.description ?? '',
     existingMedia: place.media?.[0] ?? null,
     media: null,
   };
@@ -214,29 +340,100 @@ type PlanCreateClientProps = {
   plansVisible?: boolean;
 };
 
+function AdvancedPlanDetailsCard({
+  open,
+  details,
+  generatedTitle,
+  generatedDescription,
+  onToggle,
+  onChange,
+}: {
+  open: boolean;
+  details: AdvancedPlanDetailsState;
+  generatedTitle: string;
+  generatedDescription: string;
+  onToggle: () => void;
+  onChange: (patch: Partial<AdvancedPlanDetailsState>) => void;
+}) {
+  return (
+    <section className="plan-advanced-details">
+      <button
+        type="button"
+        className="plan-advanced-details__toggle"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <span>More options</span>
+        <small>{open ? 'Hide custom Plan details' : 'Optional title, description, category, tags'}</small>
+        <strong>{open ? '−' : '+'}</strong>
+      </button>
+      {open ? (
+        <div className="plan-advanced-details__panel">
+          <label>
+            <span>Custom Plan title</span>
+            <input value={details.title} onChange={(event) => onChange({ title: event.target.value })} minLength={3} maxLength={120} placeholder={generatedTitle} />
+          </label>
+          <label>
+            <span>Custom Plan description</span>
+            <textarea value={details.description} onChange={(event) => onChange({ description: event.target.value })} minLength={10} maxLength={2000} placeholder={generatedDescription} />
+          </label>
+          <div className="plan-form__row">
+            <label>
+              <span>Category</span>
+              <input value={details.category} onChange={(event) => onChange({ category: event.target.value })} maxLength={80} placeholder="Culture, food, startup..." />
+            </label>
+            <label>
+              <span>Tags</span>
+              <input value={details.tags} onChange={(event) => onChange({ tags: event.target.value })} maxLength={280} placeholder="Paris, coffee, weekend" />
+            </label>
+          </div>
+          <p className="meta">Leave these empty to use the generated place/time summary. Tags can be separated by commas.</p>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const auth = useWebAuth();
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('Culture');
-  const [places, setPlaces] = useState<PlaceFormState[]>([makePlace(0)]);
+  const createdPlaceId = searchParams.get('createdPlaceId');
+  const updatedPlaceId = searchParams.get('updatedPlaceId');
+  const handledCreatedPlaceIdRef = useRef<string | null>(null);
+  const handledUpdatedPlaceIdRef = useRef<string | null>(null);
+  const [places, setPlaces] = useState<PlaceFormState[]>(() => safeReadPlanDraft());
+  const [advancedDetails, setAdvancedDetails] = useState<AdvancedPlanDetailsState>(() => safeReadAdvancedPlanDetails());
+  const [planEnd, setPlanEnd] = useState<PlanEndState>(() => safeReadPlanEndState());
+  const [stage, setStage] = useState<PlanCreateStage>('build');
+  const [advancedDetailsOpen, setAdvancedDetailsOpen] = useState(false);
   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
   const [libraryPlaces, setLibraryPlaces] = useState<PlaceDto[]>([]);
   const [loadingPlaces, setLoadingPlaces] = useState(false);
-  const [pickerOpenForIndex, setPickerOpenForIndex] = useState<number | null>(null);
+  const [pickerTarget, setPickerTarget] = useState<PlacePickerTarget | null>(null);
+  const [pickerView, setPickerView] = useState<PlacePickerView>('source');
   const [pickerTab, setPickerTab] = useState<'mine' | 'library'>('mine');
+  const [detailPlaceIndex, setDetailPlaceIndex] = useState<number | null>(null);
   const [placeQuery, setPlaceQuery] = useState('');
-  const [createPlaceOpen, setCreatePlaceOpen] = useState(false);
-  const [newReusablePlace, setNewReusablePlace] = useState<NewReusablePlaceState>(makeNewReusablePlace());
-  const [creatingPlace, setCreatingPlace] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const usablePlacesForPreview = useMemo(() => places.filter((place) => place.date.trim() && place.time.trim()), [places]);
-  const schedule = useMemo(() => buildPlanSchedule(usablePlacesForPreview), [usablePlacesForPreview]);
-  const rangeLabel = rangeLabelFromSchedule(schedule);
+  const placesForGeneratedDisplay = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceTitle?.trim()), [places]);
+  const schedulablePlaces = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceId), [places]);
+  const schedule = useMemo(() => buildPlanSchedule(schedulablePlaces), [schedulablePlaces]);
+  const explicitPlanEnd = useMemo(() => parseOptionalPlanEnd(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
+  const rangeLabel = rangeLabelWithEnd(schedule, planEnd);
+  const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
+    places: placesForGeneratedDisplay,
+    startsAt: schedule.startsAt,
+    mode: planModeFromPlaces(placesForGeneratedDisplay),
+    joinApprovalMode: 'automatic',
+  }), [placesForGeneratedDisplay, schedule.startsAt]);
+  const generatedTitle = generatedPlanDisplay.title;
+  const generatedDescription = generatedPlanDisplay.description;
+  const previewTitle = advancedDetails.title.trim() || generatedTitle;
+  const previewDescription = advancedDetails.description.trim() || generatedDescription;
   const filteredMyPlaces = useMemo(() => filterPlaces(myPlaces, placeQuery), [myPlaces, placeQuery]);
   const filteredLibraryPlaces = useMemo(() => filterPlaces(libraryPlaces, placeQuery), [libraryPlaces, placeQuery]);
 
@@ -261,28 +458,83 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     void loadReusablePlaces();
   }, [auth.hydrated, auth.isAuthenticated]);
 
+
+  useEffect(() => {
+    storePlanDraft(places, advancedDetails, planEnd);
+  }, [places, advancedDetails, planEnd]);
+
+  useEffect(() => {
+    const returnedPlaceId = createdPlaceId || updatedPlaceId;
+    const isUpdateReturn = Boolean(updatedPlaceId);
+    const handledRef = isUpdateReturn ? handledUpdatedPlaceIdRef : handledCreatedPlaceIdRef;
+    if (!returnedPlaceId || handledRef.current === returnedPlaceId) return;
+    const returnedPlace = myPlaces.find((place) => place.id === returnedPlaceId);
+    if (!returnedPlace) return;
+    handledRef.current = returnedPlaceId;
+    const pendingIndex = takePendingCreatedPlaceIndex();
+    setPlaces((current) => {
+      if (pendingIndex !== null && current[pendingIndex]) {
+        return current.map((place, placeIndex) => placeIndex === pendingIndex ? { ...place, ...applyReusablePlacePatch(returnedPlace) } : place);
+      }
+      if (isUpdateReturn) {
+        return current.map((place) => place.sourcePlaceId === returnedPlace.id ? { ...place, ...applyReusablePlacePatch(returnedPlace) } : place);
+      }
+      const previous = current[current.length - 1];
+      return [
+        ...current,
+        {
+          ...makePlace(current.length, previous?.date || toDateInputValue()),
+          ...applyReusablePlacePatch(returnedPlace),
+        },
+      ];
+    });
+    setMessage(isUpdateReturn ? 'Place updated in this Plan.' : 'Place saved and added to this Plan.');
+    router.replace('/plans/new', { scroll: false });
+  }, [createdPlaceId, myPlaces, router, updatedPlaceId]);
+
   function updatePlace(index: number, update: Partial<PlaceFormState>) {
     setPlaces((current) => current.map((place, placeIndex) => placeIndex === index ? { ...place, ...update } : place));
-  }
-
-  function addPlace() {
-    setPlaces((current) => {
-      const previous = current[current.length - 1];
-      return [...current, makePlace(current.length, previous?.date || toDateInputValue())];
-    });
+    setError('');
   }
 
   function addPlaceAndOpenPicker() {
-    const nextIndex = places.length;
-    const previous = places[places.length - 1];
-    setPlaces((current) => [...current, makePlace(nextIndex, previous?.date || toDateInputValue())]);
-    setPickerOpenForIndex(nextIndex);
+    setPickerTarget('new');
+    setPickerView('source');
     setPickerTab(myPlaces.length ? 'mine' : 'library');
-    setCreatePlaceOpen(false);
+    setPlaceQuery('');
+  }
+
+  function closePlacePicker() {
+    setPickerTarget(null);
+    setPickerView('source');
+    setPlaceQuery('');
+  }
+
+  function openPickerList(source: 'mine' | 'library') {
+    setPickerTab(source);
+    setPickerView('list');
+    setPlaceQuery('');
+  }
+
+  function useCustomPlaceFromPicker() {
+    if (pickerTarget === 'new') {
+      const nextIndex = places.length;
+      setPlaces((current) => {
+        const previous = current[current.length - 1];
+        return [...current, makePlace(current.length, previous?.date || toDateInputValue())];
+      });
+      setDetailPlaceIndex(nextIndex);
+    }
+    if (typeof pickerTarget === 'number') {
+      updatePlace(pickerTarget, resetToCustomPatch());
+      setDetailPlaceIndex(pickerTarget);
+    }
+    closePlacePicker();
   }
 
   function removePlace(index: number) {
-    setPlaces((current) => current.length <= 1 ? current : current.filter((_, placeIndex) => placeIndex !== index));
+    setPlaces((current) => current.filter((_, placeIndex) => placeIndex !== index));
+    setDetailPlaceIndex(null);
   }
 
   function movePlace(index: number, direction: -1 | 1) {
@@ -300,51 +552,73 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   }
 
   function openPicker(index: number) {
-    setPickerOpenForIndex(index);
+    setDetailPlaceIndex(null);
+    setPickerTarget(index);
+    setPickerView('source');
     setPickerTab(myPlaces.length ? 'mine' : 'library');
-    setCreatePlaceOpen(false);
     setPlaceQuery('');
   }
 
+  function openCreatePlaceFromPicker() {
+    storePlanDraft(places, advancedDetails, planEnd);
+    setPendingCreatedPlaceIndex(typeof pickerTarget === 'number' ? pickerTarget : null);
+    router.push('/places/new?returnTo=plan');
+  }
+
+  function openEditMyPlaceFromDetail(index: number) {
+    const place = places[index];
+    if (!place?.sourcePlaceId || place.sourcePlaceSource !== 'my_place') return;
+    storePlanDraft(places, advancedDetails, planEnd);
+    setPendingCreatedPlaceIndex(index);
+    setDetailPlaceIndex(null);
+    router.push(`/places/${encodeURIComponent(place.sourcePlaceId)}/edit?returnTo=plan`);
+  }
+
+  function openCopyLibraryPlaceFromDetail(index: number) {
+    const place = places[index];
+    if (!place?.sourcePlaceId || place.sourcePlaceSource !== 'hellowhen_library') return;
+    storePlanDraft(places, advancedDetails, planEnd);
+    setPendingCreatedPlaceIndex(index);
+    setDetailPlaceIndex(null);
+    router.push(`/places/new?returnTo=plan&copyFromPlaceId=${encodeURIComponent(place.sourcePlaceId)}`);
+  }
+
   function chooseReusablePlace(place: PlaceDto) {
-    const index = pickerOpenForIndex;
-    if (index === null) return;
-    updatePlace(index, applyReusablePlacePatch(place));
-    setPickerOpenForIndex(null);
-    setCreatePlaceOpen(false);
+    if (pickerTarget === null) return;
+    if (pickerTarget === 'new') {
+      setPlaces((current) => {
+        const previous = current[current.length - 1];
+        return [
+          ...current,
+          {
+            ...makePlace(current.length, previous?.date || toDateInputValue()),
+            ...applyReusablePlacePatch(place),
+          },
+        ];
+      });
+    } else {
+      updatePlace(pickerTarget, applyReusablePlacePatch(place));
+    }
+    closePlacePicker();
     setMessage(`Added ${place.title} from ${placeSourceLabel(place)}.`);
   }
 
-  async function createReusablePlaceForPicker() {
-    const index = pickerOpenForIndex;
-    if (index === null) return;
-    setCreatingPlace(true);
+  function updateAdvancedDetails(update: Partial<AdvancedPlanDetailsState>) {
+    setAdvancedDetails((current) => ({ ...current, ...update }));
+  }
+
+  function updatePlanEnd(update: Partial<PlanEndState>) {
+    setPlanEnd((current) => ({ ...current, ...update }));
     setError('');
-    setMessage('');
-    try {
-      const response = await api.places.create({
-        mode: newReusablePlace.mode,
-        title: newReusablePlace.title,
-        description: newReusablePlace.description.trim() || undefined,
-        category: newReusablePlace.category.trim() || undefined,
-        visibility: 'private',
-        status: 'active',
-        addressPublicText: newReusablePlace.mode === 'local' ? newReusablePlace.location.trim() || undefined : undefined,
-        onlineLabel: newReusablePlace.mode === 'remote' ? newReusablePlace.onlineLabel.trim() || undefined : undefined,
-        onlineUrl: newReusablePlace.mode === 'remote' ? newReusablePlace.onlineUrl.trim() || undefined : undefined,
-        defaultNote: newReusablePlace.note.trim() || undefined,
-      });
-      setMyPlaces((current) => [response.place, ...current.filter((place) => place.id !== response.place.id)]);
-      updatePlace(index, applyReusablePlacePatch(response.place));
-      setCreatePlaceOpen(false);
-      setPickerOpenForIndex(null);
-      setNewReusablePlace(makeNewReusablePlace());
-      setMessage('Place saved and added to this Plan.');
-    } catch (createError) {
-      setError(getFriendlyApiErrorMessage(createError, 'Could not create Place.'));
-    } finally {
-      setCreatingPlace(false);
-    }
+  }
+
+  function showPreviewStage() {
+    setError('');
+    if (places.length === 0) { setError('Add at least one place before preview.'); return; }
+    if (schedule.error) { setError(schedule.error); return; }
+    if (explicitPlanEnd.error) { setError(explicitPlanEnd.error); return; }
+    setStage('preview');
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
   }
 
   async function uploadPlaceImage(index: number, files: FileList | null) {
@@ -373,30 +647,53 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
       router.push('/auth?next=/plans/new');
       return;
     }
-    const usablePlaces = places.filter((place) => place.title.trim() && place.date.trim() && place.time.trim());
+    const usablePlaces = places.filter((place) => place.title.trim() || place.sourcePlaceId);
     const nextSchedule = buildPlanSchedule(usablePlaces);
+    const customTitle = advancedDetails.title.trim();
+    const customDescription = advancedDetails.description.trim();
+    const customCategory = advancedDetails.category.trim();
+    const customTags = parsePlanTagsInput(advancedDetails.tags);
+    const nextExplicitEnd = parseOptionalPlanEnd(planEnd, nextSchedule.startsAt);
     if (nextSchedule.error || !nextSchedule.startsAt || usablePlaces.length === 0) {
       setError(nextSchedule.error || 'Add at least one place with a valid date and time.');
+      return;
+    }
+    if (customTitle && customTitle.length < 3) {
+      setError('Custom Plan title must be at least 3 characters.');
+      return;
+    }
+    if (customDescription && customDescription.length < 10) {
+      setError('Custom Plan description must be at least 10 characters, or leave it empty.');
+      return;
+    }
+    if (customTags.length > 8 || customTags.some((tag) => tag.length > 32)) {
+      setError('Use up to 8 tags, each 32 characters or less.');
       return;
     }
     setSaving(true);
     setError('');
     setMessage('');
     try {
+      const generatedPlanPayload = buildGeneratedPlanDisplay({
+        places: usablePlaces,
+        startsAt: nextSchedule.startsAt,
+        mode: planModeFromPlaces(usablePlaces),
+        joinApprovalMode: 'automatic',
+      });
       const response = await api.plans.create({
-        title,
-        description,
-        category: category.trim() || undefined,
+        title: customTitle || generatedPlanPayload.title,
+        description: customDescription || generatedPlanPayload.description,
+        category: customCategory || undefined,
+        tags: customTags.length ? customTags : undefined,
         mode: planModeFromPlaces(usablePlaces),
         startsAt: nextSchedule.startsAt,
-        endsAt: nextSchedule.endsAt || nextSchedule.startsAt,
+        endsAt: nextExplicitEnd.endsAt || nextSchedule.endsAt || nextSchedule.startsAt,
         joinApprovalMode: 'automatic',
         status: 'open',
         places: usablePlaces.map((place, index) => ({
           placeId: place.sourcePlaceId,
           mode: place.mode,
           title: place.title,
-          note: place.note.trim() || undefined,
           addressPublicText: place.mode === 'local' ? place.location.trim() || undefined : undefined,
           onlineLabel: place.mode === 'remote' ? place.onlineLabel.trim() || place.location.trim() || undefined : undefined,
           onlineUrl: place.mode === 'remote' ? place.onlineUrl.trim() || undefined : undefined,
@@ -405,6 +702,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
           mediaIds: selectedMediaIds(place.media),
         })),
       });
+      clearPlanDraft();
       router.replace(`/plans/${response.plan.id}`);
     } catch (saveError) {
       setError(getFriendlyApiErrorMessage(saveError, 'Could not create Plan.'));
@@ -413,7 +711,9 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     }
   }
 
-  const activePickerPlace = pickerOpenForIndex === null ? null : places[pickerOpenForIndex] ?? null;
+  const pickerIsOpen = pickerTarget !== null;
+  const pickerTitle = pickerTarget === 'new' ? 'Add place' : `Place ${typeof pickerTarget === 'number' ? pickerTarget + 1 : ''}`;
+  const detailPlace = detailPlaceIndex !== null ? places[detailPlaceIndex] : null;
 
   return (
     <PlansFeatureGate plansEnabled={plansEnabled}>
@@ -422,7 +722,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
           <div>
             <PlansInternalBadge plansVisible={plansVisible} />
             <h2>Create Plan</h2>
-            <p>Choose reusable Places, arrange them in order and time, or add one-off custom stops. Places stay independent from Trade, Needs, Offers, Agenda, and payments.</p>
+            <p>Set time, add places, preview.</p>
           </div>
         </section>
 
@@ -436,188 +736,291 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
         ) : null}
 
         {auth.isAuthenticated ? (
-          <form className="mobile-card plan-form" onSubmit={submit}>
-            <label>
-              <span>Title</span>
-              <input value={title} onChange={(event) => setTitle(event.target.value)} minLength={3} maxLength={120} required placeholder="Saturday museum route" />
-            </label>
-            <label>
-              <span>Description</span>
-              <textarea value={description} onChange={(event) => setDescription(event.target.value)} minLength={10} maxLength={2000} required placeholder="Explain the whole plan and who can join." />
-            </label>
-            <label>
-              <span>Category</span>
-              <input value={category} onChange={(event) => setCategory(event.target.value)} maxLength={80} placeholder="Culture" />
-            </label>
-
-            <hr />
-            <div className="plan-form__section-title">
-              <div>
-                <h3>Places</h3>
-                <p className="meta">Pick from My Places or Hellowhen Place Library, then adjust order and time for this Plan.</p>
-              </div>
-              <div className="cta-row">
-                <button type="button" className="button secondary" onClick={addPlaceAndOpenPicker}>+ From library</button>
-                <button type="button" className="button secondary" onClick={addPlace}>+ Custom</button>
-              </div>
+          <form className="plan-form plan-form--timeline plan-form--clean" onSubmit={submit}>
+            <div className="plan-stage-tabs" aria-label="Create Plan stages">
+              <button type="button" className={stage === 'build' ? 'is-active' : ''} onClick={() => setStage('build')}>Build</button>
+              <button type="button" className={stage === 'preview' ? 'is-active' : ''} onClick={showPreviewStage}>Preview</button>
             </div>
 
-            {loadingPlaces ? <p className="meta">Loading reusable Places...</p> : null}
+            {stage === 'build' ? (
+              <>
+                <section className="plan-build-timeline" aria-label="Build Plan timeline">
+                  {places.length === 0 ? <p className="meta">Add Place 1 to set its date and time.</p> : null}
 
-            {places.map((place, index) => (
-              <section className="plan-place-editor" key={place.id}>
-                <div className="plan-place-editor__header">
-                  <span className="semantic-badge instruction">Place {index + 1}</span>
-                  <div className="cta-row">
-                    <button type="button" className="button secondary" onClick={() => openPicker(index)}>Choose saved place</button>
-                    <button type="button" className="button secondary" disabled={index === 0} onClick={() => movePlace(index, -1)}>Move up</button>
-                    <button type="button" className="button secondary" disabled={index === places.length - 1} onClick={() => movePlace(index, 1)}>Move down</button>
+                  {places.map((place, index) => (
+                    <div className="plan-place-time-group" key={place.id}>
+                      <div className="plan-timeline-row plan-timeline-row--time plan-timeline-row--place-time">
+                        <div className="plan-timeline-row__main">
+                          <span className="semantic-badge time">Date / time</span>
+                          <h3>Place {index + 1} time</h3>
+                          <p className="meta">{index === 0 ? 'This becomes the Plan start.' : 'Same time or after the previous place.'}</p>
+                        </div>
+                        <div className="plan-timeline-row__fields">
+                          <label>
+                            <span>Date</span>
+                            <input type="date" value={place.date} onChange={(event) => updatePlace(index, { date: event.target.value })} required />
+                          </label>
+                          <label>
+                            <span>Time</span>
+                            <input type="time" value={place.time} onChange={(event) => updatePlace(index, { time: event.target.value })} required />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="plan-timeline-row plan-timeline-row--place">
+                        <button type="button" className="plan-timeline-row__main plan-timeline-row__main--button" onClick={() => setDetailPlaceIndex(index)}>
+                          <span className="plan-timeline-row__heading">
+                            <span className="semantic-badge place">Place {index + 1}</span>
+                            {place.sourcePlaceId ? <span className="semantic-badge place">{place.sourcePlaceSource === 'hellowhen_library' ? 'Library' : 'My Place'}</span> : <span className="semantic-badge place">Custom</span>}
+                          </span>
+                          <strong>{place.title.trim() || place.sourcePlaceTitle || `Place ${index + 1}`}</strong>
+                          <small>{placePreviewLocation(place) || 'No location yet'}</small>
+                        </button>
+                        <div className="plan-timeline-row__actions">
+                          <button type="button" className="button secondary" onClick={() => setDetailPlaceIndex(index)}>Details</button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="plan-timeline-row plan-timeline-row--add">
+                    <div className="plan-timeline-row__main">
+                      <h3>Add a place</h3>
+                      <p className="meta">Choose the next stop.</p>
+                    </div>
+                    <div className="plan-timeline-row__actions">
+                      <button type="button" className="button primary" onClick={addPlaceAndOpenPicker}>+ Add place</button>
+                    </div>
                   </div>
+
+                  <div className="plan-timeline-row plan-timeline-row--time">
+                    <div className="plan-timeline-row__main">
+                      <span className="semantic-badge time">Optional</span>
+                      <h3>End date / time</h3>
+                      <p className="meta">Leave empty to end at the last place.</p>
+                    </div>
+                    <div className="plan-timeline-row__fields">
+                      <label>
+                        <span>End date</span>
+                        <input type="date" value={planEnd.date} onChange={(event) => updatePlanEnd({ date: event.target.value })} />
+                      </label>
+                      <label>
+                        <span>End time</span>
+                        <input type="time" value={planEnd.time} onChange={(event) => updatePlanEnd({ time: event.target.value })} />
+                      </label>
+                    </div>
+                  </div>
+                </section>
+
+
+                {error ? <p className="form-error">{error}</p> : null}
+                <button className="button primary full" type="button" onClick={showPreviewStage} disabled={places.some((place) => place.uploading)}>Preview Plan</button>
+              </>
+            ) : (
+              <>
+                <section className="plan-form__preview plan-preview-stage">
+                  <div className="plan-preview-confirm-hero">
+                    <div className="plan-preview-confirm-hero__copy">
+                      <span className="semantic-badge plan">Ready to publish</span>
+                      <h3>{previewTitle}</h3>
+                      <p>{previewDescription}</p>
+                    </div>
+                    <button type="button" className="button secondary" onClick={() => setStage('build')}>Back to build</button>
+                  </div>
+
+                  <div className="plan-preview-summary-grid" aria-label="Plan confirmation summary">
+                    <div>
+                      <span>Starts</span>
+                      <strong>{schedule.startsAt ? new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Not set'}</strong>
+                    </div>
+                    <div>
+                      <span>Places</span>
+                      <strong>{places.length} {places.length === 1 ? 'place' : 'places'}</strong>
+                    </div>
+                    <div>
+                      <span>Join mode</span>
+                      <strong>Free join</strong>
+                    </div>
+                    <div>
+                      <span>Visibility</span>
+                      <strong>Open / Public</strong>
+                    </div>
+                  </div>
+
+                  <div className="plan-preview-deck-section">
+                    <div className="plan-preview-section-heading">
+                      <span className="semantic-badge plan">Feed deck preview</span>
+                      <p className="meta">Feed deck preview.</p>
+                    </div>
+                    <div className="trade-create-preview__deck">
+                      <PlanPreviewDeck
+                        title={previewTitle}
+                        description={previewDescription}
+                        rangeLabel={rangeLabel}
+                        places={places.map((place, index) => ({ id: place.id, mode: place.mode, title: planPreviewPlaceTitle(place, index), location: placePreviewLocation(place), date: place.date, time: place.time, media: place.media ?? place.existingMedia }))}
+                        className="trade-stack-deck--create-preview"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="plan-preview-itinerary" aria-label="Plan itinerary confirmation">
+                    <div className="plan-preview-section-heading">
+                      <span className="semantic-badge place">Place order</span>
+                      <p className="meta">Order and times.</p>
+                    </div>
+                    {places.map((place, index) => (
+                      <div className="plan-preview-itinerary-row" key={`confirm-${place.id}`}>
+                        <span className="plan-preview-itinerary-row__number">{index + 1}</span>
+                        <div>
+                          <strong>{planPreviewPlaceTitle(place, index)}</strong>
+                          <small>{planPreviewTimeLabel(place)}{placePreviewLocation(place) ? ` · ${placePreviewLocation(place)}` : ''}</small>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="plan-preview-final-note">
+                    <span className="semantic-badge plan">Confirm</span>
+                    <p>This will create an open public Plan with free join. You can still go back before publishing.</p>
+                  </div>
+                </section>
+                {schedule.error && places.length > 0 ? <p className="form-error">{schedule.error}</p> : null}
+                {explicitPlanEnd.error ? <p className="form-error">{explicitPlanEnd.error}</p> : null}
+                {message ? <p className="success-message">{message}</p> : null}
+                {error ? <p className="form-error">{error}</p> : null}
+                <div className="plan-preview-actions">
+                  <button type="button" className="button secondary" onClick={() => setStage('build')}>Back</button>
+                  <button className="button primary" type="submit" disabled={saving || places.some((place) => place.uploading)}>{saving ? 'Creating...' : 'Create Plan'}</button>
                 </div>
-                {place.sourcePlaceId ? (
-                  <div className="plan-source-place-strip">
-                    <span className="semantic-badge success">{place.sourcePlaceSource === 'hellowhen_library' ? 'Library Place' : 'My Place'}</span>
-                    <p>{place.sourcePlaceTitle || place.title}</p>
-                    <button type="button" className="button secondary" onClick={() => updatePlace(index, resetToCustomPatch())}>Use as custom</button>
-                  </div>
-                ) : null}
-                <PlaceModeSegment value={place.mode} onChange={(mode) => updatePlace(index, { mode, location: mode === 'remote' ? '' : place.location })} />
-                <div className="plan-form__row">
-                  <label>
-                    <span>Date</span>
-                    <input type="date" value={place.date} onChange={(event) => updatePlace(index, { date: event.target.value })} required />
-                  </label>
-                  <label>
-                    <span>Time</span>
-                    <input type="time" value={place.time} onChange={(event) => updatePlace(index, { time: event.target.value })} required />
-                  </label>
-                </div>
-                <label>
-                  <span>Place name</span>
-                  <input value={place.title} onChange={(event) => updatePlace(index, { title: event.target.value })} minLength={3} maxLength={120} required placeholder={place.mode === 'remote' ? 'Planning call' : 'Coffee meeting point'} />
-                </label>
-                {place.mode === 'remote' ? (
-                  <div className="plan-form__row">
-                    <label>
-                      <span>Online label</span>
-                      <input value={place.onlineLabel} onChange={(event) => updatePlace(index, { onlineLabel: event.target.value })} maxLength={120} placeholder="Zoom, Discord, website, livestream" />
-                    </label>
-                    <label>
-                      <span>Online URL</span>
-                      <input type="url" value={place.onlineUrl} onChange={(event) => updatePlace(index, { onlineUrl: event.target.value })} maxLength={500} placeholder="https://..." />
-                    </label>
-                  </div>
-                ) : (
-                  <label>
-                    <span>Address or meeting point</span>
-                    <input value={place.location} onChange={(event) => updatePlace(index, { location: event.target.value })} maxLength={240} placeholder="Search or enter an address" />
-                  </label>
-                )}
-                <label>
-                  <span>Place notes / purpose</span>
-                  <textarea value={place.note} onChange={(event) => updatePlace(index, { note: event.target.value })} maxLength={1000} placeholder="Why this stop matters or what people should know." />
-                </label>
-                <PlaceImagePicker
-                  place={place}
-                  onUpload={(event) => { const files = event.target.files; event.currentTarget.value = ''; void uploadPlaceImage(index, files); }}
-                  onRemove={() => updatePlace(index, { media: null })}
-                />
-                {places.length > 1 ? <button type="button" className="button secondary full" onClick={() => removePlace(index)}>Remove place</button> : null}
-              </section>
-            ))}
-
-            <hr />
-            <section className="plan-form__preview">
-              <h3>Feed deck preview</h3>
-              <div className="trade-create-preview__deck">
-                <PlanPreviewDeck
-                  title={title}
-                  description={description}
-                  rangeLabel={rangeLabel}
-                  places={places.map((place) => ({ id: place.id, mode: place.mode, title: place.title, note: place.note, location: placePreviewLocation(place), date: place.date, time: place.time, media: place.media ?? place.existingMedia }))}
-                  className="trade-stack-deck--create-preview"
-                />
-              </div>
-            </section>
-
-            {schedule.error ? <p className="form-error">{schedule.error}</p> : null}
-            {message ? <p className="success-message">{message}</p> : null}
-            {error ? <p className="form-error">{error}</p> : null}
-            <button className="button primary full" type="submit" disabled={saving || creatingPlace || places.some((place) => place.uploading)}>{saving ? 'Creating...' : 'Create hidden Plan'}</button>
+              </>
+            )}
           </form>
         ) : null}
 
-        {activePickerPlace ? (
-          <section className="mobile-card plan-place-picker-panel" aria-label="Place picker">
-            <div className="plan-detail-topbar">
-              <div>
-                <h3>Choose Place {pickerOpenForIndex !== null ? pickerOpenForIndex + 1 : ''}</h3>
-                <p className="meta">Saved Places are copied as snapshots into this Plan.</p>
+        {detailPlace && detailPlaceIndex !== null ? (
+          <div className="plan-place-source-overlay" role="presentation">
+            <button type="button" className="plan-place-source-backdrop" aria-label="Close place details" onClick={() => setDetailPlaceIndex(null)} />
+            <section className="plan-place-source-sheet plan-place-detail-sheet" role="dialog" aria-modal="true" aria-label={`Place ${detailPlaceIndex + 1} details`}>
+              <div className="plan-detail-topbar">
+                <div>
+                  <h3>Place {detailPlaceIndex + 1}</h3>
+                </div>
+                <button type="button" className="plans-feed-icon-button" onClick={() => setDetailPlaceIndex(null)} aria-label="Close Place details">×</button>
               </div>
-              <button type="button" className="plans-feed-icon-button" onClick={() => setPickerOpenForIndex(null)} aria-label="Close Place picker">×</button>
-            </div>
-            <div className="plans-tabs" role="tablist" aria-label="Place Library source">
-              <button type="button" className={pickerTab === 'mine' ? 'is-active' : ''} onClick={() => setPickerTab('mine')}>My Places</button>
-              <button type="button" className={pickerTab === 'library' ? 'is-active' : ''} onClick={() => setPickerTab('library')}>Hellowhen Library</button>
-            </div>
-            <label>
-              <span>Search Places</span>
-              <input value={placeQuery} onChange={(event) => setPlaceQuery(event.target.value)} placeholder="Search title, category, area..." />
-            </label>
-            {pickerTab === 'mine' ? (
-              <PlacePickerList places={filteredMyPlaces} emptyLabel="No matching My Places yet. Create one below or use a custom place." onChoose={chooseReusablePlace} />
-            ) : (
-              <PlacePickerList places={filteredLibraryPlaces} emptyLabel="No matching Hellowhen Library Places yet." onChoose={chooseReusablePlace} />
-            )}
-            <button type="button" className="button secondary full" onClick={() => setCreatePlaceOpen((current) => !current)}>
-              {createPlaceOpen ? 'Hide create place' : '+ Create My Place'}
-            </button>
-            {createPlaceOpen ? (
-              <div className="plan-create-place-box">
-                <h4>Create My Place</h4>
-                <PlaceModeSegment value={newReusablePlace.mode} onChange={(mode) => setNewReusablePlace((current) => ({ ...current, mode }))} />
-                <label>
-                  <span>Place name</span>
-                  <input value={newReusablePlace.title} onChange={(event) => setNewReusablePlace((current) => ({ ...current, title: event.target.value }))} minLength={3} maxLength={120} required placeholder="Quiet coffee near République" />
-                </label>
-                <div className="plan-form__row">
-                  <label>
-                    <span>Category</span>
-                    <input value={newReusablePlace.category} onChange={(event) => setNewReusablePlace((current) => ({ ...current, category: event.target.value }))} maxLength={80} placeholder="Culture, Work, Food..." />
-                  </label>
-                  {newReusablePlace.mode === 'local' ? (
+              <div className="plan-place-picker-panel">
+                <div className="plan-timeline-row__heading">
+                  {detailPlace.sourcePlaceId ? <span className="semantic-badge place">{detailPlace.sourcePlaceSource === 'hellowhen_library' ? 'Library' : 'My Place'}</span> : <span className="semantic-badge place">Custom</span>}
+                </div>
+                {!detailPlace.sourcePlaceId ? (
+                  <>
+                    <PlaceModeSegment value={detailPlace.mode} onChange={(mode) => updatePlace(detailPlaceIndex, { mode, location: mode === 'remote' ? '' : detailPlace.location })} />
                     <label>
-                      <span>Area / address</span>
-                      <input value={newReusablePlace.location} onChange={(event) => setNewReusablePlace((current) => ({ ...current, location: event.target.value }))} maxLength={240} placeholder="Paris 11 or meeting point" />
+                      <span>Place name</span>
+                      <input value={detailPlace.title} onChange={(event) => updatePlace(detailPlaceIndex, { title: event.target.value })} minLength={3} maxLength={120} required placeholder={detailPlace.mode === 'remote' ? 'Planning call' : 'Coffee meeting point'} />
                     </label>
+                    {detailPlace.mode === 'remote' ? (
+                      <div className="plan-form__row">
+                        <label>
+                          <span>Online label</span>
+                          <input value={detailPlace.onlineLabel} onChange={(event) => updatePlace(detailPlaceIndex, { onlineLabel: event.target.value })} maxLength={120} placeholder="Zoom, Discord, website" />
+                        </label>
+                        <label>
+                          <span>Online URL</span>
+                          <input type="url" value={detailPlace.onlineUrl} onChange={(event) => updatePlace(detailPlaceIndex, { onlineUrl: event.target.value })} maxLength={500} placeholder="https://..." />
+                        </label>
+                      </div>
+                    ) : (
+                      <label>
+                        <span>Address or meeting point</span>
+                        <input value={detailPlace.location} onChange={(event) => updatePlace(detailPlaceIndex, { location: event.target.value })} maxLength={240} placeholder="Search or enter an address" />
+                      </label>
+                    )}
+                  </>
+                ) : (
+                  <div className="plan-source-place-strip">
+                    <strong>{detailPlace.sourcePlaceTitle || detailPlace.title}</strong>
+                    <span>{detailPlace.sourcePlaceSource === 'my_place' ? 'Updates your saved Place.' : 'Copied into My Places before editing.'}</span>
+                    <div className="cta-row">
+                      {detailPlace.sourcePlaceSource === 'my_place' ? (
+                        <button type="button" className="button secondary" onClick={() => openEditMyPlaceFromDetail(detailPlaceIndex)}>Edit saved</button>
+                      ) : null}
+                      {detailPlace.sourcePlaceSource === 'hellowhen_library' ? (
+                        <button type="button" className="button secondary" onClick={() => openCopyLibraryPlaceFromDetail(detailPlaceIndex)}>Copy to edit</button>
+                      ) : null}
+                      <button type="button" className="button secondary" onClick={() => updatePlace(detailPlaceIndex, resetToCustomPatch())}>Make custom</button>
+                    </div>
+                  </div>
+                )}
+                <PlaceImagePicker
+                  place={detailPlace}
+                  onUpload={(event) => { const files = event.target.files; event.currentTarget.value = ''; void uploadPlaceImage(detailPlaceIndex, files); }}
+                  onRemove={() => updatePlace(detailPlaceIndex, { media: null })}
+                />
+                <div className="plan-place-detail-actions">
+                  <button type="button" className="button secondary" disabled={detailPlaceIndex === 0} onClick={() => { movePlace(detailPlaceIndex, -1); setDetailPlaceIndex(detailPlaceIndex - 1); }}>Move up</button>
+                  <button type="button" className="button secondary" disabled={detailPlaceIndex === places.length - 1} onClick={() => { movePlace(detailPlaceIndex, 1); setDetailPlaceIndex(detailPlaceIndex + 1); }}>Move down</button>
+                  <button type="button" className="button secondary" onClick={() => openPicker(detailPlaceIndex)}>Change place</button>
+                  <button type="button" className="button secondary" onClick={() => removePlace(detailPlaceIndex)}>Remove</button>
+                  <button type="button" className="button primary" onClick={() => setDetailPlaceIndex(null)}>Done</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {pickerIsOpen ? (
+          <div className="plan-place-source-overlay" role="presentation">
+            <button type="button" className="plan-place-source-backdrop" aria-label="Close place source" onClick={closePlacePicker} />
+            <section className="plan-place-source-sheet" role="dialog" aria-modal="true" aria-label={pickerTitle}>
+              <div className="plan-detail-topbar">
+                <div>
+                  <h3>{pickerView === 'source' ? 'Add place' : pickerTab === 'mine' ? 'My Places' : 'Hellowhen Library'}</h3>
+                </div>
+                <button type="button" className="plans-feed-icon-button" onClick={closePlacePicker} aria-label="Close Place picker">×</button>
+              </div>
+
+              {pickerView === 'source' ? (
+                <div className="plan-place-source-grid">
+                  <button type="button" className="plan-place-source-option plan-place-source-option--primary" onClick={() => openPickerList('mine')}>
+                    <span className="plan-place-source-option__icon">⌖</span>
+                    <span><strong>My Places</strong><small>Saved places you created.</small></span>
+                  </button>
+                  <button type="button" className="plan-place-source-option" onClick={() => openPickerList('library')}>
+                    <span className="plan-place-source-option__icon">✦</span>
+                    <span><strong>Hellowhen Library</strong><small>Reusable place templates.</small></span>
+                  </button>
+                  <button type="button" className="plan-place-source-option" onClick={openCreatePlaceFromPicker}>
+                    <span className="plan-place-source-option__icon">＋</span>
+                    <span><strong>New Place</strong><small>Save and return here.</small></span>
+                  </button>
+                  <button type="button" className="plan-place-source-option" onClick={useCustomPlaceFromPicker}>
+                    <span className="plan-place-source-option__icon">•••</span>
+                    <span><strong>Custom stop</strong><small>Only for this Plan.</small></span>
+                  </button>
+                </div>
+              ) : (
+                <div className="plan-place-picker-panel">
+                  <div className="plans-tabs" role="tablist" aria-label="Place Library source">
+                    <button type="button" className={pickerTab === 'mine' ? 'is-active' : ''} onClick={() => openPickerList('mine')}>My Places</button>
+                    <button type="button" className={pickerTab === 'library' ? 'is-active' : ''} onClick={() => openPickerList('library')}>Hellowhen Library</button>
+                  </div>
+                  <label>
+                    <span>Search Places</span>
+                    <input value={placeQuery} onChange={(event) => setPlaceQuery(event.target.value)} placeholder="Search Places" />
+                  </label>
+                  {pickerTab === 'mine' ? (
+                    <PlacePickerList places={filteredMyPlaces} emptyLabel="No matching My Places yet." onChoose={chooseReusablePlace} />
                   ) : (
-                    <label>
-                      <span>Online label</span>
-                      <input value={newReusablePlace.onlineLabel} onChange={(event) => setNewReusablePlace((current) => ({ ...current, onlineLabel: event.target.value }))} maxLength={120} placeholder="Zoom, Discord, website" />
-                    </label>
+                    <PlacePickerList places={filteredLibraryPlaces} emptyLabel="No matching Hellowhen Library Places yet." onChoose={chooseReusablePlace} />
                   )}
+                  <div className="plan-place-picker-actions">
+                    <button type="button" className="button secondary" onClick={() => setPickerView('source')}>Sources</button>
+                    <button type="button" className="button secondary" onClick={openCreatePlaceFromPicker}>New Place</button>
+                  </div>
                 </div>
-                {newReusablePlace.mode === 'remote' ? (
-                  <label>
-                    <span>Online URL</span>
-                    <input type="url" value={newReusablePlace.onlineUrl} onChange={(event) => setNewReusablePlace((current) => ({ ...current, onlineUrl: event.target.value }))} maxLength={500} placeholder="https://..." />
-                  </label>
-                ) : null}
-                <label>
-                  <span>Description</span>
-                  <textarea value={newReusablePlace.description} onChange={(event) => setNewReusablePlace((current) => ({ ...current, description: event.target.value }))} maxLength={2000} placeholder="Reusable place description." />
-                </label>
-                <label>
-                  <span>Default note</span>
-                  <textarea value={newReusablePlace.note} onChange={(event) => setNewReusablePlace((current) => ({ ...current, note: event.target.value }))} maxLength={1000} placeholder="What this place is good for." />
-                </label>
-                <div className="cta-row">
-                  <button type="button" className="button secondary" onClick={() => setNewReusablePlace(makeNewReusablePlace())}>Reset</button>
-                  <button type="button" className="button primary" disabled={creatingPlace || !newReusablePlace.title.trim()} onClick={() => void createReusablePlaceForPicker()}>{creatingPlace ? 'Saving...' : 'Save and use Place'}</button>
-                </div>
-              </div>
-            ) : null}
-          </section>
+              )}
+            </section>
+          </div>
         ) : null}
       </main>
     </PlansFeatureGate>

@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { normalizeInventoryLanguageCode, withResolvedInventoryDisplay, type InventoryTranslationLike } from '@hellowhen/shared';
 import type { DiscoveryLanguage } from '@hellowhen/contracts';
 
-type InventoryTranslationTargetType = 'need' | 'offer';
+type InventoryTranslationTargetType = 'need' | 'offer' | 'place';
 type InventoryTranslationInput = { languageCode: DiscoveryLanguage; title: string; description: string };
 type StoredInventoryTranslation = InventoryTranslationLike & { id?: string; targetType?: InventoryTranslationTargetType; targetId?: string; createdAt?: Date; updatedAt?: Date };
 type InventoryWithId = { id: string; defaultLanguage?: string | null; title?: string | null; description?: string | null; translations?: StoredInventoryTranslation[] | null };

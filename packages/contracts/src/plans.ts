@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { mediaAssetSchema } from './media.js';
-import { tradeExchangeModeSchema } from './trade.js';
+import { discoveryLanguageSchema, inventoryTranslationSchema, tradeExchangeModeSchema } from './trade.js';
 
 export const planStatusSchema = z.enum(['draft', 'open', 'full', 'started', 'completed', 'cancelled', 'expired', 'hidden']);
 export const planPublicStatusSchema = z.enum(['open', 'full', 'started']);
@@ -24,12 +24,20 @@ export const planSelfParticipantActionSchema = z.enum(['cancelled', 'left']);
 const planTagSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
 const placeTagSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
 const placeMediaIdsSchema = z.array(z.string()).max(PLAN_PLACE_MEDIA_LIMITS.adminLibrary).optional();
+const placeTranslationInputSchema = z.object({
+  languageCode: discoveryLanguageSchema,
+  title: z.string().trim().min(3).max(120),
+  description: z.string().trim().min(1).max(2000),
+});
+const placeTranslationsInputSchema = z.array(placeTranslationInputSchema).max(4).optional();
 const planPlaceMediaIdsSchema = z.array(z.string()).max(PLAN_PLACE_MEDIA_LIMITS.plus).optional();
 
 const reusablePlaceInputBaseSchema = z.object({
   mode: planPlaceModeSchema.optional(),
   title: z.string().trim().min(3).max(120),
   description: z.string().trim().min(1).max(2000).optional(),
+  defaultLanguage: discoveryLanguageSchema.optional(),
+  translations: placeTranslationsInputSchema,
   category: z.string().trim().min(1).max(80).optional(),
   tags: placeTagSchema,
   areaLabel: z.string().trim().min(1).max(160).optional(),
@@ -93,8 +101,8 @@ export const planPlaceInputSchema = planPlaceInputBaseSchema.refine(hasPlaceIdOr
 }, { message: 'Place end time must be after the start time.', path: ['endsAt'] });
 
 export const createPlanRequestSchema = z.object({
-  title: z.string().trim().min(3).max(120),
-  description: z.string().trim().min(10).max(2000),
+  title: z.string().trim().min(3).max(120).optional(),
+  description: z.string().trim().min(10).max(2000).optional(),
   category: z.string().trim().min(1).max(80).optional(),
   tags: planTagSchema,
   mode: tradeExchangeModeSchema.optional(),
@@ -183,6 +191,8 @@ export const placeSchema = z.object({
   mode: planPlaceModeSchema.default('local'),
   title: z.string(),
   description: z.string().nullable().optional(),
+  defaultLanguage: discoveryLanguageSchema.optional().default('en'),
+  translations: z.array(inventoryTranslationSchema).optional(),
   category: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
   areaLabel: z.string().nullable().optional(),

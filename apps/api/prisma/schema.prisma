@@ -213,6 +213,7 @@ enum PreviewCardTheme {
 enum InventoryTranslationTargetType {
   need
   offer
+  place
 }
 
 enum TradePostType {
@@ -2629,6 +2630,7 @@ model Place {
   mode                       PlanPlaceMode   @default(local)
   title                      String
   description                String?
+  defaultLanguage            String          @default("en")
   category                   String?
   tags                       String[]        @default([])
   areaLabel                  String?

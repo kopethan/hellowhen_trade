@@ -10,6 +10,7 @@ import {
   updatePlanPlaceRequestSchema,
   updatePlanRequestSchema,
 } from '@hellowhen/contracts';
+import { buildGeneratedPlanDisplay } from '@hellowhen/shared';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { optionalAuth, requireActiveAccount, requireAuth } from '../../middleware/auth.js';
@@ -157,10 +158,16 @@ async function loadPlanForViewer(planId: string, viewerId?: string | null) {
 }
 
 function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequestSchema.parse>) {
+  const generatedPlanDisplay = buildGeneratedPlanDisplay({
+    places: input.places ?? [],
+    startsAt: input.startsAt,
+    mode: input.mode,
+    joinApprovalMode: input.joinApprovalMode,
+  });
   return {
     ownerId,
-    title: input.title,
-    description: input.description,
+    title: input.title ?? generatedPlanDisplay.title,
+    description: input.description ?? generatedPlanDisplay.description,
     category: input.category ?? null,
     tags: cleanTags(input.tags),
     mode: input.mode ?? null,
@@ -213,7 +220,7 @@ function planPlaceSnapshotData(planId: string, input: ReturnType<typeof createPl
     order: input.order ?? fallbackOrder,
     mode: input.mode ?? reusablePlace?.mode ?? 'local',
     title: input.title ?? reusablePlace?.title,
-    note: input.note ?? reusablePlace?.defaultNote ?? null,
+    note: input.note ?? null,
     addressPublicText: input.addressPublicText ?? reusablePlace?.addressPublicText ?? null,
     addressPrivateText: input.addressPrivateText ?? reusablePlace?.addressPrivateText ?? null,
     onlineLabel: input.onlineLabel ?? reusablePlace?.onlineLabel ?? null,
@@ -244,7 +251,7 @@ async function placeUpdateData(ownerId: string, input: ReturnType<typeof updateP
     ...(input.order !== undefined ? { order: input.order } : {}),
     ...(input.mode !== undefined || reusablePlace ? { mode: input.mode ?? reusablePlace?.mode ?? 'local' } : {}),
     ...(input.title !== undefined || reusablePlace ? { title: input.title ?? reusablePlace?.title } : {}),
-    ...(input.note !== undefined || reusablePlace ? { note: input.note ?? snapshot?.note ?? null } : {}),
+    ...(input.note !== undefined ? { note: input.note ?? null } : {}),
     ...(input.addressPublicText !== undefined || reusablePlace ? { addressPublicText: input.addressPublicText ?? snapshot?.addressPublicText ?? null } : {}),
     ...(input.addressPrivateText !== undefined || reusablePlace ? { addressPrivateText: input.addressPrivateText ?? snapshot?.addressPrivateText ?? null } : {}),
     ...(input.onlineLabel !== undefined || reusablePlace ? { onlineLabel: input.onlineLabel ?? snapshot?.onlineLabel ?? null } : {}),

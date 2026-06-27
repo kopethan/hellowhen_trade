@@ -23,6 +23,18 @@ export const semanticColors = {
     softBg: '#CCFBF1',
     border: '#5EEAD4',
   },
+  plan: {
+    bg: '#7C3AED',
+    text: '#5B21B6',
+    softBg: '#EDE9FE',
+    border: '#C4B5FD',
+  },
+  place: {
+    bg: '#A855F7',
+    text: '#6B21A8',
+    softBg: '#F3E8FF',
+    border: '#D8B4FE',
+  },
   time: {
     bg: '#F97316',
     text: '#9A3412',
@@ -88,6 +100,8 @@ export const semanticColorsDark: SemanticPalette = {
   offer: { bg: '#4ADE80', text: '#BBF7D0', softBg: '#052E16', border: '#15803D' },
   trade: { bg: '#F8FAFC', text: '#F8FAFC', softBg: '#1F2937', border: '#475569' },
   proposal: { bg: '#2DD4BF', text: '#CCFBF1', softBg: '#042F2E', border: '#0F766E' },
+  plan: { bg: '#A78BFA', text: '#DDD6FE', softBg: '#2E1065', border: '#6D28D9' },
+  place: { bg: '#C084FC', text: '#F3E8FF', softBg: '#3B0764', border: '#7E22CE' },
   time: { bg: '#FB923C', text: '#FED7AA', softBg: '#431407', border: '#C2410C' },
   danger: { bg: '#F87171', text: '#FECACA', softBg: '#450A0A', border: '#B91C1C' },
   instruction: { bg: '#CBD5E1', text: '#E2E8F0', softBg: '#1E293B', border: '#475569' },

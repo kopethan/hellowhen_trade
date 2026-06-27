@@ -54,8 +54,8 @@ export declare const planPlaceInputSchema: z.ZodObject<{
     mediaIds: z.ZodOptional<z.ZodArray<z.ZodString>>;
 }, z.core.$strip>;
 export declare const createPlanRequestSchema: z.ZodObject<{
-    title: z.ZodString;
-    description: z.ZodString;
+    title: z.ZodOptional<z.ZodString>;
+    description: z.ZodOptional<z.ZodString>;
     category: z.ZodOptional<z.ZodString>;
     tags: z.ZodOptional<z.ZodArray<z.ZodString>>;
     mode: z.ZodOptional<z.ZodEnum<{

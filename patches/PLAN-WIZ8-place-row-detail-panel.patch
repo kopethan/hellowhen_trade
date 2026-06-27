@@ -1,0 +1,494 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 15b8b6e..9889258 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -97,6 +97,7 @@ type PlaceCreateFormState = {
+ };
+ 
+ type PlacePickerTab = 'mine' | 'library';
++type PlaceSourceTarget = number | 'new';
+ 
+ function padDatePart(value: number) {
+   return String(value).padStart(2, '0');
+@@ -948,61 +949,24 @@ function PlaceChoiceCard({ place, onAdd }: { place: PlaceDto; onAdd: () => void
+   );
+ }
+ 
+-function PlaceEditorCard({
+-  place,
+-  index,
+-  total,
+-  onChange,
+-  onMove,
+-  onRemove,
+-  onResetToCustom,
+-}: {
+-  place: SelectedPlanPlaceState;
+-  index: number;
+-  total: number;
+-  onChange: (patch: Partial<SelectedPlanPlaceState>) => void;
+-  onMove: (direction: -1 | 1) => void;
+-  onRemove: () => void;
+-  onResetToCustom: () => void;
+-}) {
++function PlaceTimelineRow({ place, index, onPress }: { place: SelectedPlanPlaceState; index: number; onPress: () => void }) {
+   const theme = useThemeTokens();
++  const timeLabel = index === 0
++    ? `${place.date || 'Date'} ${place.time || 'Time'}`
++    : place.time.trim() ? `${place.date || 'Date'} ${place.time}` : 'Time optional';
++  const meta = [placePreviewLocation(place) || 'No location yet', timeLabel].filter(Boolean).join(' · ');
+   return (
+-    <View style={[styles.placeEditorCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-      <View style={styles.placeEditorHeader}>
++    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.placeTimelineRow, { borderColor: theme.color.border }, pressed && styles.pressed]}>
++      <View style={styles.timelineCopy}>
+         <View style={styles.rowTop}>
+           <SemanticBadge label={`Place ${index + 1}`} tone="instruction" size="sm" />
+-          {place.sourcePlaceId ? <SemanticBadge label={place.sourcePlaceSource === 'hellowhen_library' ? 'Library snapshot' : 'My Place snapshot'} tone="proposal" size="sm" /> : <SemanticBadge label="Custom" tone="muted" size="sm" />}
+-        </View>
+-        <View style={styles.smallButtonRow}>
+-          <SecondaryButton label="↑" disabled={index === 0} onPress={() => onMove(-1)} />
+-          <SecondaryButton label="↓" disabled={index === total - 1} onPress={() => onMove(1)} />
++          {place.sourcePlaceId ? <SemanticBadge label={place.sourcePlaceSource === 'hellowhen_library' ? 'Library' : 'My Place'} tone="proposal" size="sm" /> : <SemanticBadge label="Custom" tone="muted" size="sm" />}
+         </View>
++        <AppText style={styles.rowTitle}>{place.title || place.sourcePlaceTitle || `Place ${index + 1}`}</AppText>
++        <AppText style={[styles.metaText, { color: theme.color.muted }]} numberOfLines={2}>{meta}</AppText>
+       </View>
+-      {place.sourcePlaceId ? (
+-        <View style={[styles.snapshotStrip, { backgroundColor: theme.semantic.instruction.softBg, borderColor: theme.semantic.instruction.border }]}>
+-          <AppText style={[styles.snapshotText, { color: theme.semantic.instruction.text }]} numberOfLines={2}>Copied from {place.sourcePlaceTitle || place.title}. This Plan keeps a snapshot.</AppText>
+-          <SecondaryButton label="Use custom" onPress={onResetToCustom} />
+-        </View>
+-      ) : null}
+-      {index > 0 ? (
+-        <View style={styles.twoColumnRow}>
+-          <TextField label="Date" value={place.date} onChangeText={(date) => onChange({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+-          <TextField label="Time optional" value={place.time} onChangeText={(time) => onChange({ time })} placeholder="Optional" keyboardType="numbers-and-punctuation" />
+-        </View>
+-      ) : null}
+-      <ModeSegment value={place.mode} onChange={(mode) => onChange({ mode, location: mode === 'remote' ? '' : place.location })} />
+-      <TextField label="Place name" value={place.title} onChangeText={(title) => onChange({ title })} placeholder={place.mode === 'remote' ? 'Planning call' : 'Coffee meeting point'} maxLength={120} />
+-      {place.mode === 'remote' ? (
+-        <>
+-          <TextField label="Online label" value={place.onlineLabel} onChangeText={(onlineLabel) => onChange({ onlineLabel })} placeholder="Zoom, Discord, website" maxLength={120} />
+-          <TextField label="Online URL" value={place.onlineUrl} onChangeText={(onlineUrl) => onChange({ onlineUrl })} placeholder="https://..." keyboardType="url" maxLength={500} />
+-        </>
+-      ) : (
+-        <TextField label="Address or meeting point" value={place.location} onChangeText={(location) => onChange({ location })} placeholder="Paris 11 or a public meeting point" maxLength={240} />
+-      )}
+-      <TextField label="Plan note" value={place.note} onChangeText={(note) => onChange({ note })} placeholder="Why this place is part of the Plan." multiline maxLength={1000} />
+-      <SecondaryButton label="Remove place" icon="close" onPress={onRemove} />
+-    </View>
++      <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
++    </Pressable>
+   );
+ }
+ 
+@@ -1087,6 +1051,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   const [stage, setStage] = useState<PlanCreateStage>('build');
+   const [placeSourceSheetOpen, setPlaceSourceSheetOpen] = useState(false);
+   const [placePickerOpen, setPlacePickerOpen] = useState(false);
++  const [placeSourceTarget, setPlaceSourceTarget] = useState<PlaceSourceTarget>('new');
++  const [detailPlaceIndex, setDetailPlaceIndex] = useState<number | null>(null);
+   const [advancedDetailsOpen, setAdvancedDetailsOpen] = useState(false);
+   const handledCreatedPlaceNonceRef = useRef<number | undefined>(undefined);
+   const [message, setMessage] = useState<string | null>(null);
+@@ -1145,7 +1111,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     setPlaceQuery('');
+   }
+ 
+-  function openPlaceSourceSheet() {
++  function openPlaceSourceSheet(target: PlaceSourceTarget = 'new') {
++    setPlaceSourceTarget(target);
++    setDetailPlaceIndex(null);
+     setPlaceSourceSheetOpen(true);
+     setPlacePickerOpen(false);
+     setPlaceQuery('');
+@@ -1158,12 +1126,32 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   }
+ 
+   function addCustomPlace() {
+-    setPlaces((current) => [...current, makeSelectedPlanPlace(current.length, current[current.length - 1]?.date || toDateInputValue())]);
++    if (placeSourceTarget === 'new') {
++      const nextIndex = places.length;
++      setPlaces((current) => [...current, makeSelectedPlanPlace(current.length, current[current.length - 1]?.date || toDateInputValue())]);
++      setDetailPlaceIndex(nextIndex);
++    } else {
++      const targetIndex = placeSourceTarget;
++      setPlaces((current) => current.map((item, index) => {
++        if (index !== targetIndex) return item;
++        return { ...makeSelectedPlanPlace(index, item.date || toDateInputValue()), id: item.id, date: item.date, time: item.time };
++      }));
++      setDetailPlaceIndex(targetIndex);
++    }
+     closePlaceSourceSheet();
+   }
+ 
+   function addReusablePlace(place: PlaceDto) {
+-    setPlaces((current) => [...current, selectedPlaceFromReusable(place, current.length, current[current.length - 1]?.date || toDateInputValue())]);
++    if (placeSourceTarget === 'new') {
++      setPlaces((current) => [...current, selectedPlaceFromReusable(place, current.length, current[current.length - 1]?.date || toDateInputValue())]);
++    } else {
++      const targetIndex = placeSourceTarget;
++      setPlaces((current) => current.map((item, index) => {
++        if (index !== targetIndex) return item;
++        const next = selectedPlaceFromReusable(place, index, item.date || toDateInputValue());
++        return { ...next, id: item.id, date: item.date || next.date, time: item.time || next.time };
++      }));
++    }
+     closePlaceSourceSheet();
+     setMessage(`Added ${place.title}.`);
+     setError(null);
+@@ -1258,6 +1246,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   }
+ 
+   const activeList = pickerTab === 'mine' ? filteredMyPlaces : filteredLibraryPlaces;
++  const detailPlace = detailPlaceIndex !== null ? places[detailPlaceIndex] : null;
+ 
+   return (
+     <AppFixedHeaderScreen header={<AppHeader title="Create plan" onBack={() => navigation.goBack()} />}>
+@@ -1293,15 +1282,11 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+ 
+                 {places.length === 0 ? <EmptyBlock title="No places selected" body="Add your first place from My Places, Hellowhen Library, a new reusable Place, or a custom one-off stop." /> : null}
+                 {places.map((place, index) => (
+-                  <PlaceEditorCard
++                  <PlaceTimelineRow
+                     key={place.id}
+                     place={place}
+                     index={index}
+-                    total={places.length}
+-                    onChange={(patch) => updateSelectedPlace(index, patch)}
+-                    onMove={(direction) => moveSelectedPlace(index, direction)}
+-                    onRemove={() => setPlaces((current) => current.filter((_, placeIndex) => placeIndex !== index))}
+-                    onResetToCustom={() => setPlaces((current) => current.map((item, placeIndex) => placeIndex === index ? resetSelectedPlaceToCustom(item) : item))}
++                    onPress={() => setDetailPlaceIndex(index)}
+                   />
+                 ))}
+ 
+@@ -1311,7 +1296,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                     <AppText style={[styles.metaText, { color: theme.color.muted }]}>Open place choices only when needed, so this screen stays light.</AppText>
+                   </View>
+                   <View style={styles.actionGrid}>
+-                    <SecondaryButton label="Add place" icon="add" onPress={openPlaceSourceSheet} />
++                    <SecondaryButton label="Add place" icon="add" onPress={() => openPlaceSourceSheet('new')} />
+                   </View>
+                 </View>
+ 
+@@ -1384,6 +1369,63 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+             </>
+           )}
+         </ScrollView>
++        <Modal visible={Boolean(detailPlace)} transparent animationType="slide" onRequestClose={() => setDetailPlaceIndex(null)}>
++          <View style={styles.sourceSheetOverlay}>
++            <Pressable accessibilityRole="button" accessibilityLabel="Close place details" onPress={() => setDetailPlaceIndex(null)} style={styles.sourceSheetScrim} />
++            {detailPlace && detailPlaceIndex !== null ? (
++              <View style={[styles.sourceSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++                <View style={styles.wizardStepRow}>
++                  <View style={styles.timelineCopy}>
++                    <AppText style={styles.sectionTitle}>Place {detailPlaceIndex + 1} details</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Edit this stop without overloading the main Plan screen.</AppText>
++                  </View>
++                  <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setDetailPlaceIndex(null)} style={[styles.headerAction, { borderColor: theme.color.border }]}>
++                    <MobileIcon name="close" color={theme.color.text} size={18} />
++                  </Pressable>
++                </View>
++                <ScrollView keyboardShouldPersistTaps="handled" style={styles.sourceListScroll} contentContainerStyle={styles.placeDetailSheetContent}>
++                  <View style={styles.rowTop}>
++                    {detailPlace.sourcePlaceId ? <SemanticBadge label={detailPlace.sourcePlaceSource === 'hellowhen_library' ? 'Library snapshot' : 'My Place snapshot'} tone="proposal" size="sm" /> : <SemanticBadge label="Custom one-off stop" tone="muted" size="sm" />}
++                    <SemanticBadge label={detailPlaceIndex === 0 ? 'Plan start' : 'Optional time'} tone="instruction" size="sm" />
++                  </View>
++                  <View style={styles.twoColumnRow}>
++                    <TextField label="Date" value={detailPlace.date} onChangeText={(date) => updateSelectedPlace(detailPlaceIndex, { date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
++                    <TextField label={detailPlaceIndex === 0 ? 'Time' : 'Time optional'} value={detailPlace.time} onChangeText={(time) => updateSelectedPlace(detailPlaceIndex, { time })} placeholder={detailPlaceIndex === 0 ? '13:00' : 'Optional'} keyboardType="numbers-and-punctuation" />
++                  </View>
++                  {detailPlace.sourcePlaceId ? (
++                    <View style={[styles.snapshotStrip, { backgroundColor: theme.semantic.instruction.softBg, borderColor: theme.semantic.instruction.border }]}>
++                      <AppText style={[styles.snapshotText, { color: theme.semantic.instruction.text }]} numberOfLines={3}>Copied from {detailPlace.sourcePlaceTitle || detailPlace.title}. This Plan keeps a snapshot.</AppText>
++                      <SecondaryButton label="Use as custom" onPress={() => updateSelectedPlace(detailPlaceIndex, resetSelectedPlaceToCustom(detailPlace))} />
++                    </View>
++                  ) : (
++                    <>
++                      <ModeSegment value={detailPlace.mode} onChange={(mode) => updateSelectedPlace(detailPlaceIndex, { mode, location: mode === 'remote' ? '' : detailPlace.location })} />
++                      <TextField label="Place name" value={detailPlace.title} onChangeText={(title) => updateSelectedPlace(detailPlaceIndex, { title })} placeholder={detailPlace.mode === 'remote' ? 'Planning call' : 'Coffee meeting point'} maxLength={120} />
++                      {detailPlace.mode === 'remote' ? (
++                        <>
++                          <TextField label="Online label" value={detailPlace.onlineLabel} onChangeText={(onlineLabel) => updateSelectedPlace(detailPlaceIndex, { onlineLabel })} placeholder="Zoom, Discord, website" maxLength={120} />
++                          <TextField label="Online URL" value={detailPlace.onlineUrl} onChangeText={(onlineUrl) => updateSelectedPlace(detailPlaceIndex, { onlineUrl })} placeholder="https://..." keyboardType="url" maxLength={500} />
++                        </>
++                      ) : (
++                        <TextField label="Address or meeting point" value={detailPlace.location} onChangeText={(location) => updateSelectedPlace(detailPlaceIndex, { location })} placeholder="Paris 11 or a public meeting point" maxLength={240} />
++                      )}
++                    </>
++                  )}
++                  <TextField label="Stop note" value={detailPlace.note} onChangeText={(note) => updateSelectedPlace(detailPlaceIndex, { note })} placeholder="Optional note for this stop." multiline maxLength={1000} />
++                  <View style={styles.actionGrid}>
++                    <SecondaryButton label="Move up" disabled={detailPlaceIndex === 0} onPress={() => { moveSelectedPlace(detailPlaceIndex, -1); setDetailPlaceIndex(detailPlaceIndex - 1); }} />
++                    <SecondaryButton label="Move down" disabled={detailPlaceIndex === places.length - 1} onPress={() => { moveSelectedPlace(detailPlaceIndex, 1); setDetailPlaceIndex(detailPlaceIndex + 1); }} />
++                    <SecondaryButton label="Change place" onPress={() => openPlaceSourceSheet(detailPlaceIndex)} />
++                    <SecondaryButton label="Remove" icon="close" onPress={() => { setPlaces((current) => current.filter((_, placeIndex) => placeIndex !== detailPlaceIndex)); setDetailPlaceIndex(null); }} />
++                  </View>
++                  <Pressable accessibilityRole="button" onPress={() => setDetailPlaceIndex(null)} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
++                    <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Done</AppText>
++                  </Pressable>
++                </ScrollView>
++              </View>
++            ) : null}
++          </View>
++        </Modal>
+         <Modal visible={placeSourceSheetOpen} transparent animationType="slide" onRequestClose={closePlaceSourceSheet}>
+           <View style={styles.sourceSheetOverlay}>
+             <Pressable accessibilityRole="button" accessibilityLabel="Close place source" onPress={closePlaceSourceSheet} style={styles.sourceSheetScrim} />
+@@ -1549,6 +1591,8 @@ const styles = StyleSheet.create({
+   stageSwitchRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+   timelineDividerBlock: { gap: 0 },
+   planTimelineLineItem: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 15, gap: 12 },
++  placeTimelineRow: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 15, flexDirection: 'row', alignItems: 'center', gap: 12 },
++  placeDetailSheetContent: { gap: 12, paddingBottom: 12 },
+   placePickerPanel: { borderRadius: 24, borderWidth: 1, padding: 14, gap: 12 },
+   sourceSheetOverlay: { flex: 1, justifyContent: 'flex-end' },
+   sourceSheetScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.38)' },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 8438419..90b1c8f 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -9121,6 +9121,10 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .plan-timeline-row:first-child { border-top: 0; padding-top: 0; }
+ .plan-timeline-row__main { display: grid; gap: 6px; min-width: 0; }
+ .plan-timeline-row__main h3 { margin: 0; font-size: 18px; letter-spacing: -0.02em; }
++.plan-timeline-row__main--button { width: 100%; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; padding: 0; }
++.plan-timeline-row__main--button strong { color: var(--app-text); font-size: 18px; font-weight: 950; letter-spacing: -0.02em; }
++.plan-timeline-row__main--button small { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.35; }
++.plan-timeline-row__main--button:hover strong { text-decoration: underline; text-underline-offset: 3px; }
+ .plan-timeline-row__heading { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+ .plan-timeline-row__actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+ .plan-timeline-row__fields { display: grid; grid-template-columns: repeat(2, minmax(130px, 1fr)); gap: 10px; align-items: end; }
+@@ -9131,6 +9135,9 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .plan-stop-note { grid-column: 1 / -1; display: grid; gap: 10px; }
+ .plan-stop-note summary { width: fit-content; cursor: pointer; color: var(--app-text-muted); font-size: 12px; font-weight: 950; letter-spacing: 0.04em; text-transform: uppercase; }
+ .plan-stop-note[open] { gap: 10px; }
++.plan-place-detail-sheet { max-width: 680px; }
++.plan-place-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; border-top: 1px solid var(--app-border); padding-top: 12px; }
++.plan-source-place-strip span { min-width: 0; color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.35; }
+ .plan-preview-stage { border-top: 1px solid var(--app-border); padding-top: 14px; }
+ .plan-preview-confirmation, .plan-preview-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+ .plan-preview-actions { justify-content: flex-end; border-top: 1px solid var(--app-border); padding-top: 14px; }
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index 679e809..eee14e7 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -404,6 +404,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   const [pickerTarget, setPickerTarget] = useState<PlacePickerTarget | null>(null);
+   const [pickerView, setPickerView] = useState<PlacePickerView>('source');
+   const [pickerTab, setPickerTab] = useState<'mine' | 'library'>('mine');
++  const [detailPlaceIndex, setDetailPlaceIndex] = useState<number | null>(null);
+   const [placeQuery, setPlaceQuery] = useState('');
+   const [saving, setSaving] = useState(false);
+   const [message, setMessage] = useState('');
+@@ -507,13 +508,24 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   }
+ 
+   function useCustomPlaceFromPicker() {
+-    if (pickerTarget === 'new') addPlace();
+-    if (typeof pickerTarget === 'number') updatePlace(pickerTarget, resetToCustomPatch());
++    if (pickerTarget === 'new') {
++      const nextIndex = places.length;
++      setPlaces((current) => {
++        const previous = current[current.length - 1];
++        return [...current, makePlace(current.length, previous?.date || toDateInputValue())];
++      });
++      setDetailPlaceIndex(nextIndex);
++    }
++    if (typeof pickerTarget === 'number') {
++      updatePlace(pickerTarget, resetToCustomPatch());
++      setDetailPlaceIndex(pickerTarget);
++    }
+     closePlacePicker();
+   }
+ 
+   function removePlace(index: number) {
+     setPlaces((current) => current.filter((_, placeIndex) => placeIndex !== index));
++    setDetailPlaceIndex(null);
+   }
+ 
+   function movePlace(index: number, direction: -1 | 1) {
+@@ -531,6 +543,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   }
+ 
+   function openPicker(index: number) {
++    setDetailPlaceIndex(null);
+     setPickerTarget(index);
+     setPickerView('source');
+     setPickerTab(myPlaces.length ? 'mine' : 'library');
+@@ -673,6 +686,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+ 
+   const pickerIsOpen = pickerTarget !== null;
+   const pickerTitle = pickerTarget === 'new' ? 'Choose place source' : `Choose Place ${typeof pickerTarget === 'number' ? pickerTarget + 1 : ''}`;
++  const detailPlace = detailPlaceIndex !== null ? places[detailPlaceIndex] : null;
+ 
+   return (
+     <PlansFeatureGate plansEnabled={plansEnabled}>
+@@ -728,71 +742,17 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+ 
+                   {places.map((place, index) => (
+                     <div className="plan-timeline-row plan-timeline-row--place" key={place.id}>
+-                      <div className="plan-timeline-row__main">
+-                        <div className="plan-timeline-row__heading">
++                      <button type="button" className="plan-timeline-row__main plan-timeline-row__main--button" onClick={() => setDetailPlaceIndex(index)}>
++                        <span className="plan-timeline-row__heading">
+                           <span className="semantic-badge instruction">Place {index + 1}</span>
+                           {place.sourcePlaceId ? <span className="semantic-badge success">{place.sourcePlaceSource === 'hellowhen_library' ? 'Library' : 'My Place'}</span> : <span className="semantic-badge muted">Custom</span>}
+-                        </div>
+-                        <h3>{place.title.trim() || place.sourcePlaceTitle || `Place ${index + 1}`}</h3>
+-                        <p className="meta">{placePreviewLocation(place) || 'No location yet'}{place.note.trim() ? ` · ${place.note.trim()}` : ''}</p>
+-                      </div>
++                        </span>
++                        <strong>{place.title.trim() || place.sourcePlaceTitle || `Place ${index + 1}`}</strong>
++                        <small>{[placePreviewLocation(place) || 'No location yet', index === 0 ? `${place.date || 'Date'} ${place.time || 'Time'}` : place.time.trim() ? `${place.date || 'Date'} ${place.time}` : 'Time optional'].filter(Boolean).join(' · ')}</small>
++                      </button>
+                       <div className="plan-timeline-row__actions">
+-                        <button type="button" className="button secondary" onClick={() => openPicker(index)}>Change</button>
+-                        <button type="button" className="button secondary" disabled={index === 0} onClick={() => movePlace(index, -1)}>Move up</button>
+-                        <button type="button" className="button secondary" disabled={index === places.length - 1} onClick={() => movePlace(index, 1)}>Move down</button>
+-                        <button type="button" className="button secondary" onClick={() => removePlace(index)}>Remove</button>
++                        <button type="button" className="button secondary" onClick={() => setDetailPlaceIndex(index)}>Details</button>
+                       </div>
+-                      {index > 0 ? (
+-                        <div className="plan-timeline-row__fields plan-timeline-row__fields--optional">
+-                          <label>
+-                            <span>Date</span>
+-                            <input type="date" value={place.date} onChange={(event) => updatePlace(index, { date: event.target.value })} />
+-                          </label>
+-                          <label>
+-                            <span>Time optional</span>
+-                            <input type="time" value={place.time} onChange={(event) => updatePlace(index, { time: event.target.value })} />
+-                          </label>
+-                        </div>
+-                      ) : null}
+-                      {!place.sourcePlaceId ? (
+-                        <div className="plan-timeline-row__details">
+-                          <PlaceModeSegment value={place.mode} onChange={(mode) => updatePlace(index, { mode, location: mode === 'remote' ? '' : place.location })} />
+-                          <label>
+-                            <span>Place name</span>
+-                            <input value={place.title} onChange={(event) => updatePlace(index, { title: event.target.value })} minLength={3} maxLength={120} required placeholder={place.mode === 'remote' ? 'Planning call' : 'Coffee meeting point'} />
+-                          </label>
+-                          {place.mode === 'remote' ? (
+-                            <div className="plan-form__row">
+-                              <label>
+-                                <span>Online label</span>
+-                                <input value={place.onlineLabel} onChange={(event) => updatePlace(index, { onlineLabel: event.target.value })} maxLength={120} placeholder="Zoom, Discord, website" />
+-                              </label>
+-                              <label>
+-                                <span>Online URL</span>
+-                                <input type="url" value={place.onlineUrl} onChange={(event) => updatePlace(index, { onlineUrl: event.target.value })} maxLength={500} placeholder="https://..." />
+-                              </label>
+-                            </div>
+-                          ) : (
+-                            <label>
+-                              <span>Address or meeting point</span>
+-                              <input value={place.location} onChange={(event) => updatePlace(index, { location: event.target.value })} maxLength={240} placeholder="Search or enter an address" />
+-                            </label>
+-                          )}
+-                        </div>
+-                      ) : null}
+-                      <details className="plan-stop-note">
+-                        <summary>Stop note / image</summary>
+-                        <label>
+-                          <span>Stop note</span>
+-                          <textarea value={place.note} onChange={(event) => updatePlace(index, { note: event.target.value })} maxLength={1000} placeholder="Optional note for this stop." />
+-                        </label>
+-                        <PlaceImagePicker
+-                          place={place}
+-                          onUpload={(event) => { const files = event.target.files; event.currentTarget.value = ''; void uploadPlaceImage(index, files); }}
+-                          onRemove={() => updatePlace(index, { media: null })}
+-                        />
+-                        {place.sourcePlaceId ? <button type="button" className="button secondary" onClick={() => updatePlace(index, resetToCustomPatch())}>Use as custom</button> : null}
+-                      </details>
+                     </div>
+                   ))}
+ 
+@@ -878,6 +838,85 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+           </form>
+         ) : null}
+ 
++        {detailPlace && detailPlaceIndex !== null ? (
++          <div className="plan-place-source-overlay" role="presentation">
++            <button type="button" className="plan-place-source-backdrop" aria-label="Close place details" onClick={() => setDetailPlaceIndex(null)} />
++            <section className="plan-place-source-sheet plan-place-detail-sheet" role="dialog" aria-modal="true" aria-label={`Place ${detailPlaceIndex + 1} details`}>
++              <div className="plan-detail-topbar">
++                <div>
++                  <h3>Place {detailPlaceIndex + 1} details</h3>
++                  <p className="meta">Edit only this stop. Reusable Place descriptions stay on the saved Place.</p>
++                </div>
++                <button type="button" className="plans-feed-icon-button" onClick={() => setDetailPlaceIndex(null)} aria-label="Close Place details">×</button>
++              </div>
++              <div className="plan-place-picker-panel">
++                <div className="plan-timeline-row__heading">
++                  {detailPlace.sourcePlaceId ? <span className="semantic-badge success">{detailPlace.sourcePlaceSource === 'hellowhen_library' ? 'Library snapshot' : 'My Place snapshot'}</span> : <span className="semantic-badge muted">Custom one-off stop</span>}
++                  <span className="semantic-badge instruction">{detailPlaceIndex === 0 ? 'Plan start' : 'Optional time'}</span>
++                </div>
++                <div className="plan-timeline-row__fields">
++                  <label>
++                    <span>Date</span>
++                    <input type="date" value={detailPlace.date} onChange={(event) => updatePlace(detailPlaceIndex, { date: event.target.value })} required={detailPlaceIndex === 0} />
++                  </label>
++                  <label>
++                    <span>{detailPlaceIndex === 0 ? 'Time' : 'Time optional'}</span>
++                    <input type="time" value={detailPlace.time} onChange={(event) => updatePlace(detailPlaceIndex, { time: event.target.value })} required={detailPlaceIndex === 0} />
++                  </label>
++                </div>
++                {!detailPlace.sourcePlaceId ? (
++                  <>
++                    <PlaceModeSegment value={detailPlace.mode} onChange={(mode) => updatePlace(detailPlaceIndex, { mode, location: mode === 'remote' ? '' : detailPlace.location })} />
++                    <label>
++                      <span>Place name</span>
++                      <input value={detailPlace.title} onChange={(event) => updatePlace(detailPlaceIndex, { title: event.target.value })} minLength={3} maxLength={120} required placeholder={detailPlace.mode === 'remote' ? 'Planning call' : 'Coffee meeting point'} />
++                    </label>
++                    {detailPlace.mode === 'remote' ? (
++                      <div className="plan-form__row">
++                        <label>
++                          <span>Online label</span>
++                          <input value={detailPlace.onlineLabel} onChange={(event) => updatePlace(detailPlaceIndex, { onlineLabel: event.target.value })} maxLength={120} placeholder="Zoom, Discord, website" />
++                        </label>
++                        <label>
++                          <span>Online URL</span>
++                          <input type="url" value={detailPlace.onlineUrl} onChange={(event) => updatePlace(detailPlaceIndex, { onlineUrl: event.target.value })} maxLength={500} placeholder="https://..." />
++                        </label>
++                      </div>
++                    ) : (
++                      <label>
++                        <span>Address or meeting point</span>
++                        <input value={detailPlace.location} onChange={(event) => updatePlace(detailPlaceIndex, { location: event.target.value })} maxLength={240} placeholder="Search or enter an address" />
++                      </label>
++                    )}
++                  </>
++                ) : (
++                  <div className="plan-source-place-strip">
++                    <strong>{detailPlace.sourcePlaceTitle || detailPlace.title}</strong>
++                    <span>Copied as a snapshot for this Plan. Edit the stop note/time here, or switch to custom if you need to change the Place content.</span>
++                    <button type="button" className="button secondary" onClick={() => updatePlace(detailPlaceIndex, resetToCustomPatch())}>Use as custom</button>
++                  </div>
++                )}
++                <label>
++                  <span>Stop note</span>
++                  <textarea value={detailPlace.note} onChange={(event) => updatePlace(detailPlaceIndex, { note: event.target.value })} maxLength={1000} placeholder="Optional note for this stop." />
++                </label>
++                <PlaceImagePicker
++                  place={detailPlace}
++                  onUpload={(event) => { const files = event.target.files; event.currentTarget.value = ''; void uploadPlaceImage(detailPlaceIndex, files); }}
++                  onRemove={() => updatePlace(detailPlaceIndex, { media: null })}
++                />
++                <div className="plan-place-detail-actions">
++                  <button type="button" className="button secondary" disabled={detailPlaceIndex === 0} onClick={() => { movePlace(detailPlaceIndex, -1); setDetailPlaceIndex(detailPlaceIndex - 1); }}>Move up</button>
++                  <button type="button" className="button secondary" disabled={detailPlaceIndex === places.length - 1} onClick={() => { movePlace(detailPlaceIndex, 1); setDetailPlaceIndex(detailPlaceIndex + 1); }}>Move down</button>
++                  <button type="button" className="button secondary" onClick={() => openPicker(detailPlaceIndex)}>Change place</button>
++                  <button type="button" className="button secondary" onClick={() => removePlace(detailPlaceIndex)}>Remove</button>
++                  <button type="button" className="button primary" onClick={() => setDetailPlaceIndex(null)}>Done</button>
++                </div>
++              </div>
++            </section>
++          </div>
++        ) : null}
++
+         {pickerIsOpen ? (
+           <div className="plan-place-source-overlay" role="presentation">
+             <button type="button" className="plan-place-source-backdrop" aria-label="Close place source" onClick={closePlacePicker} />

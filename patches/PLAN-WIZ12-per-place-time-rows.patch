@@ -1,0 +1,304 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 0915cad..5253354 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -215,16 +215,12 @@ function buildMobilePlanSchedule(places: SelectedPlanPlaceState[]) {
+   for (let index = 1; index < places.length; index += 1) {
+     const place = places[index];
+     if (!place) continue;
+-    if (!place.time.trim()) {
+-      placeStartsAt[index] = undefined;
+-      continue;
+-    }
+     const currentDateTime = parseLocalDateTime(place.date, place.time);
+     if (!currentDateTime) {
+-      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: `Add a valid date and time for Place ${index + 1}, or leave its time empty.` };
++      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: `Add a valid date and time for Place ${index + 1}.` };
+     }
+     if (currentDateTime.getTime() < previousDateTime.getTime()) {
+-      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Each timed place must be at the same time or after the previous timed place.' };
++      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Each place time must be at the same time or after the previous place.' };
+     }
+     placeStartsAt[index] = currentDateTime.toISOString();
+     previousDateTime = currentDateTime;
+@@ -264,10 +260,10 @@ function planPreviewPlaceTitle(place: SelectedPlanPlaceState, index: number) {
+   return place.title.trim() || place.sourcePlaceTitle?.trim() || `Place ${index + 1}`;
+ }
+ 
+-function planPreviewTimeLabel(place: SelectedPlanPlaceState, index: number) {
++function planPreviewTimeLabel(place: SelectedPlanPlaceState) {
+   if (place.date && place.time) return `${place.date} · ${place.time}`;
+   if (place.time) return place.time;
+-  return index === 0 ? 'Start time required' : 'Time optional';
++  return 'Time required';
+ }
+ 
+ function getAcceptedParticipants(plan: PlanDto) {
+@@ -962,10 +958,7 @@ function PlaceChoiceCard({ place, onAdd }: { place: PlaceDto; onAdd: () => void
+ 
+ function PlaceTimelineRow({ place, index, onPress }: { place: SelectedPlanPlaceState; index: number; onPress: () => void }) {
+   const theme = useThemeTokens();
+-  const timeLabel = index === 0
+-    ? `${place.date || 'Date'} ${place.time || 'Time'}`
+-    : place.time.trim() ? `${place.date || 'Date'} ${place.time}` : 'Time optional';
+-  const meta = [placePreviewLocation(place) || 'No location yet', timeLabel].filter(Boolean).join(' · ');
++  const meta = placePreviewLocation(place) || 'No location yet';
+   return (
+     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.placeTimelineRow, { borderColor: theme.color.border }, pressed && styles.pressed]}>
+       <View style={styles.timelineCopy}>
+@@ -1312,28 +1305,26 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+           {stage === 'build' ? (
+             <>
+               <View style={[styles.timelineDividerBlock, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
+-                <View style={[styles.planTimelineLineItem, { borderTopColor: theme.color.border }]}>
+-                  <View style={styles.timelineCopy}>
+-                    <SemanticBadge label="Date / time" tone="time" size="sm" />
+-                    <AppText style={styles.sectionTitle}>Start time</AppText>
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Used for Place 1.</AppText>
+-                  </View>
+-                  {places[0] ? (
+-                    <View style={styles.twoColumnRow}>
+-                      <TextField label="Date" value={places[0].date} onChangeText={(date) => updateSelectedPlace(0, { date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+-                      <TextField label="Time" value={places[0].time} onChangeText={(time) => updateSelectedPlace(0, { time })} placeholder="13:00" keyboardType="numbers-and-punctuation" />
+-                    </View>
+-                  ) : <AppText style={[styles.rowBody, { color: theme.color.muted }]}>Add Place 1 to set the start.</AppText>}
+-                </View>
+-
+-                {places.length === 0 ? <EmptyBlock title="No places yet" body="Add your first place to start." /> : null}
++                {places.length === 0 ? <EmptyBlock title="No places yet" body="Add your first place to set its date and time." /> : null}
+                 {places.map((place, index) => (
+-                  <PlaceTimelineRow
+-                    key={place.id}
+-                    place={place}
+-                    index={index}
+-                    onPress={() => setDetailPlaceIndex(index)}
+-                  />
++                  <View key={place.id}>
++                    <View style={[styles.planTimelineLineItem, styles.placeTimeLineItem, { borderTopColor: theme.color.border }]}>
++                      <View style={styles.timelineCopy}>
++                        <SemanticBadge label="Date / time" tone="time" size="sm" />
++                        <AppText style={styles.sectionTitle}>Place {index + 1} time</AppText>
++                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{index === 0 ? 'This becomes the Plan start.' : 'Same time or after the previous place.'}</AppText>
++                      </View>
++                      <View style={styles.twoColumnRow}>
++                        <TextField label="Date" value={place.date} onChangeText={(date) => updateSelectedPlace(index, { date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
++                        <TextField label="Time" value={place.time} onChangeText={(time) => updateSelectedPlace(index, { time })} placeholder="13:00" keyboardType="numbers-and-punctuation" />
++                      </View>
++                    </View>
++                    <PlaceTimelineRow
++                      place={place}
++                      index={index}
++                      onPress={() => setDetailPlaceIndex(index)}
++                    />
++                  </View>
+                 ))}
+ 
+                 <View style={[styles.planTimelineLineItem, styles.planTimelinePlaceAction, { borderTopColor: theme.color.border }]}>
+@@ -1416,7 +1407,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                       </View>
+                       <View style={styles.timelineCopy}>
+                         <AppText style={styles.rowTitle}>{planPreviewPlaceTitle(place, index)}</AppText>
+-                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{planPreviewTimeLabel(place, index)} · {placePreviewLocation(place)}</AppText>
++                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{planPreviewTimeLabel(place)} · {placePreviewLocation(place)}</AppText>
+                       </View>
+                     </View>
+                   ))}
+@@ -1459,11 +1450,6 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                 <ScrollView keyboardShouldPersistTaps="handled" style={styles.sourceListScroll} contentContainerStyle={styles.placeDetailSheetContent}>
+                   <View style={styles.rowTop}>
+                     {detailPlace.sourcePlaceId ? <SemanticBadge label={detailPlace.sourcePlaceSource === 'hellowhen_library' ? 'Library snapshot' : 'My Place snapshot'} tone="place" size="sm" /> : <SemanticBadge label="Custom one-off stop" tone="place" size="sm" />}
+-                    <SemanticBadge label={detailPlaceIndex === 0 ? 'Plan start' : 'Optional time'} tone="time" size="sm" />
+-                  </View>
+-                  <View style={styles.twoColumnRow}>
+-                    <TextField label="Date" value={detailPlace.date} onChangeText={(date) => updateSelectedPlace(detailPlaceIndex, { date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+-                    <TextField label={detailPlaceIndex === 0 ? 'Time' : 'Time optional'} value={detailPlace.time} onChangeText={(time) => updateSelectedPlace(detailPlaceIndex, { time })} placeholder={detailPlaceIndex === 0 ? '13:00' : 'Optional'} keyboardType="numbers-and-punctuation" />
+                   </View>
+                   {detailPlace.sourcePlaceId ? (
+                     <View style={[styles.snapshotStrip, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+@@ -1664,6 +1650,7 @@ const styles = StyleSheet.create({
+   stageSwitchRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+   timelineDividerBlock: { gap: 0, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth },
+   planTimelineLineItem: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 16, gap: 12 },
++  placeTimeLineItem: { paddingBottom: 12 },
+   planTimelinePlaceAction: { paddingVertical: 18 },
+   placeTimelineRow: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
+   placeDetailSheetContent: { gap: 12, paddingBottom: 12 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index bf86dae..06964d4 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -9128,8 +9128,10 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .plan-form--clean { background: transparent; border: 0; box-shadow: none; padding: 0; }
+ .plan-build-timeline { display: grid; gap: 0; border-top: 1px solid var(--app-divider); border-bottom: 1px solid var(--app-divider); }
+ .plan-timeline-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; border-top: 1px solid var(--app-divider); padding: 17px 0; }
+-.plan-timeline-row:first-child { border-top: 0; }
++.plan-build-timeline > .plan-timeline-row:first-child { border-top: 0; }
++.plan-build-timeline > .plan-place-time-group:first-of-type .plan-timeline-row--place-time { border-top: 0; }
+ .plan-timeline-row--time { background: linear-gradient(90deg, color-mix(in srgb, var(--time-bg) 26%, transparent), transparent 38%); }
++.plan-timeline-row--place-time { padding-bottom: 13px; }
+ .plan-timeline-row--add { background: linear-gradient(90deg, color-mix(in srgb, var(--place-bg) 34%, transparent), transparent 44%); }
+ .plan-timeline-row__main { display: grid; gap: 6px; min-width: 0; }
+ .plan-timeline-row__main h3 { margin: 0; font-size: 18px; letter-spacing: -0.02em; }
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index 28c8da6..e4c88fb 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -232,10 +232,10 @@ function placePreviewLocation(place: PlaceFormState) {
+ }
+ 
+ 
+-function planPreviewTimeLabel(place: PlaceFormState, index: number) {
++function planPreviewTimeLabel(place: PlaceFormState) {
+   if (place.date && place.time) return `${place.date} · ${place.time}`;
+   if (place.time) return place.time;
+-  return index === 0 ? 'Start time required' : 'Time optional';
++  return 'Time required';
+ }
+ 
+ function planPreviewPlaceTitle(place: PlaceFormState, index: number) {
+@@ -493,13 +493,6 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+     setError('');
+   }
+ 
+-  function addPlace() {
+-    setPlaces((current) => {
+-      const previous = current[current.length - 1];
+-      return [...current, makePlace(current.length, previous?.date || toDateInputValue())];
+-    });
+-  }
+-
+   function addPlaceAndOpenPicker() {
+     setPickerTarget('new');
+     setPickerView('source');
+@@ -731,40 +724,40 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+             {stage === 'build' ? (
+               <>
+                 <section className="plan-build-timeline" aria-label="Build Plan timeline">
+-                  <div className="plan-timeline-row plan-timeline-row--time">
+-                    <div className="plan-timeline-row__main">
+-                      <span className="semantic-badge time">Date / time</span>
+-                      <h3>Start time</h3>
+-                      <p className="meta">Used for Place 1.</p>
+-                    </div>
+-                    {places[0] ? (
+-                      <div className="plan-timeline-row__fields">
+-                        <label>
+-                          <span>Date</span>
+-                          <input type="date" value={places[0].date} onChange={(event) => updatePlace(0, { date: event.target.value })} required />
+-                        </label>
+-                        <label>
+-                          <span>Time</span>
+-                          <input type="time" value={places[0].time} onChange={(event) => updatePlace(0, { time: event.target.value })} required />
+-                        </label>
+-                      </div>
+-                    ) : (
+-                      <p className="meta">Add Place 1 to set the start.</p>
+-                    )}
+-                  </div>
++                  {places.length === 0 ? <p className="meta">Add Place 1 to set its date and time.</p> : null}
+ 
+                   {places.map((place, index) => (
+-                    <div className="plan-timeline-row plan-timeline-row--place" key={place.id}>
+-                      <button type="button" className="plan-timeline-row__main plan-timeline-row__main--button" onClick={() => setDetailPlaceIndex(index)}>
+-                        <span className="plan-timeline-row__heading">
+-                          <span className="semantic-badge place">Place {index + 1}</span>
+-                          {place.sourcePlaceId ? <span className="semantic-badge place">{place.sourcePlaceSource === 'hellowhen_library' ? 'Library' : 'My Place'}</span> : <span className="semantic-badge place">Custom</span>}
+-                        </span>
+-                        <strong>{place.title.trim() || place.sourcePlaceTitle || `Place ${index + 1}`}</strong>
+-                        <small>{[placePreviewLocation(place) || 'No location yet', index === 0 ? `${place.date || 'Date'} ${place.time || 'Time'}` : place.time.trim() ? `${place.date || 'Date'} ${place.time}` : 'Time optional'].filter(Boolean).join(' · ')}</small>
+-                      </button>
+-                      <div className="plan-timeline-row__actions">
+-                        <button type="button" className="button secondary" onClick={() => setDetailPlaceIndex(index)}>Details</button>
++                    <div className="plan-place-time-group" key={place.id}>
++                      <div className="plan-timeline-row plan-timeline-row--time plan-timeline-row--place-time">
++                        <div className="plan-timeline-row__main">
++                          <span className="semantic-badge time">Date / time</span>
++                          <h3>Place {index + 1} time</h3>
++                          <p className="meta">{index === 0 ? 'This becomes the Plan start.' : 'Same time or after the previous place.'}</p>
++                        </div>
++                        <div className="plan-timeline-row__fields">
++                          <label>
++                            <span>Date</span>
++                            <input type="date" value={place.date} onChange={(event) => updatePlace(index, { date: event.target.value })} required />
++                          </label>
++                          <label>
++                            <span>Time</span>
++                            <input type="time" value={place.time} onChange={(event) => updatePlace(index, { time: event.target.value })} required />
++                          </label>
++                        </div>
++                      </div>
++
++                      <div className="plan-timeline-row plan-timeline-row--place">
++                        <button type="button" className="plan-timeline-row__main plan-timeline-row__main--button" onClick={() => setDetailPlaceIndex(index)}>
++                          <span className="plan-timeline-row__heading">
++                            <span className="semantic-badge place">Place {index + 1}</span>
++                            {place.sourcePlaceId ? <span className="semantic-badge place">{place.sourcePlaceSource === 'hellowhen_library' ? 'Library' : 'My Place'}</span> : <span className="semantic-badge place">Custom</span>}
++                          </span>
++                          <strong>{place.title.trim() || place.sourcePlaceTitle || `Place ${index + 1}`}</strong>
++                          <small>{placePreviewLocation(place) || 'No location yet'}</small>
++                        </button>
++                        <div className="plan-timeline-row__actions">
++                          <button type="button" className="button secondary" onClick={() => setDetailPlaceIndex(index)}>Details</button>
++                        </div>
+                       </div>
+                     </div>
+                   ))}
+@@ -859,7 +852,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                         <span className="plan-preview-itinerary-row__number">{index + 1}</span>
+                         <div>
+                           <strong>{planPreviewPlaceTitle(place, index)}</strong>
+-                          <small>{planPreviewTimeLabel(place, index)}{placePreviewLocation(place) ? ` · ${placePreviewLocation(place)}` : ''}</small>
++                          <small>{planPreviewTimeLabel(place)}{placePreviewLocation(place) ? ` · ${placePreviewLocation(place)}` : ''}</small>
+                         </div>
+                       </div>
+                     ))}
+@@ -897,17 +890,6 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+               <div className="plan-place-picker-panel">
+                 <div className="plan-timeline-row__heading">
+                   {detailPlace.sourcePlaceId ? <span className="semantic-badge place">{detailPlace.sourcePlaceSource === 'hellowhen_library' ? 'Library snapshot' : 'My Place snapshot'}</span> : <span className="semantic-badge place">Custom one-off stop</span>}
+-                  <span className="semantic-badge time">{detailPlaceIndex === 0 ? 'Plan start' : 'Optional time'}</span>
+-                </div>
+-                <div className="plan-timeline-row__fields">
+-                  <label>
+-                    <span>Date</span>
+-                    <input type="date" value={detailPlace.date} onChange={(event) => updatePlace(detailPlaceIndex, { date: event.target.value })} required={detailPlaceIndex === 0} />
+-                  </label>
+-                  <label>
+-                    <span>{detailPlaceIndex === 0 ? 'Time' : 'Time optional'}</span>
+-                    <input type="time" value={detailPlace.time} onChange={(event) => updatePlace(detailPlaceIndex, { time: event.target.value })} required={detailPlaceIndex === 0} />
+-                  </label>
+                 </div>
+                 {!detailPlace.sourcePlaceId ? (
+                   <>
+@@ -937,7 +919,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                 ) : (
+                   <div className="plan-source-place-strip">
+                     <strong>{detailPlace.sourcePlaceTitle || detailPlace.title}</strong>
+-                    <span>Copied as a snapshot for this Plan. Edit the stop note/time here, or switch to custom if you need to change the Place content.</span>
++                    <span>Copied as a snapshot for this Plan. Switch to custom if you need to change the Place content.</span>
+                     <button type="button" className="button secondary" onClick={() => updatePlace(detailPlaceIndex, resetToCustomPatch())}>Use as custom</button>
+                   </div>
+                 )}
+diff --git a/apps/web/src/features/plans/planSchedule.ts b/apps/web/src/features/plans/planSchedule.ts
+index 34bdbfc..7b1a115 100644
+--- a/apps/web/src/features/plans/planSchedule.ts
++++ b/apps/web/src/features/plans/planSchedule.ts
+@@ -51,16 +51,12 @@ export function buildPlanSchedule(places: PlanSchedulePlace[]) {
+   for (let index = 1; index < places.length; index += 1) {
+     const place = places[index];
+     if (!place) continue;
+-    if (!place.time.trim()) {
+-      placeStartsAt[index] = undefined;
+-      continue;
+-    }
+     const currentDateTime = parseLocalDateTime(place.date, place.time);
+     if (!currentDateTime) {
+-      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: `Add a valid date and time for Place ${index + 1}, or leave its time empty.` };
++      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: `Add a valid date and time for Place ${index + 1}.` };
+     }
+     if (currentDateTime.getTime() < previousDateTime.getTime()) {
+-      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Each timed place must be at the same time or after the previous timed place.' };
++      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Each place time must be at the same time or after the previous place.' };
+     }
+     placeStartsAt[index] = currentDateTime.toISOString();
+     previousDateTime = currentDateTime;

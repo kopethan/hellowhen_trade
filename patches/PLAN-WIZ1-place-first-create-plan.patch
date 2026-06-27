@@ -1,0 +1,300 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 7f5d01c..08d0aa3 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -202,6 +202,42 @@ function planModeFromSelectedPlaces(places: SelectedPlanPlaceState[]) {
+   return modes.has('remote') ? 'remote' as const : 'local' as const;
+ }
+ 
++function generatedSelectedPlaceTitle(place: SelectedPlanPlaceState, index: number) {
++  return place.title.trim() || place.sourcePlaceTitle?.trim() || `Place ${index + 1}`;
++}
++
++function truncateGeneratedPlanText(value: string, maxLength: number) {
++  return value.length > maxLength ? `${value.slice(0, Math.max(0, maxLength - 1)).trim()}…` : value;
++}
++
++function planModeText(mode: ReturnType<typeof planModeFromSelectedPlaces>) {
++  if (mode === 'remote') return 'Remote';
++  if (mode === 'hybrid') return 'Mixed';
++  return 'Local';
++}
++
++function buildGeneratedMobilePlanTitle(places: SelectedPlanPlaceState[], startsAt?: string | null) {
++  const names = places.map(generatedSelectedPlaceTitle).filter(Boolean);
++  const firstName = names[0] ?? 'New plan';
++  const secondName = names[1] ?? 'Place 2';
++  if (names.length === 1) return truncateGeneratedPlanText(firstName, 120);
++  if (names.length === 2) return truncateGeneratedPlanText(`${firstName} → ${secondName}`, 120);
++  if (names.length > 2) return truncateGeneratedPlanText(`${firstName} + ${names.length - 1} places`, 120);
++  if (startsAt) return truncateGeneratedPlanText(`Plan for ${new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(startsAt))}`, 120);
++  return 'New plan';
++}
++
++function buildGeneratedMobilePlanDescription(places: SelectedPlanPlaceState[], startsAt?: string | null) {
++  const placeCount = places.length;
++  const parts = [
++    `${placeCount} ${placeCount === 1 ? 'place' : 'places'}`,
++    startsAt ? `Starts ${new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(startsAt))}` : null,
++    `${planModeText(planModeFromSelectedPlaces(places))} plan`,
++    'Free join',
++  ].filter((part): part is string => Boolean(part));
++  return truncateGeneratedPlanText(parts.join(' · ') || 'Place-first Plan · Free join', 2000);
++}
++
+ function placePreviewLocation(place: SelectedPlanPlaceState) {
+   if (place.mode === 'remote') return place.onlineLabel.trim() || place.onlineUrl.trim() || place.location.trim() || 'Online place';
+   return place.location.trim() || 'Offline place';
+@@ -983,9 +1019,6 @@ function QuickCreatePlaceBox({ state, onChange, onSave, saving }: { state: Place
+ 
+ export function CreatePlanScreen({ navigation }: SimpleScreenProps<'CreatePlan'>) {
+   const theme = useThemeTokens();
+-  const [title, setTitle] = useState('');
+-  const [description, setDescription] = useState('');
+-  const [category, setCategory] = useState('Culture');
+   const [places, setPlaces] = useState<SelectedPlanPlaceState[]>([]);
+   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
+   const [libraryPlaces, setLibraryPlaces] = useState<PlaceDto[]>([]);
+@@ -1001,7 +1034,10 @@ export function CreatePlanScreen({ navigation }: SimpleScreenProps<'CreatePlan'>
+ 
+   const filteredMyPlaces = useMemo(() => filterPlaces(myPlaces, placeQuery), [myPlaces, placeQuery]);
+   const filteredLibraryPlaces = useMemo(() => filterPlaces(libraryPlaces, placeQuery), [libraryPlaces, placeQuery]);
+-  const schedule = useMemo(() => buildMobilePlanSchedule(places.filter((place) => place.title.trim() && place.date.trim() && place.time.trim())), [places]);
++  const usablePlacesForPreview = useMemo(() => places.filter((place) => place.title.trim() && place.date.trim() && place.time.trim()), [places]);
++  const schedule = useMemo(() => buildMobilePlanSchedule(usablePlacesForPreview), [usablePlacesForPreview]);
++  const generatedTitle = useMemo(() => buildGeneratedMobilePlanTitle(usablePlacesForPreview, schedule.startsAt), [usablePlacesForPreview, schedule.startsAt]);
++  const generatedDescription = useMemo(() => buildGeneratedMobilePlanDescription(usablePlacesForPreview, schedule.startsAt), [usablePlacesForPreview, schedule.startsAt]);
+ 
+   const loadReusablePlaces = useCallback(async () => {
+     if (!isPlansVisible()) return;
+@@ -1082,8 +1118,6 @@ export function CreatePlanScreen({ navigation }: SimpleScreenProps<'CreatePlan'>
+   async function submit() {
+     const usablePlaces = places.filter((place) => place.title.trim() && place.date.trim() && place.time.trim());
+     const nextSchedule = buildMobilePlanSchedule(usablePlaces);
+-    if (title.trim().length < 3) { setError('Add a Plan title.'); return; }
+-    if (description.trim().length < 10) { setError('Add a short Plan description.'); return; }
+     if (nextSchedule.error || !nextSchedule.startsAt || usablePlaces.length === 0) { setError(nextSchedule.error || 'Add at least one place.'); return; }
+ 
+     setSaving(true);
+@@ -1091,9 +1125,8 @@ export function CreatePlanScreen({ navigation }: SimpleScreenProps<'CreatePlan'>
+     setMessage(null);
+     try {
+       const response = await api.plans.create({
+-        title,
+-        description,
+-        category: category.trim() || undefined,
++        title: buildGeneratedMobilePlanTitle(usablePlaces, nextSchedule.startsAt),
++        description: buildGeneratedMobilePlanDescription(usablePlaces, nextSchedule.startsAt),
+         mode: planModeFromSelectedPlaces(usablePlaces),
+         startsAt: nextSchedule.startsAt,
+         endsAt: nextSchedule.endsAt || nextSchedule.startsAt,
+@@ -1128,17 +1161,12 @@ export function CreatePlanScreen({ navigation }: SimpleScreenProps<'CreatePlan'>
+           <View style={[styles.hero, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+             <SemanticBadge label="Free join" tone="success" />
+             <AppText style={styles.heroTitle}>Create a Plan from Places</AppText>
+-            <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Choose reusable Places, arrange them in order and time, or add custom stops. No Trade, Need, Offer, Agenda, payment, or approval connection is added here.</AppText>
++            <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Choose places and times first. Hellowhen generates the Plan title and summary from the route, so users do not need to write global Plan details.</AppText>
+           </View>
+ 
+-          <View style={[styles.formCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-            <TextField label="Title" value={title} onChangeText={setTitle} placeholder="Saturday museum route" maxLength={120} />
+-            <TextField label="Description" value={description} onChangeText={setDescription} placeholder="Explain the whole Plan and who can freely join." multiline maxLength={2000} />
+-            <TextField label="Category" value={category} onChangeText={setCategory} placeholder="Culture" maxLength={80} />
+-          </View>
+ 
+           <View style={styles.sectionTitleRow}>
+-            <AppText style={styles.sectionTitle}>Place Library</AppText>
++            <AppText style={styles.sectionTitle}>Choose Places</AppText>
+             <SemanticBadge label={loadingPlaces ? 'Loading' : `${myPlaces.length + libraryPlaces.length}`} tone="instruction" size="sm" />
+           </View>
+           <View style={styles.filterRow}>
+@@ -1177,6 +1205,12 @@ export function CreatePlanScreen({ navigation }: SimpleScreenProps<'CreatePlan'>
+ 
+           <View style={[styles.previewCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+             <View style={styles.sectionTitleRow}><AppText style={styles.sectionTitle}>Preview</AppText><SemanticBadge label="Place-only feed deck" tone="instruction" size="sm" /></View>
++            <View style={[styles.snapshotStrip, { backgroundColor: theme.semantic.instruction.softBg, borderColor: theme.semantic.instruction.border }]}>
++              <View style={styles.timelineCopy}>
++                <AppText style={styles.rowTitle}>{generatedTitle}</AppText>
++                <AppText style={[styles.metaText, { color: theme.semantic.instruction.text }]}>{generatedDescription}</AppText>
++              </View>
++            </View>
+             {places.length === 0 ? <AppText style={[styles.rowBody, { color: theme.color.muted }]}>Selected Places will become the feed deck cards: Place 1, Place 2, Place 3.</AppText> : null}
+             {places.map((place, index) => (
+               <View key={`preview-${place.id}`} style={styles.previewPlaceRow}>
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index 73a701e..c200d95 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -95,6 +95,42 @@ function rangeLabelFromSchedule(schedule: ReturnType<typeof buildPlanSchedule>)
+   return `${new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} → ${new Date(schedule.endsAt || schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
+ }
+ 
++function generatedPlaceTitle(place: PlaceFormState, index: number) {
++  return place.title.trim() || place.sourcePlaceTitle?.trim() || `Place ${index + 1}`;
++}
++
++function truncatePlanText(value: string, maxLength: number) {
++  return value.length > maxLength ? `${value.slice(0, Math.max(0, maxLength - 1)).trim()}…` : value;
++}
++
++function buildGeneratedPlanTitle(places: PlaceFormState[], startsAt?: string | null) {
++  const names = places.map(generatedPlaceTitle).filter(Boolean);
++  const firstName = names[0] ?? 'New plan';
++  const secondName = names[1] ?? 'Place 2';
++  if (names.length === 1) return truncatePlanText(firstName, 120);
++  if (names.length === 2) return truncatePlanText(`${firstName} → ${secondName}`, 120);
++  if (names.length > 2) return truncatePlanText(`${firstName} + ${names.length - 1} places`, 120);
++  if (startsAt) return truncatePlanText(`Plan for ${new Date(startsAt).toLocaleDateString([], { dateStyle: 'medium' })}`, 120);
++  return 'New plan';
++}
++
++function planModeText(mode: ReturnType<typeof planModeFromPlaces>) {
++  if (mode === 'remote') return 'Remote';
++  if (mode === 'hybrid') return 'Mixed';
++  return 'Local';
++}
++
++function buildGeneratedPlanDescription(places: PlaceFormState[], startsAt?: string | null) {
++  const placeCount = places.length;
++  const parts = [
++    `${placeCount} ${placeCount === 1 ? 'place' : 'places'}`,
++    startsAt ? `Starts ${new Date(startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : null,
++    `${planModeText(planModeFromPlaces(places))} plan`,
++    'Free join',
++  ].filter((part): part is string => Boolean(part));
++  return truncatePlanText(parts.join(' · ') || 'Place-first Plan · Free join', 2000);
++}
++
+ function placeSourceLabel(place: PlaceDto) {
+   return place.source === 'hellowhen_library' ? 'hellowhen library' : 'my place';
+ }
+@@ -217,10 +253,7 @@ type PlanCreateClientProps = {
+ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClientProps) {
+   const router = useRouter();
+   const auth = useWebAuth();
+-  const [title, setTitle] = useState('');
+-  const [description, setDescription] = useState('');
+-  const [category, setCategory] = useState('Culture');
+-  const [places, setPlaces] = useState<PlaceFormState[]>([makePlace(0)]);
++  const [places, setPlaces] = useState<PlaceFormState[]>([]);
+   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
+   const [libraryPlaces, setLibraryPlaces] = useState<PlaceDto[]>([]);
+   const [loadingPlaces, setLoadingPlaces] = useState(false);
+@@ -237,6 +270,8 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   const usablePlacesForPreview = useMemo(() => places.filter((place) => place.date.trim() && place.time.trim()), [places]);
+   const schedule = useMemo(() => buildPlanSchedule(usablePlacesForPreview), [usablePlacesForPreview]);
+   const rangeLabel = rangeLabelFromSchedule(schedule);
++  const generatedTitle = useMemo(() => buildGeneratedPlanTitle(usablePlacesForPreview, schedule.startsAt), [usablePlacesForPreview, schedule.startsAt]);
++  const generatedDescription = useMemo(() => buildGeneratedPlanDescription(usablePlacesForPreview, schedule.startsAt), [usablePlacesForPreview, schedule.startsAt]);
+   const filteredMyPlaces = useMemo(() => filterPlaces(myPlaces, placeQuery), [myPlaces, placeQuery]);
+   const filteredLibraryPlaces = useMemo(() => filterPlaces(libraryPlaces, placeQuery), [libraryPlaces, placeQuery]);
+ 
+@@ -282,7 +317,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   }
+ 
+   function removePlace(index: number) {
+-    setPlaces((current) => current.length <= 1 ? current : current.filter((_, placeIndex) => placeIndex !== index));
++    setPlaces((current) => current.filter((_, placeIndex) => placeIndex !== index));
+   }
+ 
+   function movePlace(index: number, direction: -1 | 1) {
+@@ -384,9 +419,8 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+     setMessage('');
+     try {
+       const response = await api.plans.create({
+-        title,
+-        description,
+-        category: category.trim() || undefined,
++        title: buildGeneratedPlanTitle(usablePlaces, nextSchedule.startsAt),
++        description: buildGeneratedPlanDescription(usablePlaces, nextSchedule.startsAt),
+         mode: planModeFromPlaces(usablePlaces),
+         startsAt: nextSchedule.startsAt,
+         endsAt: nextSchedule.endsAt || nextSchedule.startsAt,
+@@ -422,7 +456,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+           <div>
+             <PlansInternalBadge plansVisible={plansVisible} />
+             <h2>Create Plan</h2>
+-            <p>Choose reusable Places, arrange them in order and time, or add one-off custom stops. Places stay independent from Trade, Needs, Offers, Agenda, and payments.</p>
++            <p>Choose places and times first. Hellowhen generates the Plan title and summary from the route, so users do not need to write global Plan details.</p>
+           </div>
+         </section>
+ 
+@@ -437,32 +471,28 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+ 
+         {auth.isAuthenticated ? (
+           <form className="mobile-card plan-form" onSubmit={submit}>
+-            <label>
+-              <span>Title</span>
+-              <input value={title} onChange={(event) => setTitle(event.target.value)} minLength={3} maxLength={120} required placeholder="Saturday museum route" />
+-            </label>
+-            <label>
+-              <span>Description</span>
+-              <textarea value={description} onChange={(event) => setDescription(event.target.value)} minLength={10} maxLength={2000} required placeholder="Explain the whole plan and who can join." />
+-            </label>
+-            <label>
+-              <span>Category</span>
+-              <input value={category} onChange={(event) => setCategory(event.target.value)} maxLength={80} placeholder="Culture" />
+-            </label>
+-
+-            <hr />
+             <div className="plan-form__section-title">
+               <div>
+-                <h3>Places</h3>
+-                <p className="meta">Pick from My Places or Hellowhen Place Library, then adjust order and time for this Plan.</p>
++                <h3>Choose places</h3>
++                <p className="meta">Pick from My Places or Hellowhen Place Library, or add a custom stop for this Plan.</p>
+               </div>
+               <div className="cta-row">
+-                <button type="button" className="button secondary" onClick={addPlaceAndOpenPicker}>+ From library</button>
++                <button type="button" className="button secondary" onClick={addPlaceAndOpenPicker}>+ Choose place</button>
+                 <button type="button" className="button secondary" onClick={addPlace}>+ Custom</button>
+               </div>
+             </div>
+ 
+             {loadingPlaces ? <p className="meta">Loading reusable Places...</p> : null}
++            {places.length === 0 ? (
++              <section className="mobile-card mobile-card--soft">
++                <h3>No places selected yet</h3>
++                <p>Start with an existing Place from My Places or the Hellowhen Library. You can also add a custom one-off stop.</p>
++                <div className="cta-row">
++                  <button type="button" className="button primary" onClick={addPlaceAndOpenPicker}>Choose first place</button>
++                  <button type="button" className="button secondary" onClick={addPlace}>Add custom place</button>
++                </div>
++              </section>
++            ) : null}
+ 
+             {places.map((place, index) => (
+               <section className="plan-place-editor" key={place.id}>
+@@ -522,7 +552,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                   onUpload={(event) => { const files = event.target.files; event.currentTarget.value = ''; void uploadPlaceImage(index, files); }}
+                   onRemove={() => updatePlace(index, { media: null })}
+                 />
+-                {places.length > 1 ? <button type="button" className="button secondary full" onClick={() => removePlace(index)}>Remove place</button> : null}
++                <button type="button" className="button secondary full" onClick={() => removePlace(index)}>Remove place</button>
+               </section>
+             ))}
+ 
+@@ -531,8 +561,8 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+               <h3>Feed deck preview</h3>
+               <div className="trade-create-preview__deck">
+                 <PlanPreviewDeck
+-                  title={title}
+-                  description={description}
++                  title={generatedTitle}
++                  description={generatedDescription}
+                   rangeLabel={rangeLabel}
+                   places={places.map((place) => ({ id: place.id, mode: place.mode, title: place.title, note: place.note, location: placePreviewLocation(place), date: place.date, time: place.time, media: place.media ?? place.existingMedia }))}
+                   className="trade-stack-deck--create-preview"
+@@ -540,10 +570,10 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+               </div>
+             </section>
+ 
+-            {schedule.error ? <p className="form-error">{schedule.error}</p> : null}
++            {schedule.error && places.length > 0 ? <p className="form-error">{schedule.error}</p> : null}
+             {message ? <p className="success-message">{message}</p> : null}
+             {error ? <p className="form-error">{error}</p> : null}
+-            <button className="button primary full" type="submit" disabled={saving || creatingPlace || places.some((place) => place.uploading)}>{saving ? 'Creating...' : 'Create hidden Plan'}</button>
++            <button className="button primary full" type="submit" disabled={saving || creatingPlace || places.some((place) => place.uploading)}>{saving ? 'Creating...' : 'Create Plan'}</button>
+           </form>
+         ) : null}
+ 

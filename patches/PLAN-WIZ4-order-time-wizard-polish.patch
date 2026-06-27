@@ -1,0 +1,431 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 03c048d..bc15be9 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -175,23 +175,42 @@ function parseLocalDateTime(dateValue: string, timeValue: string) {
+ }
+ 
+ function buildMobilePlanSchedule(places: SelectedPlanPlaceState[]) {
+-  const validPlaces = places.map((place, index) => ({ ...place, index, dateTime: parseLocalDateTime(place.date, place.time) }));
+-  if (validPlaces.length === 0 || validPlaces.some((place) => !place.dateTime)) {
+-    return { startsAt: '', endsAt: '', placeStartsAt: [] as string[], error: 'Add at least one place with a valid date and time.' };
++  if (places.length === 0) {
++    return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Add at least one place with a valid date and time.' };
++  }
++
++  const firstPlace = places[0];
++  const firstDateTime = firstPlace ? parseLocalDateTime(firstPlace.date, firstPlace.time) : null;
++  if (!firstDateTime) {
++    return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Add a valid date and time for Place 1.' };
+   }
+ 
+-  for (let index = 1; index < validPlaces.length; index += 1) {
+-    const previous = validPlaces[index - 1]?.dateTime;
+-    const current = validPlaces[index]?.dateTime;
+-    if (previous && current && current.getTime() < previous.getTime()) {
+-      return { startsAt: '', endsAt: '', placeStartsAt: [] as string[], error: 'Each place must be at the same time or after the previous place.' };
++  let previousDateTime = firstDateTime;
++  let lastDateTime = firstDateTime;
++  const placeStartsAt: Array<string | undefined> = [firstDateTime.toISOString()];
++
++  for (let index = 1; index < places.length; index += 1) {
++    const place = places[index];
++    if (!place) continue;
++    if (!place.time.trim()) {
++      placeStartsAt[index] = undefined;
++      continue;
++    }
++    const currentDateTime = parseLocalDateTime(place.date, place.time);
++    if (!currentDateTime) {
++      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: `Add a valid date and time for Place ${index + 1}, or leave its time empty.` };
+     }
++    if (currentDateTime.getTime() < previousDateTime.getTime()) {
++      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Each timed place must be at the same time or after the previous timed place.' };
++    }
++    placeStartsAt[index] = currentDateTime.toISOString();
++    previousDateTime = currentDateTime;
++    lastDateTime = currentDateTime;
+   }
+ 
+-  const placeStartsAt = validPlaces.map((place) => place.dateTime!.toISOString());
+   return {
+-    startsAt: placeStartsAt[0] ?? '',
+-    endsAt: placeStartsAt[placeStartsAt.length - 1] ?? '',
++    startsAt: firstDateTime.toISOString(),
++    endsAt: lastDateTime.toISOString(),
+     placeStartsAt,
+     error: '',
+   };
+@@ -935,10 +954,6 @@ function PlaceEditorCard({
+         </View>
+       ) : null}
+       <ModeSegment value={place.mode} onChange={(mode) => onChange({ mode, location: mode === 'remote' ? '' : place.location })} />
+-      <View style={styles.twoColumnRow}>
+-        <TextField label="Date" value={place.date} onChangeText={(date) => onChange({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+-        <TextField label="Time" value={place.time} onChangeText={(time) => onChange({ time })} placeholder="13:00" keyboardType="numbers-and-punctuation" />
+-      </View>
+       <TextField label="Place name" value={place.title} onChangeText={(title) => onChange({ title })} placeholder={place.mode === 'remote' ? 'Planning call' : 'Coffee meeting point'} maxLength={120} />
+       {place.mode === 'remote' ? (
+         <>
+@@ -949,7 +964,34 @@ function PlaceEditorCard({
+         <TextField label="Address or meeting point" value={place.location} onChangeText={(location) => onChange({ location })} placeholder="Paris 11 or a public meeting point" maxLength={240} />
+       )}
+       <TextField label="Plan note" value={place.note} onChangeText={(note) => onChange({ note })} placeholder="Why this place is part of the Plan." multiline maxLength={1000} />
+-      {total > 1 ? <SecondaryButton label="Remove place" icon="close" onPress={onRemove} /> : null}
++      <SecondaryButton label="Remove place" icon="close" onPress={onRemove} />
++    </View>
++  );
++}
++
++function PlanTimeCard({
++  place,
++  index,
++  onChange,
++}: {
++  place: SelectedPlanPlaceState;
++  index: number;
++  onChange: (patch: Partial<SelectedPlanPlaceState>) => void;
++}) {
++  const theme = useThemeTokens();
++  return (
++    <View style={[styles.timeCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++      <View style={styles.timeCardHeader}>
++        <SemanticBadge label={`Place ${index + 1}`} tone="instruction" size="sm" />
++        <View style={styles.timelineCopy}>
++          <AppText style={styles.rowTitle}>{place.title || place.sourcePlaceTitle || `Place ${index + 1}`}</AppText>
++          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{index === 0 ? 'Plan start · required' : 'Optional · same time or after the previous timed place'}</AppText>
++        </View>
++      </View>
++      <View style={styles.twoColumnRow}>
++        <TextField label="Date" value={place.date} onChangeText={(date) => onChange({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
++        <TextField label="Time" value={place.time} onChangeText={(time) => onChange({ time })} placeholder="13:00" keyboardType="numbers-and-punctuation" />
++      </View>
+     </View>
+   );
+ }
+@@ -969,14 +1011,15 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+ 
+   const filteredMyPlaces = useMemo(() => filterPlaces(myPlaces, placeQuery), [myPlaces, placeQuery]);
+   const filteredLibraryPlaces = useMemo(() => filterPlaces(libraryPlaces, placeQuery), [libraryPlaces, placeQuery]);
+-  const usablePlacesForPreview = useMemo(() => places.filter((place) => place.title.trim() && place.date.trim() && place.time.trim()), [places]);
+-  const schedule = useMemo(() => buildMobilePlanSchedule(usablePlacesForPreview), [usablePlacesForPreview]);
++  const placesForGeneratedDisplay = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceTitle?.trim()), [places]);
++  const schedulablePlaces = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceId), [places]);
++  const schedule = useMemo(() => buildMobilePlanSchedule(schedulablePlaces), [schedulablePlaces]);
+   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
+-    places: usablePlacesForPreview,
++    places: placesForGeneratedDisplay,
+     startsAt: schedule.startsAt,
+-    mode: planModeFromSelectedPlaces(usablePlacesForPreview),
++    mode: planModeFromSelectedPlaces(placesForGeneratedDisplay),
+     joinApprovalMode: 'automatic',
+-  }), [usablePlacesForPreview, schedule.startsAt]);
++  }), [placesForGeneratedDisplay, schedule.startsAt]);
+   const generatedTitle = generatedPlanDisplay.title;
+   const generatedDescription = generatedPlanDisplay.description;
+ 
+@@ -1039,7 +1082,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   }
+ 
+   async function submit() {
+-    const usablePlaces = places.filter((place) => place.title.trim() && place.date.trim() && place.time.trim());
++    const usablePlaces = places.filter((place) => place.title.trim() || place.sourcePlaceId);
+     const nextSchedule = buildMobilePlanSchedule(usablePlaces);
+     if (nextSchedule.error || !nextSchedule.startsAt || usablePlaces.length === 0) { setError(nextSchedule.error || 'Add at least one place.'); return; }
+ 
+@@ -1090,12 +1133,16 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+           <View style={[styles.hero, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+             <SemanticBadge label="Free join" tone="success" />
+             <AppText style={styles.heroTitle}>Create a Plan from Places</AppText>
+-            <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Choose existing Places and times first. Create a new reusable Place on its own screen, then return here with your draft preserved.</AppText>
++            <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Choose Places first, arrange the order, add timing, then preview the place-only Plan before publishing.</AppText>
+           </View>
+ 
+ 
+-          <View style={styles.sectionTitleRow}>
+-            <AppText style={styles.sectionTitle}>Choose Places</AppText>
++          <View style={styles.wizardStepRow}>
++            <SemanticBadge label="1" tone="instruction" size="sm" />
++            <View style={styles.timelineCopy}>
++              <AppText style={styles.sectionTitle}>Choose Places</AppText>
++              <AppText style={[styles.metaText, { color: theme.color.muted }]}>Start from My Places or the Hellowhen Library. Add custom stops only when needed.</AppText>
++            </View>
+             <SemanticBadge label={loadingPlaces ? 'Loading' : `${myPlaces.length + libraryPlaces.length}`} tone="instruction" size="sm" />
+           </View>
+           <View style={styles.filterRow}>
+@@ -1113,8 +1160,12 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+             <SecondaryButton label="Create My Place" icon="save" onPress={() => navigation.navigate('CreatePlace', { returnToCreatePlan: true })} />
+           </View>
+ 
+-          <View style={styles.sectionTitleRow}>
+-            <AppText style={styles.sectionTitle}>Selected Places</AppText>
++          <View style={styles.wizardStepRow}>
++            <SemanticBadge label="2" tone="instruction" size="sm" />
++            <View style={styles.timelineCopy}>
++              <AppText style={styles.sectionTitle}>Arrange order</AppText>
++              <AppText style={[styles.metaText, { color: theme.color.muted }]}>Move Places into route order and keep place-specific details here.</AppText>
++            </View>
+             <SemanticBadge label={`${places.length}`} tone="proposal" size="sm" />
+           </View>
+           {places.length === 0 ? <EmptyBlock title="No places selected" body="Choose a My Place, choose a Hellowhen Library Place, create a new My Place, or add a custom one-off place." actionLabel="Add custom place" onAction={addCustomPlace} /> : null}
+@@ -1131,8 +1182,23 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+             />
+           ))}
+ 
++          {places.length > 0 ? (
++            <>
++              <View style={styles.wizardStepRow}>
++                <SemanticBadge label="3" tone="instruction" size="sm" />
++                <View style={styles.timelineCopy}>
++                  <AppText style={styles.sectionTitle}>Add time</AppText>
++                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>Place 1 becomes the Plan start. Later place times are optional, but must stay in order when added.</AppText>
++                </View>
++              </View>
++              {places.map((place, index) => (
++                <PlanTimeCard key={`time-${place.id}`} place={place} index={index} onChange={(patch) => updateSelectedPlace(index, patch)} />
++              ))}
++            </>
++          ) : null}
++
+           <View style={[styles.previewCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-            <View style={styles.sectionTitleRow}><AppText style={styles.sectionTitle}>Preview</AppText><SemanticBadge label="Place-only feed deck" tone="instruction" size="sm" /></View>
++            <View style={styles.wizardStepRow}><SemanticBadge label="4" tone="instruction" size="sm" /><View style={styles.timelineCopy}><AppText style={styles.sectionTitle}>Preview / Publish</AppText><AppText style={[styles.metaText, { color: theme.color.muted }]}>Review the place-only deck before creating the Plan.</AppText></View><SemanticBadge label="Place-only feed deck" tone="instruction" size="sm" /></View>
+             <View style={[styles.snapshotStrip, { backgroundColor: theme.semantic.instruction.softBg, borderColor: theme.semantic.instruction.border }]}>
+               <View style={styles.timelineCopy}>
+                 <AppText style={styles.rowTitle}>{generatedTitle}</AppText>
+@@ -1299,6 +1365,7 @@ const styles = StyleSheet.create({
+   secondaryButton: { minHeight: 48, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 13, alignSelf: 'stretch' },
+   secondaryButtonText: { fontWeight: '900' },
+   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
++  wizardStepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 6 },
+   sectionTitle: { fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },
+   timelineRow: { flexDirection: 'row', gap: 10, alignItems: 'stretch' },
+   timelineRail: { alignItems: 'center', width: 34 },
+@@ -1344,6 +1411,8 @@ const styles = StyleSheet.create({
+   snapshotStrip: { borderRadius: 18, borderWidth: 1, padding: 11, gap: 8 },
+   snapshotText: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+   twoColumnRow: { flexDirection: 'row', gap: 10 },
++  timeCard: { borderRadius: 22, borderWidth: 1, padding: 12, gap: 11 },
++  timeCardHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 },
+   previewCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 12 },
+   previewPlaceRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+   supportSection: { marginTop: 2 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 5c4200c..70c62c3 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -9066,3 +9066,22 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   .plan-source-place-strip, .plan-place-picker-card { grid-template-columns: 1fr; }
+   .plan-place-picker-card__media { width: 100%; height: 130px; }
+ }
++
++/* PLAN-WIZ4 — Order/time Create Plan wizard polish */
++.plan-wizard-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
++.plan-wizard-steps span { border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text-muted); padding: 8px 10px; font-size: 11px; font-weight: 950; text-align: center; text-transform: uppercase; letter-spacing: 0.04em; }
++.plan-wizard-steps span.is-active { border-color: var(--app-border-strong); background: var(--app-surface); color: var(--app-text); }
++.plan-form__section-title--divider { border-top: 1px solid var(--app-border); padding-top: 14px; }
++.plan-time-section { display: grid; gap: 12px; border-top: 1px solid var(--app-border); padding-top: 14px; }
++.plan-time-list { display: grid; gap: 9px; }
++.plan-time-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(140px, 0.8fr) minmax(120px, 0.7fr); align-items: end; gap: 10px; border: 1px solid var(--app-border); border-radius: 20px; background: var(--app-surface-soft); padding: 10px; }
++.plan-time-row > div { display: grid; gap: 4px; min-width: 0; }
++.plan-time-row strong, .plan-time-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.plan-time-row strong { color: var(--app-text); font-size: 14px; font-weight: 950; }
++.plan-time-row small { color: var(--app-text-muted); font-size: 12px; font-weight: 800; }
++.plan-time-row label { display: grid; gap: 7px; color: var(--app-text-muted); font-size: 12px; font-weight: 950; letter-spacing: 0.04em; text-transform: uppercase; }
++.plan-time-row input { width: 100%; border: 1px solid var(--app-border-strong); border-radius: 18px; background: var(--app-surface); color: var(--app-text); padding: 12px 13px; font: inherit; font-weight: 750; outline: none; }
++@media (max-width: 720px) {
++  .plan-wizard-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
++  .plan-time-row { grid-template-columns: 1fr; align-items: stretch; }
++}
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index 0c4580d..bb7c72d 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -270,15 +270,16 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   const [message, setMessage] = useState('');
+   const [error, setError] = useState('');
+ 
+-  const usablePlacesForPreview = useMemo(() => places.filter((place) => place.date.trim() && place.time.trim()), [places]);
+-  const schedule = useMemo(() => buildPlanSchedule(usablePlacesForPreview), [usablePlacesForPreview]);
++  const placesForGeneratedDisplay = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceTitle?.trim()), [places]);
++  const schedulablePlaces = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceId), [places]);
++  const schedule = useMemo(() => buildPlanSchedule(schedulablePlaces), [schedulablePlaces]);
+   const rangeLabel = rangeLabelFromSchedule(schedule);
+   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
+-    places: usablePlacesForPreview,
++    places: placesForGeneratedDisplay,
+     startsAt: schedule.startsAt,
+-    mode: planModeFromPlaces(usablePlacesForPreview),
++    mode: planModeFromPlaces(placesForGeneratedDisplay),
+     joinApprovalMode: 'automatic',
+-  }), [usablePlacesForPreview, schedule.startsAt]);
++  }), [placesForGeneratedDisplay, schedule.startsAt]);
+   const generatedTitle = generatedPlanDisplay.title;
+   const generatedDescription = generatedPlanDisplay.description;
+   const filteredMyPlaces = useMemo(() => filterPlaces(myPlaces, placeQuery), [myPlaces, placeQuery]);
+@@ -416,7 +417,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+       router.push('/auth?next=/plans/new');
+       return;
+     }
+-    const usablePlaces = places.filter((place) => place.title.trim() && place.date.trim() && place.time.trim());
++    const usablePlaces = places.filter((place) => place.title.trim() || place.sourcePlaceId);
+     const nextSchedule = buildPlanSchedule(usablePlaces);
+     if (nextSchedule.error || !nextSchedule.startsAt || usablePlaces.length === 0) {
+       setError(nextSchedule.error || 'Add at least one place with a valid date and time.');
+@@ -486,10 +487,17 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+ 
+         {auth.isAuthenticated ? (
+           <form className="mobile-card plan-form" onSubmit={submit}>
++            <div className="plan-wizard-steps" aria-label="Create Plan steps">
++              <span className="is-active">1 Choose Places</span>
++              <span>2 Arrange order</span>
++              <span>3 Add time</span>
++              <span>4 Preview</span>
++            </div>
++
+             <div className="plan-form__section-title">
+               <div>
+-                <h3>Choose places</h3>
+-                <p className="meta">Pick from My Places or Hellowhen Place Library, or add a custom stop for this Plan.</p>
++                <h3>1. Choose Places</h3>
++                <p className="meta">Start from My Places or the Hellowhen Place Library. Use custom places only for one-off stops.</p>
+               </div>
+               <div className="cta-row">
+                 <button type="button" className="button secondary" onClick={addPlaceAndOpenPicker}>+ Choose place</button>
+@@ -511,6 +519,15 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+               </section>
+             ) : null}
+ 
++            {places.length > 0 ? (
++              <div className="plan-form__section-title plan-form__section-title--divider">
++                <div>
++                  <h3>2. Arrange order</h3>
++                  <p className="meta">Move places into the route order. Keep place-specific notes here; Plan-level title and description stay hidden.</p>
++                </div>
++              </div>
++            ) : null}
++
+             {places.map((place, index) => (
+               <section className="plan-place-editor" key={place.id}>
+                 <div className="plan-place-editor__header">
+@@ -529,16 +546,6 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                   </div>
+                 ) : null}
+                 <PlaceModeSegment value={place.mode} onChange={(mode) => updatePlace(index, { mode, location: mode === 'remote' ? '' : place.location })} />
+-                <div className="plan-form__row">
+-                  <label>
+-                    <span>Date</span>
+-                    <input type="date" value={place.date} onChange={(event) => updatePlace(index, { date: event.target.value })} required />
+-                  </label>
+-                  <label>
+-                    <span>Time</span>
+-                    <input type="time" value={place.time} onChange={(event) => updatePlace(index, { time: event.target.value })} required />
+-                  </label>
+-                </div>
+                 <label>
+                   <span>Place name</span>
+                   <input value={place.title} onChange={(event) => updatePlace(index, { title: event.target.value })} minLength={3} maxLength={120} required placeholder={place.mode === 'remote' ? 'Planning call' : 'Coffee meeting point'} />
+@@ -573,9 +580,44 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+               </section>
+             ))}
+ 
++            {places.length > 0 ? (
++              <section className="plan-time-section">
++                <div className="plan-form__section-title">
++                  <div>
++                    <h3>3. Add time</h3>
++                    <p className="meta">Set the Plan start time from Place 1. Later place times are optional, but must stay in route order when added.</p>
++                  </div>
++                </div>
++                <div className="plan-time-list">
++                  {places.map((place, index) => (
++                    <div className="plan-time-row" key={`time-${place.id}`}>
++                      <div>
++                        <span className="semantic-badge instruction">Place {index + 1}</span>
++                        <strong>{place.title.trim() || place.sourcePlaceTitle || `Place ${index + 1}`}</strong>
++                        <small>{index === 0 ? 'Plan start · required' : 'Optional · same time or after the previous timed place'}</small>
++                      </div>
++                      <label>
++                        <span>Date</span>
++                        <input type="date" value={place.date} onChange={(event) => updatePlace(index, { date: event.target.value })} required={index === 0} />
++                      </label>
++                      <label>
++                        <span>Time</span>
++                        <input type="time" value={place.time} onChange={(event) => updatePlace(index, { time: event.target.value })} required={index === 0} />
++                      </label>
++                    </div>
++                  ))}
++                </div>
++              </section>
++            ) : null}
++
+             <hr />
+             <section className="plan-form__preview">
+-              <h3>Feed deck preview</h3>
++              <div className="plan-form__section-title">
++                <div>
++                  <h3>4. Preview / Publish</h3>
++                  <p className="meta">Review the place-only deck before creating the Plan.</p>
++                </div>
++              </div>
+               <div className="trade-create-preview__deck">
+                 <PlanPreviewDeck
+                   title={generatedTitle}
+diff --git a/apps/web/src/features/plans/planSchedule.ts b/apps/web/src/features/plans/planSchedule.ts
+index 97c49aa..34bdbfc 100644
+--- a/apps/web/src/features/plans/planSchedule.ts
++++ b/apps/web/src/features/plans/planSchedule.ts
+@@ -34,23 +34,42 @@ function parseLocalDateTime(dateValue: string, timeValue: string) {
+ }
+ 
+ export function buildPlanSchedule(places: PlanSchedulePlace[]) {
+-  const validPlaces = places.map((place, index) => ({ ...place, index, dateTime: parseLocalDateTime(place.date, place.time) }));
+-  if (validPlaces.length === 0 || validPlaces.some((place) => !place.dateTime)) {
+-    return { startsAt: '', endsAt: '', placeStartsAt: [] as string[], error: 'Add at least one place with a valid date and time.' };
++  if (places.length === 0) {
++    return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Add at least one place with a valid date and time.' };
+   }
+ 
+-  for (let index = 1; index < validPlaces.length; index += 1) {
+-    const previous = validPlaces[index - 1]?.dateTime;
+-    const current = validPlaces[index]?.dateTime;
+-    if (previous && current && current.getTime() < previous.getTime()) {
+-      return { startsAt: '', endsAt: '', placeStartsAt: [] as string[], error: 'Each place must be at the same time or after the previous place.' };
++  const firstPlace = places[0];
++  const firstDateTime = firstPlace ? parseLocalDateTime(firstPlace.date, firstPlace.time) : null;
++  if (!firstDateTime) {
++    return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Add a valid date and time for Place 1.' };
++  }
++
++  let previousDateTime = firstDateTime;
++  let lastDateTime = firstDateTime;
++  const placeStartsAt: Array<string | undefined> = [firstDateTime.toISOString()];
++
++  for (let index = 1; index < places.length; index += 1) {
++    const place = places[index];
++    if (!place) continue;
++    if (!place.time.trim()) {
++      placeStartsAt[index] = undefined;
++      continue;
++    }
++    const currentDateTime = parseLocalDateTime(place.date, place.time);
++    if (!currentDateTime) {
++      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: `Add a valid date and time for Place ${index + 1}, or leave its time empty.` };
++    }
++    if (currentDateTime.getTime() < previousDateTime.getTime()) {
++      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Each timed place must be at the same time or after the previous timed place.' };
+     }
++    placeStartsAt[index] = currentDateTime.toISOString();
++    previousDateTime = currentDateTime;
++    lastDateTime = currentDateTime;
+   }
+ 
+-  const placeStartsAt = validPlaces.map((place) => place.dateTime!.toISOString());
+   return {
+-    startsAt: placeStartsAt[0] ?? '',
+-    endsAt: placeStartsAt[placeStartsAt.length - 1] ?? '',
++    startsAt: firstDateTime.toISOString(),
++    endsAt: lastDateTime.toISOString(),
+     placeStartsAt,
+     error: '',
+   };

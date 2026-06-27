@@ -1,0 +1,537 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 6383f69..0147b3f 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -131,6 +131,18 @@ function makePlaceCreateForm(): PlaceCreateFormState {
+   };
+ }
+ 
++function placeCreateFormFromPlace(place: PlaceDto): PlaceCreateFormState {
++  const mode = place.mode === 'remote' ? 'remote' : 'local';
++  return {
++    mode,
++    title: place.title ?? '',
++    description: place.description ?? '',
++    location: mode === 'local' ? place.addressPublicText ?? place.areaLabel ?? '' : '',
++    onlineLabel: mode === 'remote' ? place.onlineLabel ?? '' : '',
++    onlineUrl: mode === 'remote' ? place.onlineUrl ?? '' : '',
++  };
++}
++
+ function makeAdvancedPlanDetails(): AdvancedPlanDetailsState {
+   return { title: '', description: '', category: '', tags: '' };
+ }
+@@ -1127,9 +1139,26 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     if (!createdPlace || !createdPlaceNonce || handledCreatedPlaceNonceRef.current === createdPlaceNonce) return;
+     handledCreatedPlaceNonceRef.current = createdPlaceNonce;
+     setMyPlaces((current) => [createdPlace, ...current.filter((place) => place.id !== createdPlace.id)]);
+-    addReusablePlace(createdPlace);
+-    navigation.setParams({ createdPlace: undefined, createdPlaceNonce: undefined });
+-  }, [navigation, route.params?.createdPlace, route.params?.createdPlaceNonce]);
++    addReusablePlace(createdPlace, route.params?.createdPlaceTargetIndex ?? placeSourceTarget);
++    navigation.setParams({ createdPlace: undefined, createdPlaceTargetIndex: undefined, createdPlaceNonce: undefined });
++  }, [navigation, placeSourceTarget, route.params?.createdPlace, route.params?.createdPlaceNonce, route.params?.createdPlaceTargetIndex]);
++
++  useEffect(() => {
++    const updatedPlace = route.params?.updatedPlace;
++    const updatedPlaceNonce = route.params?.updatedPlaceNonce;
++    if (!updatedPlace || !updatedPlaceNonce || handledCreatedPlaceNonceRef.current === updatedPlaceNonce) return;
++    handledCreatedPlaceNonceRef.current = updatedPlaceNonce;
++    setMyPlaces((current) => [updatedPlace, ...current.filter((place) => place.id !== updatedPlace.id)]);
++    setPlaces((current) => {
++      const targetIndex = route.params?.updatedPlaceTargetIndex;
++      if (typeof targetIndex === 'number' && current[targetIndex]) {
++        return current.map((item, index) => index === targetIndex ? { ...selectedPlaceFromReusable(updatedPlace, index, item.date || toDateInputValue()), id: item.id, date: item.date, time: item.time } : item);
++      }
++      return current.map((item, index) => item.sourcePlaceId === updatedPlace.id ? { ...selectedPlaceFromReusable(updatedPlace, index, item.date || toDateInputValue()), id: item.id, date: item.date, time: item.time } : item);
++    });
++    setMessage('Place updated in this Plan.');
++    navigation.setParams({ updatedPlace: undefined, updatedPlaceTargetIndex: undefined, updatedPlaceNonce: undefined });
++  }, [navigation, route.params?.updatedPlace, route.params?.updatedPlaceNonce, route.params?.updatedPlaceTargetIndex]);
+ 
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+ 
+@@ -1169,11 +1198,11 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     closePlaceSourceSheet();
+   }
+ 
+-  function addReusablePlace(place: PlaceDto) {
+-    if (placeSourceTarget === 'new') {
++  function addReusablePlace(place: PlaceDto, explicitTarget: PlaceSourceTarget = placeSourceTarget) {
++    if (explicitTarget === 'new') {
+       setPlaces((current) => [...current, selectedPlaceFromReusable(place, current.length, current[current.length - 1]?.date || toDateInputValue())]);
+     } else {
+-      const targetIndex = placeSourceTarget;
++      const targetIndex = explicitTarget;
+       setPlaces((current) => current.map((item, index) => {
+         if (index !== targetIndex) return item;
+         const next = selectedPlaceFromReusable(place, index, item.date || toDateInputValue());
+@@ -1204,6 +1233,22 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     });
+   }
+ 
++  function editMyPlaceFromDetail(index: number) {
++    const place = places[index];
++    const savedPlace = place?.sourcePlaceId ? myPlaces.find((item) => item.id === place.sourcePlaceId) : undefined;
++    if (!savedPlace) return;
++    setDetailPlaceIndex(null);
++    navigation.navigate('CreatePlace', { returnToCreatePlan: true, editPlace: savedPlace, targetPlaceIndex: index });
++  }
++
++  function copyLibraryPlaceFromDetail(index: number) {
++    const place = places[index];
++    const libraryPlace = place?.sourcePlaceId ? libraryPlaces.find((item) => item.id === place.sourcePlaceId) : undefined;
++    if (!libraryPlace) return;
++    setDetailPlaceIndex(null);
++    navigation.navigate('CreatePlace', { returnToCreatePlan: true, copyFromPlace: libraryPlace, targetPlaceIndex: index });
++  }
++
+   function updateAdvancedDetails(patch: Partial<AdvancedPlanDetailsState>) {
+     setAdvancedDetails((current) => ({ ...current, ...patch }));
+   }
+@@ -1442,8 +1487,12 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                     {detailPlace.sourcePlaceId ? <SemanticBadge label={detailPlace.sourcePlaceSource === 'hellowhen_library' ? 'Library snapshot' : 'My Place snapshot'} tone="place" size="sm" /> : <SemanticBadge label="Custom one-off stop" tone="place" size="sm" />}
+                   </View>
+                   {detailPlace.sourcePlaceId ? (
+-                    <View style={[styles.snapshotStrip, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+-                      <AppText style={[styles.snapshotText, { color: theme.semantic.plan.text }]} numberOfLines={3}>Copied from {detailPlace.sourcePlaceTitle || detailPlace.title}. This Plan keeps a snapshot.</AppText>
++                    <View style={[styles.snapshotStrip, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
++                      <AppText style={[styles.snapshotText, { color: theme.semantic.place.text }]} numberOfLines={3}>
++                        {detailPlace.sourcePlaceSource === 'my_place' ? 'Edit the saved My Place if this content should change everywhere you reuse it.' : 'Library Places are copied before editing so your changes stay private.'}
++                      </AppText>
++                      {detailPlace.sourcePlaceSource === 'my_place' ? <SecondaryButton label="Edit saved Place" onPress={() => editMyPlaceFromDetail(detailPlaceIndex)} /> : null}
++                      {detailPlace.sourcePlaceSource === 'hellowhen_library' ? <SecondaryButton label="Copy and edit" onPress={() => copyLibraryPlaceFromDetail(detailPlaceIndex)} /> : null}
+                       <SecondaryButton label="Use as custom" onPress={() => updateSelectedPlace(detailPlaceIndex, resetSelectedPlaceToCustom(detailPlace))} />
+                     </View>
+                   ) : (
+@@ -1500,7 +1549,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                     <View style={styles.timelineCopy}><AppText style={styles.sourceOptionTitle}>Use Hellowhen Library</AppText><AppText style={[styles.metaText, { color: theme.color.muted }]}>Start from reusable Hellowhen Places.</AppText></View>
+                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+                   </Pressable>
+-                  <Pressable accessibilityRole="button" onPress={() => { closePlaceSourceSheet(); navigation.navigate('CreatePlace', { returnToCreatePlan: true }); }} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}>
++                  <Pressable accessibilityRole="button" onPress={() => { closePlaceSourceSheet(); navigation.navigate('CreatePlace', { returnToCreatePlan: true, targetPlaceIndex: typeof placeSourceTarget === 'number' ? placeSourceTarget : undefined }); }} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}>
+                     <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={19} /></View>
+                     <View style={styles.timelineCopy}><AppText style={styles.sourceOptionTitle}>Create a new Place</AppText><AppText style={[styles.metaText, { color: theme.color.muted }]}>Save it, then return with it selected.</AppText></View>
+                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+@@ -1538,7 +1587,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+ 
+ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'CreatePlace'>) {
+   const theme = useThemeTokens();
+-  const [state, setState] = useState<PlaceCreateFormState>(makePlaceCreateForm());
++  const editPlace = route.params?.editPlace;
++  const copyFromPlace = route.params?.copyFromPlace;
++  const isEditing = Boolean(editPlace);
++  const [state, setState] = useState<PlaceCreateFormState>(() => editPlace ? placeCreateFormFromPlace(editPlace) : copyFromPlace ? placeCreateFormFromPlace(copyFromPlace) : makePlaceCreateForm());
+   const [saving, setSaving] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+   const [message, setMessage] = useState<string | null>(null);
+@@ -1551,22 +1603,27 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+     setError(null);
+     setMessage(null);
+     try {
+-      const response = await api.places.create({
++      const body = {
+         mode: state.mode,
+         title: state.title,
+         description: state.description.trim() || undefined,
+-        visibility: 'private',
+-        status: 'active',
++        visibility: 'private' as const,
++        status: 'active' as const,
+         addressPublicText: state.mode === 'local' ? state.location.trim() || undefined : undefined,
+         onlineLabel: state.mode === 'remote' ? state.onlineLabel.trim() || undefined : undefined,
+         onlineUrl: state.mode === 'remote' ? state.onlineUrl.trim() || undefined : undefined,
+-      });
++      };
++      const response = isEditing && editPlace ? await api.places.update(editPlace.id, body) : await api.places.create(body);
+       if (route.params?.returnToCreatePlan) {
+-        navigation.navigate('CreatePlan', { createdPlace: response.place, createdPlaceNonce: Date.now() });
++        if (isEditing) {
++          navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params.targetPlaceIndex, updatedPlaceNonce: Date.now() });
++        } else {
++          navigation.navigate('CreatePlan', { createdPlace: response.place, createdPlaceTargetIndex: route.params.targetPlaceIndex, createdPlaceNonce: Date.now() });
++        }
+         return;
+       }
+-      setMessage(`${response.place.title} was saved to My Places.`);
+-      setState(makePlaceCreateForm());
++      setMessage(isEditing ? `${response.place.title} was updated.` : `${response.place.title} was saved to My Places.`);
++      if (!isEditing) setState(makePlaceCreateForm());
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError));
+     } finally {
+@@ -1575,13 +1632,13 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+   }
+ 
+   return (
+-    <AppFixedHeaderScreen header={<AppHeader title="Create place" onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label="My Places" onPress={() => navigation.navigate('MyPlaces')} />} />}>
++    <AppFixedHeaderScreen header={<AppHeader title={isEditing ? 'Edit place' : 'Create place'} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label="My Places" onPress={() => navigation.navigate('MyPlaces')} />} />}>
+       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
+         <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+           <View style={[styles.hero, styles.placeCreateHero, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
+             <SemanticBadge label="My Place" tone="place" />
+-            <AppText style={styles.heroTitle}>Create Place</AppText>
+-            <AppText style={[styles.heroBody, { color: theme.semantic.place.text }]}>Save an offline or online Place for Plans.</AppText>
++            <AppText style={styles.heroTitle}>{isEditing ? 'Edit Place' : 'Create Place'}</AppText>
++            <AppText style={[styles.heroBody, { color: theme.semantic.place.text }]}>{isEditing ? 'Update your reusable Place for future Plans.' : copyFromPlace ? 'Save a private copy, then return to your Plan.' : 'Save an offline or online Place for Plans.'}</AppText>
+           </View>
+           <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }]}>
+             <ModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
+@@ -1598,7 +1655,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+             {message ? <InfoNotice tone="success" title="Place saved" body={message} /> : null}
+             {error ? <InfoNotice tone="warning" title="Could not save Place" body={error} /> : null}
+             <Pressable accessibilityRole="button" disabled={saving || state.title.trim().length < 3} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.place.bg }, pressed && styles.pressed, (saving || state.title.trim().length < 3) && styles.disabled]}>
+-              <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? 'Saving...' : route.params?.returnToCreatePlan ? 'Save and return to Plan' : 'Save Place'}</AppText>
++              <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? 'Saving...' : route.params?.returnToCreatePlan ? isEditing ? 'Update and return to Plan' : 'Save and return to Plan' : isEditing ? 'Update Place' : 'Save Place'}</AppText>
+             </Pressable>
+           </View>
+         </ScrollView>
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index 45b9563..5a952a4 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -76,8 +76,8 @@ export type RootStackParamList = {
+   JoinedPlans: undefined;
+   MyPlaces: undefined;
+   PlaceLibrary: undefined;
+-  CreatePlan: { createdPlace?: PlaceDto; createdPlaceNonce?: number } | undefined;
+-  CreatePlace: { returnToCreatePlan?: boolean } | undefined;
++  CreatePlan: { createdPlace?: PlaceDto; createdPlaceTargetIndex?: number; createdPlaceNonce?: number; updatedPlace?: PlaceDto; updatedPlaceTargetIndex?: number; updatedPlaceNonce?: number } | undefined;
++  CreatePlace: { returnToCreatePlan?: boolean; editPlace?: PlaceDto; copyFromPlace?: PlaceDto; targetPlaceIndex?: number } | undefined;
+   SavedLibraryCollection: { collectionId: string; title?: string };
+   Membership: undefined;
+   ProPlans: undefined;
+diff --git a/apps/web/src/app/places/[placeId]/edit/page.tsx b/apps/web/src/app/places/[placeId]/edit/page.tsx
+new file mode 100644
+index 0000000..de3af2c
+--- /dev/null
++++ b/apps/web/src/app/places/[placeId]/edit/page.tsx
+@@ -0,0 +1,13 @@
++import { permanentRedirect } from 'next/navigation';
++import { noIndexMetadata } from '../../../../lib/seo';
++import { PlaceCreateClient } from '../../../../features/plans/PlaceCreateClient';
++import { getPlansWebFlags } from '../../../../lib/serverFeatureFlags';
++
++export const metadata = noIndexMetadata('Edit Place — Hellowhen Trade');
++
++export default function EditPlacePage({ params }: { params: { placeId: string } }) {
++  const flags = getPlansWebFlags();
++  if (!flags.plansEnabled) permanentRedirect('/trades');
++
++  return <PlaceCreateClient {...flags} placeId={params.placeId} />;
++}
+diff --git a/apps/web/src/features/plans/PlaceCreateClient.tsx b/apps/web/src/features/plans/PlaceCreateClient.tsx
+index fdbcaef..1b9a40c 100644
+--- a/apps/web/src/features/plans/PlaceCreateClient.tsx
++++ b/apps/web/src/features/plans/PlaceCreateClient.tsx
+@@ -3,7 +3,7 @@
+ import Link from 'next/link';
+ import { useRouter, useSearchParams } from 'next/navigation';
+ import type { FormEvent } from 'react';
+-import { useState } from 'react';
++import { useEffect, useState } from 'react';
+ import type { PlanPlaceMode } from '@hellowhen/contracts';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+@@ -13,6 +13,7 @@ import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
+ type PlaceCreateClientProps = {
+   plansEnabled?: boolean;
+   plansVisible?: boolean;
++  placeId?: string;
+ };
+ 
+ type PlaceCreateFormState = {
+@@ -35,6 +36,18 @@ function makePlaceCreateForm(): PlaceCreateFormState {
+   };
+ }
+ 
++function formStateFromPlace(place: { mode?: PlanPlaceMode | null; title?: string | null; description?: string | null; addressPublicText?: string | null; areaLabel?: string | null; onlineLabel?: string | null; onlineUrl?: string | null }): PlaceCreateFormState {
++  const mode = place.mode === 'remote' ? 'remote' : 'local';
++  return {
++    mode,
++    title: place.title ?? '',
++    description: place.description ?? '',
++    location: mode === 'local' ? place.addressPublicText ?? place.areaLabel ?? '' : '',
++    onlineLabel: mode === 'remote' ? place.onlineLabel ?? '' : '',
++    onlineUrl: mode === 'remote' ? place.onlineUrl ?? '' : '',
++  };
++}
++
+ function PlaceModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (value: PlanPlaceMode) => void }) {
+   return (
+     <div className="plan-mode-segment" aria-label="Place type">
+@@ -44,20 +57,49 @@ function PlaceModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange:
+   );
+ }
+ 
+-export function PlaceCreateClient({ plansEnabled, plansVisible }: PlaceCreateClientProps) {
++export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: PlaceCreateClientProps) {
+   const router = useRouter();
+   const searchParams = useSearchParams();
+   const auth = useWebAuth();
+   const returnToPlan = searchParams.get('returnTo') === 'plan';
++  const copyFromPlaceId = searchParams.get('copyFromPlaceId');
++  const isEditing = Boolean(placeId);
+   const [state, setState] = useState<PlaceCreateFormState>(makePlaceCreateForm());
++  const [loadingPlace, setLoadingPlace] = useState(Boolean(placeId || copyFromPlaceId));
+   const [saving, setSaving] = useState(false);
+   const [message, setMessage] = useState('');
+   const [error, setError] = useState('');
+ 
++  useEffect(() => {
++    const sourcePlaceId = placeId || copyFromPlaceId;
++    if (!sourcePlaceId || !auth.hydrated || !auth.isAuthenticated) {
++      setLoadingPlace(false);
++      return;
++    }
++
++    let cancelled = false;
++    setLoadingPlace(true);
++    setError('');
++    api.places.get(sourcePlaceId)
++      .then((response) => {
++        if (cancelled) return;
++        setState(formStateFromPlace(response.place));
++      })
++      .catch((caughtError) => {
++        if (cancelled) return;
++        setError(getFriendlyApiErrorMessage(caughtError, isEditing ? 'Could not load Place.' : 'Could not copy Place.'));
++      })
++      .finally(() => {
++        if (!cancelled) setLoadingPlace(false);
++      });
++
++    return () => { cancelled = true; };
++  }, [auth.hydrated, auth.isAuthenticated, copyFromPlaceId, isEditing, placeId]);
++
+   async function submit(event: FormEvent<HTMLFormElement>) {
+     event.preventDefault();
+     if (!auth.isAuthenticated) {
+-      router.push(`/auth?next=${encodeURIComponent(returnToPlan ? '/places/new?returnTo=plan' : '/places/new')}`);
++      router.push(`/auth?next=${encodeURIComponent(returnToPlan ? (isEditing && placeId ? `/places/${placeId}/edit?returnTo=plan` : '/places/new?returnTo=plan') : isEditing && placeId ? `/places/${placeId}/edit` : '/places/new')}`);
+       return;
+     }
+     if (state.title.trim().length < 3) {
+@@ -69,26 +111,28 @@ export function PlaceCreateClient({ plansEnabled, plansVisible }: PlaceCreateCli
+     setMessage('');
+     setError('');
+     try {
+-      const response = await api.places.create({
++      const body = {
+         mode: state.mode,
+         title: state.title,
+         description: state.description.trim() || undefined,
+-        visibility: 'private',
+-        status: 'active',
++        visibility: 'private' as const,
++        status: 'active' as const,
+         addressPublicText: state.mode === 'local' ? state.location.trim() || undefined : undefined,
+         onlineLabel: state.mode === 'remote' ? state.onlineLabel.trim() || undefined : undefined,
+         onlineUrl: state.mode === 'remote' ? state.onlineUrl.trim() || undefined : undefined,
+-      });
++      };
++      const response = isEditing && placeId ? await api.places.update(placeId, body) : await api.places.create(body);
+ 
+       if (returnToPlan) {
+-        router.replace(`/plans/new?createdPlaceId=${encodeURIComponent(response.place.id)}`);
++        const queryKey = isEditing ? 'updatedPlaceId' : 'createdPlaceId';
++        router.replace(`/plans/new?${queryKey}=${encodeURIComponent(response.place.id)}`);
+         return;
+       }
+ 
+-      setMessage(`${response.place.title} was saved to My Places.`);
+-      setState(makePlaceCreateForm());
++      setMessage(isEditing ? `${response.place.title} was updated.` : `${response.place.title} was saved to My Places.`);
++      if (!isEditing) setState(makePlaceCreateForm());
+     } catch (caughtError) {
+-      setError(getFriendlyApiErrorMessage(caughtError, 'Could not create Place.'));
++      setError(getFriendlyApiErrorMessage(caughtError, isEditing ? 'Could not update Place.' : 'Could not create Place.'));
+     } finally {
+       setSaving(false);
+     }
+@@ -100,8 +144,8 @@ export function PlaceCreateClient({ plansEnabled, plansVisible }: PlaceCreateCli
+         <section className="page-intro plan-create-intro">
+           <div>
+             <PlansInternalBadge plansVisible={plansVisible} />
+-            <h2>Create Place</h2>
+-            <p>{returnToPlan ? 'Save a Place, then return to your Plan.' : 'Save an offline or online Place for future Plans.'}</p>
++            <h2>{isEditing ? 'Edit Place' : 'Create Place'}</h2>
++            <p>{returnToPlan ? (isEditing ? 'Update this Place, then return to your Plan.' : 'Save a Place, then return to your Plan.') : isEditing ? 'Update your reusable Place.' : 'Save an offline or online Place for future Plans.'}</p>
+           </div>
+         </section>
+ 
+@@ -109,12 +153,14 @@ export function PlaceCreateClient({ plansEnabled, plansVisible }: PlaceCreateCli
+         {auth.hydrated && !auth.isAuthenticated ? (
+           <section className="mobile-card mobile-card--soft">
+             <h3>Log in required</h3>
+-            <p>Create private reusable Places after signing in.</p>
+-            <button type="button" className="button primary" onClick={() => router.push(`/auth?next=${encodeURIComponent(returnToPlan ? '/places/new?returnTo=plan' : '/places/new')}`)}>Log in</button>
++            <p>Create and edit private reusable Places after signing in.</p>
++            <button type="button" className="button primary" onClick={() => router.push(`/auth?next=${encodeURIComponent(returnToPlan ? (isEditing && placeId ? `/places/${placeId}/edit?returnTo=plan` : '/places/new?returnTo=plan') : isEditing && placeId ? `/places/${placeId}/edit` : '/places/new')}`)}>Log in</button>
+           </section>
+         ) : null}
+ 
+-        {auth.isAuthenticated ? (
++        {auth.isAuthenticated && loadingPlace ? <section className="mobile-card"><p className="meta">Loading Place...</p></section> : null}
++
++        {auth.isAuthenticated && !loadingPlace ? (
+           <form className="mobile-card plan-form place-clean-form" onSubmit={submit}>
+             <div className="plan-form__section-title">
+               <div>
+@@ -153,7 +199,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible }: PlaceCreateCli
+             {message ? <p className="success-message">{message}</p> : null}
+             {error ? <p className="form-error">{error}</p> : null}
+             <div className="cta-row">
+-              <button className="button primary" type="submit" disabled={saving || state.title.trim().length < 3}>{saving ? 'Saving...' : returnToPlan ? 'Save and return' : 'Save Place'}</button>
++              <button className="button primary" type="submit" disabled={saving || state.title.trim().length < 3}>{saving ? 'Saving...' : returnToPlan ? isEditing ? 'Update and return' : 'Save and return' : isEditing ? 'Update Place' : 'Save Place'}</button>
+               <Link className="button secondary" href={returnToPlan ? '/plans/new' : '/plans'}>{returnToPlan ? 'Back to Plan draft' : 'Back to Plans'}</Link>
+             </div>
+           </form>
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index 56d54f3..4048ba8 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -399,7 +399,9 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   const searchParams = useSearchParams();
+   const auth = useWebAuth();
+   const createdPlaceId = searchParams.get('createdPlaceId');
++  const updatedPlaceId = searchParams.get('updatedPlaceId');
+   const handledCreatedPlaceIdRef = useRef<string | null>(null);
++  const handledUpdatedPlaceIdRef = useRef<string | null>(null);
+   const [places, setPlaces] = useState<PlaceFormState[]>(() => safeReadPlanDraft());
+   const [advancedDetails, setAdvancedDetails] = useState<AdvancedPlanDetailsState>(() => safeReadAdvancedPlanDetails());
+   const [planEnd, setPlanEnd] = useState<PlanEndState>(() => safeReadPlanEndState());
+@@ -462,27 +464,33 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   }, [places, advancedDetails, planEnd]);
+ 
+   useEffect(() => {
+-    if (!createdPlaceId || handledCreatedPlaceIdRef.current === createdPlaceId) return;
+-    const createdPlace = myPlaces.find((place) => place.id === createdPlaceId);
+-    if (!createdPlace) return;
+-    handledCreatedPlaceIdRef.current = createdPlaceId;
++    const returnedPlaceId = createdPlaceId || updatedPlaceId;
++    const isUpdateReturn = Boolean(updatedPlaceId);
++    const handledRef = isUpdateReturn ? handledUpdatedPlaceIdRef : handledCreatedPlaceIdRef;
++    if (!returnedPlaceId || handledRef.current === returnedPlaceId) return;
++    const returnedPlace = myPlaces.find((place) => place.id === returnedPlaceId);
++    if (!returnedPlace) return;
++    handledRef.current = returnedPlaceId;
+     const pendingIndex = takePendingCreatedPlaceIndex();
+     setPlaces((current) => {
+       if (pendingIndex !== null && current[pendingIndex]) {
+-        return current.map((place, placeIndex) => placeIndex === pendingIndex ? { ...place, ...applyReusablePlacePatch(createdPlace) } : place);
++        return current.map((place, placeIndex) => placeIndex === pendingIndex ? { ...place, ...applyReusablePlacePatch(returnedPlace) } : place);
++      }
++      if (isUpdateReturn) {
++        return current.map((place) => place.sourcePlaceId === returnedPlace.id ? { ...place, ...applyReusablePlacePatch(returnedPlace) } : place);
+       }
+       const previous = current[current.length - 1];
+       return [
+         ...current,
+         {
+           ...makePlace(current.length, previous?.date || toDateInputValue()),
+-          ...applyReusablePlacePatch(createdPlace),
++          ...applyReusablePlacePatch(returnedPlace),
+         },
+       ];
+     });
+-    setMessage(`Place saved and added to this Plan.`);
++    setMessage(isUpdateReturn ? 'Place updated in this Plan.' : 'Place saved and added to this Plan.');
+     router.replace('/plans/new', { scroll: false });
+-  }, [createdPlaceId, myPlaces, router]);
++  }, [createdPlaceId, myPlaces, router, updatedPlaceId]);
+ 
+   function updatePlace(index: number, update: Partial<PlaceFormState>) {
+     setPlaces((current) => current.map((place, placeIndex) => placeIndex === index ? { ...place, ...update } : place));
+@@ -557,6 +565,24 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+     router.push('/places/new?returnTo=plan');
+   }
+ 
++  function openEditMyPlaceFromDetail(index: number) {
++    const place = places[index];
++    if (!place?.sourcePlaceId || place.sourcePlaceSource !== 'my_place') return;
++    storePlanDraft(places, advancedDetails, planEnd);
++    setPendingCreatedPlaceIndex(index);
++    setDetailPlaceIndex(null);
++    router.push(`/places/${encodeURIComponent(place.sourcePlaceId)}/edit?returnTo=plan`);
++  }
++
++  function openCopyLibraryPlaceFromDetail(index: number) {
++    const place = places[index];
++    if (!place?.sourcePlaceId || place.sourcePlaceSource !== 'hellowhen_library') return;
++    storePlanDraft(places, advancedDetails, planEnd);
++    setPendingCreatedPlaceIndex(index);
++    setDetailPlaceIndex(null);
++    router.push(`/places/new?returnTo=plan&copyFromPlaceId=${encodeURIComponent(place.sourcePlaceId)}`);
++  }
++
+   function chooseReusablePlace(place: PlaceDto) {
+     if (pickerTarget === null) return;
+     if (pickerTarget === 'new') {
+@@ -914,8 +940,16 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                 ) : (
+                   <div className="plan-source-place-strip">
+                     <strong>{detailPlace.sourcePlaceTitle || detailPlace.title}</strong>
+-                    <span>Copied as a snapshot for this Plan. Switch to custom if you need to change the Place content.</span>
+-                    <button type="button" className="button secondary" onClick={() => updatePlace(detailPlaceIndex, resetToCustomPatch())}>Use as custom</button>
++                    <span>{detailPlace.sourcePlaceSource === 'my_place' ? 'Edit the saved My Place if this content should change everywhere you reuse it.' : 'Library Places are copied before editing so your changes stay private.'}</span>
++                    <div className="cta-row">
++                      {detailPlace.sourcePlaceSource === 'my_place' ? (
++                        <button type="button" className="button secondary" onClick={() => openEditMyPlaceFromDetail(detailPlaceIndex)}>Edit saved Place</button>
++                      ) : null}
++                      {detailPlace.sourcePlaceSource === 'hellowhen_library' ? (
++                        <button type="button" className="button secondary" onClick={() => openCopyLibraryPlaceFromDetail(detailPlaceIndex)}>Copy and edit</button>
++                      ) : null}
++                      <button type="button" className="button secondary" onClick={() => updatePlace(detailPlaceIndex, resetToCustomPatch())}>Use as custom</button>
++                    </div>
+                   </div>
+                 )}
+                 <PlaceImagePicker
+diff --git a/apps/web/src/lib/webRoutes.ts b/apps/web/src/lib/webRoutes.ts
+index 1c5dbc6..9a23525 100644
+--- a/apps/web/src/lib/webRoutes.ts
++++ b/apps/web/src/lib/webRoutes.ts
+@@ -84,6 +84,7 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; titleKey: strin
+   { match: (pathname) => pathname === '/trades/create', titleKey: 'navigation.routes.createTrade', backHref: '/trades' },
+   { match: (pathname) => pathname === '/plans/new', titleKey: 'navigation.routes.createPlan', backHref: '/plans' },
+   { match: (pathname) => pathname === '/places/new', titleKey: 'navigation.routes.createPlace', backHref: '/plans' },
++  { match: (pathname) => /^\/places\/[^/]+\/edit$/.test(pathname), titleKey: 'navigation.routes.editPlace', backHref: '/plans' },
+   { match: (pathname) => /^\/plans\/[^/]+\/edit$/.test(pathname), titleKey: 'navigation.routes.editPlan', backHref: '/plans' },
+   { match: (pathname) => /^\/plans\/[^/]+$/.test(pathname), titleKey: 'navigation.routes.plan', backHref: '/plans' },
+   { match: (pathname) => /^\/users\/[^/]+$/.test(pathname), titleKey: 'navigation.routes.profile', backHref: '/trades' },
+diff --git a/packages/i18n/src/locales/en/navigation.ts b/packages/i18n/src/locales/en/navigation.ts
+index 648e82d..36b6331 100644
+--- a/packages/i18n/src/locales/en/navigation.ts
++++ b/packages/i18n/src/locales/en/navigation.ts
+@@ -23,6 +23,7 @@ export const navigation = {
+     plans: 'Plans',
+     createPlan: 'Create plan',
+     createPlace: 'Create place',
++    editPlace: 'Edit place',
+     editPlan: 'Edit plan',
+     profile: 'Profile',
+     trade: 'Trade',
+diff --git a/packages/i18n/src/locales/es/navigation.ts b/packages/i18n/src/locales/es/navigation.ts
+index 711badd..d08561d 100644
+--- a/packages/i18n/src/locales/es/navigation.ts
++++ b/packages/i18n/src/locales/es/navigation.ts
+@@ -27,6 +27,7 @@ export const navigation = {
+     plans: 'Planes',
+     createPlan: 'Crear plan',
+     editPlan: 'Editar plan',
++    editPlace: 'Editar lugar',
+     profile: 'Perfil',
+     trade: 'Intercambio',
+     createNeed: 'Crear necesidad',
+diff --git a/packages/i18n/src/locales/fr/navigation.ts b/packages/i18n/src/locales/fr/navigation.ts
+index 913ecf5..16368b7 100644
+--- a/packages/i18n/src/locales/fr/navigation.ts
++++ b/packages/i18n/src/locales/fr/navigation.ts
+@@ -23,6 +23,7 @@ export const navigation = {
+     plans: 'Plans',
+     createPlan: 'Créer un plan',
+     createPlace: 'Créer un lieu',
++    editPlace: 'Modifier le lieu',
+     editPlan: 'Modifier le plan',
+     profile: 'Profil',
+     trade: 'Échange',

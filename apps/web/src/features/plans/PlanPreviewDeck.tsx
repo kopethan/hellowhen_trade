@@ -11,7 +11,6 @@ type PreviewPlace = {
   id: string;
   mode?: PlanPlaceMode;
   title: string;
-  note?: string;
   location?: string;
   date?: string;
   time?: string;
@@ -122,7 +121,6 @@ export function PlanDtoPreviewDeck({ plan, className, onOpen, actionLabel }: Pla
     id: place.id,
     mode: place.mode ?? 'local',
     title: place.title,
-    note: place.note ?? undefined,
     location: place.addressPublicText ?? place.onlineLabel ?? place.onlineUrl ?? undefined,
     date: place.startsAt ? toDateInputValue(place.startsAt) : undefined,
     time: place.startsAt ? toTimeInputValue(place.startsAt) : undefined,

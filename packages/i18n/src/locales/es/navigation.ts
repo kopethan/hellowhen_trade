@@ -27,6 +27,7 @@ export const navigation = {
     plans: 'Planes',
     createPlan: 'Crear plan',
     editPlan: 'Editar plan',
+    editPlace: 'Editar lugar',
     profile: 'Perfil',
     trade: 'Intercambio',
     createNeed: 'Crear necesidad',

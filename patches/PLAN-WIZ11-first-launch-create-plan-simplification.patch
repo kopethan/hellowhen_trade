@@ -1,0 +1,275 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 833fa5d..0915cad 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1197,12 +1197,13 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+       }));
+     }
+     closePlaceSourceSheet();
+-    setMessage(`Added ${place.title}.`);
++    setMessage(null);
+     setError(null);
+   }
+ 
+   function updateSelectedPlace(index: number, patch: Partial<SelectedPlanPlaceState>) {
+     setPlaces((current) => current.map((place, placeIndex) => placeIndex === index ? { ...place, ...patch } : place));
++    setError(null);
+   }
+ 
+   function moveSelectedPlace(index: number, direction: -1 | 1) {
+@@ -1225,6 +1226,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+ 
+   function updatePlanEnd(patch: Partial<PlanEndState>) {
+     setPlanEnd((current) => ({ ...current, ...patch }));
++    setError(null);
+   }
+ 
+   function showPreviewStage() {
+@@ -1298,13 +1300,13 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+         <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+           <View style={[styles.hero, styles.planCreateHero, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+             <SemanticBadge label="Plan" tone="plan" />
+-            <AppText style={styles.heroTitle}>Create a Plan from Places</AppText>
+-            <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Add places and times in one clean route, then preview the feed deck before publishing.</AppText>
++            <AppText style={styles.heroTitle}>Create plan</AppText>
++            <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Add places, set times, preview.</AppText>
+           </View>
+ 
+           <View style={styles.stageSwitchRow}>
+-            <PillButton label="Build plan" active={stage === 'build'} onPress={() => setStage('build')} />
+-            <PillButton label="Preview / Confirm" active={stage === 'preview'} onPress={showPreviewStage} />
++            <PillButton label="Build" active={stage === 'build'} onPress={() => setStage('build')} />
++            <PillButton label="Preview" active={stage === 'preview'} onPress={showPreviewStage} />
+           </View>
+ 
+           {stage === 'build' ? (
+@@ -1313,18 +1315,18 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                 <View style={[styles.planTimelineLineItem, { borderTopColor: theme.color.border }]}>
+                   <View style={styles.timelineCopy}>
+                     <SemanticBadge label="Date / time" tone="time" size="sm" />
+-                    <AppText style={styles.sectionTitle}>Start time recommended</AppText>
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Place 1 becomes the Plan start.</AppText>
++                    <AppText style={styles.sectionTitle}>Start time</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Used for Place 1.</AppText>
+                   </View>
+                   {places[0] ? (
+                     <View style={styles.twoColumnRow}>
+                       <TextField label="Date" value={places[0].date} onChangeText={(date) => updateSelectedPlace(0, { date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+                       <TextField label="Time" value={places[0].time} onChangeText={(time) => updateSelectedPlace(0, { time })} placeholder="13:00" keyboardType="numbers-and-punctuation" />
+                     </View>
+-                  ) : <AppText style={[styles.rowBody, { color: theme.color.muted }]}>Add the first place to set its start date and time.</AppText>}
++                  ) : <AppText style={[styles.rowBody, { color: theme.color.muted }]}>Add Place 1 to set the start.</AppText>}
+                 </View>
+ 
+-                {places.length === 0 ? <EmptyBlock title="No places selected" body="Add your first place from My Places, Hellowhen Library, a new reusable Place, or a custom one-off stop." /> : null}
++                {places.length === 0 ? <EmptyBlock title="No places yet" body="Add your first place to start." /> : null}
+                 {places.map((place, index) => (
+                   <PlaceTimelineRow
+                     key={place.id}
+@@ -1337,7 +1339,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                 <View style={[styles.planTimelineLineItem, styles.planTimelinePlaceAction, { borderTopColor: theme.color.border }]}>
+                   <View style={styles.timelineCopy}>
+                     <AppText style={styles.sectionTitle}>Add a place</AppText>
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Open place choices only when needed, so this screen stays light.</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose the next stop.</AppText>
+                   </View>
+                   <View style={styles.actionGrid}>
+                     <SecondaryButton label="Add place" icon="add" onPress={() => openPlaceSourceSheet('new')} />
+@@ -1348,7 +1350,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                   <View style={styles.timelineCopy}>
+                     <SemanticBadge label="Optional" tone="time" size="sm" />
+                     <AppText style={styles.sectionTitle}>End date / time</AppText>
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Leave empty if the Plan ends at the last timed place.</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Leave empty to end at the last place.</AppText>
+                   </View>
+                   <View style={styles.twoColumnRow}>
+                     <TextField label="End date" value={planEnd.date} onChangeText={(date) => updatePlanEnd({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+@@ -1357,19 +1359,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                 </View>
+               </View>
+ 
+-              <AdvancedPlanDetailsCard
+-                open={advancedDetailsOpen}
+-                details={advancedDetails}
+-                generatedTitle={generatedTitle}
+-                generatedDescription={generatedDescription}
+-                onToggle={() => setAdvancedDetailsOpen((open) => !open)}
+-                onChange={updateAdvancedDetails}
+-              />
+-
+-              {schedule.error && places.length > 0 ? <InfoNotice tone="warning" title="Schedule check" body={schedule.error} /> : null}
+-              {explicitPlanEnd.error ? <InfoNotice tone="warning" title="End time" body={explicitPlanEnd.error} /> : null}
+-              {message ? <InfoNotice tone="success" title="Plans" body={message} /> : null}
+-              {error ? <InfoNotice tone="warning" title="Could not preview" body={error} /> : null}
++
++              {error ? <InfoNotice tone="warning" title="Check plan" body={error} /> : null}
+               <Pressable accessibilityRole="button" onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed]}>
+                 <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Preview Plan</AppText>
+               </Pressable>
+@@ -1408,7 +1399,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                 <View style={[styles.previewSectionDivider, { borderTopColor: theme.color.border }]}>
+                   <View style={styles.timelineCopy}>
+                     <SemanticBadge label="Feed deck preview" tone="plan" size="sm" />
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>This is how the Plan cards will feel in the feed.</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Feed deck preview.</AppText>
+                   </View>
+                   <PlanSquareDeck plan={previewPlan} />
+                 </View>
+@@ -1416,7 +1407,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                 <View style={[styles.previewSectionDivider, { borderTopColor: theme.color.border }]}>
+                   <View style={styles.timelineCopy}>
+                     <SemanticBadge label="Place order" tone="place" size="sm" />
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Confirm the order and times before publishing.</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Order and times.</AppText>
+                   </View>
+                   {places.map((place, index) => (
+                     <View key={`preview-${place.id}`} style={[styles.previewPlaceRow, { borderTopColor: theme.color.border }]}>
+@@ -1426,7 +1417,6 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                       <View style={styles.timelineCopy}>
+                         <AppText style={styles.rowTitle}>{planPreviewPlaceTitle(place, index)}</AppText>
+                         <AppText style={[styles.metaText, { color: theme.color.muted }]}>{planPreviewTimeLabel(place, index)} · {placePreviewLocation(place)}</AppText>
+-                        {place.note.trim() ? <AppText style={[styles.snapshotText, { color: theme.color.muted }]}>{place.note.trim()}</AppText> : null}
+                       </View>
+                     </View>
+                   ))}
+@@ -1434,7 +1424,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+ 
+                 <View style={[styles.previewFinalNote, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+                   <SemanticBadge label="Confirm" tone="plan" size="sm" />
+-                  <AppText style={[styles.metaText, { color: theme.semantic.plan.text }]}>This creates an open public Plan with free join. You can still go back and edit places, times, or More options before publishing.</AppText>
++                  <AppText style={[styles.metaText, { color: theme.semantic.plan.text }]}>This creates an open public Plan with free join. You can still go back before publishing.</AppText>
+                 </View>
+ 
+                 {schedule.error && places.length > 0 ? <InfoNotice tone="warning" title="Schedule check" body={schedule.error} /> : null}
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index ba0f807..28c8da6 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -490,6 +490,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+ 
+   function updatePlace(index: number, update: Partial<PlaceFormState>) {
+     setPlaces((current) => current.map((place, placeIndex) => placeIndex === index ? { ...place, ...update } : place));
++    setError('');
+   }
+ 
+   function addPlace() {
+@@ -593,6 +594,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+ 
+   function updatePlanEnd(update: Partial<PlanEndState>) {
+     setPlanEnd((current) => ({ ...current, ...update }));
++    setError('');
+   }
+ 
+   function showPreviewStage() {
+@@ -706,7 +708,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+           <div>
+             <PlansInternalBadge plansVisible={plansVisible} />
+             <h2>Create Plan</h2>
+-            <p>Choose existing Places and times first. Create a new reusable Place on its own screen, then return here with your draft preserved.</p>
++            <p>Add places, set times, preview.</p>
+           </div>
+         </section>
+ 
+@@ -722,8 +724,8 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+         {auth.isAuthenticated ? (
+           <form className="plan-form plan-form--timeline plan-form--clean" onSubmit={submit}>
+             <div className="plan-stage-tabs" aria-label="Create Plan stages">
+-              <button type="button" className={stage === 'build' ? 'is-active' : ''} onClick={() => setStage('build')}>Build plan</button>
+-              <button type="button" className={stage === 'preview' ? 'is-active' : ''} onClick={showPreviewStage}>Preview / Confirm</button>
++              <button type="button" className={stage === 'build' ? 'is-active' : ''} onClick={() => setStage('build')}>Build</button>
++              <button type="button" className={stage === 'preview' ? 'is-active' : ''} onClick={showPreviewStage}>Preview</button>
+             </div>
+ 
+             {stage === 'build' ? (
+@@ -732,8 +734,8 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                   <div className="plan-timeline-row plan-timeline-row--time">
+                     <div className="plan-timeline-row__main">
+                       <span className="semantic-badge time">Date / time</span>
+-                      <h3>Start time recommended</h3>
+-                      <p className="meta">Place 1 becomes the Plan start. Later stops can keep their own optional time.</p>
++                      <h3>Start time</h3>
++                      <p className="meta">Used for Place 1.</p>
+                     </div>
+                     {places[0] ? (
+                       <div className="plan-timeline-row__fields">
+@@ -747,7 +749,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                         </label>
+                       </div>
+                     ) : (
+-                      <p className="meta">Add the first place to set its start date and time.</p>
++                      <p className="meta">Add Place 1 to set the start.</p>
+                     )}
+                   </div>
+ 
+@@ -770,7 +772,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                   <div className="plan-timeline-row plan-timeline-row--add">
+                     <div className="plan-timeline-row__main">
+                       <h3>Add a place</h3>
+-                      <p className="meta">Choose one of your Places, use the Hellowhen Library, create a new reusable Place, or add a one-off custom stop.</p>
++                      <p className="meta">Choose the next stop.</p>
+                     </div>
+                     <div className="plan-timeline-row__actions">
+                       <button type="button" className="button primary" onClick={addPlaceAndOpenPicker}>+ Add place</button>
+@@ -781,7 +783,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                     <div className="plan-timeline-row__main">
+                       <span className="semantic-badge time">Optional</span>
+                       <h3>End date / time</h3>
+-                      <p className="meta">Leave empty if the Plan ends at the last timed place.</p>
++                      <p className="meta">Leave empty to end at the last place.</p>
+                     </div>
+                     <div className="plan-timeline-row__fields">
+                       <label>
+@@ -796,18 +798,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                   </div>
+                 </section>
+ 
+-                <AdvancedPlanDetailsCard
+-                  open={advancedDetailsOpen}
+-                  details={advancedDetails}
+-                  generatedTitle={generatedTitle}
+-                  generatedDescription={generatedDescription}
+-                  onToggle={() => setAdvancedDetailsOpen((open) => !open)}
+-                  onChange={updateAdvancedDetails}
+-                />
+ 
+-                {schedule.error && places.length > 0 ? <p className="form-error">{schedule.error}</p> : null}
+-                {explicitPlanEnd.error ? <p className="form-error">{explicitPlanEnd.error}</p> : null}
+-                {message ? <p className="success-message">{message}</p> : null}
+                 {error ? <p className="form-error">{error}</p> : null}
+                 <button className="button primary full" type="button" onClick={showPreviewStage} disabled={places.some((place) => place.uploading)}>Preview Plan</button>
+               </>
+@@ -845,7 +836,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                   <div className="plan-preview-deck-section">
+                     <div className="plan-preview-section-heading">
+                       <span className="semantic-badge plan">Feed deck preview</span>
+-                      <p className="meta">This is how the Plan will feel in the feed before someone opens the details.</p>
++                      <p className="meta">Feed deck preview.</p>
+                     </div>
+                     <div className="trade-create-preview__deck">
+                       <PlanPreviewDeck
+@@ -861,7 +852,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                   <div className="plan-preview-itinerary" aria-label="Plan itinerary confirmation">
+                     <div className="plan-preview-section-heading">
+                       <span className="semantic-badge place">Place order</span>
+-                      <p className="meta">Confirm the order and times before publishing.</p>
++                      <p className="meta">Order and times.</p>
+                     </div>
+                     {places.map((place, index) => (
+                       <div className="plan-preview-itinerary-row" key={`confirm-${place.id}`}>
+@@ -869,7 +860,6 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                         <div>
+                           <strong>{planPreviewPlaceTitle(place, index)}</strong>
+                           <small>{planPreviewTimeLabel(place, index)}{placePreviewLocation(place) ? ` · ${placePreviewLocation(place)}` : ''}</small>
+-                          {place.note.trim() ? <p>{place.note.trim()}</p> : null}
+                         </div>
+                       </div>
+                     ))}
+@@ -877,7 +867,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+ 
+                   <div className="plan-preview-final-note">
+                     <span className="semantic-badge plan">Confirm</span>
+-                    <p>This will create an open public Plan with free join. You can still go back and edit places, times, or More options before publishing.</p>
++                    <p>This will create an open public Plan with free join. You can still go back before publishing.</p>
+                   </div>
+                 </section>
+                 {schedule.error && places.length > 0 ? <p className="form-error">{schedule.error}</p> : null}
