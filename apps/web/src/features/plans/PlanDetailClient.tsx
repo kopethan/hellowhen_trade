@@ -180,6 +180,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
   const currentParticipantStatus = plan?.myParticipantStatus ?? null;
   const canJoin = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner && plan.status === 'open' && canJoinFromParticipantStatus(currentParticipantStatus));
   const canLeave = Boolean(!isOwner && currentParticipantStatus === 'accepted');
+  const canCancelPlan = Boolean(isOwner && plan && plan.status !== 'cancelled');
   const participantCopy = !isOwner ? participantStateCopy(currentParticipantStatus) : '';
   const showReportActions = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner);
   const places = plan?.places ?? [];
@@ -287,6 +288,21 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
     }
   }
 
+  async function cancelPlan() {
+    if (!plan || !canCancelPlan) return;
+    const confirmed = window.confirm('Cancel this Plan? People will no longer be able to join, but the Plan will remain visible with a Cancelled status.');
+    if (!confirmed) return;
+
+    setAction({ loading: true, message: '', error: '' });
+    try {
+      const response = await api.plans.update(plan.id, { status: 'cancelled' });
+      setPlan(response.plan);
+      setAction({ loading: false, message: 'Plan cancelled. It remains visible with a Cancelled status.', error: '' });
+    } catch (cancelError) {
+      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(cancelError, 'Could not cancel this Plan.') });
+    }
+  }
+
   return (
     <PlansFeatureGate plansEnabled={plansEnabled}>
       <main className="plan-detail-page plan-detail-page--web">
@@ -391,17 +407,33 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
               <div className="plan-section-heading">
                 <p className="eyebrow">Actions</p>
                 <h2>{isOwner ? 'Manage this Plan' : canLeave ? 'You joined this Plan' : 'Join this Plan'}</h2>
-                <p>{isOwner && plan ? 'Edit details, review people, or share this Plan.' : plan ? planJoinActionCopy(plan) : ''}</p>
+                <p>{isOwner && plan ? 'Share this Plan or cancel it. Plan content editing is locked after publishing.' : plan ? planJoinActionCopy(plan) : ''}</p>
               </div>
               <div className="plan-detail-actions plan-detail-actions--social">
                 {isOwner ? (
                   <div className="plan-action-status plan-action-status--owner">
                     <span className="semantic-badge trade">Owner</span>
-                    <strong>You own this Plan</strong>
-                    <p className="meta">Edit details, review joined people, or use Share to invite others.</p>
+                    <strong>Manage Plan</strong>
+                    <p className="meta">You can share this Plan or cancel it. Editing places and times is locked after publishing.</p>
                   </div>
                 ) : null}
-                {isOwner ? <Link className="button secondary" href={`/plans/${plan.id}/edit`}>Edit Plan</Link> : null}
+                {isOwner ? (
+                  <button type="button" className="button secondary" onClick={() => void sharePlan()} disabled={shareLoading}>
+                    {shareLoading ? 'Sharing...' : 'Share Plan'}
+                  </button>
+                ) : null}
+                {canCancelPlan ? (
+                  <button type="button" className="button danger" disabled={action.loading} onClick={() => void cancelPlan()}>
+                    {action.loading ? 'Cancelling...' : 'Cancel Plan'}
+                  </button>
+                ) : null}
+                {isOwner && plan.status === 'cancelled' ? (
+                  <div className="plan-action-status plan-action-status--joined">
+                    <span className="semantic-badge danger">Cancelled</span>
+                    <strong>This Plan is cancelled</strong>
+                    <p className="meta">It remains visible for context, but people can no longer join.</p>
+                  </div>
+                ) : null}
                 {!auth.isAuthenticated ? <Link className="button primary" href={`/auth?next=/plans/${plan.id}`}>Log in to join</Link> : null}
                 {canJoin ? (
                   <div className="plan-action-primary">

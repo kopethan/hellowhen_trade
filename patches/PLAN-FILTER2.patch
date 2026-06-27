@@ -1,0 +1,667 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index e25f3a8..a0e0fe5 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+ import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+-import type { DiscoveryLanguage, InventoryTranslationDto, MediaAssetDto, PlaceDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
++import type { DiscoveryLanguage, InventoryTranslationDto, ListPlansQuery, MediaAssetDto, PlaceDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
+ import { buildGeneratedPlanDisplay } from '@hellowhen/shared';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+@@ -68,6 +68,95 @@ function toggleFilterValue(values: string[], value: string) {
+   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+ }
+ 
++type PlanFilterRouteParams = { filters?: string[] };
++
++type PlanFilterKey = 'status' | 'mode' | 'join' | 'places' | 'time';
++
++const planFilterKeys: PlanFilterKey[] = ['status', 'mode', 'join', 'places', 'time'];
++const allowedPlanFilterValues = new Set(planFilterGroups.flatMap((group) => group.options.map((option) => option.value)));
++
++function normalizePlanFilters(values?: string[] | null) {
++  if (!Array.isArray(values)) return [];
++  const normalized: string[] = [];
++  for (const value of values) {
++    if (typeof value !== 'string' || !allowedPlanFilterValues.has(value) || normalized.includes(value)) continue;
++    normalized.push(value);
++  }
++  return normalized;
++}
++
++function planFilterValues(filters: string[], key: PlanFilterKey) {
++  return filters
++    .map((value) => {
++      const [filterKey, filterValue] = value.split(':');
++      return filterKey === key ? filterValue : null;
++    })
++    .filter((value): value is string => Boolean(value));
++}
++
++function buildPlanFeedQuery(filters: string[]): ListPlansQuery {
++  const query: ListPlansQuery = { take: filters.length ? 100 : 50 };
++  const statuses = planFilterValues(filters, 'status');
++  const modes = planFilterValues(filters, 'mode');
++  if (statuses.length === 1) query.status = statuses[0] as ListPlansQuery['status'];
++  if (modes.length === 1) query.mode = modes[0] as ListPlansQuery['mode'];
++  return query;
++}
++
++function sameLocalDate(left: Date, right: Date) {
++  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate();
++}
++
++function isWithinNextDays(date: Date, days: number) {
++  const now = new Date();
++  const end = new Date(now);
++  end.setHours(23, 59, 59, 999);
++  end.setDate(end.getDate() + days);
++  return date.getTime() >= new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() && date.getTime() <= end.getTime();
++}
++
++function planMatchesTimeFilter(plan: PlanDto, values: string[]) {
++  if (!values.length) return true;
++  const date = new Date(plan.startsAt);
++  if (Number.isNaN(date.getTime())) return false;
++  const now = new Date();
++  return values.some((value) => {
++    if (value === 'today') return sameLocalDate(date, now);
++    if (value === 'week') return isWithinNextDays(date, 6);
++    if (value === 'month') return date.getTime() >= new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() && date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
++    return true;
++  });
++}
++
++function applyPlanFilters(plans: PlanDto[], filters: string[]) {
++  const statuses = planFilterValues(filters, 'status');
++  const modes = planFilterValues(filters, 'mode');
++  const joinModes = planFilterValues(filters, 'join');
++  const placeCounts = planFilterValues(filters, 'places');
++  const timeFilters = planFilterValues(filters, 'time');
++  return plans.filter((plan) => {
++    if (statuses.length && !statuses.includes(plan.status)) return false;
++    if (modes.length && (!plan.mode || !modes.includes(plan.mode))) return false;
++    if (joinModes.includes('automatic') && plan.joinApprovalMode !== 'automatic') return false;
++    if (placeCounts.length) {
++      const count = plan.places?.length ?? 0;
++      const placeMatch = placeCounts.some((value) => value === 'one' ? count === 1 : value === 'multiple' ? count >= 2 : true);
++      if (!placeMatch) return false;
++    }
++    if (!planMatchesTimeFilter(plan, timeFilters)) return false;
++    return true;
++  });
++}
++
++function filterSummary(filters: string[]) {
++  if (!filters.length) return '';
++  const parts = planFilterKeys.map((key) => {
++    const count = planFilterValues(filters, key).length;
++    return count ? `${count} ${key}` : '';
++  }).filter(Boolean);
++  return parts.join(' · ');
++}
++
+ function isPlansVisible() {
+   return betaFeatures.plansEnabled && betaFeatures.plansVisible;
+ }
+@@ -529,7 +618,7 @@ function DisabledPlansScreen({ onBack }: { onBack: () => void }) {
+   );
+ }
+ 
+-function HeaderAction({ icon, label, onPress }: { icon: MobileIconName; label: string; onPress: () => void }) {
++function HeaderAction({ icon, label, onPress, badgeCount = 0 }: { icon: MobileIconName; label: string; onPress: () => void; badgeCount?: number }) {
+   const theme = useThemeTokens();
+   return (
+     <Pressable
+@@ -539,6 +628,11 @@ function HeaderAction({ icon, label, onPress }: { icon: MobileIconName; label: s
+       style={({ pressed }) => [styles.headerAction, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
+     >
+       <MobileIcon name={icon} size={20} color={theme.color.text} />
++      {badgeCount > 0 ? (
++        <View style={[styles.headerActionBadge, { backgroundColor: theme.semantic.plan.text, borderColor: theme.color.surface }]}>
++          <AppText style={[styles.headerActionBadgeText, { color: theme.color.background }]}>{badgeCount}</AppText>
++        </View>
++      ) : null}
+     </Pressable>
+   );
+ }
+@@ -635,8 +729,10 @@ function PlaceRow({
+   return <View style={[styles.rowCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>{content}</View>;
+ }
+ 
+-function PlanList({ scope, navigation }: { scope: PlanListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'> }) {
++function PlanList({ scope, navigation, filters = [] }: { scope: PlanListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'>; filters?: string[] }) {
+   const theme = useThemeTokens();
++  const activeFilters = useMemo(() => normalizePlanFilters(filters), [filters.join('|')]);
++  const activeFilterSummary = filterSummary(activeFilters);
+   const [plans, setPlans] = useState<PlanDto[]>([]);
+   const [loading, setLoading] = useState(true);
+   const [refreshing, setRefreshing] = useState(false);
+@@ -647,8 +743,9 @@ function PlanList({ scope, navigation }: { scope: PlanListScope; navigation: Pic
+     if (refresh) setRefreshing(true); else setLoading(true);
+     setError(null);
+     try {
+-      const response = scope === 'mine' ? await api.plans.mine() : scope === 'joined' ? await api.plans.joined() : await api.plans.feed();
+-      setPlans(response.plans ?? []);
++      const response = scope === 'mine' ? await api.plans.mine() : scope === 'joined' ? await api.plans.joined() : await api.plans.feed(buildPlanFeedQuery(activeFilters));
++      const nextPlans = response.plans ?? [];
++      setPlans(scope === 'feed' ? applyPlanFilters(nextPlans, activeFilters) : nextPlans);
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError));
+       setPlans([]);
+@@ -656,7 +753,7 @@ function PlanList({ scope, navigation }: { scope: PlanListScope; navigation: Pic
+       setLoading(false);
+       setRefreshing(false);
+     }
+-  }, [scope]);
++  }, [scope, activeFilters]);
+ 
+   useFocusEffect(useCallback(() => { void load(); }, [load]));
+ 
+@@ -671,7 +768,9 @@ function PlanList({ scope, navigation }: { scope: PlanListScope; navigation: Pic
+       ? 'Created Plans will appear here once you create one.'
+       : scope === 'joined'
+         ? 'Plans you join will appear here.'
+-        : 'Open Plans will appear here once people start creating them.';
++        : activeFilters.length
++          ? 'No Plans match these filters yet. Try resetting one or two filters.'
++          : 'Open Plans will appear here once people start creating them.';
+     return <EmptyBlock title="No Plans yet" body={body} actionLabel={scope === 'mine' ? 'Create plan' : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlan') : undefined} />;
+   }
+ 
+@@ -683,6 +782,9 @@ function PlanList({ scope, navigation }: { scope: PlanListScope; navigation: Pic
+       showsVerticalScrollIndicator={false}
+       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
+     >
++      {scope === 'feed' && activeFilters.length ? (
++        <InfoNotice tone="info" title={`${activeFilters.length} active Plan filter${activeFilters.length === 1 ? '' : 's'}`} body={activeFilterSummary || 'Filtered Plan results'} />
++      ) : null}
+       {plans.map((plan, index) => (
+         isDeckFeed
+           ? <PlanDeckSection key={plan.id} plan={plan} index={index} total={plans.length} onPress={() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title })} />
+@@ -827,6 +929,8 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
+   const fallbackNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const navigation = (props.navigation ?? fallbackNavigation) as NativeStackNavigationProp<RootStackParamList>;
+   const theme = useThemeTokens();
++  const activeFilters = normalizePlanFilters((props.route?.params as PlanFilterRouteParams | undefined)?.filters);
++  const activeFilterCount = activeFilters.length;
+   const [menuOpen, setMenuOpen] = useState(false);
+ 
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+@@ -846,7 +950,7 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
+         <AppText style={styles.feedTitle}>Plans</AppText>
+       </View>
+       <View style={styles.headerActions}>
+-        <HeaderAction icon="filter" label="Filter Plans" onPress={() => { setMenuOpen(false); navigation.navigate('PlanFilters'); }} />
++        <HeaderAction icon="filter" label={activeFilterCount ? `Filter Plans, ${activeFilterCount} active` : 'Filter Plans'} badgeCount={activeFilterCount} onPress={() => { setMenuOpen(false); navigation.navigate('PlanFilters', { filters: activeFilters }); }} />
+         <HeaderAction icon="more" label="Open Plan menu" onPress={() => setMenuOpen((value) => !value)} />
+         <HeaderAction icon="add" label="Create Plan" onPress={() => navigation.navigate('CreatePlan')} />
+       </View>
+@@ -861,7 +965,7 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
+             {menuItems.map((item) => <MenuItem key={item.title} item={item} />)}
+           </View>
+         ) : null}
+-        <PlanList scope="feed" navigation={navigation} />
++        <PlanList scope="feed" navigation={navigation} filters={activeFilters} />
+       </View>
+     </AppFixedHeaderScreen>
+   );
+@@ -871,9 +975,16 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
+   const fallbackNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const navigation = (props.navigation ?? fallbackNavigation) as NativeStackNavigationProp<RootStackParamList>;
+   const theme = useThemeTokens();
+-  const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
++  const incomingFilters = normalizePlanFilters((props.route?.params as PlanFilterRouteParams | undefined)?.filters);
++  const incomingFilterKey = incomingFilters.join('|');
++  const [selectedFilters, setSelectedFilters] = useState<string[]>(incomingFilters);
+   const activeCount = selectedFilters.length;
+ 
++  useEffect(() => {
++    setSelectedFilters(incomingFilters);
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [incomingFilterKey]);
++
+   function toggle(value: string) {
+     setSelectedFilters((current) => toggleFilterValue(current, value));
+   }
+@@ -931,7 +1042,7 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
+ 
+         <View style={styles.planFilterFooter}>
+           <SecondaryButton label="Reset" icon="refresh" onPress={reset} disabled={activeCount === 0} />
+-          <PrimaryButton label={activeCount ? `Show plans (${activeCount})` : 'Show plans'} onPress={() => navigation.navigate('Plans')} />
++          <PrimaryButton label={activeCount ? `Show plans (${activeCount})` : 'Show plans'} onPress={() => navigation.navigate('Plans', activeCount ? { filters: selectedFilters } : undefined)} />
+         </View>
+       </ScrollView>
+     </AppFixedHeaderScreen>
+@@ -2285,7 +2396,9 @@ const styles = StyleSheet.create({
+   feedTitleWrap: { flex: 1, gap: 6 },
+   feedTitle: { fontSize: 35, lineHeight: 40, fontWeight: '900', letterSpacing: -1 },
+   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+-  headerAction: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  headerAction: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center', position: 'relative' },
++  headerActionBadge: { position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 9, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
++  headerActionBadgeText: { fontSize: 10, fontWeight: '950', lineHeight: 12 },
+   filterRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+   filterChip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
+   filterChipText: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index 7edd5e8..bb18882 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -70,8 +70,8 @@ export type RootStackParamList = {
+   Notifications: undefined;
+   SavedLibrary: undefined;
+   Agenda: undefined;
+-  Plans: undefined;
+-  PlanFilters: undefined;
++  Plans: { filters?: string[] } | undefined;
++  PlanFilters: { filters?: string[] } | undefined;
+   PlanDetail: { planId: string; title?: string };
+   PlanPublicDiscussion: { planId: string; title?: string };
+   MyPlans: undefined;
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index eeadb58..251fc5a 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -9606,3 +9606,11 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .place-manage-card__body small { color: var(--app-text-muted); font-size: 12px; font-weight: 900; }
+ .place-manage-card__actions { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--app-divider); padding-top: 10px; }
+ .place-manage-card__actions .button { flex: 1 1 130px; }
++.plans-feed-icon-button--with-badge { position: relative; }
++.plans-feed-icon-button__badge { position: absolute; top: -5px; right: -5px; display: inline-flex; align-items: center; justify-content: center; min-width: 19px; height: 19px; border: 1px solid var(--app-surface); border-radius: 999px; background: var(--plan-text); color: var(--app-bg); font-size: 10px; line-height: 1; font-weight: 950; padding: 0 5px; }
++.plans-active-filter-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--plan-border); border-radius: 20px; background: var(--plan-bg); padding: 12px 14px; color: var(--plan-text); }
++.plans-active-filter-card div { display: grid; gap: 2px; min-width: 0; }
++.plans-active-filter-card strong { font-size: 13px; line-height: 18px; font-weight: 950; }
++.plans-active-filter-card span { color: var(--app-text-muted); font-size: 12px; line-height: 16px; font-weight: 800; }
++.plans-active-filter-card a { color: var(--plan-text); font-size: 12px; font-weight: 950; text-decoration: none; }
++.plans-active-filter-card a:hover { text-decoration: underline; }
+diff --git a/apps/web/src/features/plans/PlanFilterClient.tsx b/apps/web/src/features/plans/PlanFilterClient.tsx
+index c98c7cc..06b1b46 100644
+--- a/apps/web/src/features/plans/PlanFilterClient.tsx
++++ b/apps/web/src/features/plans/PlanFilterClient.tsx
+@@ -1,82 +1,35 @@
+ 'use client';
+ 
+ import Link from 'next/link';
+-import { useMemo, useState } from 'react';
++import { useEffect, useMemo, useState } from 'react';
++import { useSearchParams } from 'next/navigation';
+ import { PlansFeatureGate } from './PlansFeatureGate';
+-
+-type PlanFilterOption = { label: string; value: string; body?: string };
+-type PlanFilterGroup = { title: string; body: string; options: PlanFilterOption[] };
++import { buildPlanFilterHref, planFilterGroups, planFiltersFromSearchParams, togglePlanFilterValue } from './planFilters';
+ 
+ type PlanFilterClientProps = {
+   plansEnabled?: boolean;
+ };
+ 
+-const planFilterGroups: PlanFilterGroup[] = [
+-  {
+-    title: 'Status',
+-    body: 'Choose which public Plan states should appear.',
+-    options: [
+-      { label: 'Open', value: 'status:open', body: 'Available to join' },
+-      { label: 'Full', value: 'status:full', body: 'Capacity reached' },
+-      { label: 'Started', value: 'status:started', body: 'Already underway' },
+-    ],
+-  },
+-  {
+-    title: 'Mode',
+-    body: 'Match the way the Plan happens.',
+-    options: [
+-      { label: 'Local / offline', value: 'mode:local', body: 'Meet in person' },
+-      { label: 'Online', value: 'mode:remote', body: 'Remote or link-based' },
+-    ],
+-  },
+-  {
+-    title: 'Join',
+-    body: 'Surface Plans that can be joined freely.',
+-    options: [{ label: 'Free join', value: 'join:automatic', body: 'No approval request first' }],
+-  },
+-  {
+-    title: 'Places',
+-    body: 'Filter by route size.',
+-    options: [
+-      { label: '1 place', value: 'places:one', body: 'Simple single stop' },
+-      { label: '2+ places', value: 'places:multiple', body: 'A route or sequence' },
+-    ],
+-  },
+-  {
+-    title: 'Time',
+-    body: 'Pick when the Plan starts.',
+-    options: [
+-      { label: 'Today', value: 'time:today' },
+-      { label: 'This week', value: 'time:week' },
+-      { label: 'This month', value: 'time:month' },
+-    ],
+-  },
+-];
+-
+-function toggleValue(values: string[], value: string) {
+-  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+-}
+-
+-function buildPlansHref(values: string[]) {
+-  if (!values.length) return '/plans';
+-  const params = new URLSearchParams();
+-  for (const value of values) {
+-    const [key, option] = value.split(':');
+-    if (key && option) params.append(key, option);
+-  }
+-  return `/plans?${params.toString()}`;
+-}
+-
+ export function PlanFilterClient({ plansEnabled }: PlanFilterClientProps) {
+-  const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
++  const searchParams = useSearchParams();
++  const searchParamKey = searchParams.toString();
++  const incomingFilters = useMemo(() => planFiltersFromSearchParams(searchParams), [searchParamKey, searchParams]);
++  const incomingFilterKey = incomingFilters.join('|');
++  const [selectedFilters, setSelectedFilters] = useState<string[]>(incomingFilters);
+   const activeCount = selectedFilters.length;
+-  const plansHref = useMemo(() => buildPlansHref(selectedFilters), [selectedFilters]);
++  const plansHref = useMemo(() => buildPlanFilterHref('/plans', selectedFilters), [selectedFilters]);
++  const backHref = useMemo(() => buildPlanFilterHref('/plans', incomingFilters), [incomingFilters]);
++
++  useEffect(() => {
++    setSelectedFilters(incomingFilters);
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [incomingFilterKey]);
+ 
+   return (
+     <PlansFeatureGate plansEnabled={plansEnabled}>
+       <main className="mobile-page plans-page plans-filter-page">
+         <header className="plans-filter-header">
+-          <Link className="plans-feed-icon-button" href="/plans" aria-label="Back to Plans">‹</Link>
++          <Link className="plans-feed-icon-button" href={backHref} aria-label="Back to Plans">‹</Link>
+           <div>
+             <h1>Plan filters</h1>
+             <p>Choose simple filters for public Plans.</p>
+@@ -107,7 +60,7 @@ export function PlanFilterClient({ plansEnabled }: PlanFilterClientProps) {
+                       type="button"
+                       className={selected ? 'plans-filter-option is-selected' : 'plans-filter-option'}
+                       aria-pressed={selected}
+-                      onClick={() => setSelectedFilters((current) => toggleValue(current, option.value))}
++                      onClick={() => setSelectedFilters((current) => togglePlanFilterValue(current, option.value))}
+                     >
+                       <span className="plans-filter-option__check" aria-hidden="true">{selected ? '×' : ''}</span>
+                       <span>
+diff --git a/apps/web/src/features/plans/PlansListClient.tsx b/apps/web/src/features/plans/PlansListClient.tsx
+index 554b41e..ba0fc78 100644
+--- a/apps/web/src/features/plans/PlansListClient.tsx
++++ b/apps/web/src/features/plans/PlansListClient.tsx
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import Link from 'next/link';
+-import { useRouter } from 'next/navigation';
++import { useRouter, useSearchParams } from 'next/navigation';
+ import type { PlanDto } from '@hellowhen/contracts';
+ import { useEffect, useMemo, useState } from 'react';
+ import { api } from '../../lib/api';
+@@ -10,6 +10,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { PlansFeatureGate } from './PlansFeatureGate';
+ import { PlanDtoPreviewDeck } from './PlanPreviewDeck';
+ import { planOwnerName } from './plansPresentation';
++import { applyPlanFilters, buildPlanFeedQuery, buildPlanFilterHref, planFilterSummary, planFiltersFromSearchParams } from './planFilters';
+ 
+ type PlansView = 'feed' | 'mine' | 'joined';
+ 
+@@ -53,21 +54,29 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState('');
+   const [menuOpen, setMenuOpen] = useState(false);
++  const searchParams = useSearchParams();
++  const searchParamKey = searchParams.toString();
++  const activeFilters = useMemo(() => planFiltersFromSearchParams(searchParams), [searchParamKey, searchParams]);
++  const activeFilterCount = activeFilters.length;
++  const activeFilterSummary = useMemo(() => planFilterSummary(activeFilters), [activeFilters]);
++  const filterHref = useMemo(() => buildPlanFilterHref('/plans/filter', activeFilters), [activeFilters]);
+ 
+   const canLoadPrivateViews = auth.hydrated && auth.isAuthenticated;
+   const activeView = view !== 'feed' && !canLoadPrivateViews ? 'feed' : view;
+   const createPlanHref = auth.isAuthenticated ? '/plans/new' : nextAuthHref('/plans/new');
+   useEffect(() => {
+-    const requestedView = new URLSearchParams(window.location.search).get('view');
++    const requestedView = searchParams.get('view');
+     if (requestedView === 'mine' || requestedView === 'joined' || requestedView === 'feed') setView(requestedView);
+-  }, []);
++  }, [searchParamKey, searchParams]);
+ 
+   const emptyTitle = activeView === 'mine' ? 'No Plans created yet' : activeView === 'joined' ? 'No joined Plans yet' : 'No open Plans yet';
+   const emptyBody = activeView === 'mine'
+     ? 'Create your first Plan when you are ready.'
+     : activeView === 'joined'
+       ? 'Plans you join will appear here.'
+-      : 'Open Plans will appear here when they are available.';
++      : activeFilterCount
++        ? 'No Plans match these filters yet. Try resetting one or two filters.'
++        : 'Open Plans will appear here when they are available.';
+ 
+   useEffect(() => {
+     let mounted = true;
+@@ -76,13 +85,14 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+       setLoading(true);
+       setError('');
+       try {
++        const effectiveFilters = activeView === 'feed' ? activeFilters : [];
+         const response = activeView === 'mine'
+           ? await api.plans.mine()
+           : activeView === 'joined'
+             ? await api.plans.joined()
+-            : await api.plans.feed({ take: 50 });
++            : await api.plans.feed(buildPlanFeedQuery(effectiveFilters));
+         if (!mounted) return;
+-        setPlans(response.plans ?? []);
++        setPlans(activeView === 'feed' ? applyPlanFilters(response.plans ?? [], effectiveFilters) : response.plans ?? []);
+       } catch (loadError) {
+         if (!mounted) return;
+         setPlans([]);
+@@ -93,7 +103,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+     }
+     void loadPlans();
+     return () => { mounted = false; };
+-  }, [activeView, auth.hydrated]);
++  }, [activeView, auth.hydrated, activeFilters]);
+ 
+   const sortedPlans = useMemo(() => [...plans].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime()), [plans]);
+ 
+@@ -111,8 +121,9 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+               <h1>Plans</h1>
+             </div>
+             <div className="plans-feed-header__actions" aria-label="Plan actions">
+-              <Link className="plans-feed-icon-button" href="/plans/filter" aria-label="Filter Plans">
++              <Link className="plans-feed-icon-button plans-feed-icon-button--with-badge" href={filterHref} aria-label={activeFilterCount ? `Filter Plans, ${activeFilterCount} active` : 'Filter Plans'}>
+                 <span aria-hidden="true">◇</span>
++                {activeFilterCount ? <span className="plans-feed-icon-button__badge">{activeFilterCount}</span> : null}
+               </Link>
+               <button
+                 type="button"
+@@ -142,6 +153,15 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+ 
+         </section>
+ 
++        {activeView === 'feed' && activeFilterCount ? (
++          <section className="plans-active-filter-card" aria-label="Active Plan filters">
++            <div>
++              <strong>{activeFilterCount} active Plan filter{activeFilterCount === 1 ? '' : 's'}</strong>
++              <span>{activeFilterSummary || 'Filtered Plan results'}</span>
++            </div>
++            <Link href="/plans">Reset</Link>
++          </section>
++        ) : null}
+         {error ? <section className="mobile-card mobile-card--soft"><p>{error}</p></section> : null}
+         {loading ? <section className="mobile-card"><p className="meta">Loading Plans...</p></section> : null}
+         {!loading && !error && sortedPlans.length === 0 ? (
+diff --git a/apps/web/src/features/plans/planFilters.ts b/apps/web/src/features/plans/planFilters.ts
+new file mode 100644
+index 0000000..a7625ea
+--- /dev/null
++++ b/apps/web/src/features/plans/planFilters.ts
+@@ -0,0 +1,162 @@
++import type { ListPlansQuery, PlanDto } from '@hellowhen/contracts';
++
++export type PlanFilterKey = 'status' | 'mode' | 'join' | 'places' | 'time';
++
++export type PlanFilterOption = { label: string; value: string; body?: string };
++export type PlanFilterGroup = { title: string; body: string; options: PlanFilterOption[] };
++
++export const planFilterGroups: PlanFilterGroup[] = [
++  {
++    title: 'Status',
++    body: 'Choose which public Plan states should appear.',
++    options: [
++      { label: 'Open', value: 'status:open', body: 'Available to join' },
++      { label: 'Full', value: 'status:full', body: 'Capacity reached' },
++      { label: 'Started', value: 'status:started', body: 'Already underway' },
++    ],
++  },
++  {
++    title: 'Mode',
++    body: 'Match the way the Plan happens.',
++    options: [
++      { label: 'Local / offline', value: 'mode:local', body: 'Meet in person' },
++      { label: 'Online', value: 'mode:remote', body: 'Remote or link-based' },
++    ],
++  },
++  {
++    title: 'Join',
++    body: 'Surface Plans that can be joined freely.',
++    options: [{ label: 'Free join', value: 'join:automatic', body: 'No approval request first' }],
++  },
++  {
++    title: 'Places',
++    body: 'Filter by route size.',
++    options: [
++      { label: '1 place', value: 'places:one', body: 'Simple single stop' },
++      { label: '2+ places', value: 'places:multiple', body: 'A route or sequence' },
++    ],
++  },
++  {
++    title: 'Time',
++    body: 'Pick when the Plan starts.',
++    options: [
++      { label: 'Today', value: 'time:today' },
++      { label: 'This week', value: 'time:week' },
++      { label: 'This month', value: 'time:month' },
++    ],
++  },
++];
++
++const planFilterKeys: PlanFilterKey[] = ['status', 'mode', 'join', 'places', 'time'];
++const allowedPlanFilterValues = new Set(planFilterGroups.flatMap((group) => group.options.map((option) => option.value)));
++
++export function togglePlanFilterValue(values: string[], value: string) {
++  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
++}
++
++export function normalizePlanFilters(values: string[]) {
++  const normalized: string[] = [];
++  for (const value of values) {
++    if (!allowedPlanFilterValues.has(value) || normalized.includes(value)) continue;
++    normalized.push(value);
++  }
++  return normalized;
++}
++
++export function planFiltersFromSearchParams(searchParams: URLSearchParams | ReadonlyURLSearchParams) {
++  const values: string[] = [];
++  for (const key of planFilterKeys) {
++    for (const value of searchParams.getAll(key)) values.push(`${key}:${value}`);
++  }
++  return normalizePlanFilters(values);
++}
++
++export function planFilterValues(filters: string[], key: PlanFilterKey) {
++  return filters
++    .map((value) => {
++      const [filterKey, filterValue] = value.split(':');
++      return filterKey === key ? filterValue : null;
++    })
++    .filter((value): value is string => Boolean(value));
++}
++
++export function buildPlanFilterSearchParams(filters: string[]) {
++  const params = new URLSearchParams();
++  for (const value of normalizePlanFilters(filters)) {
++    const [key, option] = value.split(':');
++    if (key && option) params.append(key, option);
++  }
++  return params;
++}
++
++export function buildPlanFilterHref(path: string, filters: string[]) {
++  const params = buildPlanFilterSearchParams(filters);
++  const queryString = params.toString();
++  return queryString ? `${path}?${queryString}` : path;
++}
++
++export function buildPlanFeedQuery(filters: string[]): ListPlansQuery {
++  const query: ListPlansQuery = { take: filters.length ? 100 : 50 };
++  const statuses = planFilterValues(filters, 'status');
++  const modes = planFilterValues(filters, 'mode');
++  if (statuses.length === 1) query.status = statuses[0] as ListPlansQuery['status'];
++  if (modes.length === 1) query.mode = modes[0] as ListPlansQuery['mode'];
++  return query;
++}
++
++function sameLocalDate(left: Date, right: Date) {
++  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate();
++}
++
++function isWithinNextDays(date: Date, days: number) {
++  const now = new Date();
++  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
++  const end = new Date(now);
++  end.setHours(23, 59, 59, 999);
++  end.setDate(end.getDate() + days);
++  return date.getTime() >= start && date.getTime() <= end.getTime();
++}
++
++function planMatchesTimeFilter(plan: PlanDto, values: string[]) {
++  if (!values.length) return true;
++  const date = new Date(plan.startsAt);
++  if (Number.isNaN(date.getTime())) return false;
++  const now = new Date();
++  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
++  return values.some((value) => {
++    if (value === 'today') return sameLocalDate(date, now);
++    if (value === 'week') return isWithinNextDays(date, 6);
++    if (value === 'month') return date.getTime() >= todayStart && date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
++    return true;
++  });
++}
++
++export function applyPlanFilters(plans: PlanDto[], filters: string[]) {
++  const statuses = planFilterValues(filters, 'status');
++  const modes = planFilterValues(filters, 'mode');
++  const joinModes = planFilterValues(filters, 'join');
++  const placeCounts = planFilterValues(filters, 'places');
++  const timeFilters = planFilterValues(filters, 'time');
++  return plans.filter((plan) => {
++    if (statuses.length && !statuses.includes(plan.status)) return false;
++    if (modes.length && (!plan.mode || !modes.includes(plan.mode))) return false;
++    if (joinModes.includes('automatic') && plan.joinApprovalMode !== 'automatic') return false;
++    if (placeCounts.length) {
++      const count = plan.places?.length ?? 0;
++      const placeMatch = placeCounts.some((value) => value === 'one' ? count === 1 : value === 'multiple' ? count >= 2 : true);
++      if (!placeMatch) return false;
++    }
++    if (!planMatchesTimeFilter(plan, timeFilters)) return false;
++    return true;
++  });
++}
++
++export function planFilterSummary(filters: string[]) {
++  const parts = planFilterKeys.map((key) => {
++    const count = planFilterValues(filters, key).length;
++    return count ? `${count} ${key}` : '';
++  }).filter(Boolean);
++  return parts.join(' · ');
++}
++
++type ReadonlyURLSearchParams = Pick<URLSearchParams, 'getAll'>;

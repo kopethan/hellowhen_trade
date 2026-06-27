@@ -4,7 +4,7 @@ export type WebTab = {
   key: RootTabKey;
   labelKey: string;
   href: string;
-  icon: 'calendar' | 'trade' | 'need' | 'offer' | 'profile';
+  icon: 'calendar' | 'plan' | 'trade' | 'need' | 'offer' | 'profile';
   match: (pathname: string) => boolean;
 };
 
@@ -45,7 +45,7 @@ export const plansMeTradeWebTabs: WebTab[] = [
     key: 'plans',
     labelKey: 'navigation.tabs.plans',
     href: '/plans',
-    icon: 'calendar',
+    icon: 'plan',
     match: (pathname) => pathname.startsWith('/plans'),
   },
   {

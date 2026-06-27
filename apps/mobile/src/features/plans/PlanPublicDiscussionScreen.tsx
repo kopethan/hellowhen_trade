@@ -221,7 +221,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
       key: 'details',
       label: 'See Plan details',
       helper: 'Go back to the route, details, and join actions.',
-      icon: 'calendar',
+      icon: 'plan',
       onPress: () => {
         setThreadMenuVisible(false);
         openPlanDetail();

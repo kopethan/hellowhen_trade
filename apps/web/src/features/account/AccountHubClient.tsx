@@ -47,7 +47,7 @@ export function AccountHubClient() {
   const quickActionItems = useMemo<AccountHubItem[]>(() => [
     { href: '/trades/create', titleKey: 'account.quickActions.createTrade', bodyKey: 'account.quickActions.createTradeBody', icon: 'trade', featured: true },
     ...(betaFeatures.plansVisible ? [
-      { href: '/plans/new', titleKey: 'account.quickActions.createPlan', bodyKey: 'account.quickActions.createPlanBody', icon: 'calendar' as WebIconName, featured: true },
+      { href: '/plans/new', titleKey: 'account.quickActions.createPlan', bodyKey: 'account.quickActions.createPlanBody', icon: 'plan' as WebIconName, featured: true },
       { href: '/places/new', titleKey: 'account.quickActions.addPlace', bodyKey: 'account.quickActions.addPlaceBody', icon: 'add' as WebIconName, featured: true },
     ] : [
       { href: '/needs/new', titleKey: 'trade.wizard.actions.createNeed.title', bodyKey: 'trade.wizard.actions.createNeed.body', icon: 'need' as WebIconName, featured: true },
@@ -62,7 +62,7 @@ export function AccountHubClient() {
   ], [accountCounts.needs, accountCounts.offers, accountCounts.trades]);
 
   const planWorkspaceItems = useMemo<AccountHubItem[]>(() => betaFeatures.plansVisible ? [
-    { href: '/plans', titleKey: 'account.items.plansFeature.title', bodyKey: 'account.items.plansFeature.body', icon: 'calendar', featured: true, badgeKey: 'account.items.plansFeature.badge', actionKey: 'account.items.plansFeature.action' },
+    { href: '/plans', titleKey: 'account.items.plansFeature.title', bodyKey: 'account.items.plansFeature.body', icon: 'plan', featured: true, badgeKey: 'account.items.plansFeature.badge', actionKey: 'account.items.plansFeature.action' },
     { href: '/plans?view=mine', titleKey: 'account.items.myPlansFeature.title', bodyKey: 'account.items.myPlansFeature.body', icon: 'activity', count: accountCounts.myPlans },
     { href: '/plans?view=joined', titleKey: 'account.items.joinedPlansFeature.title', bodyKey: 'account.items.joinedPlansFeature.body', icon: 'proposal-accepted', count: accountCounts.joinedPlans },
     { href: '/plans/new', titleKey: 'account.items.createPlanFeature.title', bodyKey: 'account.items.createPlanFeature.body', icon: 'add' },

@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
-import { adminBusinessProfileActionRequestSchema, adminBusinessBudgetActionRequestSchema, adminBusinessBudgetListQuerySchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminContentClassificationActionRequestSchema, adminContentClassificationAiSuggestionRequestSchema, adminListContentClassificationsQuerySchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminListModerationCasesQuerySchema, adminModerationCaseActionRequestSchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateUsernameRequestSchema, adminPlusGrantRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema, type ModerationCaseStatus, type ModerationContentType, type ReportTargetType } from '@hellowhen/contracts';
+import { adminBusinessProfileActionRequestSchema, adminBusinessBudgetActionRequestSchema, adminBusinessBudgetListQuerySchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminContentClassificationActionRequestSchema, adminContentClassificationAiSuggestionRequestSchema, adminListContentClassificationsQuerySchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminListPlansQuerySchema, adminPlanActionRequestSchema, adminListPlanPublicMessagesQuerySchema, adminPlanPublicMessageActionRequestSchema, adminListPlacesQuerySchema, adminPlaceActionRequestSchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminListModerationCasesQuerySchema, adminModerationCaseActionRequestSchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateUsernameRequestSchema, adminPlusGrantRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema, type ModerationCaseStatus, type ModerationContentType, type ReportTargetType } from '@hellowhen/contracts';
 import { AI_ASSIST_TASK_TYPES, AI_ASSIST_USAGE_STATUSES, buildAiAssistPeriodKey, evaluatePlusGate, hasProAccess } from '@hellowhen/shared';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireBusinessAccountsEnabled, requireBusinessBudgetsEnabled, requireBusinessCampaignsEnabled, requireBusinessSponsoredContentEnabled, requireMoneyFeaturesVisible, requirePayoutsVisible, requirePlusAdminGrantsEnabled } from '../../middleware/featureGates.js';
-import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
+import { attachUploadedMediaToEntity, loadMediaByEntityIds, withMedia, withOneMedia } from '../media/media.helpers.js';
 import { buildLaunchLimits } from '../limits/launchLimits.js';
 import { buildAdminMoneySafetySummary, buildGlobalMoneySafetyConfig } from '../money/moneySafety.js';
 import { mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
@@ -970,6 +970,438 @@ adminRoutes.patch('/moderation/cases/:caseId/action', asyncRoute(async (req, res
   const refreshed = await moderationCaseClient.findUnique({ where: { id: updated.id }, include: adminModerationCaseInclude });
   const [hydrated] = await hydrateAdminModerationCases(refreshed ? [refreshed] : [updated]);
   res.json({ case: hydrated, targetActionApplied });
+}));
+
+
+function adminPlanIsPublicReadable(status: string) {
+  return ['open', 'full', 'started', 'cancelled'].includes(status);
+}
+
+function adminPlanStatusTone(status: string) {
+  if (status === 'open' || status === 'completed') return 'success';
+  if (status === 'full' || status === 'started') return 'warning';
+  if (status === 'cancelled' || status === 'hidden' || status === 'expired') return 'danger';
+  return 'admin';
+}
+
+function adminPlanVisibility(status: string) {
+  if (status === 'hidden') return 'hidden';
+  if (adminPlanIsPublicReadable(status)) return 'public';
+  return 'private';
+}
+
+const adminPlanInclude = {
+  owner: { select: adminOverviewUserSelect },
+  places: {
+    orderBy: [{ order: 'asc' as const }, { createdAt: 'asc' as const }],
+    include: { sourcePlace: { include: { owner: { select: adminOverviewUserSelect } } } },
+  },
+  participants: { include: { user: { select: adminOverviewUserSelect } }, orderBy: { createdAt: 'desc' as const } },
+  publicMessages: { include: { author: { select: adminOverviewUserSelect } }, orderBy: { createdAt: 'desc' as const }, take: 20 },
+  _count: { select: { places: true, participants: true, publicMessages: true } },
+};
+
+async function adminPlanReportCounts(plans: Array<{ id: string; places?: Array<{ id: string }>; publicMessages?: Array<{ id: string }> }>) {
+  const counts = new Map<string, number>();
+  const reportClient = (prisma as any).report;
+  if (!reportClient || !plans.length) return counts;
+  const planIds = plans.map((plan) => plan.id);
+  const placeToPlan = new Map<string, string>();
+  for (const plan of plans) {
+    for (const place of plan.places ?? []) placeToPlan.set(place.id, plan.id);
+  }
+  const planMessages = await prisma.planPublicMessage.findMany({ where: { planId: { in: planIds } }, select: { id: true, planId: true } });
+  const messageToPlan = new Map(planMessages.map((message) => [message.id, message.planId]));
+  const [directReports, placeReports, messageReports] = await Promise.all([
+    reportClient.findMany({ where: { targetType: 'plan', targetId: { in: planIds } }, select: { targetId: true } }),
+    placeToPlan.size ? reportClient.findMany({ where: { targetType: 'plan_place', targetId: { in: Array.from(placeToPlan.keys()) } }, select: { targetId: true } }) : Promise.resolve([]),
+    messageToPlan.size ? reportClient.findMany({ where: { targetType: 'public_message', targetId: { in: Array.from(messageToPlan.keys()) } }, select: { targetId: true } }) : Promise.resolve([]),
+  ]);
+  for (const report of directReports) counts.set(report.targetId, (counts.get(report.targetId) ?? 0) + 1);
+  for (const report of placeReports) {
+    const planId = placeToPlan.get(report.targetId);
+    if (planId) counts.set(planId, (counts.get(planId) ?? 0) + 1);
+  }
+  for (const report of messageReports) {
+    const planId = messageToPlan.get(report.targetId);
+    if (planId) counts.set(planId, (counts.get(planId) ?? 0) + 1);
+  }
+  return counts;
+}
+
+async function adminPlanRecentReports(plan: { id: string; places?: Array<{ id: string }>; publicMessages?: Array<{ id: string }> }) {
+  const reportClient = (prisma as any).report;
+  if (!reportClient) return [];
+  const placeIds = (plan.places ?? []).map((place) => place.id);
+  const planMessages = await prisma.planPublicMessage.findMany({ where: { planId: plan.id }, select: { id: true } });
+  const messageIds = planMessages.map((message) => message.id);
+  return reportClient.findMany({
+    where: {
+      OR: [
+        { targetType: 'plan', targetId: plan.id },
+        ...(placeIds.length ? [{ targetType: 'plan_place', targetId: { in: placeIds } }] : []),
+        ...(messageIds.length ? [{ targetType: 'public_message', targetId: { in: messageIds } }] : []),
+      ],
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+    include: { reporter: { select: adminOverviewUserSelect }, reviewer: { select: adminOverviewUserSelect } },
+  });
+}
+
+const adminPlanPublicMessageInclude = {
+  author: { select: adminOverviewUserSelect },
+  hiddenBy: { select: adminOverviewUserSelect },
+} as const;
+
+async function adminPlanPublicMessageReportMap(messageIds: string[]) {
+  const reportClient = (prisma as any).report;
+  const map = new Map<string, any[]>();
+  if (!reportClient || !messageIds.length) return map;
+  const reports = await reportClient.findMany({
+    where: { targetType: 'public_message', targetId: { in: messageIds } },
+    orderBy: { createdAt: 'desc' },
+    include: { reporter: { select: adminOverviewUserSelect }, reviewer: { select: adminOverviewUserSelect } },
+  });
+  for (const report of reports) {
+    const current = map.get(report.targetId) ?? [];
+    current.push(report);
+    map.set(report.targetId, current);
+  }
+  return map;
+}
+
+function toAdminPlanPublicMessageDto(message: any, reports: any[] = []) {
+  return {
+    ...message,
+    reports,
+    reportsCount: reports.length,
+    latestReportReason: reports[0]?.reason ?? null,
+    latestReportStatus: reports[0]?.status ?? null,
+  };
+}
+
+function toAdminPlanDto(plan: any, reportsCount = 0, recentReports: any[] = []) {
+  return {
+    ...plan,
+    visibility: adminPlanVisibility(plan.status),
+    publicDiscoverable: adminPlanIsPublicReadable(plan.status),
+    statusTone: adminPlanStatusTone(plan.status),
+    placeCount: plan._count?.places ?? plan.places?.length ?? 0,
+    participantCount: plan._count?.participants ?? plan.participants?.length ?? 0,
+    publicCommentCount: plan._count?.publicMessages ?? plan.publicMessages?.length ?? 0,
+    reportsCount,
+    recentReports,
+  };
+}
+
+adminRoutes.get('/plans', asyncRoute(async (req, res) => {
+  const input = adminListPlansQuerySchema.parse(req.query);
+  const where = {
+    ...(input.status && input.status !== 'all' ? { status: input.status as any } : {}),
+    ...(input.mode ? { mode: input.mode as any } : {}),
+    ...(input.ownerId ? { ownerId: input.ownerId } : {}),
+    ...(input.q ? {
+      OR: [
+        { title: { contains: input.q, mode: 'insensitive' as const } },
+        { description: { contains: input.q, mode: 'insensitive' as const } },
+        { locationLabel: { contains: input.q, mode: 'insensitive' as const } },
+        { owner: { is: { email: { contains: input.q, mode: 'insensitive' as const } } } },
+        { owner: { is: { profile: { is: { displayName: { contains: input.q, mode: 'insensitive' as const } } } } } },
+        { owner: { is: { profile: { is: { handle: { contains: input.q, mode: 'insensitive' as const } } } } } },
+      ],
+    } : {}),
+  };
+  const plans = await prisma.plan.findMany({ where, orderBy: { createdAt: 'desc' }, take: input.take ?? 100, include: adminPlanInclude });
+  const reportCounts = await adminPlanReportCounts(plans);
+  res.json({ plans: plans.map((plan) => toAdminPlanDto(plan, reportCounts.get(plan.id) ?? 0)) });
+}));
+
+adminRoutes.get('/plans/:planId', asyncRoute(async (req, res) => {
+  const planId = req.params.planId;
+  if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
+  const plan = await prisma.plan.findUnique({ where: { id: planId }, include: adminPlanInclude });
+  if (!plan) return res.status(404).json({ error: 'not_found' });
+  const reportCounts = await adminPlanReportCounts([plan]);
+  const recentReports = await adminPlanRecentReports(plan);
+  res.json({ plan: toAdminPlanDto(plan, reportCounts.get(plan.id) ?? 0, recentReports) });
+}));
+
+adminRoutes.get('/plans/:planId/public-messages', asyncRoute(async (req, res) => {
+  const planId = req.params.planId;
+  if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
+  const input = adminListPlanPublicMessagesQuerySchema.parse(req.query);
+  const plan = await prisma.plan.findUnique({ where: { id: planId }, select: { id: true } });
+  if (!plan) return res.status(404).json({ error: 'not_found' });
+  const messages = await prisma.planPublicMessage.findMany({
+    where: { planId, ...(input.status && input.status !== 'all' ? { status: input.status as any } : {}) },
+    orderBy: { createdAt: 'desc' },
+    take: input.take ?? 100,
+    include: adminPlanPublicMessageInclude,
+  });
+  const reportMap = await adminPlanPublicMessageReportMap(messages.map((message) => message.id));
+  res.json({ messages: messages.map((message) => toAdminPlanPublicMessageDto(message, reportMap.get(message.id) ?? [])) });
+}));
+
+adminRoutes.patch('/plans/:planId/public-messages/:messageId/action', asyncRoute(async (req, res) => {
+  const planId = req.params.planId;
+  const messageId = req.params.messageId;
+  if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
+  if (!messageId) return res.status(400).json({ error: 'missing_message_id' });
+  const input = adminPlanPublicMessageActionRequestSchema.parse(req.body ?? {});
+  const note = input.note?.trim();
+  if (input.action === 'hide' && !note) {
+    return res.status(400).json({ error: 'admin_note_required', message: 'Add an internal note before hiding a Plan discussion comment.' });
+  }
+
+  const existing = await prisma.planPublicMessage.findFirst({ where: { id: messageId, planId }, include: adminPlanPublicMessageInclude });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  if (existing.status === 'deleted' && input.action !== 'mark_reviewed') {
+    return res.status(400).json({ error: 'deleted_message_locked', message: 'Deleted Plan discussion comments cannot be hidden or restored from this screen.' });
+  }
+  const now = new Date();
+  let updated = existing;
+  if (input.action === 'hide') {
+    updated = await prisma.planPublicMessage.update({
+      where: { id: messageId },
+      data: { status: 'hidden', hiddenAt: now, hiddenById: req.user!.id, moderationNote: note },
+      include: adminPlanPublicMessageInclude,
+    });
+  } else if (input.action === 'restore') {
+    updated = await prisma.planPublicMessage.update({
+      where: { id: messageId },
+      data: { status: 'visible', hiddenAt: null, hiddenById: null, moderationNote: null },
+      include: adminPlanPublicMessageInclude,
+    });
+  }
+
+  const reportClient = (prisma as any).report;
+  if (reportClient && input.action !== 'mark_reviewed') {
+    await reportClient.updateMany({
+      where: { targetType: 'public_message', targetId: messageId, status: { in: ['pending', 'reviewing'] } },
+      data: { status: 'resolved', reviewedById: req.user!.id, reviewedAt: now, resolutionNote: note ?? `Admin ${input.action} Plan discussion comment.` },
+    });
+  }
+
+  await recordAdminAuditLog(prisma, req.user!.id, {
+    action: `plan.public_message.${input.action}`,
+    targetType: 'public_message',
+    targetId: messageId,
+    reason: note,
+    previousValue: { status: existing.status, hiddenAt: existing.hiddenAt, hiddenById: existing.hiddenById, moderationNote: existing.moderationNote },
+    nextValue: { status: updated.status, hiddenAt: updated.hiddenAt, hiddenById: updated.hiddenById, moderationNote: updated.moderationNote },
+    metadata: { planId, authorId: existing.authorId },
+  });
+
+  const reportMap = await adminPlanPublicMessageReportMap([messageId]);
+  res.json({ message: toAdminPlanPublicMessageDto(updated, reportMap.get(messageId) ?? []) });
+}));
+
+adminRoutes.patch('/plans/:planId/action', asyncRoute(async (req, res) => {
+  const planId = req.params.planId;
+  if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
+  const input = adminPlanActionRequestSchema.parse(req.body ?? {});
+  const note = input.note?.trim();
+  if (input.action !== 'mark_reviewed' && !note) {
+    return res.status(400).json({ error: 'admin_note_required', message: 'Add an internal note before hiding, restoring, or cancelling a Plan.' });
+  }
+  const existing = await prisma.plan.findUnique({ where: { id: planId }, include: adminPlanInclude });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+
+  let updated = existing;
+  if (input.action !== 'mark_reviewed') {
+    const now = new Date();
+    const data = input.action === 'hide'
+      ? { status: 'hidden' as const }
+      : input.action === 'restore'
+        ? { status: 'open' as const, cancelledAt: null }
+        : { status: 'cancelled' as const, cancelledAt: existing.cancelledAt ?? now };
+    updated = await prisma.plan.update({ where: { id: planId }, data, include: adminPlanInclude });
+  }
+
+  await recordAdminAuditLog(prisma, req.user!.id, {
+    action: `plan.${input.action}`,
+    targetType: 'plan',
+    targetId: planId,
+    reason: note,
+    previousValue: { status: existing.status, cancelledAt: existing.cancelledAt },
+    nextValue: { status: updated.status, cancelledAt: updated.cancelledAt },
+    metadata: { ownerId: existing.ownerId, title: existing.title },
+  });
+
+  const reportCounts = await adminPlanReportCounts([updated]);
+  const recentReports = await adminPlanRecentReports(updated);
+  res.json({ plan: toAdminPlanDto(updated, reportCounts.get(updated.id) ?? 0, recentReports) });
+}));
+
+
+const adminPlaceInclude = {
+  owner: { select: adminOverviewUserSelect },
+  planPlaces: {
+    include: { plan: { select: { id: true, ownerId: true, title: true, status: true, startsAt: true, createdAt: true, owner: { select: adminOverviewUserSelect } } } },
+    orderBy: { createdAt: 'desc' as const },
+    take: 20,
+  },
+  _count: { select: { planPlaces: true } },
+} as const;
+
+function adminPlaceVisibilityLabel(place: { status: string; visibility: string; source: string }) {
+  if (place.status === 'hidden') return 'hidden';
+  if (place.status === 'archived') return 'archived';
+  if (place.visibility === 'library' || place.source === 'hellowhen_library') return 'library';
+  return place.visibility;
+}
+
+function adminPlaceStatusTone(status: string) {
+  if (status === 'active') return 'success';
+  if (status === 'draft') return 'warning';
+  if (status === 'hidden' || status === 'archived') return 'danger';
+  return 'admin';
+}
+
+async function adminPlaceMediaMap(placeIds: string[]) {
+  return await loadMediaByEntityIds('place' as any, placeIds, 'admin');
+}
+
+async function adminPlaceReportData(places: Array<{ id: string; planPlaces?: Array<{ id: string }> }>, mediaByPlace = new Map<string, any[]>()) {
+  const reportClient = (prisma as any).report;
+  const counts = new Map<string, number>();
+  const recent = new Map<string, any[]>();
+  if (!reportClient || !places.length) return { counts, recent };
+
+  const planPlaceToPlace = new Map<string, string>();
+  const mediaToPlace = new Map<string, string>();
+  for (const place of places) {
+    for (const planPlace of place.planPlaces ?? []) planPlaceToPlace.set(planPlace.id, place.id);
+    for (const media of mediaByPlace.get(place.id) ?? []) mediaToPlace.set(media.id, place.id);
+  }
+  const ors = [
+    ...(planPlaceToPlace.size ? [{ targetType: 'plan_place', targetId: { in: Array.from(planPlaceToPlace.keys()) } }] : []),
+    ...(mediaToPlace.size ? [{ targetType: 'media', targetId: { in: Array.from(mediaToPlace.keys()) } }] : []),
+  ];
+  if (!ors.length) return { counts, recent };
+
+  const reports = await reportClient.findMany({
+    where: { OR: ors },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+    include: { reporter: { select: adminOverviewUserSelect }, reviewer: { select: adminOverviewUserSelect } },
+  });
+  for (const report of reports) {
+    const placeId = report.targetType === 'plan_place' ? planPlaceToPlace.get(report.targetId) : mediaToPlace.get(report.targetId);
+    if (!placeId) continue;
+    counts.set(placeId, (counts.get(placeId) ?? 0) + 1);
+    const current = recent.get(placeId) ?? [];
+    if (current.length < 20) current.push(report);
+    recent.set(placeId, current);
+  }
+  return { counts, recent };
+}
+
+function toAdminPlaceDto(place: any, media: any[] = [], reportsCount = 0, recentReports: any[] = []) {
+  return {
+    ...place,
+    media,
+    visibilityLabel: adminPlaceVisibilityLabel(place),
+    statusTone: adminPlaceStatusTone(place.status),
+    planUsageCount: place._count?.planPlaces ?? place.planPlaces?.length ?? 0,
+    reportsCount,
+    recentReports,
+  };
+}
+
+adminRoutes.get('/places', asyncRoute(async (req, res) => {
+  const input = adminListPlacesQuerySchema.parse(req.query);
+  const where = {
+    ...(input.status && input.status !== 'all' ? { status: input.status as any } : {}),
+    ...(input.source && input.source !== 'all' ? { source: input.source as any } : {}),
+    ...(input.visibility && input.visibility !== 'all' ? { visibility: input.visibility as any } : {}),
+    ...(input.mode ? { mode: input.mode as any } : {}),
+    ...(input.ownerId ? { ownerId: input.ownerId } : {}),
+    ...(input.q ? {
+      OR: [
+        { title: { contains: input.q, mode: 'insensitive' as const } },
+        { description: { contains: input.q, mode: 'insensitive' as const } },
+        { areaLabel: { contains: input.q, mode: 'insensitive' as const } },
+        { addressPublicText: { contains: input.q, mode: 'insensitive' as const } },
+        { onlineLabel: { contains: input.q, mode: 'insensitive' as const } },
+        { owner: { is: { email: { contains: input.q, mode: 'insensitive' as const } } } },
+        { owner: { is: { profile: { is: { displayName: { contains: input.q, mode: 'insensitive' as const } } } } } },
+        { owner: { is: { profile: { is: { handle: { contains: input.q, mode: 'insensitive' as const } } } } } },
+      ],
+    } : {}),
+  };
+  const places = await prisma.place.findMany({ where, orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }], take: input.take ?? 100, include: adminPlaceInclude });
+  const mediaByPlace = await adminPlaceMediaMap(places.map((place) => place.id));
+  const reports = await adminPlaceReportData(places, mediaByPlace);
+  res.json({ places: places.map((place) => toAdminPlaceDto(place, mediaByPlace.get(place.id) ?? [], reports.counts.get(place.id) ?? 0)) });
+}));
+
+adminRoutes.get('/places/:placeId', asyncRoute(async (req, res) => {
+  const placeId = req.params.placeId;
+  if (!placeId) return res.status(400).json({ error: 'missing_place_id' });
+  const place = await prisma.place.findUnique({ where: { id: placeId }, include: adminPlaceInclude });
+  if (!place) return res.status(404).json({ error: 'not_found' });
+  const mediaByPlace = await adminPlaceMediaMap([place.id]);
+  const reports = await adminPlaceReportData([place], mediaByPlace);
+  res.json({ place: toAdminPlaceDto(place, mediaByPlace.get(place.id) ?? [], reports.counts.get(place.id) ?? 0, reports.recent.get(place.id) ?? []) });
+}));
+
+adminRoutes.patch('/places/:placeId/action', asyncRoute(async (req, res) => {
+  const placeId = req.params.placeId;
+  if (!placeId) return res.status(400).json({ error: 'missing_place_id' });
+  const input = adminPlaceActionRequestSchema.parse(req.body ?? {});
+  const note = input.note?.trim();
+  if (input.action !== 'mark_reviewed' && !note) {
+    return res.status(400).json({ error: 'admin_note_required', message: 'Add an internal note before hiding, restoring, or removing Place media.' });
+  }
+  if (input.action === 'remove_media' && !input.mediaId) {
+    return res.status(400).json({ error: 'media_id_required', message: 'Choose a Place image to remove.' });
+  }
+
+  const existing = await prisma.place.findUnique({ where: { id: placeId }, include: adminPlaceInclude });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+
+  let updated = existing;
+  let mediaAction: any = null;
+  const now = new Date();
+  if (input.action === 'hide') {
+    updated = await prisma.place.update({ where: { id: placeId }, data: { status: 'hidden' as any }, include: adminPlaceInclude });
+  } else if (input.action === 'restore') {
+    updated = await prisma.place.update({ where: { id: placeId }, data: { status: 'active' as any, archivedAt: null }, include: adminPlaceInclude });
+  } else if (input.action === 'remove_media') {
+    const media = await prisma.mediaAsset.findFirst({ where: { id: input.mediaId!, entityType: 'place' as any, entityId: placeId } });
+    if (!media) return res.status(404).json({ error: 'media_not_found', message: 'That image is not attached to this Place.' });
+    const removed = await prisma.mediaAsset.update({
+      where: { id: media.id },
+      data: { status: 'removed' as any, reviewNote: note ?? null, reviewerId: req.user!.id, reviewedAt: now },
+      include: { owner: { select: adminOverviewUserSelect }, reviewer: { select: adminOverviewUserSelect } },
+    });
+    await syncMediaModerationCasesFromAdminStatus(removed, { nextStatus: removed.status, adminId: req.user!.id, note });
+    const reportClient = (prisma as any).report;
+    if (reportClient) {
+      await reportClient.updateMany({
+        where: { targetType: 'media', targetId: media.id, status: { in: ['pending', 'reviewing'] } },
+        data: { status: 'resolved', reviewedById: req.user!.id, reviewedAt: now, resolutionNote: note ?? 'Admin removed unsafe Place image.' },
+      });
+    }
+    mediaAction = { id: removed.id, previousStatus: media.status, nextStatus: removed.status };
+  }
+
+  await recordAdminAuditLog(prisma, req.user!.id, {
+    action: `place.${input.action}`,
+    targetType: input.action === 'remove_media' ? 'media' : 'place',
+    targetId: input.action === 'remove_media' ? input.mediaId : placeId,
+    reason: note,
+    previousValue: { status: existing.status, archivedAt: existing.archivedAt },
+    nextValue: { status: updated.status, archivedAt: updated.archivedAt, mediaAction },
+    metadata: { placeId, ownerId: existing.ownerId, source: existing.source, visibility: existing.visibility, title: existing.title },
+  });
+
+  const refreshed = await prisma.place.findUnique({ where: { id: placeId }, include: adminPlaceInclude });
+  const mediaByPlace = await adminPlaceMediaMap([placeId]);
+  const reports = refreshed ? await adminPlaceReportData([refreshed], mediaByPlace) : { counts: new Map<string, number>(), recent: new Map<string, any[]>() };
+  res.json({ place: refreshed ? toAdminPlaceDto(refreshed, mediaByPlace.get(placeId) ?? [], reports.counts.get(placeId) ?? 0, reports.recent.get(placeId) ?? []) : null });
 }));
 
 adminRoutes.get('/reports', asyncRoute(async (req, res) => {

@@ -1,0 +1,285 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 97d1ed5..e043eac 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -19,6 +19,7 @@ import { buildPublicPlanUrl } from '../../lib/publicUrls';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useAuth } from '../../providers/AuthProvider';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
++import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { resolveMediaUrl } from '../trade/mediaUrls';
+ import { ImagePickerField } from '../trade/components/ImagePickerField';
+ import type { SelectedLocalImage, SelectedImageUploadProgress } from '../trade/mediaUpload';
+@@ -357,14 +358,13 @@ function placeLanguageLabel(language: DiscoveryLanguage) {
+   return 'English';
+ }
+ 
+-function nextPlaceTranslationLanguage(state: PlaceCreateFormState) {
++function availablePlaceTranslationLanguages(state: PlaceCreateFormState) {
+   const used = new Set([state.defaultLanguage, ...state.translations.map((translation) => translation.languageCode)]);
+-  return placeLanguageOptions.find((language) => !used.has(language));
++  return placeLanguageOptions.filter((language) => !used.has(language));
+ }
+ 
+-function addPlaceTranslationDraft(state: PlaceCreateFormState): PlaceCreateFormState {
+-  const languageCode = nextPlaceTranslationLanguage(state);
+-  if (!languageCode) return state;
++function addPlaceTranslationDraft(state: PlaceCreateFormState, languageCode: DiscoveryLanguage): PlaceCreateFormState {
++  if (!availablePlaceTranslationLanguages(state).includes(languageCode)) return state;
+   return { ...state, translations: [...state.translations, { languageCode, title: '', description: '' }] };
+ }
+ 
+@@ -401,12 +401,12 @@ function placeHasTranslationContent(place?: PlaceDto | null) {
+   return Boolean((place?.translations ?? []).some((translation) => (translation.title ?? '').trim() || (translation.description ?? '').trim()));
+ }
+ 
+-function makePlaceCreateForm(): PlaceCreateFormState {
++function makePlaceCreateForm(defaultLanguage: DiscoveryLanguage = 'en'): PlaceCreateFormState {
+   return {
+     mode: 'local',
+     title: '',
+     description: '',
+-    defaultLanguage: 'en',
++    defaultLanguage,
+     translations: [],
+     location: '',
+     onlineLabel: '',
+@@ -2531,10 +2531,11 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+ 
+ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'CreatePlace'>) {
+   const theme = useThemeTokens();
++  const { language } = useTranslation();
+   const editPlace = route.params?.editPlace;
+   const copyFromPlace = route.params?.copyFromPlace;
+   const isEditing = Boolean(editPlace);
+-  const [state, setState] = useState<PlaceCreateFormState>(() => editPlace ? placeCreateFormFromPlace(editPlace) : copyFromPlace ? placeCreateFormFromPlace(copyFromPlace) : makePlaceCreateForm());
++  const [state, setState] = useState<PlaceCreateFormState>(() => editPlace ? placeCreateFormFromPlace(editPlace) : copyFromPlace ? placeCreateFormFromPlace(copyFromPlace) : makePlaceCreateForm(normalizePlaceLanguage(language)));
+   const [step, setStep] = useState<PlaceCreateStep>('details');
+   const [translationPanelOpen, setTranslationPanelOpen] = useState(() => placeHasTranslationContent(editPlace ?? copyFromPlace));
+   const [existingMedia, setExistingMedia] = useState<MediaAssetDto[]>(() => isEditing ? reusablePlaceMediaForEdit(editPlace) : []);
+@@ -2544,6 +2545,15 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+   const [error, setError] = useState<string | null>(null);
+   const [message, setMessage] = useState<string | null>(null);
+ 
++  useEffect(() => {
++    if (isEditing || copyFromPlace) return;
++    const appLanguage = normalizePlaceLanguage(language);
++    setState((current) => {
++      if (current.defaultLanguage === appLanguage || current.translations.length) return current;
++      return { ...current, defaultLanguage: appLanguage };
++    });
++  }, [copyFromPlace, isEditing, language]);
++
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+ 
+   function goToImageStep() {
+@@ -2597,7 +2607,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+       }
+       setMessage(isEditing ? `${response.place.title} was updated.` : `${response.place.title} was saved to My Places.`);
+       if (!isEditing) {
+-        setState(makePlaceCreateForm());
++        setState(makePlaceCreateForm(normalizePlaceLanguage(language)));
+         setTranslationPanelOpen(false);
+         setExistingMedia([]);
+         setNewImages([]);
+@@ -2668,19 +2678,10 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+                   <View style={styles.placeTranslationPanel}>
+                     <View style={styles.placeTranslationSummaryRow}>
+                       <View style={styles.feedTitleWrap}>
+-                        <AppText style={styles.formLabel}>Original language</AppText>
+-                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>Original content: {placeLanguageLabel(state.defaultLanguage)}</AppText>
+-                      </View>
+-                      <View style={styles.filterRow}>
+-                        {placeLanguageOptions.map((languageCode) => (
+-                          <PillButton
+-                            key={languageCode}
+-                            label={placeLanguageLabel(languageCode)}
+-                            active={state.defaultLanguage === languageCode}
+-                            onPress={() => setState((current) => ({ ...current, defaultLanguage: languageCode, translations: current.translations.filter((translation) => translation.languageCode !== languageCode) }))}
+-                          />
+-                        ))}
++                        <AppText style={styles.formLabel}>Languages</AppText>
++                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>Translations are optional. The original Place language follows your app language when you create a new Place.</AppText>
+                       </View>
++                      <SemanticBadge label={`Original content: ${placeLanguageLabel(state.defaultLanguage)}`} tone="place" />
+                     </View>
+ 
+                     {state.translations.map((translation) => (
+@@ -2701,15 +2702,27 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+                       <AppText style={[styles.metaText, styles.placeTranslationEmptyText, { color: theme.color.muted }]}>Translations are optional. Add a language only if you want to write a manual translation for this Place.</AppText>
+                     ) : null}
+ 
+-                    {nextPlaceTranslationLanguage(state) ? (
+-                      <Pressable accessibilityRole="button" onPress={() => setState(addPlaceTranslationDraft)} style={({ pressed }) => [styles.placeTranslationAddRow, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
++                    {availablePlaceTranslationLanguages(state).length ? (
++                      <View style={[styles.placeTranslationAddRow, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }]}>
+                         <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={16} /></View>
+                         <View style={styles.sourceOptionCopy}>
+                           <AppText style={styles.placeTranslationAddTitle}>{state.translations.length ? 'Add another language' : 'Add language'}</AppText>
+                           <AppText style={[styles.metaText, { color: theme.color.muted }]}>Manual translation</AppText>
++                          <View style={styles.placeLanguageChips}>
++                            {availablePlaceTranslationLanguages(state).map((languageCode) => (
++                              <PillButton
++                                key={languageCode}
++                                label={placeLanguageLabel(languageCode)}
++                                active={false}
++                                onPress={() => setState((current) => addPlaceTranslationDraft(current, languageCode))}
++                              />
++                            ))}
++                          </View>
+                         </View>
+-                      </Pressable>
+-                    ) : null}
++                      </View>
++                    ) : (
++                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>All supported languages are already added.</AppText>
++                    )}
+                   </View>
+                 ) : null}
+               </View>
+@@ -2955,6 +2968,7 @@ const styles = StyleSheet.create({
+   placeTranslationFieldsHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+   placeTranslationAddRow: { minHeight: 58, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 10 },
+   placeTranslationAddTitle: { fontSize: 14, fontWeight: '900' },
++  placeLanguageChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+   placeTranslationEmptyText: { borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10 },
+   formField: { gap: 7, flex: 1, minWidth: 0 },
+   formLabel: { fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
+diff --git a/apps/web/src/features/plans/PlaceCreateClient.tsx b/apps/web/src/features/plans/PlaceCreateClient.tsx
+index c6db9d8..3139231 100644
+--- a/apps/web/src/features/plans/PlaceCreateClient.tsx
++++ b/apps/web/src/features/plans/PlaceCreateClient.tsx
+@@ -8,6 +8,7 @@ import type { DiscoveryLanguage, InventoryTranslationDto, MediaAssetDto, PlanPla
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
++import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { mediaSrc, normalizeMediaUpload } from '../inventory/inventoryPresentation';
+ import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
+ 
+@@ -31,12 +32,12 @@ type PlaceCreateFormState = {
+   onlineUrl: string;
+ };
+ 
+-function makePlaceCreateForm(): PlaceCreateFormState {
++function makePlaceCreateForm(defaultLanguage: DiscoveryLanguage = 'en'): PlaceCreateFormState {
+   return {
+     mode: 'local',
+     title: '',
+     description: '',
+-    defaultLanguage: 'en',
++    defaultLanguage,
+     translations: [],
+     location: '',
+     onlineLabel: '',
+@@ -72,14 +73,13 @@ function placeLanguageLabel(language: DiscoveryLanguage) {
+   return 'English';
+ }
+ 
+-function nextPlaceTranslationLanguage(state: PlaceCreateFormState) {
++function availablePlaceTranslationLanguages(state: PlaceCreateFormState) {
+   const used = new Set([state.defaultLanguage, ...state.translations.map((translation) => translation.languageCode)]);
+-  return placeLanguageOptions.find((language) => !used.has(language));
++  return placeLanguageOptions.filter((language) => !used.has(language));
+ }
+ 
+-function addPlaceTranslationDraft(state: PlaceCreateFormState): PlaceCreateFormState {
+-  const languageCode = nextPlaceTranslationLanguage(state);
+-  if (!languageCode) return state;
++function addPlaceTranslationDraft(state: PlaceCreateFormState, languageCode: DiscoveryLanguage): PlaceCreateFormState {
++  if (!availablePlaceTranslationLanguages(state).includes(languageCode)) return state;
+   return { ...state, translations: [...state.translations, { languageCode, title: '', description: '' }] };
+ }
+ 
+@@ -134,10 +134,11 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+   const router = useRouter();
+   const searchParams = useSearchParams();
+   const auth = useWebAuth();
++  const { language } = useWebTranslation();
+   const returnToPlan = searchParams.get('returnTo') === 'plan';
+   const copyFromPlaceId = searchParams.get('copyFromPlaceId');
+   const isEditing = Boolean(placeId);
+-  const [state, setState] = useState<PlaceCreateFormState>(makePlaceCreateForm());
++  const [state, setState] = useState<PlaceCreateFormState>(() => makePlaceCreateForm(normalizePlaceLanguage(language)));
+   const [step, setStep] = useState<PlaceCreateStep>('details');
+   const [translationPanelOpen, setTranslationPanelOpen] = useState(false);
+   const [media, setMedia] = useState<MediaAssetDto[]>([]);
+@@ -147,6 +148,15 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+   const [message, setMessage] = useState('');
+   const [error, setError] = useState('');
+ 
++  useEffect(() => {
++    if (isEditing || copyFromPlaceId) return;
++    const appLanguage = normalizePlaceLanguage(language);
++    setState((current) => {
++      if (current.defaultLanguage === appLanguage || current.translations.length) return current;
++      return { ...current, defaultLanguage: appLanguage };
++    });
++  }, [copyFromPlaceId, isEditing, language]);
++
+   useEffect(() => {
+     const sourcePlaceId = placeId || copyFromPlaceId;
+     if (!sourcePlaceId || !auth.hydrated || !auth.isAuthenticated) {
+@@ -270,7 +280,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+ 
+       setMessage(isEditing ? `${response.place.title} was updated.` : `${response.place.title} was saved to My Places.`);
+       if (!isEditing) {
+-        setState(makePlaceCreateForm());
++        setState(makePlaceCreateForm(normalizePlaceLanguage(language)));
+         setTranslationPanelOpen(false);
+         setMedia([]);
+         setStep('details');
+@@ -366,22 +376,11 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+                   {translationPanelOpen ? (
+                     <section className="mobile-card mobile-card--soft inventory-translation-panel inventory-translation-panel--compact place-translation-panel">
+                       <div className="inventory-translation-panel__header place-translation-summary">
+-                        <div>
+-                          <p className="eyebrow">Original language</p>
+-                          <span className="inventory-language-summary">Original content: {placeLanguageLabel(state.defaultLanguage)}</span>
+-                        </div>
+-                        <div className="plan-mode-segment" aria-label="Original Place language">
+-                          {placeLanguageOptions.map((languageCode) => (
+-                            <button
+-                              key={languageCode}
+-                              type="button"
+-                              className={state.defaultLanguage === languageCode ? 'is-active' : ''}
+-                              onClick={() => setState((current) => ({ ...current, defaultLanguage: languageCode, translations: current.translations.filter((translation) => translation.languageCode !== languageCode) }))}
+-                            >
+-                              {placeLanguageLabel(languageCode)}
+-                            </button>
+-                          ))}
++                        <div className="inventory-form__helper-copy">
++                          <strong>Languages</strong>
++                          <span>Translations are optional. The original Place language follows your app language when you create a new Place.</span>
+                         </div>
++                        <span className="inventory-language-summary">Original content: {placeLanguageLabel(state.defaultLanguage)}</span>
+                       </div>
+ 
+                       {state.translations.length ? (
+@@ -419,11 +418,22 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+                         <p className="meta place-translation-empty">Translations are optional. Add a language only if you want to write a manual translation for this Place.</p>
+                       )}
+ 
+-                      {nextPlaceTranslationLanguage(state) ? (
+-                        <button type="button" className="inventory-translation-toggle place-translation-add-row" onClick={() => setState(addPlaceTranslationDraft)}>
++                      {availablePlaceTranslationLanguages(state).length ? (
++                        <div className="inventory-language-actions place-translation-language-actions">
+                           <span>{state.translations.length ? 'Add another language' : 'Add language'}</span>
+-                          <strong>Manual translation</strong>
+-                        </button>
++                          <div className="inventory-language-picker__buttons">
++                            {availablePlaceTranslationLanguages(state).map((languageCode) => (
++                              <button
++                                key={languageCode}
++                                type="button"
++                                className="button secondary compact"
++                                onClick={() => setState((current) => addPlaceTranslationDraft(current, languageCode))}
++                              >
++                                {placeLanguageLabel(languageCode)}
++                              </button>
++                            ))}
++                          </div>
++                        </div>
+                       ) : (
+                         <small className="inventory-language-complete">All supported languages are already added.</small>
+                       )}

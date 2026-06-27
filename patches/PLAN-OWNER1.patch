@@ -1,0 +1,286 @@
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+index bfa274e..91b614d 100644
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -25,7 +25,8 @@ import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } f
+ 
+ export const plansRoutes = Router();
+ 
+-const publicPlanStatuses = ['open', 'full', 'started'] as const;
++const publicPlanStatuses = ['open', 'full', 'started', 'cancelled'] as const;
++const writablePlanDiscussionStatuses = ['open', 'full', 'started'] as const;
+ const userSummarySelect = {
+   id: true,
+   profile: { select: { displayName: true, handle: true, avatarUrl: true, countryCode: true } },
+@@ -173,7 +174,12 @@ async function loadReadablePlanForDiscussion(planId: string, actorId: string) {
+ }
+ 
+ function canWritePlanPublicDiscussion(plan: { status: string }) {
+-  return publicPlanStatuses.includes(plan.status as any);
++  return writablePlanDiscussionStatuses.includes(plan.status as any);
++}
++
++function isCancelOnlyPlanUpdate(input: ReturnType<typeof updatePlanRequestSchema.parse>) {
++  const keys = Object.keys(input);
++  return keys.length === 1 && input.status === 'cancelled';
+ }
+ 
+ function planPublicDiscussionMessageSelect() {
+@@ -305,6 +311,9 @@ async function joinPlanFreely(planId: string, userId: string, message?: string |
+   if (!plan || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') {
+     throw createPlanRequestError('not_found', 'Plan not found.', 404);
+   }
++  if (plan.status !== 'open') {
++    throw createPlanRequestError('plan_not_joinable', 'This plan is not open for joining.', 409);
++  }
+   if (plan.ownerId === userId) {
+     throw createPlanRequestError('owner_cannot_join', 'You already own this plan.', 409);
+   }
+@@ -426,9 +435,13 @@ plansRoutes.patch('/:planId', requireAuth, requireActiveAccount, asyncRoute(asyn
+   const input = updatePlanRequestSchema.parse(req.body ?? {});
+   const existing = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id } });
+   if (!existing) return res.status(404).json({ error: 'not_found' });
++  if (!isCancelOnlyPlanUpdate(input)) {
++    return res.status(409).json({
++      error: 'plan_content_locked',
++      message: 'Plans cannot be edited after publishing yet. You can cancel this Plan from Manage Plan.',
++    });
++  }
+   const plan = await prisma.plan.update({ where: { id: existing.id }, data: planUpdateData(input) as any });
+-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan' as any, plan.id);
+-  if (input.maxParticipants !== undefined || input.status !== undefined) await syncPlanCapacityStatus(plan.id);
+   const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
+   res.json({ plan: await decoratePlan(updated, req.user!.id) });
+ }));
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index a0e0fe5..92435c0 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1237,6 +1237,38 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+     }
+   }
+ 
++  function cancelPlan() {
++    if (!plan || !canCancelPlan || busy) return;
++    Alert.alert(
++      'Cancel Plan?',
++      'People will no longer be able to join, but the Plan will remain visible with a Cancelled status.',
++      [
++        { text: 'Keep Plan', style: 'cancel' },
++        {
++          text: 'Cancel Plan',
++          style: 'destructive',
++          onPress: () => {
++            void (async () => {
++              setBusy(true);
++              setError(null);
++              setActionMessage(null);
++              setActionError(null);
++              try {
++                await api.plans.update(plan.id, { status: 'cancelled' });
++                setActionMessage('Plan cancelled. It remains visible with a Cancelled status.');
++                await load();
++              } catch (caughtError) {
++                setActionError(getFriendlyApiErrorMessage(caughtError));
++              } finally {
++                setBusy(false);
++              }
++            })();
++          },
++        },
++      ],
++    );
++  }
++
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+ 
+   const isOwner = Boolean(auth.user?.id && plan?.ownerId === auth.user.id);
+@@ -1244,6 +1276,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   const isJoined = participantStatus === 'accepted';
+   const canJoin = Boolean(plan && auth.user && !isOwner && canJoinPlanFromParticipantStatus(participantStatus) && plan.status === 'open');
+   const canLeave = Boolean(plan && !isOwner && isJoined);
++  const canCancelPlan = Boolean(plan && isOwner && plan.status !== 'cancelled');
+   const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus) : '';
+   const places = plan ? sortedPlanPlaces(plan) : [];
+   const acceptedParticipants = plan ? getAcceptedParticipants(plan) : [];
+@@ -1370,7 +1403,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+             <View style={styles.detailSectionHeader}>
+               <View style={styles.detailSectionCopy}>
+                 <AppText style={styles.sectionTitle}>Actions</AppText>
+-                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isOwner ? 'Manage and share this Plan.' : getPlanJoinActionCopy(plan)}</AppText>
++                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isOwner ? 'Share this Plan or cancel it. Editing is locked after publishing.' : getPlanJoinActionCopy(plan)}</AppText>
+               </View>
+               {!isOwner ? <SemanticBadge label={getPlanJoinModeLabel(plan)} tone="proposal" size="sm" /> : <SemanticBadge label="Owner" tone="plan" size="sm" />}
+             </View>
+@@ -1379,8 +1412,27 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+                 <View style={[styles.planOwnerManageRow, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+                   <MobileIcon name="profile" size={18} color={theme.semantic.plan.text} />
+                   <View style={styles.feedTitleWrap}>
+-                    <AppText style={styles.planOwnerManageTitle}>You own this plan</AppText>
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Review joined people here. Use Share to invite more people.</AppText>
++                    <AppText style={styles.planOwnerManageTitle}>Manage Plan</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Share this Plan or cancel it. Places and times are locked after publishing.</AppText>
++                  </View>
++                </View>
++              ) : null}
++              {isOwner ? (
++                <Pressable disabled={sharing} accessibilityRole="button" onPress={() => { void sharePlan(); }} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, sharing && styles.disabled]}>
++                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{sharing ? 'Sharing...' : 'Share plan'}</AppText>
++                </Pressable>
++              ) : null}
++              {canCancelPlan ? (
++                <Pressable disabled={busy} accessibilityRole="button" onPress={cancelPlan} style={({ pressed }) => [styles.dangerButton, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, busy && styles.disabled]}>
++                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? 'Cancelling...' : 'Cancel plan'}</AppText>
++                </Pressable>
++              ) : null}
++              {isOwner && plan.status === 'cancelled' ? (
++                <View style={[styles.joinedState, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }]}>
++                  <MobileIcon name="close" size={18} color={theme.semantic.danger.text} />
++                  <View style={styles.feedTitleWrap}>
++                    <AppText style={[styles.joinedStateText, { color: theme.semantic.danger.text }]}>This Plan is cancelled</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>It remains visible for context, but people can no longer join.</AppText>
+                   </View>
+                 </View>
+               ) : null}
+@@ -2531,6 +2583,8 @@ const styles = StyleSheet.create({
+   joinedStateText: { fontWeight: '900' },
+   secondaryButton: { minHeight: 48, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 13, alignSelf: 'stretch' },
+   secondaryButtonText: { fontWeight: '900' },
++  dangerButton: { minHeight: 48, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 13, alignSelf: 'stretch' },
++  dangerButtonText: { fontWeight: '900' },
+   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+   wizardStepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 6 },
+   sectionTitle: { fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },
+diff --git a/apps/web/src/app/plans/[planId]/edit/page.tsx b/apps/web/src/app/plans/[planId]/edit/page.tsx
+index 43abebf..015cac8 100644
+--- a/apps/web/src/app/plans/[planId]/edit/page.tsx
++++ b/apps/web/src/app/plans/[planId]/edit/page.tsx
+@@ -1,10 +1,8 @@
+ import { permanentRedirect } from 'next/navigation';
+ import { noIndexMetadata } from '../../../../lib/seo';
+-import { PlanEditClient } from '../../../../features/plans/PlanEditClient';
+ import { getPlansWebFlags } from '../../../../lib/serverFeatureFlags';
+ 
+-export const metadata = noIndexMetadata('Edit Plan — Hellowhen Trade');
+-
++export const metadata = noIndexMetadata('Manage Plan — Hellowhen Trade');
+ 
+ type PlanEditPageProps = {
+   params: Promise<{ planId: string }>;
+@@ -15,5 +13,5 @@ export default async function PlanEditPage({ params }: PlanEditPageProps) {
+   const flags = getPlansWebFlags();
+   if (!flags.plansEnabled) permanentRedirect('/trades');
+ 
+-  return <PlanEditClient planId={planId} {...flags} />;
++  permanentRedirect(`/plans/${planId}`);
+ }
+diff --git a/apps/web/src/features/plans/PlanDetailClient.tsx b/apps/web/src/features/plans/PlanDetailClient.tsx
+index 85644f7..bebca88 100644
+--- a/apps/web/src/features/plans/PlanDetailClient.tsx
++++ b/apps/web/src/features/plans/PlanDetailClient.tsx
+@@ -180,6 +180,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+   const currentParticipantStatus = plan?.myParticipantStatus ?? null;
+   const canJoin = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner && plan.status === 'open' && canJoinFromParticipantStatus(currentParticipantStatus));
+   const canLeave = Boolean(!isOwner && currentParticipantStatus === 'accepted');
++  const canCancelPlan = Boolean(isOwner && plan && plan.status !== 'cancelled');
+   const participantCopy = !isOwner ? participantStateCopy(currentParticipantStatus) : '';
+   const showReportActions = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner);
+   const places = plan?.places ?? [];
+@@ -287,6 +288,21 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+     }
+   }
+ 
++  async function cancelPlan() {
++    if (!plan || !canCancelPlan) return;
++    const confirmed = window.confirm('Cancel this Plan? People will no longer be able to join, but the Plan will remain visible with a Cancelled status.');
++    if (!confirmed) return;
++
++    setAction({ loading: true, message: '', error: '' });
++    try {
++      const response = await api.plans.update(plan.id, { status: 'cancelled' });
++      setPlan(response.plan);
++      setAction({ loading: false, message: 'Plan cancelled. It remains visible with a Cancelled status.', error: '' });
++    } catch (cancelError) {
++      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(cancelError, 'Could not cancel this Plan.') });
++    }
++  }
++
+   return (
+     <PlansFeatureGate plansEnabled={plansEnabled}>
+       <main className="plan-detail-page plan-detail-page--web">
+@@ -391,17 +407,33 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+               <div className="plan-section-heading">
+                 <p className="eyebrow">Actions</p>
+                 <h2>{isOwner ? 'Manage this Plan' : canLeave ? 'You joined this Plan' : 'Join this Plan'}</h2>
+-                <p>{isOwner && plan ? 'Edit details, review people, or share this Plan.' : plan ? planJoinActionCopy(plan) : ''}</p>
++                <p>{isOwner && plan ? 'Share this Plan or cancel it. Plan content editing is locked after publishing.' : plan ? planJoinActionCopy(plan) : ''}</p>
+               </div>
+               <div className="plan-detail-actions plan-detail-actions--social">
+                 {isOwner ? (
+                   <div className="plan-action-status plan-action-status--owner">
+                     <span className="semantic-badge trade">Owner</span>
+-                    <strong>You own this Plan</strong>
+-                    <p className="meta">Edit details, review joined people, or use Share to invite others.</p>
++                    <strong>Manage Plan</strong>
++                    <p className="meta">You can share this Plan or cancel it. Editing places and times is locked after publishing.</p>
++                  </div>
++                ) : null}
++                {isOwner ? (
++                  <button type="button" className="button secondary" onClick={() => void sharePlan()} disabled={shareLoading}>
++                    {shareLoading ? 'Sharing...' : 'Share Plan'}
++                  </button>
++                ) : null}
++                {canCancelPlan ? (
++                  <button type="button" className="button danger" disabled={action.loading} onClick={() => void cancelPlan()}>
++                    {action.loading ? 'Cancelling...' : 'Cancel Plan'}
++                  </button>
++                ) : null}
++                {isOwner && plan.status === 'cancelled' ? (
++                  <div className="plan-action-status plan-action-status--joined">
++                    <span className="semantic-badge danger">Cancelled</span>
++                    <strong>This Plan is cancelled</strong>
++                    <p className="meta">It remains visible for context, but people can no longer join.</p>
+                   </div>
+                 ) : null}
+-                {isOwner ? <Link className="button secondary" href={`/plans/${plan.id}/edit`}>Edit Plan</Link> : null}
+                 {!auth.isAuthenticated ? <Link className="button primary" href={`/auth?next=/plans/${plan.id}`}>Log in to join</Link> : null}
+                 {canJoin ? (
+                   <div className="plan-action-primary">
+diff --git a/packages/contracts/src/plans.d.ts b/packages/contracts/src/plans.d.ts
+index b1aaff5..99b7b79 100644
+--- a/packages/contracts/src/plans.d.ts
++++ b/packages/contracts/src/plans.d.ts
+@@ -13,6 +13,7 @@ export declare const planPublicStatusSchema: z.ZodEnum<{
+     open: "open";
+     full: "full";
+     started: "started";
++    cancelled: "cancelled";
+ }>;
+ export declare const planJoinApprovalModeSchema: z.ZodEnum<{
+     owner_approval: "owner_approval";
+diff --git a/packages/contracts/src/plans.js b/packages/contracts/src/plans.js
+index 9caa7f7..4a326a5 100644
+--- a/packages/contracts/src/plans.js
++++ b/packages/contracts/src/plans.js
+@@ -2,7 +2,7 @@ import { z } from 'zod';
+ import { mediaAssetSchema } from './media.js';
+ import { tradeExchangeModeSchema } from './trade.js';
+ export const planStatusSchema = z.enum(['draft', 'open', 'full', 'started', 'completed', 'cancelled', 'expired', 'hidden']);
+-export const planPublicStatusSchema = z.enum(['open', 'full', 'started']);
++export const planPublicStatusSchema = z.enum(['open', 'full', 'started', 'cancelled']);
+ export const planJoinApprovalModeSchema = z.enum(['owner_approval', 'automatic']);
+ export const planParticipantStatusSchema = z.enum(['pending', 'accepted', 'declined', 'cancelled', 'left', 'removed']);
+ export const planPlaceModeSchema = z.enum(['local', 'remote']);
+diff --git a/packages/contracts/src/plans.ts b/packages/contracts/src/plans.ts
+index b10b969..e97fe67 100644
+--- a/packages/contracts/src/plans.ts
++++ b/packages/contracts/src/plans.ts
+@@ -3,7 +3,7 @@ import { mediaAssetSchema } from './media.js';
+ import { discoveryLanguageSchema, inventoryTranslationSchema, tradeExchangeModeSchema } from './trade.js';
+ 
+ export const planStatusSchema = z.enum(['draft', 'open', 'full', 'started', 'completed', 'cancelled', 'expired', 'hidden']);
+-export const planPublicStatusSchema = z.enum(['open', 'full', 'started']);
++export const planPublicStatusSchema = z.enum(['open', 'full', 'started', 'cancelled']);
+ export const planJoinApprovalModeSchema = z.enum(['owner_approval', 'automatic']);
+ export const planParticipantStatusSchema = z.enum(['pending', 'accepted', 'declined', 'cancelled', 'left', 'removed']);
+ export const planPlaceModeSchema = z.enum(['local', 'remote']);

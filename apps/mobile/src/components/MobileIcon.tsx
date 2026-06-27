@@ -23,6 +23,7 @@ export type MobileIconName =
   | 'more'
   | 'need'
   | 'offer'
+  | 'plan'
   | 'payout'
   | 'profile'
   | 'proposal'
@@ -92,6 +93,8 @@ function IconPaths({ name, color }: { name: MobileIconName; color: string }) {
       return <><Path d="M3.25 13.4L5.45 12.5L8 18.8L5.8 19.7L3.25 13.4Z" strokeWidth={1.3} {...strokeProps} /><Path d="M6.1 17.8C7.15 17 8.1 16.6 9 16.72C10.05 16.85 11.35 18.12 12.55 17.88C14.8 17.42 18.55 15.65 20.85 14.55C21.65 14.17 22.05 13.48 21.76 12.74C21.47 11.98 20.58 11.78 19.74 12.05L14.95 13.58" strokeWidth={1.35} {...strokeProps} /><Path d="M9.5 14.1C10.9 14.85 12.55 15.45 13.62 15.05C14.55 14.7 14.95 13.58 14.95 13.58C14.2 13.22 13.02 13.15 11.95 12.55C10.2 11.58 9.45 10.92 8.1 11.35C7.42 11.57 6.4 12.12 5.2 12.88" strokeWidth={1.35} {...strokeProps} /><Path d="M15.5 3.75H18.25V6.5H15.5V3.75Z" strokeWidth={1.25} {...strokeProps} /><Circle cx={10.5} cy={7} r={1.75} stroke={color} strokeWidth={1.25} fill="none" /><Path d="M14.3 10.1H17.4L15.85 12.75L14.3 10.1Z" strokeWidth={1.25} {...strokeProps} /></>;
     case 'offer':
       return <><Path d="M20.75 10.6L18.55 11.5L16 5.2L18.2 4.3L20.75 10.6Z" strokeWidth={1.3} {...strokeProps} /><Path d="M17.9 6.2C16.85 7 15.9 7.4 15 7.28C13.95 7.15 12.65 5.88 11.45 6.12C9.2 6.58 5.45 8.35 3.15 9.45C2.35 9.83 1.95 10.52 2.24 11.26C2.53 12.02 3.42 12.22 4.26 11.95L9.05 10.42" strokeWidth={1.35} {...strokeProps} /><Path d="M14.5 9.9C13.1 9.15 11.45 8.55 10.38 8.95C9.45 9.3 9.05 10.42 9.05 10.42C9.8 10.78 10.98 10.85 12.05 11.45C13.8 12.42 14.55 13.08 15.9 12.65C16.58 12.43 17.6 11.88 18.8 11.12" strokeWidth={1.35} {...strokeProps} /><Path d="M8.5 20.25H5.75V17.5H8.5V20.25Z" strokeWidth={1.25} {...strokeProps} /><Circle cx={13.5} cy={17} r={1.75} stroke={color} strokeWidth={1.25} fill="none" /><Path d="M9.7 13.9H6.6L8.15 11.25L9.7 13.9Z" strokeWidth={1.25} {...strokeProps} /></>;
+    case 'plan':
+      return <><Rect x={3} y={3} width={18} height={18} rx={2} stroke={color} fill="none" /><Circle cx={6} cy={6} r={1} fill={color} /><Circle cx={18} cy={18} r={1} fill={color} /><Path d="M8 6C8 6 12 6 12 12C12 18 16 18 16 18" stroke={color} strokeWidth={0.7} strokeLinecap="round" /></>;
     case 'payout':
       return <><Path d="M6 7.5H18C19.1 7.5 20 8.4 20 9.5V17C20 18.1 19.1 19 18 19H6C4.9 19 4 18.1 4 17V9.5C4 8.4 4.9 7.5 6 7.5Z" strokeWidth={1.8} {...strokeProps} /><Path d="M8 7.5V6.5C8 5.67 8.67 5 9.5 5H14.5C15.33 5 16 5.67 16 6.5V7.5" strokeWidth={1.8} {...strokeProps} /><Path d="M12 10.5V16" strokeWidth={1.8} {...strokeProps} /><Path d="M9.75 13.75L12 16L14.25 13.75" strokeWidth={1.8} {...strokeProps} /></>;
     case 'profile':

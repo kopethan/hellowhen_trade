@@ -23,6 +23,8 @@ const adminNavItems = [
   { href: '/admin/business-budgets', label: 'Budget sandbox' },
   { href: '/admin/usage', label: 'Usage' },
   { href: '/admin/content', label: 'Content' },
+  { href: '/admin/plans', label: 'Plans' },
+  { href: '/admin/places', label: 'Places' },
   { href: '/admin/content-intelligence', label: 'Intelligence' },
   { href: '/admin/reports', label: 'Reports' },
   { href: '/admin/moderation', label: 'Moderation' },
@@ -40,7 +42,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           <div className="admin-nav__links">
             {adminNavItems.map((item) => <Link key={item.href} href={item.href}>{item.label}</Link>)}
           </div>
-          <p className="admin-nav__note">First beta mode: Pro and Business are admin-only hidden foundations; money, wallet, payouts, and Plans stay out of launch admin navigation.</p>
+          <p className="admin-nav__note">First beta mode: Pro and Business are admin-only hidden foundations; money, wallet, and payouts stay gated. Plan admin actions are review-only: open, hide, restore, or cancel.</p>
         </nav>
         {children}
       </div>

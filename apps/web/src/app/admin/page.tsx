@@ -15,6 +15,8 @@ const adminSections = [
   { href: '/admin/business', title: 'Business review', body: 'Review hidden Business, brand, agency, and Enterprise profile status with mandatory notes and audit trail.', tone: 'admin' },
   { href: '/admin/business-sponsored', title: 'Sponsored placements', body: 'Review hidden first-party Business sponsored placement intent without external ad SDKs, tracking, budgets, or money.', tone: 'warning' },
   { href: '/admin/content', title: 'Content', body: 'Hide, restore, close, or mark reviewed trades, needs, and offers.', tone: 'danger' },
+  { href: '/admin/plans', title: 'Plans', body: 'Review public Plans, owners, places, participants, comments, reports, and safe Plan status actions.', tone: 'warning' },
+  { href: '/admin/places', title: 'Places', body: 'Review user-created Places, Hellowhen Library Places, images, Plan usage, and safe hide/restore actions.', tone: 'warning' },
   { href: '/admin/content-intelligence', title: 'Content intelligence', body: 'Review admin-only safety, domain, category mismatch, and tag suggestions without public AI labels or automatic actions.', tone: 'admin' },
   { href: '/admin/reports', title: 'Report queue', body: 'Resolve, dismiss, hide targets, suspend owners, or escalate reports to support.', tone: 'danger' },
   { href: '/admin/support', title: 'Support inbox', body: 'Review tickets, reply, add internal notes, and close resolved user requests.', tone: 'info' },
@@ -112,7 +114,7 @@ export default function AdminHomePage() {
         <article className="app-card admin-action-card">
           <div className="status-row"><span className="semantic-badge warning">First launch gates</span></div>
           <h2>Money and Plans visibility</h2>
-          <p>Money-era admin tools are intentionally absent from launch navigation. Direct API access remains behind feature gates, and Plans stay hidden behind flags.</p>
+          <p>Money-era admin tools are intentionally absent from launch navigation. Direct API access remains behind feature gates, while Plan admin tools stay focused on review, hide, restore, and cancel actions only.</p>
           {summary ? (
             <div className="admin-money-strip">
               <span><small>Money UI</small><strong>{summary.money.moneyFeaturesVisible ? 'Visible' : 'Hidden'}</strong></span>

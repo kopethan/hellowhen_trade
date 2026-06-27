@@ -1,0 +1,513 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 5f6a9fe..97d1ed5 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1,9 +1,10 @@
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
++import AsyncStorage from '@react-native-async-storage/async-storage';
+ import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { DiscoveryLanguage, InventoryTranslationDto, ListPlansQuery, MediaAssetDto, PlaceDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
+-import { buildGeneratedPlanDisplay, parseStarterPlanIdeaKey, starterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
++import { buildGeneratedPlanDisplay, buildPlanFeedItems, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppText } from '../../components/AppText';
+@@ -206,7 +207,12 @@ function getPlanMeta(plan: PlanDto) {
+   return `${placeCount} ${placeCount === 1 ? 'place' : 'places'} · ${participantCount} joined`;
+ }
+ 
+-const firstStarterPlanIdeaKeys = starterPlanIdeaKeys.slice(0, 3);
++const RECENT_PLAN_IDEA_STORAGE_KEY = 'hellowhen_recent_plan_ideas_v1';
++const ANONYMOUS_PLAN_IDEA_STORAGE_KEY = 'hellowhen_plan_idea_anon_key_v1';
++
++function createAnonymousPlanIdeaKey() {
++  return `anon-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
++}
+ 
+ function planIdeaPreviewPlan(idea: StarterPlanIdea): PlanDto {
+   const createdAt = new Date().toISOString();
+@@ -827,6 +833,7 @@ function PlaceRow({
+ 
+ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope: PlanListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'>; filters?: string[]; searchQuery?: string }) {
+   const theme = useThemeTokens();
++  const auth = useAuth();
+   const activeFilters = useMemo(() => normalizePlanFilters(filters), [filters.join('|')]);
+   const activeSearchQuery = normalizePlanSearchQuery(searchQuery);
+   const activeFilterSummary = filterSummary(activeFilters, activeSearchQuery);
+@@ -834,10 +841,41 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
+   const [loading, setLoading] = useState(true);
+   const [refreshing, setRefreshing] = useState(false);
+   const [error, setError] = useState<string | null>(null);
++  const [starterRefreshKey, setStarterRefreshKey] = useState(0);
++  const [recentStarterIdeaIds, setRecentStarterIdeaIds] = useState<string[]>([]);
++  const [anonymousStarterKey, setAnonymousStarterKey] = useState('anonymous');
++
++  useEffect(() => {
++    let mounted = true;
++    async function hydrateStarterMemory() {
++      const rawRecent = await AsyncStorage.getItem(RECENT_PLAN_IDEA_STORAGE_KEY).catch(() => null);
++      if (mounted && rawRecent) {
++        try {
++          const parsed = JSON.parse(rawRecent) as string[];
++          if (Array.isArray(parsed)) setRecentStarterIdeaIds(parsed.filter((id) => parseStarterPlanIdeaKey(id)));
++        } catch {
++          // Ignore old or malformed local starter-memory data.
++        }
++      }
++      const existingAnonymousKey = await AsyncStorage.getItem(ANONYMOUS_PLAN_IDEA_STORAGE_KEY).catch(() => null);
++      if (existingAnonymousKey) {
++        if (mounted) setAnonymousStarterKey(existingAnonymousKey);
++        return;
++      }
++      const nextAnonymousKey = createAnonymousPlanIdeaKey();
++      await AsyncStorage.setItem(ANONYMOUS_PLAN_IDEA_STORAGE_KEY, nextAnonymousKey).catch(() => undefined);
++      if (mounted) setAnonymousStarterKey(nextAnonymousKey);
++    }
++    void hydrateStarterMemory().catch(() => undefined);
++    return () => { mounted = false; };
++  }, []);
+ 
+   const load = useCallback(async ({ refresh = false }: { refresh?: boolean } = {}) => {
+     if (!isPlansVisible()) { setLoading(false); return; }
+-    if (refresh) setRefreshing(true); else setLoading(true);
++    if (refresh) {
++      setRefreshing(true);
++      setStarterRefreshKey((current) => current + 1);
++    } else setLoading(true);
+     setError(null);
+     try {
+       const response = scope === 'mine' ? await api.plans.mine() : scope === 'joined' ? await api.plans.joined() : await api.plans.feed(buildPlanFeedQuery(activeFilters, activeSearchQuery));
+@@ -854,50 +892,69 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
+ 
+   useFocusEffect(useCallback(() => { void load(); }, [load]));
+ 
++  const isDeckFeed = scope === 'feed';
++  const hasActiveSearchOrFilters = Boolean(activeFilters.length || activeSearchQuery);
++  const starterIdeas = useMemo(() => selectStarterPlanIdeaKeys({
++    realPlanCount: plans.length,
++    hasActiveSearchOrFilters: !isDeckFeed || hasActiveSearchOrFilters,
++    userKey: auth.user?.id ?? anonymousStarterKey,
++    refreshKey: starterRefreshKey,
++    recentIdeaIds: recentStarterIdeaIds,
++  }), [anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, isDeckFeed, plans.length, recentStarterIdeaIds.join('|'), starterRefreshKey]);
++  const feedItems = useMemo(() => buildPlanFeedItems(plans.length, starterIdeas), [plans.length, starterIdeas.join('|')]);
++
++  const markStarterIdeaSeen = useCallback((ideaKey: StarterPlanIdeaKey) => {
++    setRecentStarterIdeaIds((current) => {
++      const next = mergeRecentStarterPlanIdeaIds(current, [ideaKey]);
++      void AsyncStorage.setItem(RECENT_PLAN_IDEA_STORAGE_KEY, JSON.stringify(next)).catch(() => undefined);
++      return next;
++    });
++    navigation.navigate('PlanIdeaDetail', { ideaId: ideaKey });
++  }, [navigation]);
++
+   if (loading) {
+     return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Plans...</AppText></View>;
+   }
+ 
+   if (error) return <InfoNotice tone="warning" title="Could not load Plans" body={error} />;
+ 
+-  const showStarterIdeas = scope === 'feed' && !activeFilters.length && !activeSearchQuery;
+-
+-  if (plans.length === 0 && !showStarterIdeas) {
++  if (plans.length === 0 && starterIdeas.length === 0) {
+     const body = scope === 'mine'
+       ? 'Created Plans will appear here once you create one.'
+       : scope === 'joined'
+         ? 'Plans you join will appear here.'
+-        : activeFilters.length || activeSearchQuery
++        : hasActiveSearchOrFilters
+           ? 'No Plans match this search and filters yet. Try changing the search words or resetting one or two filters.'
+           : 'Open Plans will appear here once people start creating them.';
+     return <EmptyBlock title="No Plans yet" body={body} actionLabel={scope === 'mine' ? 'Create plan' : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlan') : undefined} />;
+   }
+ 
+-  const isDeckFeed = scope === 'feed';
+-  const starterIdeas = showStarterIdeas ? firstStarterPlanIdeaKeys : [];
+-
+   return (
+     <ScrollView
+       contentContainerStyle={isDeckFeed ? styles.deckFeedContent : styles.listContent}
+       showsVerticalScrollIndicator={false}
+       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
+     >
+-      {scope === 'feed' && (activeFilters.length || activeSearchQuery) ? (
++      {scope === 'feed' && hasActiveSearchOrFilters ? (
+         <InfoNotice tone="info" title={`${activePlanFilterCount(activeFilters, activeSearchQuery)} active Plan filter${activePlanFilterCount(activeFilters, activeSearchQuery) === 1 ? '' : 's'}`} body={activeFilterSummary || 'Filtered Plan results'} />
+       ) : null}
+-      {plans.map((plan, index) => (
+-        isDeckFeed
+-          ? <PlanDeckSection key={plan.id} plan={plan} index={index} total={plans.length + starterIdeas.length} onPress={() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title })} />
+-          : <PlanRow key={plan.id} plan={plan} onPress={() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title })} />
+-      ))}
+-      {starterIdeas.map((ideaKey, starterIndex) => (
+-        <PlanIdeaDeckSection
+-          key={ideaKey}
+-          ideaKey={ideaKey}
+-          index={plans.length + starterIndex}
+-          total={plans.length + starterIdeas.length}
+-          onPress={() => navigation.navigate('PlanIdeaDetail', { ideaId: ideaKey })}
+-        />
++      {isDeckFeed ? feedItems.map((item, index) => {
++        if (item.type === 'idea') {
++          return (
++            <PlanIdeaDeckSection
++              key={`idea-${item.ideaKey}`}
++              ideaKey={item.ideaKey}
++              index={index}
++              total={feedItems.length}
++              onPress={() => markStarterIdeaSeen(item.ideaKey)}
++            />
++          );
++        }
++        const plan = plans[item.planIndex];
++        if (!plan) return null;
++        return <PlanDeckSection key={plan.id} plan={plan} index={index} total={feedItems.length} onPress={() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title })} />;
++      }) : plans.map((plan) => (
++        <PlanRow key={plan.id} plan={plan} onPress={() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title })} />
+       ))}
+     </ScrollView>
+   );
+diff --git a/apps/web/src/features/plans/PlansListClient.tsx b/apps/web/src/features/plans/PlansListClient.tsx
+index 2fd33ba..1b9cc8b 100644
+--- a/apps/web/src/features/plans/PlansListClient.tsx
++++ b/apps/web/src/features/plans/PlansListClient.tsx
+@@ -3,7 +3,7 @@
+ import Link from 'next/link';
+ import { useRouter, useSearchParams } from 'next/navigation';
+ import type { PlanDto } from '@hellowhen/contracts';
+-import { starterPlanIdeaKeys, starterPlanIdeas, type StarterPlanIdeaKey } from '@hellowhen/shared';
++import { buildPlanFeedItems, mergeRecentStarterPlanIdeaIds, selectStarterPlanIdeaKeys, starterPlanIdeas, type StarterPlanIdeaKey } from '@hellowhen/shared';
+ import { useEffect, useMemo, useState } from 'react';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+@@ -34,9 +34,13 @@ function PlanCard({ plan }: PlanCardProps) {
+   );
+ }
+ 
+-function PlanIdeaCard({ ideaKey }: { ideaKey: StarterPlanIdeaKey }) {
++function PlanIdeaCard({ ideaKey, onOpen }: { ideaKey: StarterPlanIdeaKey; onOpen?: () => void }) {
+   const router = useRouter();
+   const idea = starterPlanIdeas[ideaKey];
++  function openIdea() {
++    onOpen?.();
++    router.push(`/plans/ideas/${idea.id}`);
++  }
+   return (
+     <article className="plan-deck-link plan-idea-card" aria-label={`Open Plan idea ${idea.title}`}>
+       <div className="plan-idea-card__label">
+@@ -54,10 +58,10 @@ function PlanIdeaCard({ ideaKey }: { ideaKey: StarterPlanIdeaKey }) {
+           location: stop.mode === 'remote' ? stop.onlineLabel ?? stop.onlineUrl : stop.location,
+           time: stop.time,
+         }))}
+-        onOpen={() => router.push(`/plans/ideas/${idea.id}`)}
++        onOpen={openIdea}
+         actionLabel="Open Plan idea"
+       />
+-      <Link href={`/plans/ideas/${idea.id}`} className="plan-deck-link__meta">
++      <Link href={`/plans/ideas/${idea.id}`} className="plan-deck-link__meta" onClick={onOpen}>
+         {idea.stops.length} starter stops · Create your version
+       </Link>
+     </article>
+@@ -79,6 +83,33 @@ function nextAuthHref(path: string) {
+   return `/auth?next=${encodeURIComponent(path)}`;
+ }
+ 
++const recentPlanIdeaStorageKey = 'hellowhen_recent_plan_ideas_v1';
++const anonymousPlanIdeaStorageKey = 'hellowhen_plan_idea_anon_key_v1';
++
++function createAnonymousPlanIdeaKey() {
++  return `anon-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
++}
++
++function readRecentPlanIdeaIds() {
++  if (typeof window === 'undefined') return [];
++  try {
++    const raw = window.localStorage.getItem(recentPlanIdeaStorageKey);
++    const parsed = raw ? JSON.parse(raw) as string[] : [];
++    return Array.isArray(parsed) ? parsed : [];
++  } catch {
++    return [];
++  }
++}
++
++function readAnonymousPlanIdeaKey() {
++  if (typeof window === 'undefined') return 'anonymous';
++  const existing = window.localStorage.getItem(anonymousPlanIdeaStorageKey);
++  if (existing) return existing;
++  const next = createAnonymousPlanIdeaKey();
++  window.localStorage.setItem(anonymousPlanIdeaStorageKey, next);
++  return next;
++}
++
+ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   const auth = useWebAuth();
+   const [view, setView] = useState<PlansView>('feed');
+@@ -86,6 +117,9 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState('');
+   const [menuOpen, setMenuOpen] = useState(false);
++  const [starterRefreshKey] = useState(() => Math.floor(Date.now() / 1000));
++  const [recentStarterIdeaIds, setRecentStarterIdeaIds] = useState<string[]>([]);
++  const [anonymousStarterKey, setAnonymousStarterKey] = useState('anonymous');
+   const searchParams = useSearchParams();
+   const searchParamKey = searchParams.toString();
+   const activeFilters = useMemo(() => planFiltersFromSearchParams(searchParams), [searchParamKey, searchParams]);
+@@ -97,13 +131,17 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   const canLoadPrivateViews = auth.hydrated && auth.isAuthenticated;
+   const activeView = view !== 'feed' && !canLoadPrivateViews ? 'feed' : view;
+   const createPlanHref = auth.isAuthenticated ? '/plans/new' : nextAuthHref('/plans/new');
++
++  useEffect(() => {
++    setRecentStarterIdeaIds(readRecentPlanIdeaIds());
++    setAnonymousStarterKey(readAnonymousPlanIdeaKey());
++  }, []);
++
+   useEffect(() => {
+     const requestedView = searchParams.get('view');
+     if (requestedView === 'mine' || requestedView === 'joined' || requestedView === 'feed') setView(requestedView);
+   }, [searchParamKey, searchParams]);
+ 
+-  const showStarterIdeas = activeView === 'feed' && activeFilterCount === 0;
+-  const firstStarterPlanIdeaKeys = showStarterIdeas ? starterPlanIdeaKeys.slice(0, 3) : [];
+   const emptyTitle = activeView === 'mine' ? 'No Plans created yet' : activeView === 'joined' ? 'No joined Plans yet' : 'No open Plans yet';
+   const emptyBody = activeView === 'mine'
+     ? 'Create your first Plan when you are ready.'
+@@ -142,6 +180,21 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   }, [activeView, auth.hydrated, activeFilters, activeSearchQuery]);
+ 
+   const sortedPlans = useMemo(() => [...plans].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime()), [plans]);
++  const hasActiveSearchOrFilters = activeFilterCount > 0;
++  const starterIdeaKeys = useMemo(() => selectStarterPlanIdeaKeys({
++    realPlanCount: sortedPlans.length,
++    hasActiveSearchOrFilters: activeView !== 'feed' || hasActiveSearchOrFilters,
++    userKey: auth.user?.id ?? anonymousStarterKey,
++    refreshKey: starterRefreshKey,
++    recentIdeaIds: recentStarterIdeaIds,
++  }), [activeView, anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, recentStarterIdeaIds, sortedPlans.length, starterRefreshKey]);
++  const feedItems = useMemo(() => buildPlanFeedItems(sortedPlans.length, starterIdeaKeys), [sortedPlans.length, starterIdeaKeys]);
++
++  function markStarterIdeaSeen(ideaKey: StarterPlanIdeaKey) {
++    const next = mergeRecentStarterPlanIdeaIds(recentStarterIdeaIds, [ideaKey]);
++    setRecentStarterIdeaIds(next);
++    if (typeof window !== 'undefined') window.localStorage.setItem(recentPlanIdeaStorageKey, JSON.stringify(next));
++  }
+ 
+   function selectView(nextView: PlansView) {
+     setView(nextView);
+@@ -200,7 +253,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+         ) : null}
+         {error ? <section className="mobile-card mobile-card--soft"><p>{error}</p></section> : null}
+         {loading ? <section className="mobile-card"><p className="meta">Loading Plans...</p></section> : null}
+-        {!loading && !error && sortedPlans.length === 0 && !showStarterIdeas ? (
++        {!loading && !error && sortedPlans.length === 0 && starterIdeaKeys.length === 0 ? (
+           <section className="inventory-empty-state">
+             <span className="inventory-empty-state__plus">+</span>
+             <strong>{emptyTitle}</strong>
+@@ -209,8 +262,11 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+           </section>
+         ) : null}
+         <section className="mobile-list plans-feed-deck-list" aria-label={viewLabels[activeView]}>
+-          {sortedPlans.map((plan) => <PlanCard key={plan.id} plan={plan} />)}
+-          {firstStarterPlanIdeaKeys.map((ideaKey) => <PlanIdeaCard key={ideaKey} ideaKey={ideaKey} />)}
++          {activeView === 'feed' ? feedItems.map((item) => {
++            if (item.type === 'idea') return <PlanIdeaCard key={`idea-${item.ideaKey}`} ideaKey={item.ideaKey} onOpen={() => markStarterIdeaSeen(item.ideaKey)} />;
++            const plan = sortedPlans[item.planIndex];
++            return plan ? <PlanCard key={plan.id} plan={plan} /> : null;
++          }) : sortedPlans.map((plan) => <PlanCard key={plan.id} plan={plan} />)}
+         </section>
+       </main>
+     </PlansFeatureGate>
+diff --git a/packages/shared/src/planIdeas.js b/packages/shared/src/planIdeas.js
+index 31d7c98..a36f34d 100644
+--- a/packages/shared/src/planIdeas.js
++++ b/packages/shared/src/planIdeas.js
+@@ -109,3 +109,84 @@ export function starterPlanIdeaMode(idea) {
+   if (modes.size > 1) return 'hybrid';
+   return modes.has('remote') ? 'remote' : 'local';
+ }
++
++export const STARTER_PLAN_IDEA_MAX_FEED_COUNT = 10;
++export const STARTER_PLAN_IDEA_HIDE_AFTER_REAL_PLAN_COUNT = 40;
++export const STARTER_PLAN_IDEA_INSERT_EVERY = 4;
++
++function starterPlanHash(value) {
++  let hash = 2166136261;
++  for (let index = 0; index < value.length; index += 1) {
++    hash ^= value.charCodeAt(index);
++    hash = Math.imul(hash, 16777619);
++  }
++  return hash >>> 0;
++}
++
++export function getStarterPlanIdeaDayKey(date = new Date()) {
++  if (Number.isNaN(date.getTime())) return 'unknown-day';
++  return date.toISOString().slice(0, 10);
++}
++
++export function shouldShowStarterPlanIdeas(realPlanCount, hasActiveSearchOrFilters) {
++  if (hasActiveSearchOrFilters) return false;
++  return realPlanCount < STARTER_PLAN_IDEA_HIDE_AFTER_REAL_PLAN_COUNT;
++}
++
++export function starterPlanIdeaFeedLimit(realPlanCount) {
++  return realPlanCount < STARTER_PLAN_IDEA_HIDE_AFTER_REAL_PLAN_COUNT ? STARTER_PLAN_IDEA_MAX_FEED_COUNT : 0;
++}
++
++export function selectStarterPlanIdeaKeys({
++  realPlanCount,
++  hasActiveSearchOrFilters,
++  userKey,
++  refreshKey,
++  recentIdeaIds = [],
++  dayKey = getStarterPlanIdeaDayKey(),
++}) {
++  if (!shouldShowStarterPlanIdeas(realPlanCount, hasActiveSearchOrFilters)) return [];
++  const limit = Math.min(starterPlanIdeaFeedLimit(realPlanCount), starterPlanIdeaKeys.length);
++  if (limit <= 0) return [];
++  const recentSet = new Set(recentIdeaIds.map((id) => parseStarterPlanIdeaKey(id)).filter(Boolean));
++  const seed = `${userKey || 'anonymous'}:${dayKey}:${refreshKey ?? 0}:plans`;
++  return [...starterPlanIdeaKeys]
++    .map((ideaKey) => ({
++      ideaKey,
++      recentPenalty: recentSet.has(ideaKey) ? 1 : 0,
++      score: starterPlanHash(`${seed}:${ideaKey}`),
++    }))
++    .sort((left, right) => left.recentPenalty - right.recentPenalty || left.score - right.score)
++    .slice(0, limit)
++    .map((entry) => entry.ideaKey);
++}
++
++export function buildPlanFeedItems(realPlanCount, ideaKeys) {
++  const items = [];
++  let nextIdeaIndex = 0;
++  for (let planIndex = 0; planIndex < realPlanCount; planIndex += 1) {
++    items.push({ type: 'plan', planIndex });
++    if (realPlanCount > 3 && realPlanCount < STARTER_PLAN_IDEA_HIDE_AFTER_REAL_PLAN_COUNT && (planIndex + 1) % STARTER_PLAN_IDEA_INSERT_EVERY === 0 && nextIdeaIndex < ideaKeys.length) {
++      const ideaKey = ideaKeys[nextIdeaIndex];
++      if (ideaKey) items.push({ type: 'idea', ideaKey });
++      nextIdeaIndex += 1;
++    }
++  }
++  while (nextIdeaIndex < ideaKeys.length) {
++    const ideaKey = ideaKeys[nextIdeaIndex];
++    if (ideaKey) items.push({ type: 'idea', ideaKey });
++    nextIdeaIndex += 1;
++  }
++  return items;
++}
++
++export function mergeRecentStarterPlanIdeaIds(existing, seen, limit = 20) {
++  const next = [...seen, ...existing]
++    .map((id) => parseStarterPlanIdeaKey(id))
++    .filter(Boolean);
++  const unique = [];
++  for (const ideaKey of next) {
++    if (!unique.includes(ideaKey)) unique.push(ideaKey);
++  }
++  return unique.slice(0, limit);
++}
+diff --git a/packages/shared/src/planIdeas.ts b/packages/shared/src/planIdeas.ts
+index df1e757..907a026 100644
+--- a/packages/shared/src/planIdeas.ts
++++ b/packages/shared/src/planIdeas.ts
+@@ -133,3 +133,97 @@ export function starterPlanIdeaMode(idea: StarterPlanIdea) {
+   if (modes.size > 1) return 'hybrid' as const;
+   return modes.has('remote') ? 'remote' as const : 'local' as const;
+ }
++
++export const STARTER_PLAN_IDEA_MAX_FEED_COUNT = 10;
++export const STARTER_PLAN_IDEA_HIDE_AFTER_REAL_PLAN_COUNT = 40;
++export const STARTER_PLAN_IDEA_INSERT_EVERY = 4;
++
++export type PlanFeedPlanItem = { type: 'plan'; planIndex: number };
++export type PlanFeedIdeaItem = { type: 'idea'; ideaKey: StarterPlanIdeaKey };
++export type PlanFeedItem = PlanFeedPlanItem | PlanFeedIdeaItem;
++
++export type SelectStarterPlanIdeaOptions = {
++  realPlanCount: number;
++  hasActiveSearchOrFilters: boolean;
++  userKey?: string | null;
++  refreshKey?: string | number | null;
++  recentIdeaIds?: readonly string[];
++  dayKey?: string;
++};
++
++function starterPlanHash(value: string) {
++  let hash = 2166136261;
++  for (let index = 0; index < value.length; index += 1) {
++    hash ^= value.charCodeAt(index);
++    hash = Math.imul(hash, 16777619);
++  }
++  return hash >>> 0;
++}
++
++export function getStarterPlanIdeaDayKey(date = new Date()) {
++  if (Number.isNaN(date.getTime())) return 'unknown-day';
++  return date.toISOString().slice(0, 10);
++}
++
++export function shouldShowStarterPlanIdeas(realPlanCount: number, hasActiveSearchOrFilters: boolean) {
++  if (hasActiveSearchOrFilters) return false;
++  return realPlanCount < STARTER_PLAN_IDEA_HIDE_AFTER_REAL_PLAN_COUNT;
++}
++
++export function starterPlanIdeaFeedLimit(realPlanCount: number) {
++  return realPlanCount < STARTER_PLAN_IDEA_HIDE_AFTER_REAL_PLAN_COUNT ? STARTER_PLAN_IDEA_MAX_FEED_COUNT : 0;
++}
++
++export function selectStarterPlanIdeaKeys({
++  realPlanCount,
++  hasActiveSearchOrFilters,
++  userKey,
++  refreshKey,
++  recentIdeaIds = [],
++  dayKey = getStarterPlanIdeaDayKey(),
++}: SelectStarterPlanIdeaOptions): StarterPlanIdeaKey[] {
++  if (!shouldShowStarterPlanIdeas(realPlanCount, hasActiveSearchOrFilters)) return [];
++  const limit = Math.min(starterPlanIdeaFeedLimit(realPlanCount), starterPlanIdeaKeys.length);
++  if (limit <= 0) return [];
++  const recentSet = new Set(recentIdeaIds.map((id) => parseStarterPlanIdeaKey(id)).filter(Boolean) as StarterPlanIdeaKey[]);
++  const seed = `${userKey || 'anonymous'}:${dayKey}:${refreshKey ?? 0}:plans`;
++  return [...starterPlanIdeaKeys]
++    .map((ideaKey) => ({
++      ideaKey,
++      recentPenalty: recentSet.has(ideaKey) ? 1 : 0,
++      score: starterPlanHash(`${seed}:${ideaKey}`),
++    }))
++    .sort((left, right) => left.recentPenalty - right.recentPenalty || left.score - right.score)
++    .slice(0, limit)
++    .map((entry) => entry.ideaKey);
++}
++
++export function buildPlanFeedItems(realPlanCount: number, ideaKeys: readonly StarterPlanIdeaKey[]): PlanFeedItem[] {
++  const items: PlanFeedItem[] = [];
++  let nextIdeaIndex = 0;
++  for (let planIndex = 0; planIndex < realPlanCount; planIndex += 1) {
++    items.push({ type: 'plan', planIndex });
++    if (realPlanCount > 3 && realPlanCount < STARTER_PLAN_IDEA_HIDE_AFTER_REAL_PLAN_COUNT && (planIndex + 1) % STARTER_PLAN_IDEA_INSERT_EVERY === 0 && nextIdeaIndex < ideaKeys.length) {
++      const ideaKey = ideaKeys[nextIdeaIndex];
++      if (ideaKey) items.push({ type: 'idea', ideaKey });
++      nextIdeaIndex += 1;
++    }
++  }
++  while (nextIdeaIndex < ideaKeys.length) {
++    const ideaKey = ideaKeys[nextIdeaIndex];
++    if (ideaKey) items.push({ type: 'idea', ideaKey });
++    nextIdeaIndex += 1;
++  }
++  return items;
++}
++
++export function mergeRecentStarterPlanIdeaIds(existing: readonly string[], seen: readonly StarterPlanIdeaKey[], limit = 20) {
++  const next = [...seen, ...existing]
++    .map((id) => parseStarterPlanIdeaKey(id))
++    .filter(Boolean) as StarterPlanIdeaKey[];
++  const unique: StarterPlanIdeaKey[] = [];
++  for (const ideaKey of next) {
++    if (!unique.includes(ideaKey)) unique.push(ideaKey);
++  }
++  return unique.slice(0, limit);
++}

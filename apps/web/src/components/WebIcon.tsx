@@ -16,6 +16,7 @@ export type WebIconName =
   | 'more'
   | 'need'
   | 'offer'
+  | 'plan'
   | 'profile'
   | 'proposal'
   | 'proposal-accepted'

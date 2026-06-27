@@ -44,7 +44,7 @@ import { TradePublicDiscussionScreen } from '../features/trade/TradePublicDiscus
 import { TradeDeckFeedScreen } from '../features/trade/TradeDeckFeedScreen';
 import { TradeDetailScreen } from '../features/trade/TradeDetailScreen';
 import { TradeIdeaDetailScreen } from '../features/trade/TradeIdeaDetailScreen';
-import { CreatePlaceScreen, CreatePlanScreen, JoinedPlansScreen, MyPlacesScreen, MyPlansScreen, PlaceLibraryScreen, PlanDetailScreen, PlansScreen } from '../features/plans/PlansScreens';
+import { CreatePlaceScreen, CreatePlanScreen, JoinedPlansScreen, MyPlacesScreen, MyPlansScreen, PlaceLibraryScreen, PlanDetailScreen, PlanFiltersScreen, PlanIdeaDetailScreen, PlansScreen } from '../features/plans/PlansScreens';
 import { PlanPublicDiscussionScreen } from '../features/plans/PlanPublicDiscussionScreen';
 import { WalletScreen } from '../features/wallet/WalletScreen';
 import { PayoutsScreen } from '../features/wallet/PayoutsScreen';
@@ -70,14 +70,16 @@ export type RootStackParamList = {
   Notifications: undefined;
   SavedLibrary: undefined;
   Agenda: undefined;
-  Plans: undefined;
+  Plans: { filters?: string[]; q?: string } | undefined;
+  PlanFilters: { filters?: string[]; q?: string } | undefined;
   PlanDetail: { planId: string; title?: string };
+  PlanIdeaDetail: { ideaId: string };
   PlanPublicDiscussion: { planId: string; title?: string };
   MyPlans: undefined;
   JoinedPlans: undefined;
   MyPlaces: undefined;
   PlaceLibrary: undefined;
-  CreatePlan: { createdPlace?: PlaceDto; createdPlaceTargetIndex?: number; createdPlaceNonce?: number; updatedPlace?: PlaceDto; updatedPlaceTargetIndex?: number; updatedPlaceNonce?: number } | undefined;
+  CreatePlan: { createdPlace?: PlaceDto; createdPlaceTargetIndex?: number; createdPlaceNonce?: number; updatedPlace?: PlaceDto; updatedPlaceTargetIndex?: number; updatedPlaceNonce?: number; initialPlanIdeaKey?: string } | undefined;
   CreatePlace: { returnToCreatePlan?: boolean; editPlace?: PlaceDto; copyFromPlace?: PlaceDto; targetPlaceIndex?: number } | undefined;
   SavedLibraryCollection: { collectionId: string; title?: string };
   Membership: undefined;
@@ -162,7 +164,9 @@ const ProtectedNotificationsScreen = withAuth(NotificationsScreen);
 const ProtectedSavedLibraryScreen = withAuth(SavedLibraryScreen);
 const ProtectedAgendaScreen = withAuth(AgendaScreen);
 const ProtectedPlansScreen = withAuth(PlansScreen, 'Login to open Plans', 'Plans are joinable place-based activities, so you need an account before joining or creating them.');
+const ProtectedPlanFiltersScreen = withAuth(PlanFiltersScreen, 'Login to filter Plans', 'Plan filters are available to members browsing public Plans.');
 const ProtectedPlanDetailScreen = withAuth(PlanDetailScreen);
+const ProtectedPlanIdeaDetailScreen = withAuth(PlanIdeaDetailScreen, 'Login to open Plan ideas', 'Plan ideas can be reviewed by members before creating a private editable version.');
 const ProtectedPlanPublicDiscussionScreen = withAuth(PlanPublicDiscussionScreen, 'Login to view Plan discussion', 'Public Plan discussion is available to logged-in members so moderation stays accountable.');
 const ProtectedMyPlansScreen = withAuth(MyPlansScreen);
 const ProtectedJoinedPlansScreen = withAuth(JoinedPlansScreen);
@@ -206,7 +210,7 @@ function getTabIconName(routeName: keyof MainTabParamList): MobileIconName {
   if (routeName === 'Trades' || routeName === 'TradeTab') return 'trade';
   if (routeName === 'Needs') return 'need';
   if (routeName === 'Offers') return 'offer';
-  if (routeName === 'PlanTab') return 'calendar';
+  if (routeName === 'PlanTab') return 'plan';
   return 'profile';
 }
 
@@ -290,7 +294,9 @@ export function RootNavigator() {
       <Stack.Screen name="SavedLibrary" component={ProtectedSavedLibraryScreen} />
       <Stack.Screen name="Agenda" component={ProtectedAgendaScreen} />
       {betaFeatures.plansEnabled ? <Stack.Screen name="Plans" component={ProtectedPlansScreen} /> : null}
+      {betaFeatures.plansEnabled ? <Stack.Screen name="PlanFilters" component={ProtectedPlanFiltersScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="PlanDetail" component={ProtectedPlanDetailScreen} /> : null}
+      {betaFeatures.plansEnabled ? <Stack.Screen name="PlanIdeaDetail" component={ProtectedPlanIdeaDetailScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="PlanPublicDiscussion" component={ProtectedPlanPublicDiscussionScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="MyPlans" component={ProtectedMyPlansScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="JoinedPlans" component={ProtectedJoinedPlansScreen} /> : null}

@@ -64,7 +64,7 @@ const accountActions: AccountAction[] = [
   ...(betaFeatures.savedLibraryEnabled ? [{ titleKey: 'account.items.saved.title', descriptionKey: 'account.items.saved.bodyNative', badgeKey: 'account.items.saved.badge', tone: 'proposal' as SemanticColorName, route: 'SavedLibrary' as AccountRoute, icon: 'save' as MobileIconName, group: 'activity' as AccountGroupKey }] : []),
   ...(betaFeatures.agendaEnabled ? [{ titleKey: 'account.items.agenda.title', descriptionKey: 'account.items.agenda.bodyNative', badgeKey: 'account.items.agenda.badge', tone: 'instruction' as SemanticColorName, route: 'Agenda' as AccountRoute, icon: 'bell' as MobileIconName, group: 'activity' as AccountGroupKey }] : []),
   ...(betaFeatures.plansVisible ? [
-    { titleKey: 'account.items.plansFeature.title', descriptionKey: 'account.items.plansFeature.bodyNative', badgeKey: 'account.items.plansFeature.badge', tone: 'instruction' as SemanticColorName, route: 'Plans' as AccountRoute, icon: 'calendar' as MobileIconName, group: 'plans' as AccountGroupKey },
+    { titleKey: 'account.items.plansFeature.title', descriptionKey: 'account.items.plansFeature.bodyNative', badgeKey: 'account.items.plansFeature.badge', tone: 'instruction' as SemanticColorName, route: 'Plans' as AccountRoute, icon: 'plan' as MobileIconName, group: 'plans' as AccountGroupKey },
     { titleKey: 'account.items.myPlansFeature.title', descriptionKey: 'account.items.myPlansFeature.bodyNative', badgeKey: 'account.items.myPlansFeature.badge', tone: 'info' as SemanticColorName, route: 'MyPlans' as AccountRoute, icon: 'activity' as MobileIconName, group: 'plans' as AccountGroupKey },
     { titleKey: 'account.items.joinedPlansFeature.title', descriptionKey: 'account.items.joinedPlansFeature.bodyNative', badgeKey: 'account.items.joinedPlansFeature.badge', tone: 'success' as SemanticColorName, route: 'JoinedPlans' as AccountRoute, icon: 'proposal-accepted' as MobileIconName, group: 'plans' as AccountGroupKey },
     { titleKey: 'account.items.myPlacesFeature.title', descriptionKey: 'account.items.myPlacesFeature.bodyNative', badgeKey: 'account.items.myPlacesFeature.badge', tone: 'proposal' as SemanticColorName, route: 'MyPlaces' as AccountRoute, icon: 'save' as MobileIconName, group: 'plans' as AccountGroupKey },
@@ -230,7 +230,7 @@ export function AccountScreen() {
   ], [meHubCounts.needs, meHubCounts.offers, meHubCounts.trades, t]);
 
   const planWidgets = useMemo<MeHubWidget[]>(() => betaFeatures.plansVisible ? [
-    { title: t('account.items.plansFeature.title'), body: t('account.items.plansFeature.bodyNative'), route: 'Plans', icon: 'calendar', tone: 'instruction' },
+    { title: t('account.items.plansFeature.title'), body: t('account.items.plansFeature.bodyNative'), route: 'Plans', icon: 'plan', tone: 'instruction' },
     { title: t('account.items.myPlansFeature.title'), body: t('account.items.myPlansFeature.bodyNative'), route: 'MyPlans', icon: 'activity', tone: 'info', count: meHubCounts.myPlans },
     { title: t('account.items.joinedPlansFeature.title'), body: t('account.items.joinedPlansFeature.bodyNative'), route: 'JoinedPlans', icon: 'proposal-accepted', tone: 'success', count: meHubCounts.joinedPlans },
     { title: t('account.items.myPlacesFeature.title'), body: t('account.items.myPlacesFeature.bodyNative'), route: 'MyPlaces', icon: 'save', tone: 'proposal', count: meHubCounts.places },

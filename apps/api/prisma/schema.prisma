@@ -2680,6 +2680,39 @@ model Place {
   @@index([category])
 }
 
+
+model PlanSearchEvent {
+  id              String   @id @default(cuid())
+  userId          String?
+  sessionId       String?
+  queryRaw        String
+  queryNormalized String
+  filtersJson     Json?
+  resultCount     Int
+  createdAt       DateTime @default(now())
+
+  @@index([queryNormalized, createdAt])
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+model PlanSearchTermAggregate {
+  id              String   @id @default(cuid())
+  queryNormalized String
+  day             DateTime
+  searchCount     Int      @default(0)
+  zeroResultCount Int      @default(0)
+  resultCountSum  Int      @default(0)
+  lastResultCount Int      @default(0)
+  lastSearchedAt  DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([queryNormalized, day])
+  @@index([day, searchCount])
+  @@index([lastSearchedAt])
+}
+
 model Plan {
   id               String               @id @default(cuid())
   ownerId          String

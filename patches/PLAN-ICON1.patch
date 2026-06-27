@@ -1,0 +1,211 @@
+diff --git a/apps/mobile/src/components/MobileIcon.tsx b/apps/mobile/src/components/MobileIcon.tsx
+index 96ed827..6e185a0 100644
+--- a/apps/mobile/src/components/MobileIcon.tsx
++++ b/apps/mobile/src/components/MobileIcon.tsx
+@@ -23,6 +23,7 @@ export type MobileIconName =
+   | 'more'
+   | 'need'
+   | 'offer'
++  | 'plan'
+   | 'payout'
+   | 'profile'
+   | 'proposal'
+@@ -92,6 +93,8 @@ function IconPaths({ name, color }: { name: MobileIconName; color: string }) {
+       return <><Path d="M3.25 13.4L5.45 12.5L8 18.8L5.8 19.7L3.25 13.4Z" strokeWidth={1.3} {...strokeProps} /><Path d="M6.1 17.8C7.15 17 8.1 16.6 9 16.72C10.05 16.85 11.35 18.12 12.55 17.88C14.8 17.42 18.55 15.65 20.85 14.55C21.65 14.17 22.05 13.48 21.76 12.74C21.47 11.98 20.58 11.78 19.74 12.05L14.95 13.58" strokeWidth={1.35} {...strokeProps} /><Path d="M9.5 14.1C10.9 14.85 12.55 15.45 13.62 15.05C14.55 14.7 14.95 13.58 14.95 13.58C14.2 13.22 13.02 13.15 11.95 12.55C10.2 11.58 9.45 10.92 8.1 11.35C7.42 11.57 6.4 12.12 5.2 12.88" strokeWidth={1.35} {...strokeProps} /><Path d="M15.5 3.75H18.25V6.5H15.5V3.75Z" strokeWidth={1.25} {...strokeProps} /><Circle cx={10.5} cy={7} r={1.75} stroke={color} strokeWidth={1.25} fill="none" /><Path d="M14.3 10.1H17.4L15.85 12.75L14.3 10.1Z" strokeWidth={1.25} {...strokeProps} /></>;
+     case 'offer':
+       return <><Path d="M20.75 10.6L18.55 11.5L16 5.2L18.2 4.3L20.75 10.6Z" strokeWidth={1.3} {...strokeProps} /><Path d="M17.9 6.2C16.85 7 15.9 7.4 15 7.28C13.95 7.15 12.65 5.88 11.45 6.12C9.2 6.58 5.45 8.35 3.15 9.45C2.35 9.83 1.95 10.52 2.24 11.26C2.53 12.02 3.42 12.22 4.26 11.95L9.05 10.42" strokeWidth={1.35} {...strokeProps} /><Path d="M14.5 9.9C13.1 9.15 11.45 8.55 10.38 8.95C9.45 9.3 9.05 10.42 9.05 10.42C9.8 10.78 10.98 10.85 12.05 11.45C13.8 12.42 14.55 13.08 15.9 12.65C16.58 12.43 17.6 11.88 18.8 11.12" strokeWidth={1.35} {...strokeProps} /><Path d="M8.5 20.25H5.75V17.5H8.5V20.25Z" strokeWidth={1.25} {...strokeProps} /><Circle cx={13.5} cy={17} r={1.75} stroke={color} strokeWidth={1.25} fill="none" /><Path d="M9.7 13.9H6.6L8.15 11.25L9.7 13.9Z" strokeWidth={1.25} {...strokeProps} /></>;
++    case 'plan':
++      return <><Rect x={3} y={3} width={18} height={18} rx={2} stroke={color} fill="none" /><Circle cx={6} cy={6} r={1} fill={color} /><Circle cx={18} cy={18} r={1} fill={color} /><Path d="M8 6C8 6 12 6 12 12C12 18 16 18 16 18" stroke={color} strokeWidth={0.7} strokeLinecap="round" /></>;
+     case 'payout':
+       return <><Path d="M6 7.5H18C19.1 7.5 20 8.4 20 9.5V17C20 18.1 19.1 19 18 19H6C4.9 19 4 18.1 4 17V9.5C4 8.4 4.9 7.5 6 7.5Z" strokeWidth={1.8} {...strokeProps} /><Path d="M8 7.5V6.5C8 5.67 8.67 5 9.5 5H14.5C15.33 5 16 5.67 16 6.5V7.5" strokeWidth={1.8} {...strokeProps} /><Path d="M12 10.5V16" strokeWidth={1.8} {...strokeProps} /><Path d="M9.75 13.75L12 16L14.25 13.75" strokeWidth={1.8} {...strokeProps} /></>;
+     case 'profile':
+diff --git a/apps/mobile/src/features/account/AccountScreen.tsx b/apps/mobile/src/features/account/AccountScreen.tsx
+index d2a3557..5d6814a 100644
+--- a/apps/mobile/src/features/account/AccountScreen.tsx
++++ b/apps/mobile/src/features/account/AccountScreen.tsx
+@@ -64,7 +64,7 @@ const accountActions: AccountAction[] = [
+   ...(betaFeatures.savedLibraryEnabled ? [{ titleKey: 'account.items.saved.title', descriptionKey: 'account.items.saved.bodyNative', badgeKey: 'account.items.saved.badge', tone: 'proposal' as SemanticColorName, route: 'SavedLibrary' as AccountRoute, icon: 'save' as MobileIconName, group: 'activity' as AccountGroupKey }] : []),
+   ...(betaFeatures.agendaEnabled ? [{ titleKey: 'account.items.agenda.title', descriptionKey: 'account.items.agenda.bodyNative', badgeKey: 'account.items.agenda.badge', tone: 'instruction' as SemanticColorName, route: 'Agenda' as AccountRoute, icon: 'bell' as MobileIconName, group: 'activity' as AccountGroupKey }] : []),
+   ...(betaFeatures.plansVisible ? [
+-    { titleKey: 'account.items.plansFeature.title', descriptionKey: 'account.items.plansFeature.bodyNative', badgeKey: 'account.items.plansFeature.badge', tone: 'instruction' as SemanticColorName, route: 'Plans' as AccountRoute, icon: 'calendar' as MobileIconName, group: 'plans' as AccountGroupKey },
++    { titleKey: 'account.items.plansFeature.title', descriptionKey: 'account.items.plansFeature.bodyNative', badgeKey: 'account.items.plansFeature.badge', tone: 'instruction' as SemanticColorName, route: 'Plans' as AccountRoute, icon: 'plan' as MobileIconName, group: 'plans' as AccountGroupKey },
+     { titleKey: 'account.items.myPlansFeature.title', descriptionKey: 'account.items.myPlansFeature.bodyNative', badgeKey: 'account.items.myPlansFeature.badge', tone: 'info' as SemanticColorName, route: 'MyPlans' as AccountRoute, icon: 'activity' as MobileIconName, group: 'plans' as AccountGroupKey },
+     { titleKey: 'account.items.joinedPlansFeature.title', descriptionKey: 'account.items.joinedPlansFeature.bodyNative', badgeKey: 'account.items.joinedPlansFeature.badge', tone: 'success' as SemanticColorName, route: 'JoinedPlans' as AccountRoute, icon: 'proposal-accepted' as MobileIconName, group: 'plans' as AccountGroupKey },
+     { titleKey: 'account.items.myPlacesFeature.title', descriptionKey: 'account.items.myPlacesFeature.bodyNative', badgeKey: 'account.items.myPlacesFeature.badge', tone: 'proposal' as SemanticColorName, route: 'MyPlaces' as AccountRoute, icon: 'save' as MobileIconName, group: 'plans' as AccountGroupKey },
+@@ -230,7 +230,7 @@ export function AccountScreen() {
+   ], [meHubCounts.needs, meHubCounts.offers, meHubCounts.trades, t]);
+ 
+   const planWidgets = useMemo<MeHubWidget[]>(() => betaFeatures.plansVisible ? [
+-    { title: t('account.items.plansFeature.title'), body: t('account.items.plansFeature.bodyNative'), route: 'Plans', icon: 'calendar', tone: 'instruction' },
++    { title: t('account.items.plansFeature.title'), body: t('account.items.plansFeature.bodyNative'), route: 'Plans', icon: 'plan', tone: 'instruction' },
+     { title: t('account.items.myPlansFeature.title'), body: t('account.items.myPlansFeature.bodyNative'), route: 'MyPlans', icon: 'activity', tone: 'info', count: meHubCounts.myPlans },
+     { title: t('account.items.joinedPlansFeature.title'), body: t('account.items.joinedPlansFeature.bodyNative'), route: 'JoinedPlans', icon: 'proposal-accepted', tone: 'success', count: meHubCounts.joinedPlans },
+     { title: t('account.items.myPlacesFeature.title'), body: t('account.items.myPlacesFeature.bodyNative'), route: 'MyPlaces', icon: 'save', tone: 'proposal', count: meHubCounts.places },
+diff --git a/apps/mobile/src/features/plans/PlanPublicDiscussionScreen.tsx b/apps/mobile/src/features/plans/PlanPublicDiscussionScreen.tsx
+index e1f722d..35ff750 100644
+--- a/apps/mobile/src/features/plans/PlanPublicDiscussionScreen.tsx
++++ b/apps/mobile/src/features/plans/PlanPublicDiscussionScreen.tsx
+@@ -221,7 +221,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+       key: 'details',
+       label: 'See Plan details',
+       helper: 'Go back to the route, details, and join actions.',
+-      icon: 'calendar',
++      icon: 'plan',
+       onPress: () => {
+         setThreadMenuVisible(false);
+         openPlanDetail();
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 1be60e3..b6e955a 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -619,7 +619,7 @@ function DisabledPlansScreen({ onBack }: { onBack: () => void }) {
+     <AppFixedHeaderScreen header={<AppHeader title="Plans" onBack={onBack} />}>
+       <View style={styles.centerState}>
+         <View style={[styles.largeIcon, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+-          <MobileIcon name="calendar" color={theme.semantic.plan.text} size={30} />
++          <MobileIcon name="plan" color={theme.semantic.plan.text} size={30} />
+         </View>
+         <AppText style={styles.centerTitle}>Plans are hidden</AppText>
+         <AppText style={[styles.centerBody, { color: theme.color.muted }]}>The mobile Plan route skeleton is ready, but Plans stay hidden until the Plan feature flags are enabled.</AppText>
+@@ -914,7 +914,7 @@ function EmptyBlock({ title, body, actionLabel, onAction }: { title: string; bod
+   const theme = useThemeTokens();
+   return (
+     <View style={[styles.emptyBlock, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-      <MobileIcon name="calendar" size={28} color={theme.color.muted} />
++      <MobileIcon name="plan" size={28} color={theme.color.muted} />
+       <AppText style={styles.emptyTitle}>{title}</AppText>
+       <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{body}</AppText>
+       {actionLabel && onAction ? (
+@@ -946,7 +946,7 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+ 
+   const menuItems: PlanMenuItem[] = [
+-    { title: 'My plans', body: 'Plans you created.', icon: 'calendar', onPress: () => { setMenuOpen(false); navigation.navigate('MyPlans'); } },
++    { title: 'My plans', body: 'Plans you created.', icon: 'plan', onPress: () => { setMenuOpen(false); navigation.navigate('MyPlans'); } },
+     { title: 'Joined plans', body: 'Plans you joined freely.', icon: 'activity', onPress: () => { setMenuOpen(false); navigation.navigate('JoinedPlans'); } },
+     { title: 'My places', body: 'Reusable offline or online places.', icon: 'save', onPress: () => { setMenuOpen(false); navigation.navigate('MyPlaces'); } },
+     { title: 'Hellowhen Place Library', body: 'Starter/library places for Plans.', icon: 'search', onPress: () => { setMenuOpen(false); navigation.navigate('PlaceLibrary'); } },
+@@ -961,7 +961,7 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
+       </View>
+       <View style={styles.headerActions}>
+         <HeaderAction icon="filter" label={activeFilterCount ? `Filter Plans, ${activeFilterCount} active` : 'Filter Plans'} badgeCount={activeFilterCount} onPress={() => { setMenuOpen(false); navigation.navigate('PlanFilters', { filters: activeFilters }); }} />
+-        <HeaderAction icon="more" label="Open Plan menu" onPress={() => setMenuOpen((value) => !value)} />
++        <HeaderAction icon="activity" label="Open Plan menu" onPress={() => setMenuOpen((value) => !value)} />
+         <HeaderAction icon="add" label="Create Plan" onPress={() => navigation.navigate('CreatePlan')} />
+       </View>
+     </View>
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index bb18882..23ff7a1 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -208,7 +208,7 @@ function getTabIconName(routeName: keyof MainTabParamList): MobileIconName {
+   if (routeName === 'Trades' || routeName === 'TradeTab') return 'trade';
+   if (routeName === 'Needs') return 'need';
+   if (routeName === 'Offers') return 'offer';
+-  if (routeName === 'PlanTab') return 'calendar';
++  if (routeName === 'PlanTab') return 'plan';
+   return 'profile';
+ }
+ 
+diff --git a/apps/web/public/icons/outline/plan.svg b/apps/web/public/icons/outline/plan.svg
+new file mode 100644
+index 0000000..837dcb8
+--- /dev/null
++++ b/apps/web/public/icons/outline/plan.svg
+@@ -0,0 +1,6 @@
++<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
++<rect x="3" y="3" width="18" height="18" rx="2" stroke="black"/>
++<circle cx="6" cy="6" r="1" fill="black"/>
++<circle cx="18" cy="18" r="1" fill="black"/>
++<path d="M8 6C8 6 12 6 12 12C12 18 16 18 16 18" stroke="black" stroke-width="0.7" stroke-linecap="round"/>
++</svg>
+diff --git a/apps/web/src/components/WebIcon.tsx b/apps/web/src/components/WebIcon.tsx
+index 1ef4b63..028d66a 100644
+--- a/apps/web/src/components/WebIcon.tsx
++++ b/apps/web/src/components/WebIcon.tsx
+@@ -16,6 +16,7 @@ export type WebIconName =
+   | 'more'
+   | 'need'
+   | 'offer'
++  | 'plan'
+   | 'profile'
+   | 'proposal'
+   | 'proposal-accepted'
+diff --git a/apps/web/src/features/account/AccountHubClient.tsx b/apps/web/src/features/account/AccountHubClient.tsx
+index 3a647c3..e26115f 100644
+--- a/apps/web/src/features/account/AccountHubClient.tsx
++++ b/apps/web/src/features/account/AccountHubClient.tsx
+@@ -47,7 +47,7 @@ export function AccountHubClient() {
+   const quickActionItems = useMemo<AccountHubItem[]>(() => [
+     { href: '/trades/create', titleKey: 'account.quickActions.createTrade', bodyKey: 'account.quickActions.createTradeBody', icon: 'trade', featured: true },
+     ...(betaFeatures.plansVisible ? [
+-      { href: '/plans/new', titleKey: 'account.quickActions.createPlan', bodyKey: 'account.quickActions.createPlanBody', icon: 'calendar' as WebIconName, featured: true },
++      { href: '/plans/new', titleKey: 'account.quickActions.createPlan', bodyKey: 'account.quickActions.createPlanBody', icon: 'plan' as WebIconName, featured: true },
+       { href: '/places/new', titleKey: 'account.quickActions.addPlace', bodyKey: 'account.quickActions.addPlaceBody', icon: 'add' as WebIconName, featured: true },
+     ] : [
+       { href: '/needs/new', titleKey: 'trade.wizard.actions.createNeed.title', bodyKey: 'trade.wizard.actions.createNeed.body', icon: 'need' as WebIconName, featured: true },
+@@ -62,7 +62,7 @@ export function AccountHubClient() {
+   ], [accountCounts.needs, accountCounts.offers, accountCounts.trades]);
+ 
+   const planWorkspaceItems = useMemo<AccountHubItem[]>(() => betaFeatures.plansVisible ? [
+-    { href: '/plans', titleKey: 'account.items.plansFeature.title', bodyKey: 'account.items.plansFeature.body', icon: 'calendar', featured: true, badgeKey: 'account.items.plansFeature.badge', actionKey: 'account.items.plansFeature.action' },
++    { href: '/plans', titleKey: 'account.items.plansFeature.title', bodyKey: 'account.items.plansFeature.body', icon: 'plan', featured: true, badgeKey: 'account.items.plansFeature.badge', actionKey: 'account.items.plansFeature.action' },
+     { href: '/plans?view=mine', titleKey: 'account.items.myPlansFeature.title', bodyKey: 'account.items.myPlansFeature.body', icon: 'activity', count: accountCounts.myPlans },
+     { href: '/plans?view=joined', titleKey: 'account.items.joinedPlansFeature.title', bodyKey: 'account.items.joinedPlansFeature.body', icon: 'proposal-accepted', count: accountCounts.joinedPlans },
+     { href: '/plans/new', titleKey: 'account.items.createPlanFeature.title', bodyKey: 'account.items.createPlanFeature.body', icon: 'add' },
+diff --git a/apps/web/src/features/plans/PlansListClient.tsx b/apps/web/src/features/plans/PlansListClient.tsx
+index ba0fc78..53bda13 100644
+--- a/apps/web/src/features/plans/PlansListClient.tsx
++++ b/apps/web/src/features/plans/PlansListClient.tsx
+@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
++import { WebIcon } from '../../components/WebIcon';
+ import { PlansFeatureGate } from './PlansFeatureGate';
+ import { PlanDtoPreviewDeck } from './PlanPreviewDeck';
+ import { planOwnerName } from './plansPresentation';
+@@ -122,7 +123,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+             </div>
+             <div className="plans-feed-header__actions" aria-label="Plan actions">
+               <Link className="plans-feed-icon-button plans-feed-icon-button--with-badge" href={filterHref} aria-label={activeFilterCount ? `Filter Plans, ${activeFilterCount} active` : 'Filter Plans'}>
+-                <span aria-hidden="true">◇</span>
++                <WebIcon name="filter" size={18} decorative />
+                 {activeFilterCount ? <span className="plans-feed-icon-button__badge">{activeFilterCount}</span> : null}
+               </Link>
+               <button
+@@ -132,10 +133,10 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+                 aria-expanded={menuOpen}
+                 onClick={() => setMenuOpen((current) => !current)}
+               >
+-                <span aria-hidden="true">☰</span>
++                <WebIcon name="activity" size={18} decorative />
+               </button>
+               <Link className="plans-feed-icon-button plans-feed-icon-button--primary" href={createPlanHref} aria-label="Create Plan">
+-                <span aria-hidden="true">+</span>
++                <WebIcon name="add" size={21} decorative />
+               </Link>
+             </div>
+           </header>
+diff --git a/apps/web/src/lib/webRoutes.ts b/apps/web/src/lib/webRoutes.ts
+index 9a23525..d39d9e5 100644
+--- a/apps/web/src/lib/webRoutes.ts
++++ b/apps/web/src/lib/webRoutes.ts
+@@ -4,7 +4,7 @@ export type WebTab = {
+   key: RootTabKey;
+   labelKey: string;
+   href: string;
+-  icon: 'calendar' | 'trade' | 'need' | 'offer' | 'profile';
++  icon: 'calendar' | 'plan' | 'trade' | 'need' | 'offer' | 'profile';
+   match: (pathname: string) => boolean;
+ };
+ 
+@@ -45,7 +45,7 @@ export const plansMeTradeWebTabs: WebTab[] = [
+     key: 'plans',
+     labelKey: 'navigation.tabs.plans',
+     href: '/plans',
+-    icon: 'calendar',
++    icon: 'plan',
+     match: (pathname) => pathname.startsWith('/plans'),
+   },
+   {

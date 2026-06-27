@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ChangeEvent, FormEvent } from 'react';
 import type { MediaAssetDto, PlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
-import { buildGeneratedPlanDisplay } from '@hellowhen/shared';
+import { buildGeneratedPlanDisplay, parseStarterPlanIdeaKey, starterPlanIdeas, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
@@ -41,6 +41,23 @@ function makePlace(index: number, date = toDateInputValue()): PlaceFormState {
     location: '',
     onlineLabel: '',
     onlineUrl: '',
+    existingMedia: null,
+    media: null,
+    uploading: false,
+  };
+}
+
+function makePlaceFromPlanIdeaStop(stop: StarterPlanIdeaStop, index: number, date = toDateInputValue()): PlaceFormState {
+  return {
+    id: `plan-idea-place-${Date.now()}-${index}`,
+    sourcePlaceSource: 'custom',
+    mode: stop.mode,
+    date,
+    time: stop.time,
+    title: stop.title,
+    location: stop.mode === 'local' ? stop.location ?? '' : '',
+    onlineLabel: stop.mode === 'remote' ? stop.onlineLabel ?? '' : '',
+    onlineUrl: stop.mode === 'remote' ? stop.onlineUrl ?? '' : '',
     existingMedia: null,
     media: null,
     uploading: false,
@@ -300,6 +317,25 @@ function PlaceImagePicker({ place, onUpload, onRemove }: { place: PlaceFormState
   );
 }
 
+function PlanPlaceTimelineButton({ place, index, onOpen }: { place: PlaceFormState; index: number; onOpen: () => void }) {
+  const imageSrc = planMediaSrc(place.media ?? place.existingMedia);
+  return (
+    <button type="button" className="plan-timeline-row__main plan-timeline-row__main--button plan-place-summary-button" onClick={onOpen}>
+      <span className="plan-place-summary-button__media" aria-hidden="true">
+        {imageSrc ? <img src={imageSrc} alt="" loading="lazy" /> : <span>{place.mode === 'remote' ? '↗' : '⌖'}</span>}
+      </span>
+      <span className="plan-place-summary-button__copy">
+        <span className="plan-timeline-row__heading">
+          <span className="semantic-badge place">Place {index + 1}</span>
+          {place.sourcePlaceId ? <span className="semantic-badge place">{place.sourcePlaceSource === 'hellowhen_library' ? 'Library' : 'My Place'}</span> : <span className="semantic-badge place">Custom</span>}
+        </span>
+        <strong>{planPreviewPlaceTitle(place, index)}</strong>
+        <small>{placePreviewLocation(place) || 'No location yet'}</small>
+      </span>
+    </button>
+  );
+}
+
 function PlacePickerList({
   places,
   emptyLabel,
@@ -399,6 +435,8 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   const auth = useWebAuth();
   const createdPlaceId = searchParams.get('createdPlaceId');
   const updatedPlaceId = searchParams.get('updatedPlaceId');
+  const initialPlanIdeaKey = parseStarterPlanIdeaKey(searchParams.get('idea'));
+  const handledPlanIdeaKeyRef = useRef<string | null>(null);
   const handledCreatedPlaceIdRef = useRef<string | null>(null);
   const handledUpdatedPlaceIdRef = useRef<string | null>(null);
   const [places, setPlaces] = useState<PlaceFormState[]>(() => safeReadPlanDraft());
@@ -458,6 +496,14 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     void loadReusablePlaces();
   }, [auth.hydrated, auth.isAuthenticated]);
 
+  useEffect(() => {
+    if (!initialPlanIdeaKey || handledPlanIdeaKeyRef.current === initialPlanIdeaKey || places.length > 0) return;
+    const idea = starterPlanIdeas[initialPlanIdeaKey];
+    const date = toDateInputValue();
+    handledPlanIdeaKeyRef.current = initialPlanIdeaKey;
+    setPlaces(idea.stops.map((stop, index) => makePlaceFromPlanIdeaStop(stop, index, date)));
+    setMessage('Starter Plan idea loaded. Review or change the stops before publishing.');
+  }, [initialPlanIdeaKey, places.length]);
 
   useEffect(() => {
     storePlanDraft(places, advancedDetails, planEnd);
@@ -699,7 +745,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
           onlineUrl: place.mode === 'remote' ? place.onlineUrl.trim() || undefined : undefined,
           startsAt: nextSchedule.placeStartsAt[index],
           order: index,
-          mediaIds: selectedMediaIds(place.media),
+          mediaIds: selectedMediaIds(place.media ?? place.existingMedia),
         })),
       });
       clearPlanDraft();
@@ -764,14 +810,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                       </div>
 
                       <div className="plan-timeline-row plan-timeline-row--place">
-                        <button type="button" className="plan-timeline-row__main plan-timeline-row__main--button" onClick={() => setDetailPlaceIndex(index)}>
-                          <span className="plan-timeline-row__heading">
-                            <span className="semantic-badge place">Place {index + 1}</span>
-                            {place.sourcePlaceId ? <span className="semantic-badge place">{place.sourcePlaceSource === 'hellowhen_library' ? 'Library' : 'My Place'}</span> : <span className="semantic-badge place">Custom</span>}
-                          </span>
-                          <strong>{place.title.trim() || place.sourcePlaceTitle || `Place ${index + 1}`}</strong>
-                          <small>{placePreviewLocation(place) || 'No location yet'}</small>
-                        </button>
+                        <PlanPlaceTimelineButton place={place} index={index} onOpen={() => setDetailPlaceIndex(index)} />
                         <div className="plan-timeline-row__actions">
                           <button type="button" className="button secondary" onClick={() => setDetailPlaceIndex(index)}>Details</button>
                         </div>

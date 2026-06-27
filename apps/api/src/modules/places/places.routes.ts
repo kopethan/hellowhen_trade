@@ -286,7 +286,7 @@ placesRoutes.patch('/:placeId', requireAuth, requireActiveAccount, asyncRoute(as
   const mediaLimit = await placeMediaLimitFor(actor, existing.source);
   const updated = await prisma.place.update({ where: { id: existing.id }, data: updatePlaceData(input, normalized) as any, include: placeInclude() });
   await syncInventoryTranslations(prisma, 'place', updated.id, req.user!.id, (updated as any).defaultLanguage ?? input.defaultLanguage ?? 'en', input.translations);
-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'place' as any, updated.id, { maxImages: mediaLimit });
+  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'place' as any, updated.id, { maxImages: mediaLimit, syncSelection: input.mediaIds !== undefined });
   const refreshed = await prisma.place.findUnique({ where: { id: updated.id }, include: placeInclude() });
   res.json({ place: await decoratePlace(refreshed, req.user!.id, 'owner', actor.role) });
 }));

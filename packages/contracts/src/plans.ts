@@ -3,7 +3,7 @@ import { mediaAssetSchema } from './media.js';
 import { discoveryLanguageSchema, inventoryTranslationSchema, tradeExchangeModeSchema } from './trade.js';
 
 export const planStatusSchema = z.enum(['draft', 'open', 'full', 'started', 'completed', 'cancelled', 'expired', 'hidden']);
-export const planPublicStatusSchema = z.enum(['open', 'full', 'started']);
+export const planPublicStatusSchema = z.enum(['open', 'full', 'started', 'cancelled']);
 export const planJoinApprovalModeSchema = z.enum(['owner_approval', 'automatic']);
 export const planParticipantStatusSchema = z.enum(['pending', 'accepted', 'declined', 'cancelled', 'left', 'removed']);
 export const planPlaceModeSchema = z.enum(['local', 'remote']);
@@ -158,6 +158,48 @@ export const listPlansQuerySchema = z.object({
   status: planPublicStatusSchema.optional(),
   city: z.string().trim().min(1).max(120).optional(),
   take: z.coerce.number().int().min(1).max(100).optional(),
+});
+
+export const adminPlanStatusFilterSchema = z.union([z.literal('all'), planStatusSchema]).optional().default('all');
+export const adminListPlansQuerySchema = z.object({
+  q: z.string().trim().min(1).max(120).optional(),
+  status: adminPlanStatusFilterSchema,
+  mode: tradeExchangeModeSchema.optional(),
+  ownerId: z.string().trim().min(1).max(120).optional(),
+  take: z.coerce.number().int().min(1).max(100).optional().default(100),
+});
+export const adminPlanActionSchema = z.enum(['hide', 'restore', 'cancel', 'mark_reviewed']);
+export const adminPlanActionRequestSchema = z.object({
+  action: adminPlanActionSchema,
+  note: z.string().trim().min(3).max(1200).optional(),
+});
+export const adminListPlanPublicMessagesQuerySchema = z.object({
+  status: z.enum(['all', 'visible', 'hidden', 'deleted']).optional().default('all'),
+  take: z.coerce.number().int().min(1).max(200).optional().default(100),
+});
+export const adminPlanPublicMessageActionSchema = z.enum(['hide', 'restore', 'mark_reviewed']);
+export const adminPlanPublicMessageActionRequestSchema = z.object({
+  action: adminPlanPublicMessageActionSchema,
+  note: z.string().trim().min(3).max(1200).optional(),
+});
+
+export const adminPlaceStatusFilterSchema = z.union([z.literal('all'), placeStatusSchema]).optional().default('all');
+export const adminPlaceSourceFilterSchema = z.union([z.literal('all'), placeSourceSchema]).optional().default('all');
+export const adminPlaceVisibilityFilterSchema = z.union([z.literal('all'), placeVisibilitySchema]).optional().default('all');
+export const adminListPlacesQuerySchema = z.object({
+  q: z.string().trim().min(1).max(120).optional(),
+  status: adminPlaceStatusFilterSchema,
+  source: adminPlaceSourceFilterSchema,
+  visibility: adminPlaceVisibilityFilterSchema,
+  mode: planPlaceModeSchema.optional(),
+  ownerId: z.string().trim().min(1).max(120).optional(),
+  take: z.coerce.number().int().min(1).max(100).optional().default(100),
+});
+export const adminPlaceActionSchema = z.enum(['hide', 'restore', 'remove_media', 'mark_reviewed']);
+export const adminPlaceActionRequestSchema = z.object({
+  action: adminPlaceActionSchema,
+  mediaId: z.string().trim().min(1).max(120).optional(),
+  note: z.string().trim().min(3).max(1200).optional(),
 });
 
 export const createPlanJoinRequestSchema = z.object({
@@ -320,6 +362,15 @@ export type UpdatePlanRequest = z.infer<typeof updatePlanRequestSchema>;
 export type CreatePlanPlaceRequest = z.infer<typeof createPlanPlaceRequestSchema>;
 export type UpdatePlanPlaceRequest = z.infer<typeof updatePlanPlaceRequestSchema>;
 export type ListPlansQuery = z.infer<typeof listPlansQuerySchema>;
+export type AdminListPlansQuery = z.infer<typeof adminListPlansQuerySchema>;
+export type AdminPlanAction = z.infer<typeof adminPlanActionSchema>;
+export type AdminPlanActionRequest = z.infer<typeof adminPlanActionRequestSchema>;
+export type AdminListPlanPublicMessagesQuery = z.infer<typeof adminListPlanPublicMessagesQuerySchema>;
+export type AdminPlanPublicMessageAction = z.infer<typeof adminPlanPublicMessageActionSchema>;
+export type AdminPlanPublicMessageActionRequest = z.infer<typeof adminPlanPublicMessageActionRequestSchema>;
+export type AdminListPlacesQuery = z.infer<typeof adminListPlacesQuerySchema>;
+export type AdminPlaceAction = z.infer<typeof adminPlaceActionSchema>;
+export type AdminPlaceActionRequest = z.infer<typeof adminPlaceActionRequestSchema>;
 export type CreatePlanJoinRequest = z.infer<typeof createPlanJoinRequestSchema>;
 export type UpdatePlanParticipantRequest = z.infer<typeof updatePlanParticipantRequestSchema>;
 export type UpdateMyPlanParticipantRequest = z.infer<typeof updateMyPlanParticipantRequestSchema>;

@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { DiscoveryLanguage, InventoryTranslationDto, MediaAssetDto, PlaceDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
-import { buildGeneratedPlanDisplay } from '@hellowhen/shared';
+import type { DiscoveryLanguage, InventoryTranslationDto, ListPlansQuery, MediaAssetDto, PlaceDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
+import { buildGeneratedPlanDisplay, buildPlanFeedItems, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { AppText } from '../../components/AppText';
@@ -18,11 +19,16 @@ import { buildPublicPlanUrl } from '../../lib/publicUrls';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 import { resolveMediaUrl } from '../trade/mediaUrls';
+import { ImagePickerField } from '../trade/components/ImagePickerField';
+import type { SelectedLocalImage, SelectedImageUploadProgress } from '../trade/mediaUpload';
+import { SelectedImageUploadError, uploadSelectedImages } from '../trade/mediaUpload';
 import { PlanSquareDeck } from './components/PlanSquareDeck';
 
 type PlansScreenProps = NativeStackScreenProps<RootStackParamList, 'Plans'>;
 type PlanDetailProps = NativeStackScreenProps<RootStackParamList, 'PlanDetail'>;
+type PlanIdeaDetailProps = NativeStackScreenProps<RootStackParamList, 'PlanIdeaDetail'>;
 type SimpleScreenProps<RouteName extends keyof RootStackParamList> = NativeStackScreenProps<RootStackParamList, RouteName>;
 type PlanListScope = 'feed' | 'mine' | 'joined';
 type PlaceListScope = 'mine' | 'library';
@@ -33,6 +39,153 @@ type PlanMenuItem = {
   icon: MobileIconName;
   onPress: () => void;
 };
+
+type PlanFilterOption = { label: string; value: string; body?: string };
+type PlanFilterGroup = { title: string; body: string; options: PlanFilterOption[] };
+
+const planFilterGroups: PlanFilterGroup[] = [
+  { title: 'Status', body: 'Choose which public Plan states should appear.', options: [
+    { label: 'Open', value: 'status:open', body: 'Available to join' },
+    { label: 'Full', value: 'status:full', body: 'Capacity reached' },
+    { label: 'Started', value: 'status:started', body: 'Already underway' },
+  ] },
+  { title: 'Mode', body: 'Match the way the Plan happens.', options: [
+    { label: 'Local / offline', value: 'mode:local', body: 'Meet in person' },
+    { label: 'Online', value: 'mode:remote', body: 'Remote or link-based' },
+  ] },
+  { title: 'Join', body: 'Surface Plans that can be joined freely.', options: [
+    { label: 'Free join', value: 'join:automatic', body: 'No approval request first' },
+  ] },
+  { title: 'Places', body: 'Filter by route size.', options: [
+    { label: '1 place', value: 'places:one', body: 'Simple single stop' },
+    { label: '2+ places', value: 'places:multiple', body: 'A route or sequence' },
+  ] },
+  { title: 'Time', body: 'Pick when the Plan starts.', options: [
+    { label: 'Today', value: 'time:today' },
+    { label: 'This week', value: 'time:week' },
+    { label: 'This month', value: 'time:month' },
+  ] },
+];
+
+function toggleFilterValue(values: string[], value: string) {
+  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+}
+
+type PlanFilterRouteParams = { filters?: string[]; q?: string };
+
+type PlanFilterKey = 'status' | 'mode' | 'join' | 'places' | 'time';
+
+const planFilterKeys: PlanFilterKey[] = ['status', 'mode', 'join', 'places', 'time'];
+const allowedPlanFilterValues = new Set(planFilterGroups.flatMap((group) => group.options.map((option) => option.value)));
+
+function normalizePlanFilters(values?: string[] | null) {
+  if (!Array.isArray(values)) return [];
+  const normalized: string[] = [];
+  for (const value of values) {
+    if (typeof value !== 'string' || !allowedPlanFilterValues.has(value) || normalized.includes(value)) continue;
+    normalized.push(value);
+  }
+  return normalized;
+}
+
+function normalizePlanSearchQuery(value?: string | null) {
+  return (value ?? '').trim().replace(/\s+/g, ' ').slice(0, 120);
+}
+
+function activePlanFilterCount(filters: string[], query?: string | null) {
+  return filters.length + (normalizePlanSearchQuery(query) ? 1 : 0);
+}
+
+function planFilterValues(filters: string[], key: PlanFilterKey) {
+  return filters
+    .map((value) => {
+      const [filterKey, filterValue] = value.split(':');
+      return filterKey === key ? filterValue : null;
+    })
+    .filter((value): value is string => Boolean(value));
+}
+
+function buildPlanFeedQuery(filters: string[], searchQuery?: string | null): ListPlansQuery {
+  const normalizedQuery = normalizePlanSearchQuery(searchQuery);
+  const query: ListPlansQuery = { take: filters.length || normalizedQuery ? 100 : 50 };
+  if (normalizedQuery) query.q = normalizedQuery;
+  const statuses = planFilterValues(filters, 'status');
+  const modes = planFilterValues(filters, 'mode');
+  if (statuses.length === 1) query.status = statuses[0] as ListPlansQuery['status'];
+  if (modes.length === 1) query.mode = modes[0] as ListPlansQuery['mode'];
+  return query;
+}
+
+function sameLocalDate(left: Date, right: Date) {
+  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate();
+}
+
+function isWithinNextDays(date: Date, days: number) {
+  const now = new Date();
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+  end.setDate(end.getDate() + days);
+  return date.getTime() >= new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() && date.getTime() <= end.getTime();
+}
+
+function planMatchesTimeFilter(plan: PlanDto, values: string[]) {
+  if (!values.length) return true;
+  const date = new Date(plan.startsAt);
+  if (Number.isNaN(date.getTime())) return false;
+  const now = new Date();
+  return values.some((value) => {
+    if (value === 'today') return sameLocalDate(date, now);
+    if (value === 'week') return isWithinNextDays(date, 6);
+    if (value === 'month') return date.getTime() >= new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() && date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+    return true;
+  });
+}
+
+function planMatchesSearch(plan: PlanDto, query?: string | null) {
+  const normalizedQuery = normalizePlanSearchQuery(query).toLowerCase();
+  if (!normalizedQuery) return true;
+  const searchable = [
+    plan.title,
+    plan.description,
+    plan.category,
+    plan.locationLabel,
+    ...(plan.tags ?? []),
+    ...(plan.places ?? []).flatMap((place) => [place.title, place.note, place.addressPublicText, place.onlineLabel, place.onlineUrl]),
+  ].filter(Boolean).join(' ').toLowerCase();
+  return searchable.includes(normalizedQuery);
+}
+
+function applyPlanFilters(plans: PlanDto[], filters: string[], query?: string | null) {
+  const statuses = planFilterValues(filters, 'status');
+  const modes = planFilterValues(filters, 'mode');
+  const joinModes = planFilterValues(filters, 'join');
+  const placeCounts = planFilterValues(filters, 'places');
+  const timeFilters = planFilterValues(filters, 'time');
+  return plans.filter((plan) => {
+    if (!planMatchesSearch(plan, query)) return false;
+    if (statuses.length && !statuses.includes(plan.status)) return false;
+    if (modes.length && (!plan.mode || !modes.includes(plan.mode))) return false;
+    if (joinModes.includes('automatic') && plan.joinApprovalMode !== 'automatic') return false;
+    if (placeCounts.length) {
+      const count = plan.places?.length ?? 0;
+      const placeMatch = placeCounts.some((value) => value === 'one' ? count === 1 : value === 'multiple' ? count >= 2 : true);
+      if (!placeMatch) return false;
+    }
+    if (!planMatchesTimeFilter(plan, timeFilters)) return false;
+    return true;
+  });
+}
+
+function filterSummary(filters: string[], query?: string | null) {
+  const normalizedQuery = normalizePlanSearchQuery(query);
+  if (!filters.length && !normalizedQuery) return '';
+  const parts = planFilterKeys.map((key) => {
+    const count = planFilterValues(filters, key).length;
+    return count ? `${count} ${key}` : '';
+  }).filter(Boolean);
+  if (normalizedQuery) parts.unshift(`Search: “${normalizedQuery}”`);
+  return parts.join(' · ');
+}
 
 function isPlansVisible() {
   return betaFeatures.plansEnabled && betaFeatures.plansVisible;
@@ -55,6 +208,69 @@ function getPlanMeta(plan: PlanDto) {
   return `${placeCount} ${placeCount === 1 ? 'place' : 'places'} · ${participantCount} joined`;
 }
 
+const RECENT_PLAN_IDEA_STORAGE_KEY = 'hellowhen_recent_plan_ideas_v1';
+const ANONYMOUS_PLAN_IDEA_STORAGE_KEY = 'hellowhen_plan_idea_anon_key_v1';
+
+function createAnonymousPlanIdeaKey() {
+  return `anon-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function planIdeaPreviewPlan(idea: StarterPlanIdea): PlanDto {
+  const createdAt = new Date().toISOString();
+  return {
+    id: `starter-plan-idea-${idea.id}`,
+    ownerId: 'starter-plan-idea',
+    title: idea.title,
+    description: idea.description,
+    category: idea.category,
+    tags: idea.tags,
+    mode: starterPlanIdeaMode(idea),
+    locationLabel: `${idea.stops.length} starter stops`,
+    startsAt: createdAt,
+    endsAt: null,
+    maxParticipants: null,
+    joinApprovalMode: 'automatic',
+    status: 'open',
+    createdAt,
+    updatedAt: createdAt,
+    participantCount: 0,
+    places: idea.stops.map((stop, index) => ({
+      id: `starter-plan-idea-${idea.id}-place-${index}`,
+      planId: `starter-plan-idea-${idea.id}`,
+      placeId: null,
+      source: 'custom',
+      order: index,
+      mode: stop.mode,
+      title: stop.title,
+      note: null,
+      addressPublicText: stop.mode === 'local' ? stop.location ?? null : null,
+      addressPrivateText: null,
+      onlineLabel: stop.mode === 'remote' ? stop.onlineLabel ?? null : null,
+      onlineUrl: stop.mode === 'remote' ? stop.onlineUrl ?? null : null,
+      startsAt: null,
+      endsAt: null,
+      createdAt,
+      updatedAt: createdAt,
+      media: [],
+    })),
+  } as PlanDto;
+}
+
+function selectedPlaceFromPlanIdeaStop(stop: StarterPlanIdeaStop, index: number, date = toDateInputValue()): SelectedPlanPlaceState {
+  return {
+    id: `mobile-plan-idea-place-${Date.now()}-${index}`,
+    sourcePlaceSource: 'custom',
+    mode: stop.mode,
+    date,
+    time: stop.time,
+    title: stop.title,
+    location: stop.mode === 'local' ? stop.location ?? '' : '',
+    onlineLabel: stop.mode === 'remote' ? stop.onlineLabel ?? '' : '',
+    onlineUrl: stop.mode === 'remote' ? stop.onlineUrl ?? '' : '',
+    existingMedia: null,
+  };
+}
+
 
 
 type SelectedPlanPlaceState = {
@@ -69,6 +285,7 @@ type SelectedPlanPlaceState = {
   location: string;
   onlineLabel: string;
   onlineUrl: string;
+  existingMedia?: MediaAssetDto | null;
 };
 
 type AdvancedPlanDetailsState = {
@@ -100,6 +317,7 @@ type PlaceCreateFormState = {
 
 type PlacePickerTab = 'mine' | 'library';
 type PlaceSourceTarget = number | 'new';
+type PlaceCreateStep = 'details' | 'image';
 
 function padDatePart(value: number) {
   return String(value).padStart(2, '0');
@@ -122,6 +340,7 @@ function makeSelectedPlanPlace(index: number, date = toDateInputValue()): Select
     location: '',
     onlineLabel: '',
     onlineUrl: '',
+    existingMedia: null,
   };
 }
 
@@ -139,14 +358,13 @@ function placeLanguageLabel(language: DiscoveryLanguage) {
   return 'English';
 }
 
-function nextPlaceTranslationLanguage(state: PlaceCreateFormState) {
+function availablePlaceTranslationLanguages(state: PlaceCreateFormState) {
   const used = new Set([state.defaultLanguage, ...state.translations.map((translation) => translation.languageCode)]);
-  return placeLanguageOptions.find((language) => !used.has(language));
+  return placeLanguageOptions.filter((language) => !used.has(language));
 }
 
-function addPlaceTranslationDraft(state: PlaceCreateFormState): PlaceCreateFormState {
-  const languageCode = nextPlaceTranslationLanguage(state);
-  if (!languageCode) return state;
+function addPlaceTranslationDraft(state: PlaceCreateFormState, languageCode: DiscoveryLanguage): PlaceCreateFormState {
+  if (!availablePlaceTranslationLanguages(state).includes(languageCode)) return state;
   return { ...state, translations: [...state.translations, { languageCode, title: '', description: '' }] };
 }
 
@@ -173,12 +391,22 @@ function validatePlaceTranslations(state: PlaceCreateFormState) {
   return '';
 }
 
-function makePlaceCreateForm(): PlaceCreateFormState {
+function placeTranslationSummary(state: PlaceCreateFormState) {
+  const draftCount = state.translations.length;
+  if (!draftCount) return `Original: ${placeLanguageLabel(state.defaultLanguage)} · Optional`;
+  return `Original: ${placeLanguageLabel(state.defaultLanguage)} · ${draftCount} translation${draftCount === 1 ? '' : 's'}`;
+}
+
+function placeHasTranslationContent(place?: PlaceDto | null) {
+  return Boolean((place?.translations ?? []).some((translation) => (translation.title ?? '').trim() || (translation.description ?? '').trim()));
+}
+
+function makePlaceCreateForm(defaultLanguage: DiscoveryLanguage = 'en'): PlaceCreateFormState {
   return {
     mode: 'local',
     title: '',
     description: '',
-    defaultLanguage: 'en',
+    defaultLanguage,
     translations: [],
     location: '',
     onlineLabel: '',
@@ -233,7 +461,12 @@ function selectedPlaceFromReusable(place: PlaceDto, index: number, date = toDate
     location: placeLocationForSelectedPlace(place),
     onlineLabel: place.onlineLabel ?? '',
     onlineUrl: place.onlineUrl ?? '',
+    existingMedia: activeMedia(place.media)[0] ?? null,
   };
+}
+
+function selectedPlaceMediaIds(place: SelectedPlanPlaceState) {
+  return place.existingMedia?.id ? [place.existingMedia.id] : undefined;
 }
 
 function resetSelectedPlaceToCustom(place: SelectedPlanPlaceState): SelectedPlanPlaceState {
@@ -242,6 +475,7 @@ function resetSelectedPlaceToCustom(place: SelectedPlanPlaceState): SelectedPlan
     sourcePlaceId: undefined,
     sourcePlaceSource: 'custom',
     sourcePlaceTitle: undefined,
+    existingMedia: null,
   };
 }
 
@@ -415,6 +649,22 @@ function activeMediaUrl(media?: MediaAssetDto | null) {
   return resolveMediaUrl(media.url);
 }
 
+function reusablePlaceMediaForEdit(place?: PlaceDto | null) {
+  return (place?.media ?? []).filter((asset) => asset.status !== 'removed').slice(0, 1);
+}
+
+function formatPlaceUploadProgress(progress: SelectedImageUploadProgress | null) {
+  if (!progress) return null;
+  return `Uploading image ${progress.current}/${progress.total}...`;
+}
+
+function getPlaceUploadErrorMessage(error: unknown) {
+  if (error instanceof SelectedImageUploadError) {
+    return `Image upload failed (${error.current}/${error.total}). Try a smaller image or upload again.`;
+  }
+  return getFriendlyApiErrorMessage(error);
+}
+
 function getPlanPlaceMedia(place: PlanPlaceDto) {
   return activeMedia(place.media)[0] ?? activeMedia(place.sourcePlace?.media)[0] ?? null;
 }
@@ -461,7 +711,7 @@ function DisabledPlansScreen({ onBack }: { onBack: () => void }) {
     <AppFixedHeaderScreen header={<AppHeader title="Plans" onBack={onBack} />}>
       <View style={styles.centerState}>
         <View style={[styles.largeIcon, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
-          <MobileIcon name="calendar" color={theme.semantic.plan.text} size={30} />
+          <MobileIcon name="plan" color={theme.semantic.plan.text} size={30} />
         </View>
         <AppText style={styles.centerTitle}>Plans are hidden</AppText>
         <AppText style={[styles.centerBody, { color: theme.color.muted }]}>The mobile Plan route skeleton is ready, but Plans stay hidden until the Plan feature flags are enabled.</AppText>
@@ -470,7 +720,7 @@ function DisabledPlansScreen({ onBack }: { onBack: () => void }) {
   );
 }
 
-function HeaderAction({ icon, label, onPress }: { icon: MobileIconName; label: string; onPress: () => void }) {
+function HeaderAction({ icon, label, onPress, badgeCount = 0 }: { icon: MobileIconName; label: string; onPress: () => void; badgeCount?: number }) {
   const theme = useThemeTokens();
   return (
     <Pressable
@@ -480,6 +730,11 @@ function HeaderAction({ icon, label, onPress }: { icon: MobileIconName; label: s
       style={({ pressed }) => [styles.headerAction, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
     >
       <MobileIcon name={icon} size={20} color={theme.color.text} />
+      {badgeCount > 0 ? (
+        <View style={[styles.headerActionBadge, { backgroundColor: theme.semantic.plan.text, borderColor: theme.color.surface }]}>
+          <AppText style={[styles.headerActionBadgeText, { color: theme.color.background }]}>{badgeCount}</AppText>
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -512,39 +767,120 @@ function PlanRow({ plan, onPress }: { plan: PlanDto; onPress: () => void }) {
   );
 }
 
-function PlaceRow({ place, onPress }: { place: PlaceDto; onPress?: () => void }) {
+function PlaceRow({
+  place,
+  onPress,
+  onEdit,
+  onArchive,
+  archiving,
+}: {
+  place: PlaceDto;
+  onPress?: () => void;
+  onEdit?: () => void;
+  onArchive?: () => void;
+  archiving?: boolean;
+}) {
   const theme = useThemeTokens();
   const isLibrary = place.source === 'hellowhen_library';
-  return (
-    <Pressable accessibilityRole={onPress ? 'button' : undefined} onPress={onPress} style={({ pressed }) => [styles.rowCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && onPress && styles.pressed]}>
-      <View style={styles.rowTop}>
-        <SemanticBadge label={isLibrary ? 'Library place' : 'My place'} tone="place" size="sm" />
-        <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
+  const mediaUrl = activeMediaUrl(activeMedia(place.media)[0]);
+  const content = (
+    <>
+      <View style={styles.placeRowContent}>
+        <View style={[styles.placeThumb, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
+          {mediaUrl ? <Image source={{ uri: mediaUrl }} resizeMode="cover" style={styles.placeThumbImage as ImageStyle} /> : <MobileIcon name={place.mode === 'remote' ? 'send' : 'calendar'} size={18} color={theme.semantic.place.text} />}
+        </View>
+        <View style={styles.placeRowCopy}>
+          <View style={styles.rowTop}>
+            <SemanticBadge label={isLibrary ? 'Library place' : 'My place'} tone="place" size="sm" />
+            <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
+          </View>
+          <AppText style={styles.rowTitle}>{place.title}</AppText>
+          <AppText style={[styles.rowBody, { color: theme.color.muted }]} numberOfLines={2}>{place.description || 'Reusable place for future Plans.'}</AppText>
+          <View style={styles.metaRow}>
+            <MobileIcon name={place.mode === 'remote' ? 'send' : 'calendar'} size={15} color={theme.color.muted} />
+            <AppText style={[styles.metaText, { color: theme.color.muted }]} numberOfLines={1}>{place.mode === 'remote' ? (place.onlineLabel || place.onlineUrl || 'Online place') : (place.areaLabel || place.addressPublicText || 'Offline place')}</AppText>
+          </View>
+        </View>
       </View>
-      <AppText style={styles.rowTitle}>{place.title}</AppText>
-      <AppText style={[styles.rowBody, { color: theme.color.muted }]} numberOfLines={2}>{place.description || 'Reusable place for future Plans.'}</AppText>
-      <View style={styles.metaRow}>
-        <MobileIcon name={place.mode === 'remote' ? 'send' : 'calendar'} size={15} color={theme.color.muted} />
-        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{place.mode === 'remote' ? (place.onlineLabel || place.onlineUrl || 'Online place') : (place.areaLabel || place.addressPublicText || 'Offline place')}</AppText>
-      </View>
-    </Pressable>
+      {onEdit || onArchive ? (
+        <View style={[styles.placeManageActions, { borderTopColor: theme.color.border }]}>
+          {onEdit ? <SecondaryButton label="Edit" onPress={onEdit} /> : null}
+          {onArchive ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={archiving}
+              onPress={onArchive}
+              style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.semantic.danger.border, backgroundColor: theme.semantic.danger.bg, flex: 1 }, pressed && styles.pressed, archiving && styles.disabled]}
+            >
+              <AppText style={[styles.secondaryButtonText, { color: theme.semantic.danger.text }]}>{archiving ? 'Deleting...' : 'Delete'}</AppText>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+    </>
   );
+
+  if (onPress) {
+    return (
+      <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.rowCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+        {content}
+      </Pressable>
+    );
+  }
+
+  return <View style={[styles.rowCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>{content}</View>;
 }
 
-function PlanList({ scope, navigation }: { scope: PlanListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'> }) {
+function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope: PlanListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'>; filters?: string[]; searchQuery?: string }) {
   const theme = useThemeTokens();
+  const auth = useAuth();
+  const activeFilters = useMemo(() => normalizePlanFilters(filters), [filters.join('|')]);
+  const activeSearchQuery = normalizePlanSearchQuery(searchQuery);
+  const activeFilterSummary = filterSummary(activeFilters, activeSearchQuery);
   const [plans, setPlans] = useState<PlanDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [starterRefreshKey, setStarterRefreshKey] = useState(0);
+  const [recentStarterIdeaIds, setRecentStarterIdeaIds] = useState<string[]>([]);
+  const [anonymousStarterKey, setAnonymousStarterKey] = useState('anonymous');
+
+  useEffect(() => {
+    let mounted = true;
+    async function hydrateStarterMemory() {
+      const rawRecent = await AsyncStorage.getItem(RECENT_PLAN_IDEA_STORAGE_KEY).catch(() => null);
+      if (mounted && rawRecent) {
+        try {
+          const parsed = JSON.parse(rawRecent) as string[];
+          if (Array.isArray(parsed)) setRecentStarterIdeaIds(parsed.filter((id) => parseStarterPlanIdeaKey(id)));
+        } catch {
+          // Ignore old or malformed local starter-memory data.
+        }
+      }
+      const existingAnonymousKey = await AsyncStorage.getItem(ANONYMOUS_PLAN_IDEA_STORAGE_KEY).catch(() => null);
+      if (existingAnonymousKey) {
+        if (mounted) setAnonymousStarterKey(existingAnonymousKey);
+        return;
+      }
+      const nextAnonymousKey = createAnonymousPlanIdeaKey();
+      await AsyncStorage.setItem(ANONYMOUS_PLAN_IDEA_STORAGE_KEY, nextAnonymousKey).catch(() => undefined);
+      if (mounted) setAnonymousStarterKey(nextAnonymousKey);
+    }
+    void hydrateStarterMemory().catch(() => undefined);
+    return () => { mounted = false; };
+  }, []);
 
   const load = useCallback(async ({ refresh = false }: { refresh?: boolean } = {}) => {
     if (!isPlansVisible()) { setLoading(false); return; }
-    if (refresh) setRefreshing(true); else setLoading(true);
+    if (refresh) {
+      setRefreshing(true);
+      setStarterRefreshKey((current) => current + 1);
+    } else setLoading(true);
     setError(null);
     try {
-      const response = scope === 'mine' ? await api.plans.mine() : scope === 'joined' ? await api.plans.joined() : await api.plans.feed();
-      setPlans(response.plans ?? []);
+      const response = scope === 'mine' ? await api.plans.mine() : scope === 'joined' ? await api.plans.joined() : await api.plans.feed(buildPlanFeedQuery(activeFilters, activeSearchQuery));
+      const nextPlans = response.plans ?? [];
+      setPlans(scope === 'feed' ? applyPlanFilters(nextPlans, activeFilters, activeSearchQuery) : nextPlans);
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
       setPlans([]);
@@ -552,9 +888,29 @@ function PlanList({ scope, navigation }: { scope: PlanListScope; navigation: Pic
       setLoading(false);
       setRefreshing(false);
     }
-  }, [scope]);
+  }, [scope, activeFilters, activeSearchQuery]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  const isDeckFeed = scope === 'feed';
+  const hasActiveSearchOrFilters = Boolean(activeFilters.length || activeSearchQuery);
+  const starterIdeas = useMemo(() => selectStarterPlanIdeaKeys({
+    realPlanCount: plans.length,
+    hasActiveSearchOrFilters: !isDeckFeed || hasActiveSearchOrFilters,
+    userKey: auth.user?.id ?? anonymousStarterKey,
+    refreshKey: starterRefreshKey,
+    recentIdeaIds: recentStarterIdeaIds,
+  }), [anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, isDeckFeed, plans.length, recentStarterIdeaIds.join('|'), starterRefreshKey]);
+  const feedItems = useMemo(() => buildPlanFeedItems(plans.length, starterIdeas), [plans.length, starterIdeas.join('|')]);
+
+  const markStarterIdeaSeen = useCallback((ideaKey: StarterPlanIdeaKey) => {
+    setRecentStarterIdeaIds((current) => {
+      const next = mergeRecentStarterPlanIdeaIds(current, [ideaKey]);
+      void AsyncStorage.setItem(RECENT_PLAN_IDEA_STORAGE_KEY, JSON.stringify(next)).catch(() => undefined);
+      return next;
+    });
+    navigation.navigate('PlanIdeaDetail', { ideaId: ideaKey });
+  }, [navigation]);
 
   if (loading) {
     return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Plans...</AppText></View>;
@@ -562,16 +918,16 @@ function PlanList({ scope, navigation }: { scope: PlanListScope; navigation: Pic
 
   if (error) return <InfoNotice tone="warning" title="Could not load Plans" body={error} />;
 
-  if (plans.length === 0) {
+  if (plans.length === 0 && starterIdeas.length === 0) {
     const body = scope === 'mine'
       ? 'Created Plans will appear here once you create one.'
       : scope === 'joined'
         ? 'Plans you join will appear here.'
-        : 'Open Plans will appear here once people start creating them.';
+        : hasActiveSearchOrFilters
+          ? 'No Plans match this search and filters yet. Try changing the search words or resetting one or two filters.'
+          : 'Open Plans will appear here once people start creating them.';
     return <EmptyBlock title="No Plans yet" body={body} actionLabel={scope === 'mine' ? 'Create plan' : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlan') : undefined} />;
   }
-
-  const isDeckFeed = scope === 'feed';
 
   return (
     <ScrollView
@@ -579,10 +935,26 @@ function PlanList({ scope, navigation }: { scope: PlanListScope; navigation: Pic
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
     >
-      {plans.map((plan, index) => (
-        isDeckFeed
-          ? <PlanDeckSection key={plan.id} plan={plan} index={index} total={plans.length} onPress={() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title })} />
-          : <PlanRow key={plan.id} plan={plan} onPress={() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title })} />
+      {scope === 'feed' && hasActiveSearchOrFilters ? (
+        <InfoNotice tone="info" title={`${activePlanFilterCount(activeFilters, activeSearchQuery)} active Plan filter${activePlanFilterCount(activeFilters, activeSearchQuery) === 1 ? '' : 's'}`} body={activeFilterSummary || 'Filtered Plan results'} />
+      ) : null}
+      {isDeckFeed ? feedItems.map((item, index) => {
+        if (item.type === 'idea') {
+          return (
+            <PlanIdeaDeckSection
+              key={`idea-${item.ideaKey}`}
+              ideaKey={item.ideaKey}
+              index={index}
+              total={feedItems.length}
+              onPress={() => markStarterIdeaSeen(item.ideaKey)}
+            />
+          );
+        }
+        const plan = plans[item.planIndex];
+        if (!plan) return null;
+        return <PlanDeckSection key={plan.id} plan={plan} index={index} total={feedItems.length} onPress={() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title })} />;
+      }) : plans.map((plan) => (
+        <PlanRow key={plan.id} plan={plan} onPress={() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title })} />
       ))}
     </ScrollView>
   );
@@ -605,12 +977,36 @@ function PlanDeckSection({ plan, index, total, onPress }: { plan: PlanDto; index
   );
 }
 
+function PlanIdeaDeckSection({ ideaKey, index, total, onPress }: { ideaKey: StarterPlanIdeaKey; index: number; total: number; onPress: () => void }) {
+  const theme = useThemeTokens();
+  const idea = starterPlanIdeas[ideaKey];
+  const plan = useMemo(() => planIdeaPreviewPlan(idea), [idea]);
+  return (
+    <View style={styles.deckSection}>
+      <View style={styles.deckSectionHeader}>
+        <View style={styles.deckSectionCopy}>
+          <View style={styles.rowTop}>
+            <SemanticBadge label="Plan idea" tone="instruction" size="sm" />
+            <SemanticBadge label={idea.pack} tone="plan" size="sm" />
+          </View>
+          <AppText style={styles.deckSectionTitle} numberOfLines={1}>{idea.title}</AppText>
+          <AppText style={[styles.deckSectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{idea.stops.length} starter stops · Create your version</AppText>
+        </View>
+        <SemanticBadge label={`${index + 1}/${total}`} tone="muted" size="sm" />
+      </View>
+      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={onPress} />
+    </View>
+  );
+}
+
 function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'> }) {
   const theme = useThemeTokens();
   const [places, setPlaces] = useState<PlaceDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [archivingPlaceId, setArchivingPlaceId] = useState<string | null>(null);
 
   const load = useCallback(async ({ refresh = false }: { refresh?: boolean } = {}) => {
     if (!isPlansVisible()) { setLoading(false); return; }
@@ -618,7 +1014,7 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
     setError(null);
     try {
       const response = scope === 'library' ? await api.places.library() : await api.places.mine();
-      setPlaces(response.places ?? []);
+      setPlaces((response.places ?? []).filter((place) => place.status !== 'archived'));
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
       setPlaces([]);
@@ -629,6 +1025,37 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
   }, [scope]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  function confirmArchivePlace(place: PlaceDto) {
+    if (scope !== 'mine' || place.source !== 'user') return;
+    Alert.alert(
+      'Delete Place?',
+      'This removes the Place from My Places and future Plan pickers. Existing Plans keep their saved Place details.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => { void archivePlace(place); },
+        },
+      ],
+    );
+  }
+
+  async function archivePlace(place: PlaceDto) {
+    setArchivingPlaceId(place.id);
+    setError(null);
+    setMessage(null);
+    try {
+      await api.places.archive(place.id);
+      setPlaces((current) => current.filter((item) => item.id !== place.id));
+      setMessage(`${place.title} was removed from My Places.`);
+    } catch (caughtError) {
+      setError(getFriendlyApiErrorMessage(caughtError, 'Could not delete Place.'));
+    } finally {
+      setArchivingPlaceId(null);
+    }
+  }
 
   if (loading) {
     return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Places...</AppText></View>;
@@ -646,7 +1073,17 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
     >
-      {places.map((place) => <PlaceRow key={place.id} place={place} />)}
+      {message ? <InfoNotice tone="success" title="My Places" body={message} /> : null}
+      {scope === 'mine' ? <InfoNotice tone="info" title="Reusable Places" body="Edit your saved Places here. Delete archives the Place from future pickers, while existing Plans keep their saved details." /> : null}
+      {places.map((place) => (
+        <PlaceRow
+          key={place.id}
+          place={place}
+          onEdit={scope === 'mine' && place.source === 'user' ? () => navigation.navigate('CreatePlace', { editPlace: place }) : undefined}
+          onArchive={scope === 'mine' && place.source === 'user' ? () => confirmArchivePlace(place) : undefined}
+          archiving={archivingPlaceId === place.id}
+        />
+      ))}
     </ScrollView>
   );
 }
@@ -655,7 +1092,7 @@ function EmptyBlock({ title, body, actionLabel, onAction }: { title: string; bod
   const theme = useThemeTokens();
   return (
     <View style={[styles.emptyBlock, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-      <MobileIcon name="calendar" size={28} color={theme.color.muted} />
+      <MobileIcon name="plan" size={28} color={theme.color.muted} />
       <AppText style={styles.emptyTitle}>{title}</AppText>
       <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{body}</AppText>
       {actionLabel && onAction ? (
@@ -680,13 +1117,16 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
   const fallbackNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const navigation = (props.navigation ?? fallbackNavigation) as NativeStackNavigationProp<RootStackParamList>;
   const theme = useThemeTokens();
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const routeParams = props.route?.params as PlanFilterRouteParams | undefined;
+  const activeFilters = normalizePlanFilters(routeParams?.filters);
+  const activeSearchQuery = normalizePlanSearchQuery(routeParams?.q);
+  const activeFilterCount = activePlanFilterCount(activeFilters, activeSearchQuery);
   const [menuOpen, setMenuOpen] = useState(false);
 
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
 
   const menuItems: PlanMenuItem[] = [
-    { title: 'My plans', body: 'Plans you created.', icon: 'calendar', onPress: () => { setMenuOpen(false); navigation.navigate('MyPlans'); } },
+    { title: 'My plans', body: 'Plans you created.', icon: 'plan', onPress: () => { setMenuOpen(false); navigation.navigate('MyPlans'); } },
     { title: 'Joined plans', body: 'Plans you joined freely.', icon: 'activity', onPress: () => { setMenuOpen(false); navigation.navigate('JoinedPlans'); } },
     { title: 'My places', body: 'Reusable offline or online places.', icon: 'save', onPress: () => { setMenuOpen(false); navigation.navigate('MyPlaces'); } },
     { title: 'Hellowhen Place Library', body: 'Starter/library places for Plans.', icon: 'search', onPress: () => { setMenuOpen(false); navigation.navigate('PlaceLibrary'); } },
@@ -700,8 +1140,8 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
         <AppText style={styles.feedTitle}>Plans</AppText>
       </View>
       <View style={styles.headerActions}>
-        <HeaderAction icon="filter" label="Filter Plans" onPress={() => { setFiltersOpen((value) => !value); setMenuOpen(false); }} />
-        <HeaderAction icon="more" label="Open Plan menu" onPress={() => { setMenuOpen((value) => !value); setFiltersOpen(false); }} />
+        <HeaderAction icon="filter" label={activeFilterCount ? `Filter Plans, ${activeFilterCount} active` : 'Filter Plans'} badgeCount={activeFilterCount} onPress={() => { setMenuOpen(false); navigation.navigate('PlanFilters', { filters: activeFilters, q: activeSearchQuery || undefined }); }} />
+        <HeaderAction icon="activity" label="Open Plan menu" onPress={() => setMenuOpen((value) => !value)} />
         <HeaderAction icon="add" label="Create Plan" onPress={() => navigation.navigate('CreatePlan')} />
       </View>
     </View>
@@ -710,24 +1150,120 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
   return (
     <AppFixedHeaderScreen header={header}>
       <View style={styles.bodyWrap}>
-        {filtersOpen ? (
-          <View style={[styles.filterNotice, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-            <View style={[styles.menuIcon, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
-              <MobileIcon name="filter" size={17} color={theme.semantic.plan.text} />
-            </View>
-            <View style={styles.menuCopy}>
-              <AppText style={styles.menuTitle}>Open Plans feed</AppText>
-              <AppText style={[styles.menuBody, { color: theme.color.muted }]}>This feed shows public Plans. My plans, joined Plans, and Places live in the menu.</AppText>
-            </View>
-          </View>
-        ) : null}
         {menuOpen ? (
           <View style={[styles.menuPanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
             {menuItems.map((item) => <MenuItem key={item.title} item={item} />)}
           </View>
         ) : null}
-        <PlanList scope="feed" navigation={navigation} />
+        <PlanList scope="feed" navigation={navigation} filters={activeFilters} searchQuery={activeSearchQuery} />
       </View>
+    </AppFixedHeaderScreen>
+  );
+}
+
+export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'>> = {}) {
+  const fallbackNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = (props.navigation ?? fallbackNavigation) as NativeStackNavigationProp<RootStackParamList>;
+  const theme = useThemeTokens();
+  const incomingParams = props.route?.params as PlanFilterRouteParams | undefined;
+  const incomingFilters = normalizePlanFilters(incomingParams?.filters);
+  const incomingQuery = normalizePlanSearchQuery(incomingParams?.q);
+  const incomingFilterKey = incomingFilters.join('|');
+  const [selectedFilters, setSelectedFilters] = useState<string[]>(incomingFilters);
+  const [searchQuery, setSearchQuery] = useState(incomingQuery);
+  const normalizedSearchQuery = normalizePlanSearchQuery(searchQuery);
+  const activeCount = activePlanFilterCount(selectedFilters, normalizedSearchQuery);
+
+  useEffect(() => {
+    setSelectedFilters(incomingFilters);
+    setSearchQuery(incomingQuery);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingFilterKey, incomingQuery]);
+
+  function toggle(value: string) {
+    setSelectedFilters((current) => toggleFilterValue(current, value));
+  }
+
+  function reset() {
+    setSelectedFilters([]);
+    setSearchQuery('');
+  }
+
+  return (
+    <AppFixedHeaderScreen header={<AppHeader title="Plan filters" onBack={() => navigation.goBack()} />}>
+      <ScrollView contentContainerStyle={styles.planFilterContent} showsVerticalScrollIndicator={false}>
+        <View style={[styles.hero, styles.planFilterHero, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+          <View style={[styles.menuIcon, { backgroundColor: theme.color.surface, borderColor: theme.semantic.plan.border }]}>
+            <MobileIcon name="filter" size={18} color={theme.semantic.plan.text} />
+          </View>
+          <AppText style={styles.heroTitle}>Find the right Plan</AppText>
+          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Search words and filter choices stay attached to the feed so we can learn what people look for later.</AppText>
+        </View>
+
+        <View style={[styles.planFilterSearchCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+          <AppText style={styles.formLabel}>Search</AppText>
+          <View style={[styles.planFilterSearchInputWrap, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
+            <MobileIcon name="search" size={18} color={theme.color.muted} />
+            <TextInput
+              value={searchQuery}
+              onChangeText={(value) => setSearchQuery(value.slice(0, 120))}
+              placeholder="Search plans, places, titles..."
+              placeholderTextColor={theme.color.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+              style={[styles.planFilterSearchInput, { color: theme.color.text }]}
+            />
+            {normalizedSearchQuery ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="Clear Plan search" onPress={() => setSearchQuery('')} style={({ pressed }) => [styles.planFilterSearchClear, { backgroundColor: theme.semantic.plan.softBg }, pressed && styles.pressed]}>
+                <AppText style={[styles.planFilterSearchClearText, { color: theme.semantic.plan.text }]}>Clear</AppText>
+              </Pressable>
+            ) : null}
+          </View>
+          <AppText style={[styles.choiceMeta, { color: theme.color.muted }]}>Search words are preserved with your filters. Result counts are logged privately for future Plan suggestions.</AppText>
+        </View>
+
+        {planFilterGroups.map((group) => (
+          <View key={group.title} style={[styles.planFilterGroup, { borderColor: theme.color.border }]}>
+            <View style={styles.placeCreateSectionHeader}>
+              <AppText style={styles.sectionTitle}>{group.title}</AppText>
+              <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{group.body}</AppText>
+            </View>
+            <View style={styles.planFilterOptionGrid}>
+              {group.options.map((option) => {
+                const selected = selectedFilters.includes(option.value);
+                return (
+                  <Pressable
+                    key={option.value}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => toggle(option.value)}
+                    style={({ pressed }) => [
+                      styles.planFilterOption,
+                      { backgroundColor: theme.color.surface, borderColor: theme.color.border },
+                      selected && { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <View style={[styles.planFilterCheck, { borderColor: selected ? theme.semantic.plan.border : theme.color.border, backgroundColor: selected ? theme.semantic.plan.text : 'transparent' }]}>
+                      {selected ? <MobileIcon name="close" size={11} color={theme.color.background} /> : null}
+                    </View>
+                    <View style={styles.planFilterOptionCopy}>
+                      <AppText style={[styles.choiceTitle, selected && { color: theme.semantic.plan.text }]}>{option.label}</AppText>
+                      {option.body ? <AppText style={[styles.choiceMeta, { color: theme.color.muted }]}>{option.body}</AppText> : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ))}
+
+        <View style={styles.planFilterFooter}>
+          <SecondaryButton label="Reset" icon="refresh" onPress={reset} disabled={activeCount === 0} />
+          <PrimaryButton label={activeCount ? `Show plans (${activeCount})` : 'Show plans'} onPress={() => navigation.navigate('Plans', activeCount ? { filters: selectedFilters, q: normalizedSearchQuery || undefined } : undefined)} />
+        </View>
+      </ScrollView>
     </AppFixedHeaderScreen>
   );
 }
@@ -823,7 +1359,7 @@ function PlanPlaceTimelineCard({ place, index, planStartsAt, showReport }: { pla
             </View>
             {mediaUrl ? (
               <View style={styles.planRouteImageWrap}>
-                <Image source={{ uri: mediaUrl }} resizeMode="cover" style={styles.planRouteImage} />
+                <Image source={{ uri: mediaUrl }} resizeMode="cover" style={styles.planRouteImage as ImageStyle} />
               </View>
             ) : null}
           </View>
@@ -920,6 +1456,38 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
     }
   }
 
+  function cancelPlan() {
+    if (!plan || !canCancelPlan || busy) return;
+    Alert.alert(
+      'Cancel Plan?',
+      'People will no longer be able to join, but the Plan will remain visible with a Cancelled status.',
+      [
+        { text: 'Keep Plan', style: 'cancel' },
+        {
+          text: 'Cancel Plan',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setBusy(true);
+              setError(null);
+              setActionMessage(null);
+              setActionError(null);
+              try {
+                await api.plans.update(plan.id, { status: 'cancelled' });
+                setActionMessage('Plan cancelled. It remains visible with a Cancelled status.');
+                await load();
+              } catch (caughtError) {
+                setActionError(getFriendlyApiErrorMessage(caughtError));
+              } finally {
+                setBusy(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }
+
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
 
   const isOwner = Boolean(auth.user?.id && plan?.ownerId === auth.user.id);
@@ -927,6 +1495,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   const isJoined = participantStatus === 'accepted';
   const canJoin = Boolean(plan && auth.user && !isOwner && canJoinPlanFromParticipantStatus(participantStatus) && plan.status === 'open');
   const canLeave = Boolean(plan && !isOwner && isJoined);
+  const canCancelPlan = Boolean(plan && isOwner && plan.status !== 'cancelled');
   const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus) : '';
   const places = plan ? sortedPlanPlaces(plan) : [];
   const acceptedParticipants = plan ? getAcceptedParticipants(plan) : [];
@@ -1053,7 +1622,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
             <View style={styles.detailSectionHeader}>
               <View style={styles.detailSectionCopy}>
                 <AppText style={styles.sectionTitle}>Actions</AppText>
-                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isOwner ? 'Manage and share this Plan.' : getPlanJoinActionCopy(plan)}</AppText>
+                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isOwner ? 'Share this Plan or cancel it. Editing is locked after publishing.' : getPlanJoinActionCopy(plan)}</AppText>
               </View>
               {!isOwner ? <SemanticBadge label={getPlanJoinModeLabel(plan)} tone="proposal" size="sm" /> : <SemanticBadge label="Owner" tone="plan" size="sm" />}
             </View>
@@ -1062,8 +1631,27 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                 <View style={[styles.planOwnerManageRow, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
                   <MobileIcon name="profile" size={18} color={theme.semantic.plan.text} />
                   <View style={styles.feedTitleWrap}>
-                    <AppText style={styles.planOwnerManageTitle}>You own this plan</AppText>
-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Review joined people here. Use Share to invite more people.</AppText>
+                    <AppText style={styles.planOwnerManageTitle}>Manage Plan</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Share this Plan or cancel it. Places and times are locked after publishing.</AppText>
+                  </View>
+                </View>
+              ) : null}
+              {isOwner ? (
+                <Pressable disabled={sharing} accessibilityRole="button" onPress={() => { void sharePlan(); }} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, sharing && styles.disabled]}>
+                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{sharing ? 'Sharing...' : 'Share plan'}</AppText>
+                </Pressable>
+              ) : null}
+              {canCancelPlan ? (
+                <Pressable disabled={busy} accessibilityRole="button" onPress={cancelPlan} style={({ pressed }) => [styles.dangerButton, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, busy && styles.disabled]}>
+                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? 'Cancelling...' : 'Cancel plan'}</AppText>
+                </Pressable>
+              ) : null}
+              {isOwner && plan.status === 'cancelled' ? (
+                <View style={[styles.joinedState, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }]}>
+                  <MobileIcon name="close" size={18} color={theme.semantic.danger.text} />
+                  <View style={styles.feedTitleWrap}>
+                    <AppText style={[styles.joinedStateText, { color: theme.semantic.danger.text }]}>This Plan is cancelled</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>It remains visible for context, but people can no longer join.</AppText>
                   </View>
                 </View>
               ) : null}
@@ -1199,6 +1787,15 @@ function PillButton({ label, onPress, active, disabled }: { label: string; onPre
   );
 }
 
+function PrimaryButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
+  const theme = useThemeTokens();
+  return (
+    <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.place.bg }, pressed && styles.pressed, disabled && styles.disabled]}>
+      <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{label}</AppText>
+    </Pressable>
+  );
+}
+
 function SecondaryButton({ label, onPress, disabled, icon }: { label: string; onPress: () => void; disabled?: boolean; icon?: MobileIconName }) {
   const theme = useThemeTokens();
   return (
@@ -1214,10 +1811,11 @@ function PlaceChoiceCard({ place, onAdd }: { place: PlaceDto; onAdd: () => void 
   const meta = [place.mode === 'remote' ? 'Online' : 'Offline', place.category, place.areaLabel || place.addressPublicText || place.onlineLabel]
     .filter((value): value is string => Boolean(value && value.trim()))
     .join(' · ');
+  const mediaUrl = activeMediaUrl(activeMedia(place.media)[0]);
   return (
     <Pressable accessibilityRole="button" onPress={onAdd} style={({ pressed }) => [styles.choiceCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
       <View style={[styles.choiceIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
-        <MobileIcon name={place.mode === 'remote' ? 'send' : 'calendar'} size={18} color={theme.semantic.place.text} />
+        {mediaUrl ? <Image source={{ uri: mediaUrl }} resizeMode="cover" style={styles.choiceImage as ImageStyle} /> : <MobileIcon name={place.mode === 'remote' ? 'send' : 'calendar'} size={18} color={theme.semantic.place.text} />}
       </View>
       <View style={styles.choiceCopy}>
         <View style={styles.rowTop}>
@@ -1237,8 +1835,14 @@ function PlaceChoiceCard({ place, onAdd }: { place: PlaceDto; onAdd: () => void 
 function PlaceTimelineRow({ place, index, onPress }: { place: SelectedPlanPlaceState; index: number; onPress: () => void }) {
   const theme = useThemeTokens();
   const meta = placePreviewLocation(place) || 'No location yet';
+  const mediaUrl = activeMediaUrl(place.existingMedia);
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.placeTimelineRow, { borderColor: theme.color.border }, pressed && styles.pressed]}>
+      {mediaUrl ? (
+        <View style={styles.placeTimelineMedia}>
+          <Image source={{ uri: mediaUrl }} resizeMode="cover" style={styles.placeTimelineMediaImage as ImageStyle} />
+        </View>
+      ) : null}
       <View style={styles.timelineCopy}>
         <View style={styles.rowTop}>
           <SemanticBadge label={`Place ${index + 1}`} tone="place" size="sm" />
@@ -1319,6 +1923,79 @@ function AdvancedPlanDetailsCard({
   );
 }
 
+export function PlanIdeaDetailScreen({ route, navigation }: PlanIdeaDetailProps) {
+  const theme = useThemeTokens();
+  const auth = useAuth();
+  const ideaKey = parseStarterPlanIdeaKey(route.params.ideaId);
+  const idea = ideaKey ? starterPlanIdeas[ideaKey] : null;
+
+  function createVersion() {
+    if (!ideaKey) return;
+    if (!auth.isAuthenticated) {
+      navigation.navigate('Login');
+      return;
+    }
+    navigation.navigate('CreatePlan', { initialPlanIdeaKey: ideaKey });
+  }
+
+  if (!idea) {
+    return (
+      <AppFixedHeaderScreen header={<AppHeader title="Plan idea" onBack={() => navigation.goBack()} />}>
+        <View style={styles.listContent}>
+          <InfoNotice tone="warning" title="Plan idea not found" body="This starter Plan idea is not available anymore. You can still create a Plan from scratch." />
+          <PrimaryButton label="Create Plan" onPress={() => navigation.navigate('CreatePlan')} />
+        </View>
+      </AppFixedHeaderScreen>
+    );
+  }
+
+  return (
+    <AppFixedHeaderScreen header={<AppHeader title="Plan idea" onBack={() => navigation.goBack()} />}>
+      <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
+        <View style={[styles.hero, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+          <SemanticBadge label={`Plan idea · ${idea.pack}`} tone="instruction" />
+          <AppText style={styles.heroTitle}>{idea.title}</AppText>
+          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{idea.description}</AppText>
+          <View style={styles.previewInlineMeta}>
+            <SemanticBadge label={`${idea.stops.length} stops`} tone="place" size="sm" />
+            <SemanticBadge label={starterPlanIdeaMode(idea) === 'remote' ? 'Online' : 'Local'} tone="plan" size="sm" />
+            <SemanticBadge label="Template" tone="muted" size="sm" />
+          </View>
+        </View>
+
+        <InfoNotice tone="instruction" title="Customize first" body="This is a transparent starter Plan idea, not a real user Plan. Review the stops, change anything, then create your own version." />
+
+        <View style={[styles.timelineDividerBlock, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
+          {idea.stops.map((stop, index) => (
+            <View key={`${idea.id}-${stop.title}`} style={[styles.previewPlaceRow, { borderTopColor: theme.color.border }]}>
+              <View style={[styles.timelineNumber, { backgroundColor: theme.semantic.place.softBg }]}>
+                <AppText style={[styles.timelineNumberText, { color: theme.semantic.place.text }]}>{index + 1}</AppText>
+              </View>
+              <View style={styles.timelineCopy}>
+                <View style={styles.rowTop}>
+                  <SemanticBadge label={stop.mode === 'remote' ? 'Online' : 'Offline'} tone="place" size="sm" />
+                  <SemanticBadge label={stop.time} tone="time" size="sm" />
+                </View>
+                <AppText style={styles.rowTitle}>{stop.title}</AppText>
+                <AppText style={[styles.metaText, { color: theme.color.muted }]}>{stop.mode === 'remote' ? (stop.onlineLabel || 'Online place') : (stop.location || 'Public meeting point')}</AppText>
+              </View>
+            </View>
+          ))}
+        </View>
+
+        <View style={[styles.formCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+          <AppText style={styles.sectionTitle}>Next step</AppText>
+          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Create your version opens the normal Create Plan flow with these stops prefilled. Nothing is published until you review and tap Create Plan.</AppText>
+          <View style={styles.actionGrid}>
+            <SecondaryButton label="Back to Plans" onPress={() => navigation.navigate('Plans')} />
+            <PrimaryButton label="Create your version" onPress={createVersion} />
+          </View>
+        </View>
+      </ScrollView>
+    </AppFixedHeaderScreen>
+  );
+}
+
 export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'CreatePlan'>) {
   const theme = useThemeTokens();
   const [places, setPlaces] = useState<SelectedPlanPlaceState[]>([]);
@@ -1337,6 +2014,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   const [detailPlaceIndex, setDetailPlaceIndex] = useState<number | null>(null);
   const [advancedDetailsOpen, setAdvancedDetailsOpen] = useState(false);
   const handledCreatedPlaceNonceRef = useRef<number | undefined>(undefined);
+  const handledInitialPlanIdeaRef = useRef<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -1387,6 +2065,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
       startsAt: schedule.placeStartsAt[index] ?? null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      media: place.existingMedia ? [place.existingMedia] : undefined,
     })),
   }) as PlanDto, [advancedDetails.category, advancedDetails.tags, explicitPlanEnd.endsAt, places, placesForGeneratedDisplay, previewDescription, previewTitle, schedule.endsAt, schedule.placeStartsAt, schedule.startsAt]);
 
@@ -1406,6 +2085,17 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   }, []);
 
   useFocusEffect(useCallback(() => { void loadReusablePlaces(); }, [loadReusablePlaces]));
+
+  useEffect(() => {
+    const ideaKey = parseStarterPlanIdeaKey(route.params?.initialPlanIdeaKey);
+    if (!ideaKey || handledInitialPlanIdeaRef.current === ideaKey || places.length > 0) return;
+    const idea = starterPlanIdeas[ideaKey];
+    const date = toDateInputValue();
+    handledInitialPlanIdeaRef.current = ideaKey;
+    setPlaces(idea.stops.map((stop, index) => selectedPlaceFromPlanIdeaStop(stop, index, date)));
+    setMessage('Starter Plan idea loaded. Review or change the stops before publishing.');
+    navigation.setParams({ initialPlanIdeaKey: undefined });
+  }, [navigation, places.length, route.params?.initialPlanIdeaKey]);
 
 
   useEffect(() => {
@@ -1584,6 +2274,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
           onlineUrl: place.mode === 'remote' ? place.onlineUrl.trim() || undefined : undefined,
           startsAt: nextSchedule.placeStartsAt[index],
           order: index,
+          mediaIds: selectedPlaceMediaIds(place),
         })),
       });
       navigation.replace('PlanDetail', { planId: response.plan.id, title: response.plan.title });
@@ -1840,24 +2531,57 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
 export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'CreatePlace'>) {
   const theme = useThemeTokens();
+  const { language } = useTranslation();
   const editPlace = route.params?.editPlace;
   const copyFromPlace = route.params?.copyFromPlace;
+  const returnToPlan = Boolean(route.params?.returnToCreatePlan);
   const isEditing = Boolean(editPlace);
-  const [state, setState] = useState<PlaceCreateFormState>(() => editPlace ? placeCreateFormFromPlace(editPlace) : copyFromPlace ? placeCreateFormFromPlace(copyFromPlace) : makePlaceCreateForm());
+  const [state, setState] = useState<PlaceCreateFormState>(() => editPlace ? placeCreateFormFromPlace(editPlace) : copyFromPlace ? placeCreateFormFromPlace(copyFromPlace) : makePlaceCreateForm(normalizePlaceLanguage(language)));
+  const [step, setStep] = useState<PlaceCreateStep>('details');
+  const [translationPanelOpen, setTranslationPanelOpen] = useState(() => placeHasTranslationContent(editPlace ?? copyFromPlace));
+  const [existingMedia, setExistingMedia] = useState<MediaAssetDto[]>(() => isEditing ? reusablePlaceMediaForEdit(editPlace) : []);
+  const [newImages, setNewImages] = useState<SelectedLocalImage[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<SelectedImageUploadProgress | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (isEditing || copyFromPlace) return;
+    const appLanguage = normalizePlaceLanguage(language);
+    setState((current) => {
+      if (current.defaultLanguage === appLanguage || current.translations.length) return current;
+      return { ...current, defaultLanguage: appLanguage };
+    });
+  }, [copyFromPlace, isEditing, language]);
+
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
 
-  async function submit() {
-    if (state.title.trim().length < 3) { setError('Add a Place name.'); return; }
+  function goToImageStep() {
+    if (state.title.trim().length < 3) { setError('Add a Place name before adding an image.'); return; }
     const translationError = validatePlaceTranslations(state);
-    if (translationError) { setError(translationError); return; }
+    if (translationError) { setTranslationPanelOpen(true); setError(translationError); return; }
+    setError(null);
+    setMessage(null);
+    setStep('image');
+  }
+
+  function removeExistingImage(mediaId: string) {
+    if (saving) return;
+    setExistingMedia((current) => current.filter((item) => item.id !== mediaId));
+  }
+
+  async function submit() {
+    if (state.title.trim().length < 3) { setError('Add a Place name.'); setStep('details'); return; }
+    const translationError = validatePlaceTranslations(state);
+    if (translationError) { setTranslationPanelOpen(true); setError(translationError); setStep('details'); return; }
     setSaving(true);
     setError(null);
     setMessage(null);
+    setUploadProgress(null);
     try {
+      const uploadedMediaIds = await uploadSelectedImages(newImages.slice(0, 1), { onProgress: setUploadProgress });
+      const mediaIds = [...existingMedia.map((item) => item.id), ...uploadedMediaIds].slice(0, 1);
       const body = {
         mode: state.mode,
         title: state.title,
@@ -1869,8 +2593,11 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
         addressPublicText: state.mode === 'local' ? state.location.trim() || undefined : undefined,
         onlineLabel: state.mode === 'remote' ? state.onlineLabel.trim() || undefined : undefined,
         onlineUrl: state.mode === 'remote' ? state.onlineUrl.trim() || undefined : undefined,
+        mediaIds,
       };
       const response = isEditing && editPlace ? await api.places.update(editPlace.id, body) : await api.places.create(body);
+      setExistingMedia(reusablePlaceMediaForEdit(response.place));
+      setNewImages([]);
       if (route.params?.returnToCreatePlan) {
         if (isEditing) {
           navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params.targetPlaceIndex, updatedPlaceNonce: Date.now() });
@@ -1880,13 +2607,25 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
         return;
       }
       setMessage(isEditing ? `${response.place.title} was updated.` : `${response.place.title} was saved to My Places.`);
-      if (!isEditing) setState(makePlaceCreateForm());
+      if (!isEditing) {
+        setState(makePlaceCreateForm(normalizePlaceLanguage(language)));
+        setTranslationPanelOpen(false);
+        setExistingMedia([]);
+        setNewImages([]);
+        setStep('details');
+      }
     } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError));
+      setError(getPlaceUploadErrorMessage(caughtError));
     } finally {
+      setUploadProgress(null);
       setSaving(false);
     }
   }
+
+  const uploadProgressLabel = formatPlaceUploadProgress(uploadProgress);
+  const selectedExistingMedia = existingMedia[0];
+  const selectedExistingMediaUrl = activeMediaUrl(selectedExistingMedia);
+  const imageSlotFilled = Boolean(selectedExistingMedia || newImages.length > 0);
 
   return (
     <AppFixedHeaderScreen header={<AppHeader title={isEditing ? 'Edit place' : 'Create place'} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label="My Places" onPress={() => navigation.navigate('MyPlaces')} />} />}>
@@ -1895,79 +2634,145 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
           <View style={styles.placeCreateCompactHeader}>
             <SemanticBadge label="My Place" tone="place" />
             <AppText style={styles.placeCreateTitle}>{isEditing ? 'Edit Place' : 'Create Place'}</AppText>
-            <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? 'Update this reusable Place.' : copyFromPlace ? 'Save a private copy, then return to your Plan.' : 'Save an offline or online Place.'}</AppText>
+            <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? 'Update details and image for this reusable Place.' : copyFromPlace ? 'Save a private copy, add an optional image, then return to your Plan.' : 'Save an offline or online Place with an optional image.'}</AppText>
           </View>
-          <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: 'transparent', borderColor: theme.semantic.place.border }]}>
-            <View style={styles.placeCreateSectionHeader}>
-              <View style={styles.feedTitleWrap}>
-                <AppText style={styles.sectionTitle}>Place details</AppText>
-                <AppText style={[styles.metaText, { color: theme.color.muted }]}>Private by default.</AppText>
-              </View>
-            </View>
-            <View style={styles.placeCreateDividerBlock}>
-              <ModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
-            </View>
-            <TextField label="Place name" value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder="Quiet coffee near République" maxLength={120} />
-            {state.mode === 'remote' ? (
-              <>
-                <TextField label="Online label" value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder="Zoom, Discord, website" maxLength={120} />
-                <TextField label="Online URL" value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
-              </>
-            ) : (
-              <TextField label="Area / address" value={state.location} onChangeText={(location) => setState((current) => ({ ...current, location }))} placeholder="Paris 11 or a public spot" maxLength={240} />
-            )}
-            <TextField label="Description (optional)" value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder="Useful details for this Place." multiline maxLength={2000} />
-            <View style={styles.placeTranslationBlock}>
-              <View style={styles.placeTranslationSummaryRow}>
+          <View style={styles.placeStepRow}>
+            <PillButton label="1. Details" active={step === 'details'} disabled={saving} onPress={() => setStep('details')} />
+            <PillButton label="2. Image" active={step === 'image'} disabled={saving} onPress={goToImageStep} />
+          </View>
+          {step === 'details' ? (
+            <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: 'transparent', borderColor: theme.semantic.place.border }]}>
+              <View style={styles.placeCreateSectionHeader}>
                 <View style={styles.feedTitleWrap}>
-                  <AppText style={styles.formLabel}>Translations</AppText>
-                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>Original content: {placeLanguageLabel(state.defaultLanguage)}</AppText>
-                </View>
-                <View style={styles.filterRow}>
-                  {placeLanguageOptions.map((languageCode) => (
-                    <PillButton
-                      key={languageCode}
-                      label={placeLanguageLabel(languageCode)}
-                      active={state.defaultLanguage === languageCode}
-                      onPress={() => setState((current) => ({ ...current, defaultLanguage: languageCode, translations: current.translations.filter((translation) => translation.languageCode !== languageCode) }))}
-                    />
-                  ))}
+                  <AppText style={styles.sectionTitle}>Place details</AppText>
+                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>Private by default.</AppText>
                 </View>
               </View>
-              {state.translations.map((translation) => (
-                <View key={translation.languageCode} style={[styles.placeTranslationFields, { borderColor: theme.semantic.place.border, backgroundColor: theme.semantic.place.softBg }]}>
-                  <View style={styles.placeTranslationFieldsHeader}>
-                    <View style={styles.feedTitleWrap}>
-                      <AppText style={styles.formLabel}>{placeLanguageLabel(translation.languageCode)} translation</AppText>
-                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>Fill title and description for this language.</AppText>
-                    </View>
-                    <Pressable accessibilityRole="button" onPress={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))} style={({ pressed }) => [styles.pillButton, { borderColor: theme.semantic.danger.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
-                      <AppText style={[styles.pillButtonText, { color: theme.semantic.danger.text }]}>Remove</AppText>
-                    </Pressable>
-                  </View>
-                  <TextField label="Translated Place name" value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder="Translated place name" maxLength={120} />
-                  <TextField label="Translated description" value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder="Translated description" multiline maxLength={2000} />
-                </View>
-              ))}
-              {nextPlaceTranslationLanguage(state) ? (
-                <Pressable accessibilityRole="button" onPress={() => setState(addPlaceTranslationDraft)} style={({ pressed }) => [styles.placeTranslationAddRow, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
-                  <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={17} /></View>
+              <View style={styles.placeCreateDividerBlock}>
+                <ModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
+              </View>
+              <TextField label="Place name" value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder="Quiet coffee near République" maxLength={120} />
+              {state.mode === 'remote' ? (
+                <>
+                  <TextField label="Online label" value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder="Zoom, Discord, website" maxLength={120} />
+                  <TextField label="Online URL" value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
+                </>
+              ) : (
+                <TextField label="Area / address" value={state.location} onChangeText={(location) => setState((current) => ({ ...current, location }))} placeholder="Paris 11 or a public spot" maxLength={240} />
+              )}
+              <TextField label="Description (optional)" value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder="Useful details for this Place." multiline maxLength={2000} />
+              <View style={styles.placeTranslationBlock}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: translationPanelOpen }}
+                  onPress={() => setTranslationPanelOpen((open) => !open)}
+                  style={({ pressed }) => [styles.placeTranslationToggle, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}
+                >
                   <View style={styles.feedTitleWrap}>
-                    <AppText style={styles.placeTranslationAddTitle}>{state.translations.length ? 'Add another translation' : 'Add translation'}</AppText>
-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Translate Place name and description.</AppText>
+                    <AppText style={styles.placeTranslationAddTitle}>{translationPanelOpen ? 'Hide language options' : 'Language & translations'}</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{placeTranslationSummary(state)}</AppText>
                   </View>
-                  <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+                  <MobileIcon name={translationPanelOpen ? 'chevron-up' : 'chevron-down'} color={theme.color.muted} size={18} />
                 </Pressable>
+
+                {translationPanelOpen ? (
+                  <View style={styles.placeTranslationPanel}>
+                    <View style={styles.placeTranslationSummaryRow}>
+                      <View style={styles.feedTitleWrap}>
+                        <AppText style={styles.formLabel}>Languages</AppText>
+                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>Translations are optional. The original Place language follows your app language when you create a new Place.</AppText>
+                      </View>
+                      <SemanticBadge label={`Original content: ${placeLanguageLabel(state.defaultLanguage)}`} tone="place" />
+                    </View>
+
+                    {state.translations.map((translation) => (
+                      <View key={translation.languageCode} style={[styles.placeTranslationFields, { borderColor: theme.semantic.place.border, backgroundColor: theme.semantic.place.softBg }]}>
+                        <View style={styles.placeTranslationFieldsHeader}>
+                          <View style={styles.feedTitleWrap}>
+                            <AppText style={styles.formLabel}>Manual translation for {placeLanguageLabel(translation.languageCode)}</AppText>
+                            <AppText style={[styles.metaText, { color: theme.color.muted }]}>Complete both fields, or leave both empty and remove this language.</AppText>
+                          </View>
+                          <SecondaryButton label="Remove" onPress={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))} />
+                        </View>
+                        <TextField label="Translated Place name (optional)" value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder="Translated place name" maxLength={120} />
+                        <TextField label="Translated description (optional)" value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder="Translated description" multiline maxLength={2000} />
+                      </View>
+                    ))}
+
+                    {!state.translations.length ? (
+                      <AppText style={[styles.metaText, styles.placeTranslationEmptyText, { color: theme.color.muted }]}>Translations are optional. Add a language only if you want to write a manual translation for this Place.</AppText>
+                    ) : null}
+
+                    {availablePlaceTranslationLanguages(state).length ? (
+                      <View style={[styles.placeTranslationAddRow, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }]}>
+                        <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={16} /></View>
+                        <View style={styles.sourceOptionCopy}>
+                          <AppText style={styles.placeTranslationAddTitle}>{state.translations.length ? 'Add another language' : 'Add language'}</AppText>
+                          <AppText style={[styles.metaText, { color: theme.color.muted }]}>Manual translation</AppText>
+                          <View style={styles.placeLanguageChips}>
+                            {availablePlaceTranslationLanguages(state).map((languageCode) => (
+                              <PillButton
+                                key={languageCode}
+                                label={placeLanguageLabel(languageCode)}
+                                active={false}
+                                onPress={() => setState((current) => addPlaceTranslationDraft(current, languageCode))}
+                              />
+                            ))}
+                          </View>
+                        </View>
+                      </View>
+                    ) : (
+                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>All supported languages are already added.</AppText>
+                    )}
+                  </View>
+                ) : null}
+              </View>
+              {message ? <InfoNotice tone="success" body={message} /> : null}
+              {error ? <InfoNotice tone="danger" body={error} /> : null}
+              <View style={[styles.placeCreateActionFooter, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
+                <PrimaryButton label="Continue to image" onPress={goToImageStep} disabled={saving || state.title.trim().length < 3} />
+              </View>
+            </View>
+          ) : (
+            <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: 'transparent', borderColor: theme.semantic.place.border }]}>
+              <View style={styles.placeCreateSectionHeader}>
+                <View style={styles.feedTitleWrap}>
+                  <AppText style={styles.sectionTitle}>Place image</AppText>
+                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>Optional. One image can become the background for Plan cards later.</AppText>
+                </View>
+              </View>
+              {selectedExistingMedia && selectedExistingMediaUrl ? (
+                <View style={[styles.placeImagePreviewCard, { borderColor: theme.color.border, backgroundColor: theme.color.surface }]}>
+                  <Image source={{ uri: selectedExistingMediaUrl }} style={styles.placeImagePreview as ImageStyle} resizeMode="cover" />
+                  <View style={styles.placeImagePreviewFooter}>
+                    <View style={styles.feedTitleWrap}>
+                      <AppText style={styles.formLabel}>Current image</AppText>
+                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>Remove it to choose a different image.</AppText>
+                    </View>
+                    <SecondaryButton label="Remove" disabled={saving} onPress={() => removeExistingImage(selectedExistingMedia.id)} />
+                  </View>
+                </View>
               ) : null}
+              <ImagePickerField
+                images={newImages}
+                onChange={(images) => setNewImages(images.slice(0, 1))}
+                disabled={saving || Boolean(selectedExistingMedia)}
+                maxImages={1}
+                label="Place image"
+                hint={imageSlotFilled ? 'Remove the current image to choose another one.' : 'Add one photo that represents this Place.'}
+                reviewBody="Place images are optional and should show the location or online context without private/sensitive information."
+              />
+              {uploadProgressLabel ? <InfoNotice tone="info" title="Uploading image" body={uploadProgressLabel} /> : null}
+              {message ? <InfoNotice tone="success" body={message} /> : null}
+              {error ? <InfoNotice tone="danger" body={error} /> : null}
+              <View style={[styles.placeCreateActionFooter, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
+                <View style={styles.twoColumnRow}>
+                  <SecondaryButton label="Back" onPress={() => setStep('details')} disabled={saving} />
+                  <PrimaryButton label={saving ? uploadProgressLabel ? 'Uploading...' : 'Saving...' : returnToPlan ? isEditing ? 'Update and return' : 'Save and return' : isEditing ? 'Update Place' : 'Save Place'} onPress={() => { void submit(); }} disabled={saving || state.title.trim().length < 3} />
+                </View>
+              </View>
             </View>
-            {message ? <InfoNotice tone="success" title="Place saved" body={message} /> : null}
-            {error ? <InfoNotice tone="warning" title="Could not save Place" body={error} /> : null}
-            <View style={[styles.placeCreateActionFooter, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
-              <Pressable accessibilityRole="button" disabled={saving || state.title.trim().length < 3} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.place.bg }, pressed && styles.pressed, (saving || state.title.trim().length < 3) && styles.disabled]}>
-                <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? 'Saving...' : route.params?.returnToCreatePlan ? isEditing ? 'Update and return to Plan' : 'Save and return to Plan' : isEditing ? 'Update Place' : 'Save Place'}</AppText>
-              </Pressable>
-            </View>
-          </View>
+          )}
         </ScrollView>
         <KeyboardDoneAccessory />
       </KeyboardAvoidingView>
@@ -1986,7 +2791,9 @@ const styles = StyleSheet.create({
   feedTitleWrap: { flex: 1, gap: 6 },
   feedTitle: { fontSize: 35, lineHeight: 40, fontWeight: '900', letterSpacing: -1 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  headerAction: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  headerAction: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  headerActionBadge: { position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 9, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  headerActionBadgeText: { fontSize: 10, fontWeight: '900', lineHeight: 12 },
   filterRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   filterChip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
   filterChipText: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
@@ -2084,6 +2891,14 @@ const styles = StyleSheet.create({
   planDiscussionIcon: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   planDiscussionTitle: { fontSize: 14, lineHeight: 19, fontWeight: '900' },
   rowCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 9 },
+  placeRowContent: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  placeRowCopy: { flex: 1, minWidth: 0, gap: 7 },
+  placeThumb: { width: 58, height: 58, borderRadius: 18, borderWidth: 1, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  placeThumbImage: { width: '100%', height: '100%' },
+  choiceImage: { width: '100%', height: '100%' },
+  placeTimelineMedia: { width: 54, height: 54, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  placeTimelineMediaImage: { width: '100%', height: '100%' },
+  placeManageActions: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, flexDirection: 'row', gap: 8 },
   rowTop: { flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap' },
   rowTitle: { fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.3 },
   rowBody: { lineHeight: 20, fontWeight: '700' },
@@ -2114,6 +2929,8 @@ const styles = StyleSheet.create({
   joinedStateText: { fontWeight: '900' },
   secondaryButton: { minHeight: 48, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 13, alignSelf: 'stretch' },
   secondaryButtonText: { fontWeight: '900' },
+  dangerButton: { minHeight: 48, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 13, alignSelf: 'stretch' },
+  dangerButtonText: { fontWeight: '900' },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
   wizardStepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 6 },
   sectionTitle: { fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },
@@ -2140,15 +2957,23 @@ const styles = StyleSheet.create({
   inlineSmallLoading: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 8 },
   formCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 13 },
   placeCreateFormCard: { borderRadius: 0, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 0, paddingHorizontal: 0, paddingTop: 13, gap: 14 },
+  placeStepRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  placeImagePreviewCard: { borderRadius: 22, borderWidth: 1, overflow: 'hidden', gap: 0 },
+  placeImagePreview: { width: '100%', height: 210 },
+  placeImagePreviewFooter: { padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
   placeCreateSectionHeader: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 12 },
   placeCreateDividerBlock: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 14 },
   placeCreateActionFooter: { marginTop: 3, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 13, paddingBottom: Platform.OS === 'ios' ? 4 : 0 },
   placeTranslationBlock: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 13, gap: 10 },
+  placeTranslationToggle: { minHeight: 58, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  placeTranslationPanel: { gap: 10 },
   placeTranslationSummaryRow: { gap: 8 },
   placeTranslationFields: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 10 },
   placeTranslationFieldsHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
   placeTranslationAddRow: { minHeight: 58, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 10 },
   placeTranslationAddTitle: { fontSize: 14, fontWeight: '900' },
+  placeLanguageChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  placeTranslationEmptyText: { borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10 },
   formField: { gap: 7, flex: 1, minWidth: 0 },
   formLabel: { fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
   input: { minHeight: 48, borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 11, fontSize: 15, fontWeight: '700' },
@@ -2189,6 +3014,19 @@ const styles = StyleSheet.create({
   previewPlaceRow: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   previewFinalNote: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 8 },
   supportSection: { marginTop: 2 },
+  planFilterContent: { gap: 14, paddingBottom: 34 },
+  planFilterHero: { borderRadius: 24 },
+  planFilterSearchCard: { borderWidth: 1, borderRadius: 22, padding: 14, gap: 8 },
+  planFilterSearchInputWrap: { minHeight: 48, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  planFilterSearchInput: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: '800', paddingVertical: Platform.OS === 'ios' ? 12 : 8 },
+  planFilterSearchClear: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 },
+  planFilterSearchClearText: { fontSize: 12, fontWeight: '900' },
+  planFilterGroup: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 14, gap: 12 },
+  planFilterOptionGrid: { gap: 8 },
+  planFilterOption: { minHeight: 58, borderRadius: 18, borderWidth: 1, padding: 11, flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  planFilterCheck: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  planFilterOptionCopy: { flex: 1, minWidth: 0, gap: 2 },
+  planFilterFooter: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, gap: 8 },
   disabled: { opacity: 0.6 },
   pressed: { opacity: 0.76, transform: [{ scale: 0.99 }] },
 });

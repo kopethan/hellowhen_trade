@@ -1,15 +1,18 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { PlanDto } from '@hellowhen/contracts';
+import { buildPlanFeedItems, mergeRecentStarterPlanIdeaIds, selectStarterPlanIdeaKeys, starterPlanIdeas, type StarterPlanIdeaKey } from '@hellowhen/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { WebIcon } from '../../components/WebIcon';
 import { PlansFeatureGate } from './PlansFeatureGate';
-import { PlanDtoPreviewDeck } from './PlanPreviewDeck';
+import { PlanDtoPreviewDeck, PlanPreviewDeck } from './PlanPreviewDeck';
 import { planOwnerName } from './plansPresentation';
+import { activePlanFilterCount, applyPlanFilters, buildPlanFeedQuery, buildPlanFilterHref, planFilterSummary, planFiltersFromSearchParams, planSearchQueryFromSearchParams } from './planFilters';
 
 type PlansView = 'feed' | 'mine' | 'joined';
 
@@ -31,6 +34,40 @@ function PlanCard({ plan }: PlanCardProps) {
   );
 }
 
+function PlanIdeaCard({ ideaKey, onOpen }: { ideaKey: StarterPlanIdeaKey; onOpen?: () => void }) {
+  const router = useRouter();
+  const idea = starterPlanIdeas[ideaKey];
+  function openIdea() {
+    onOpen?.();
+    router.push(`/plans/ideas/${idea.id}`);
+  }
+  return (
+    <article className="plan-deck-link plan-idea-card" aria-label={`Open Plan idea ${idea.title}`}>
+      <div className="plan-idea-card__label">
+        <span className="semantic-badge instruction">Plan idea</span>
+        <span className="semantic-badge plan">{idea.pack}</span>
+      </div>
+      <PlanPreviewDeck
+        title={idea.title}
+        description={idea.description}
+        rangeLabel="Starter Plan idea"
+        places={idea.stops.map((stop, index) => ({
+          id: `${idea.id}-${index}`,
+          mode: stop.mode,
+          title: stop.title,
+          location: stop.mode === 'remote' ? stop.onlineLabel ?? stop.onlineUrl : stop.location,
+          time: stop.time,
+        }))}
+        onOpen={openIdea}
+        actionLabel="Open Plan idea"
+      />
+      <Link href={`/plans/ideas/${idea.id}`} className="plan-deck-link__meta" onClick={onOpen}>
+        {idea.stops.length} starter stops · Create your version
+      </Link>
+    </article>
+  );
+}
+
 type PlansListClientProps = {
   plansEnabled?: boolean;
   plansVisible?: boolean;
@@ -46,29 +83,73 @@ function nextAuthHref(path: string) {
   return `/auth?next=${encodeURIComponent(path)}`;
 }
 
+const recentPlanIdeaStorageKey = 'hellowhen_recent_plan_ideas_v1';
+const anonymousPlanIdeaStorageKey = 'hellowhen_plan_idea_anon_key_v1';
+
+function createAnonymousPlanIdeaKey() {
+  return `anon-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function readRecentPlanIdeaIds() {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(recentPlanIdeaStorageKey);
+    const parsed = raw ? JSON.parse(raw) as string[] : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function readAnonymousPlanIdeaKey() {
+  if (typeof window === 'undefined') return 'anonymous';
+  const existing = window.localStorage.getItem(anonymousPlanIdeaStorageKey);
+  if (existing) return existing;
+  const next = createAnonymousPlanIdeaKey();
+  window.localStorage.setItem(anonymousPlanIdeaStorageKey, next);
+  return next;
+}
+
 export function PlansListClient({ plansEnabled }: PlansListClientProps) {
   const auth = useWebAuth();
   const [view, setView] = useState<PlansView>('feed');
   const [plans, setPlans] = useState<PlanDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [starterRefreshKey] = useState(() => Math.floor(Date.now() / 1000));
+  const [recentStarterIdeaIds, setRecentStarterIdeaIds] = useState<string[]>([]);
+  const [anonymousStarterKey, setAnonymousStarterKey] = useState('anonymous');
+  const searchParams = useSearchParams();
+  const searchParamKey = searchParams.toString();
+  const activeFilters = useMemo(() => planFiltersFromSearchParams(searchParams), [searchParamKey, searchParams]);
+  const activeSearchQuery = useMemo(() => planSearchQueryFromSearchParams(searchParams), [searchParamKey, searchParams]);
+  const activeFilterCount = activePlanFilterCount(activeFilters, activeSearchQuery);
+  const activeFilterSummary = useMemo(() => planFilterSummary(activeFilters, activeSearchQuery), [activeFilters, activeSearchQuery]);
+  const filterHref = useMemo(() => buildPlanFilterHref('/plans/filter', activeFilters, activeSearchQuery), [activeFilters, activeSearchQuery]);
 
   const canLoadPrivateViews = auth.hydrated && auth.isAuthenticated;
   const activeView = view !== 'feed' && !canLoadPrivateViews ? 'feed' : view;
   const createPlanHref = auth.isAuthenticated ? '/plans/new' : nextAuthHref('/plans/new');
+
   useEffect(() => {
-    const requestedView = new URLSearchParams(window.location.search).get('view');
-    if (requestedView === 'mine' || requestedView === 'joined' || requestedView === 'feed') setView(requestedView);
+    setRecentStarterIdeaIds(readRecentPlanIdeaIds());
+    setAnonymousStarterKey(readAnonymousPlanIdeaKey());
   }, []);
+
+  useEffect(() => {
+    const requestedView = searchParams.get('view');
+    if (requestedView === 'mine' || requestedView === 'joined' || requestedView === 'feed') setView(requestedView);
+  }, [searchParamKey, searchParams]);
 
   const emptyTitle = activeView === 'mine' ? 'No Plans created yet' : activeView === 'joined' ? 'No joined Plans yet' : 'No open Plans yet';
   const emptyBody = activeView === 'mine'
     ? 'Create your first Plan when you are ready.'
     : activeView === 'joined'
       ? 'Plans you join will appear here.'
-      : 'Open Plans will appear here when they are available.';
+      : activeFilterCount
+        ? 'No Plans match this search and filters yet. Try changing the search words or resetting one or two filters.'
+        : 'Open Plans will appear here when they are available.';
 
   useEffect(() => {
     let mounted = true;
@@ -77,13 +158,15 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
       setLoading(true);
       setError('');
       try {
+        const effectiveFilters = activeView === 'feed' ? activeFilters : [];
+        const effectiveSearchQuery = activeView === 'feed' ? activeSearchQuery : '';
         const response = activeView === 'mine'
           ? await api.plans.mine()
           : activeView === 'joined'
             ? await api.plans.joined()
-            : await api.plans.feed({ take: 50 });
+            : await api.plans.feed(buildPlanFeedQuery(effectiveFilters, effectiveSearchQuery));
         if (!mounted) return;
-        setPlans(response.plans ?? []);
+        setPlans(activeView === 'feed' ? applyPlanFilters(response.plans ?? [], effectiveFilters, effectiveSearchQuery) : response.plans ?? []);
       } catch (loadError) {
         if (!mounted) return;
         setPlans([]);
@@ -94,13 +177,27 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
     }
     void loadPlans();
     return () => { mounted = false; };
-  }, [activeView, auth.hydrated]);
+  }, [activeView, auth.hydrated, activeFilters, activeSearchQuery]);
 
   const sortedPlans = useMemo(() => [...plans].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime()), [plans]);
+  const hasActiveSearchOrFilters = activeFilterCount > 0;
+  const starterIdeaKeys = useMemo(() => selectStarterPlanIdeaKeys({
+    realPlanCount: sortedPlans.length,
+    hasActiveSearchOrFilters: activeView !== 'feed' || hasActiveSearchOrFilters,
+    userKey: auth.user?.id ?? anonymousStarterKey,
+    refreshKey: starterRefreshKey,
+    recentIdeaIds: recentStarterIdeaIds,
+  }), [activeView, anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, recentStarterIdeaIds, sortedPlans.length, starterRefreshKey]);
+  const feedItems = useMemo(() => buildPlanFeedItems(sortedPlans.length, starterIdeaKeys), [sortedPlans.length, starterIdeaKeys]);
+
+  function markStarterIdeaSeen(ideaKey: StarterPlanIdeaKey) {
+    const next = mergeRecentStarterPlanIdeaIds(recentStarterIdeaIds, [ideaKey]);
+    setRecentStarterIdeaIds(next);
+    if (typeof window !== 'undefined') window.localStorage.setItem(recentPlanIdeaStorageKey, JSON.stringify(next));
+  }
 
   function selectView(nextView: PlansView) {
     setView(nextView);
-    setFiltersOpen(false);
     setMenuOpen(false);
   }
 
@@ -113,53 +210,50 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
               <h1>Plans</h1>
             </div>
             <div className="plans-feed-header__actions" aria-label="Plan actions">
-              <button
-                type="button"
-                className="plans-feed-icon-button"
-                aria-label="Filter Plans"
-                aria-expanded={filtersOpen}
-                onClick={() => { setFiltersOpen((current) => !current); setMenuOpen(false); }}
-              >
-                <span aria-hidden="true">◇</span>
-              </button>
+              <Link className="plans-feed-icon-button plans-feed-icon-button--with-badge" href={filterHref} aria-label={activeFilterCount ? `Filter Plans, ${activeFilterCount} active` : 'Filter Plans'}>
+                <WebIcon name="filter" size={18} decorative />
+                {activeFilterCount ? <span className="plans-feed-icon-button__badge">{activeFilterCount}</span> : null}
+              </Link>
               <button
                 type="button"
                 className="plans-feed-icon-button"
                 aria-label="Open Plans menu"
                 aria-expanded={menuOpen}
-                onClick={() => { setMenuOpen((current) => !current); setFiltersOpen(false); }}
+                onClick={() => setMenuOpen((current) => !current)}
               >
-                <span aria-hidden="true">☰</span>
+                <WebIcon name="activity" size={18} decorative />
               </button>
               <Link className="plans-feed-icon-button plans-feed-icon-button--primary" href={createPlanHref} aria-label="Create Plan">
-                <span aria-hidden="true">+</span>
+                <WebIcon name="add" size={21} decorative />
               </Link>
             </div>
           </header>
-
-          {filtersOpen ? (
-            <section className="plans-feed-popover plans-feed-filter-note" aria-label="Plan filters">
-              <strong>Open Plans feed</strong>
-              <span>Browse public Plans here. My plans, joined Plans, and Places live in the menu.</span>
-            </section>
-          ) : null}
 
           {menuOpen ? (
             <section className="plans-feed-menu" aria-label="Plans menu">
               <button type="button" onClick={() => selectView('mine')} disabled={!canLoadPrivateViews}>My plans</button>
               <button type="button" onClick={() => selectView('joined')} disabled={!canLoadPrivateViews}>Joined plans</button>
-              <button type="button" disabled>My places</button>
+              <Link href={canLoadPrivateViews ? '/places' : nextAuthHref('/places')}>My places</Link>
               <button type="button" disabled>Hellowhen Place Library</button>
-              <button type="button" disabled>Create place</button>
+              <Link href={auth.isAuthenticated ? '/places/new' : nextAuthHref('/places/new')}>Create place</Link>
               <Link href={createPlanHref}>Create plan</Link>
             </section>
           ) : null}
 
         </section>
 
+        {activeView === 'feed' && activeFilterCount ? (
+          <section className="plans-active-filter-card" aria-label="Active Plan filters">
+            <div>
+              <strong>{activeFilterCount} active Plan filter{activeFilterCount === 1 ? '' : 's'}</strong>
+              <span>{activeFilterSummary || 'Filtered Plan results'}</span>
+            </div>
+            <Link href="/plans">Reset</Link>
+          </section>
+        ) : null}
         {error ? <section className="mobile-card mobile-card--soft"><p>{error}</p></section> : null}
         {loading ? <section className="mobile-card"><p className="meta">Loading Plans...</p></section> : null}
-        {!loading && !error && sortedPlans.length === 0 ? (
+        {!loading && !error && sortedPlans.length === 0 && starterIdeaKeys.length === 0 ? (
           <section className="inventory-empty-state">
             <span className="inventory-empty-state__plus">+</span>
             <strong>{emptyTitle}</strong>
@@ -168,7 +262,11 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
           </section>
         ) : null}
         <section className="mobile-list plans-feed-deck-list" aria-label={viewLabels[activeView]}>
-          {sortedPlans.map((plan) => <PlanCard key={plan.id} plan={plan} />)}
+          {activeView === 'feed' ? feedItems.map((item) => {
+            if (item.type === 'idea') return <PlanIdeaCard key={`idea-${item.ideaKey}`} ideaKey={item.ideaKey} onOpen={() => markStarterIdeaSeen(item.ideaKey)} />;
+            const plan = sortedPlans[item.planIndex];
+            return plan ? <PlanCard key={plan.id} plan={plan} /> : null;
+          }) : sortedPlans.map((plan) => <PlanCard key={plan.id} plan={plan} />)}
         </section>
       </main>
     </PlansFeatureGate>

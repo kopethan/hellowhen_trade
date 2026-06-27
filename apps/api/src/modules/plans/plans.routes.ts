@@ -25,7 +25,8 @@ import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } f
 
 export const plansRoutes = Router();
 
-const publicPlanStatuses = ['open', 'full', 'started'] as const;
+const publicPlanStatuses = ['open', 'full', 'started', 'cancelled'] as const;
+const writablePlanDiscussionStatuses = ['open', 'full', 'started'] as const;
 const userSummarySelect = {
   id: true,
   profile: { select: { displayName: true, handle: true, avatarUrl: true, countryCode: true } },
@@ -53,6 +54,65 @@ async function blockedUserIdsForViewer(viewerId?: string) {
     select: { blockerId: true, blockedId: true },
   });
   return Array.from(new Set(blocks.map((block) => block.blockerId === viewerId ? block.blockedId : block.blockerId)));
+}
+
+
+function normalizePlanSearchQuery(value?: string | null) {
+  return (value ?? '').trim().replace(/\s+/g, ' ').slice(0, 120);
+}
+
+function planSearchDay(date = new Date()) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function planSearchSessionId(req: any) {
+  const raw = req.headers['x-hellowhen-session-id'] ?? req.headers['x-client-session-id'] ?? req.headers['x-session-id'];
+  if (Array.isArray(raw)) return raw[0]?.slice(0, 120) || null;
+  return typeof raw === 'string' ? raw.slice(0, 120) : null;
+}
+
+async function logPlanSearch(req: any, input: { q?: string; status?: unknown; mode?: unknown; category?: unknown; city?: unknown }, resultCount: number) {
+  const queryRaw = normalizePlanSearchQuery(input.q);
+  if (!queryRaw) return;
+  const queryNormalized = queryRaw.toLowerCase();
+  const day = planSearchDay();
+  const filtersJson = {
+    status: input.status ?? null,
+    mode: input.mode ?? null,
+    category: input.category ?? null,
+    city: input.city ?? null,
+  };
+  await prisma.$transaction([
+    prisma.planSearchEvent.create({
+      data: {
+        userId: req.user?.id ?? null,
+        sessionId: planSearchSessionId(req),
+        queryRaw,
+        queryNormalized,
+        filtersJson,
+        resultCount,
+      },
+    }),
+    prisma.planSearchTermAggregate.upsert({
+      where: { queryNormalized_day: { queryNormalized, day } },
+      create: {
+        queryNormalized,
+        day,
+        searchCount: 1,
+        zeroResultCount: resultCount === 0 ? 1 : 0,
+        resultCountSum: resultCount,
+        lastResultCount: resultCount,
+        lastSearchedAt: new Date(),
+      },
+      update: {
+        searchCount: { increment: 1 },
+        zeroResultCount: { increment: resultCount === 0 ? 1 : 0 },
+        resultCountSum: { increment: resultCount },
+        lastResultCount: resultCount,
+        lastSearchedAt: new Date(),
+      },
+    }),
+  ]).catch(() => null);
 }
 
 async function syncPlanCapacityStatus(planId: string) {
@@ -173,7 +233,12 @@ async function loadReadablePlanForDiscussion(planId: string, actorId: string) {
 }
 
 function canWritePlanPublicDiscussion(plan: { status: string }) {
-  return publicPlanStatuses.includes(plan.status as any);
+  return writablePlanDiscussionStatuses.includes(plan.status as any);
+}
+
+function isCancelOnlyPlanUpdate(input: ReturnType<typeof updatePlanRequestSchema.parse>) {
+  const keys = Object.keys(input);
+  return keys.length === 1 && input.status === 'cancelled';
 }
 
 function planPublicDiscussionMessageSelect() {
@@ -305,6 +370,9 @@ async function joinPlanFreely(planId: string, userId: string, message?: string |
   if (!plan || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') {
     throw createPlanRequestError('not_found', 'Plan not found.', 404);
   }
+  if (plan.status !== 'open') {
+    throw createPlanRequestError('plan_not_joinable', 'This plan is not open for joining.', 409);
+  }
   if (plan.ownerId === userId) {
     throw createPlanRequestError('owner_cannot_join', 'You already own this plan.', 409);
   }
@@ -368,7 +436,22 @@ plansRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
   const plans = await prisma.plan.findMany({
     where: {
       status: input.status ?? { in: [...publicPlanStatuses] },
-      ...(input.q ? { OR: [{ title: { contains: input.q, mode: 'insensitive' as const } }, { description: { contains: input.q, mode: 'insensitive' as const } }] } : {}),
+      ...(input.q ? {
+        OR: [
+          { title: { contains: input.q, mode: 'insensitive' as const } },
+          { description: { contains: input.q, mode: 'insensitive' as const } },
+          { category: { contains: input.q, mode: 'insensitive' as const } },
+          { locationLabel: { contains: input.q, mode: 'insensitive' as const } },
+          { tags: { has: input.q } },
+          { places: { some: { OR: [
+            { title: { contains: input.q, mode: 'insensitive' as const } },
+            { note: { contains: input.q, mode: 'insensitive' as const } },
+            { addressPublicText: { contains: input.q, mode: 'insensitive' as const } },
+            { onlineLabel: { contains: input.q, mode: 'insensitive' as const } },
+            { onlineUrl: { contains: input.q, mode: 'insensitive' as const } },
+          ] } } },
+        ],
+      } : {}),
       ...(input.category ? { category: input.category } : {}),
       ...(input.mode ? { mode: input.mode } : {}),
       ...(input.city ? { locationLabel: { contains: input.city, mode: 'insensitive' as const } } : {}),
@@ -379,6 +462,7 @@ plansRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
     orderBy: [{ startsAt: 'asc' }, { createdAt: 'desc' }],
     take: input.take ?? 50,
   });
+  await logPlanSearch(req, input, plans.length);
   res.json(stripAnonymousPublicProfileMedia({ plans: await decoratePlans(plans, req.user?.id ?? null) }, req.user?.id));
 }));
 
@@ -426,9 +510,13 @@ plansRoutes.patch('/:planId', requireAuth, requireActiveAccount, asyncRoute(asyn
   const input = updatePlanRequestSchema.parse(req.body ?? {});
   const existing = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
+  if (!isCancelOnlyPlanUpdate(input)) {
+    return res.status(409).json({
+      error: 'plan_content_locked',
+      message: 'Plans cannot be edited after publishing yet. You can cancel this Plan from Manage Plan.',
+    });
+  }
   const plan = await prisma.plan.update({ where: { id: existing.id }, data: planUpdateData(input) as any });
-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan' as any, plan.id);
-  if (input.maxParticipants !== undefined || input.status !== undefined) await syncPlanCapacityStatus(plan.id);
   const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
   res.json({ plan: await decoratePlan(updated, req.user!.id) });
 }));

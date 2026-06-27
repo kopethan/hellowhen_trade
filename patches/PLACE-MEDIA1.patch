@@ -1,0 +1,799 @@
+diff --git a/apps/api/src/modules/places/places.routes.ts b/apps/api/src/modules/places/places.routes.ts
+index e02fb47..53f88cf 100644
+--- a/apps/api/src/modules/places/places.routes.ts
++++ b/apps/api/src/modules/places/places.routes.ts
+@@ -286,7 +286,7 @@ placesRoutes.patch('/:placeId', requireAuth, requireActiveAccount, asyncRoute(as
+   const mediaLimit = await placeMediaLimitFor(actor, existing.source);
+   const updated = await prisma.place.update({ where: { id: existing.id }, data: updatePlaceData(input, normalized) as any, include: placeInclude() });
+   await syncInventoryTranslations(prisma, 'place', updated.id, req.user!.id, (updated as any).defaultLanguage ?? input.defaultLanguage ?? 'en', input.translations);
+-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'place' as any, updated.id, { maxImages: mediaLimit });
++  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'place' as any, updated.id, { maxImages: mediaLimit, syncSelection: input.mediaIds !== undefined });
+   const refreshed = await prisma.place.findUnique({ where: { id: updated.id }, include: placeInclude() });
+   res.json({ place: await decoratePlace(refreshed, req.user!.id, 'owner', actor.role) });
+ }));
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 440d8ad..5f8fe95 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -19,6 +19,9 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useAuth } from '../../providers/AuthProvider';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { resolveMediaUrl } from '../trade/mediaUrls';
++import { ImagePickerField } from '../trade/components/ImagePickerField';
++import type { SelectedLocalImage, SelectedImageUploadProgress } from '../trade/mediaUpload';
++import { SelectedImageUploadError, uploadSelectedImages } from '../trade/mediaUpload';
+ import { PlanSquareDeck } from './components/PlanSquareDeck';
+ 
+ type PlansScreenProps = NativeStackScreenProps<RootStackParamList, 'Plans'>;
+@@ -100,6 +103,7 @@ type PlaceCreateFormState = {
+ 
+ type PlacePickerTab = 'mine' | 'library';
+ type PlaceSourceTarget = number | 'new';
++type PlaceCreateStep = 'details' | 'image';
+ 
+ function padDatePart(value: number) {
+   return String(value).padStart(2, '0');
+@@ -415,6 +419,22 @@ function activeMediaUrl(media?: MediaAssetDto | null) {
+   return resolveMediaUrl(media.url);
+ }
+ 
++function reusablePlaceMediaForEdit(place?: PlaceDto | null) {
++  return (place?.media ?? []).filter((asset) => asset.status !== 'removed').slice(0, 1);
++}
++
++function formatPlaceUploadProgress(progress: SelectedImageUploadProgress | null) {
++  if (!progress) return null;
++  return `Uploading image ${progress.current}/${progress.total}...`;
++}
++
++function getPlaceUploadErrorMessage(error: unknown) {
++  if (error instanceof SelectedImageUploadError) {
++    return `Image upload failed (${error.current}/${error.total}). Try a smaller image or upload again.`;
++  }
++  return getFriendlyApiErrorMessage(error);
++}
++
+ function getPlanPlaceMedia(place: PlanPlaceDto) {
+   return activeMedia(place.media)[0] ?? activeMedia(place.sourcePlace?.media)[0] ?? null;
+ }
+@@ -1279,6 +1299,15 @@ function PillButton({ label, onPress, active, disabled }: { label: string; onPre
+   );
+ }
+ 
++function PrimaryButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
++  const theme = useThemeTokens();
++  return (
++    <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.place.bg }, pressed && styles.pressed, disabled && styles.disabled]}>
++      <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{label}</AppText>
++    </Pressable>
++  );
++}
++
+ function SecondaryButton({ label, onPress, disabled, icon }: { label: string; onPress: () => void; disabled?: boolean; icon?: MobileIconName }) {
+   const theme = useThemeTokens();
+   return (
+@@ -1924,20 +1953,41 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+   const copyFromPlace = route.params?.copyFromPlace;
+   const isEditing = Boolean(editPlace);
+   const [state, setState] = useState<PlaceCreateFormState>(() => editPlace ? placeCreateFormFromPlace(editPlace) : copyFromPlace ? placeCreateFormFromPlace(copyFromPlace) : makePlaceCreateForm());
++  const [step, setStep] = useState<PlaceCreateStep>('details');
++  const [existingMedia, setExistingMedia] = useState<MediaAssetDto[]>(() => isEditing ? reusablePlaceMediaForEdit(editPlace) : []);
++  const [newImages, setNewImages] = useState<SelectedLocalImage[]>([]);
++  const [uploadProgress, setUploadProgress] = useState<SelectedImageUploadProgress | null>(null);
+   const [saving, setSaving] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+   const [message, setMessage] = useState<string | null>(null);
+ 
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+ 
+-  async function submit() {
+-    if (state.title.trim().length < 3) { setError('Add a Place name.'); return; }
++  function goToImageStep() {
++    if (state.title.trim().length < 3) { setError('Add a Place name before adding an image.'); return; }
+     const translationError = validatePlaceTranslations(state);
+     if (translationError) { setError(translationError); return; }
++    setError(null);
++    setMessage(null);
++    setStep('image');
++  }
++
++  function removeExistingImage(mediaId: string) {
++    if (saving) return;
++    setExistingMedia((current) => current.filter((item) => item.id !== mediaId));
++  }
++
++  async function submit() {
++    if (state.title.trim().length < 3) { setError('Add a Place name.'); setStep('details'); return; }
++    const translationError = validatePlaceTranslations(state);
++    if (translationError) { setError(translationError); setStep('details'); return; }
+     setSaving(true);
+     setError(null);
+     setMessage(null);
++    setUploadProgress(null);
+     try {
++      const uploadedMediaIds = await uploadSelectedImages(newImages.slice(0, 1), { onProgress: setUploadProgress });
++      const mediaIds = [...existingMedia.map((item) => item.id), ...uploadedMediaIds].slice(0, 1);
+       const body = {
+         mode: state.mode,
+         title: state.title,
+@@ -1949,8 +1999,11 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+         addressPublicText: state.mode === 'local' ? state.location.trim() || undefined : undefined,
+         onlineLabel: state.mode === 'remote' ? state.onlineLabel.trim() || undefined : undefined,
+         onlineUrl: state.mode === 'remote' ? state.onlineUrl.trim() || undefined : undefined,
++        mediaIds,
+       };
+       const response = isEditing && editPlace ? await api.places.update(editPlace.id, body) : await api.places.create(body);
++      setExistingMedia(reusablePlaceMediaForEdit(response.place));
++      setNewImages([]);
+       if (route.params?.returnToCreatePlan) {
+         if (isEditing) {
+           navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params.targetPlaceIndex, updatedPlaceNonce: Date.now() });
+@@ -1960,14 +2013,25 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+         return;
+       }
+       setMessage(isEditing ? `${response.place.title} was updated.` : `${response.place.title} was saved to My Places.`);
+-      if (!isEditing) setState(makePlaceCreateForm());
++      if (!isEditing) {
++        setState(makePlaceCreateForm());
++        setExistingMedia([]);
++        setNewImages([]);
++        setStep('details');
++      }
+     } catch (caughtError) {
+-      setError(getFriendlyApiErrorMessage(caughtError));
++      setError(getPlaceUploadErrorMessage(caughtError));
+     } finally {
++      setUploadProgress(null);
+       setSaving(false);
+     }
+   }
+ 
++  const uploadProgressLabel = formatPlaceUploadProgress(uploadProgress);
++  const selectedExistingMedia = existingMedia[0];
++  const selectedExistingMediaUrl = activeMediaUrl(selectedExistingMedia);
++  const imageSlotFilled = Boolean(selectedExistingMedia || newImages.length > 0);
++
+   return (
+     <AppFixedHeaderScreen header={<AppHeader title={isEditing ? 'Edit place' : 'Create place'} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label="My Places" onPress={() => navigation.navigate('MyPlaces')} />} />}>
+       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
+@@ -1975,79 +2039,119 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+           <View style={styles.placeCreateCompactHeader}>
+             <SemanticBadge label="My Place" tone="place" />
+             <AppText style={styles.placeCreateTitle}>{isEditing ? 'Edit Place' : 'Create Place'}</AppText>
+-            <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? 'Update this reusable Place.' : copyFromPlace ? 'Save a private copy, then return to your Plan.' : 'Save an offline or online Place.'}</AppText>
++            <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? 'Update details and image for this reusable Place.' : copyFromPlace ? 'Save a private copy, add an optional image, then return to your Plan.' : 'Save an offline or online Place with an optional image.'}</AppText>
+           </View>
+-          <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: 'transparent', borderColor: theme.semantic.place.border }]}>
+-            <View style={styles.placeCreateSectionHeader}>
+-              <View style={styles.feedTitleWrap}>
+-                <AppText style={styles.sectionTitle}>Place details</AppText>
+-                <AppText style={[styles.metaText, { color: theme.color.muted }]}>Private by default.</AppText>
++          <View style={styles.placeStepRow}>
++            <PillButton label="1. Details" active={step === 'details'} disabled={saving} onPress={() => setStep('details')} />
++            <PillButton label="2. Image" active={step === 'image'} disabled={saving} onPress={goToImageStep} />
++          </View>
++          {step === 'details' ? (
++            <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: 'transparent', borderColor: theme.semantic.place.border }]}>
++              <View style={styles.placeCreateSectionHeader}>
++                <View style={styles.feedTitleWrap}>
++                  <AppText style={styles.sectionTitle}>Place details</AppText>
++                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>Private by default.</AppText>
++                </View>
++              </View>
++              <View style={styles.placeCreateDividerBlock}>
++                <ModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
++              </View>
++              <TextField label="Place name" value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder="Quiet coffee near République" maxLength={120} />
++              {state.mode === 'remote' ? (
++                <>
++                  <TextField label="Online label" value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder="Zoom, Discord, website" maxLength={120} />
++                  <TextField label="Online URL" value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
++                </>
++              ) : (
++                <TextField label="Area / address" value={state.location} onChangeText={(location) => setState((current) => ({ ...current, location }))} placeholder="Paris 11 or a public spot" maxLength={240} />
++              )}
++              <TextField label="Description (optional)" value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder="Useful details for this Place." multiline maxLength={2000} />
++              <View style={styles.placeTranslationBlock}>
++                <View style={styles.placeTranslationSummaryRow}>
++                  <View style={styles.feedTitleWrap}>
++                    <AppText style={styles.formLabel}>Translations</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Original content: {placeLanguageLabel(state.defaultLanguage)}</AppText>
++                  </View>
++                  <View style={styles.filterRow}>
++                    {placeLanguageOptions.map((languageCode) => (
++                      <PillButton
++                        key={languageCode}
++                        label={placeLanguageLabel(languageCode)}
++                        active={state.defaultLanguage === languageCode}
++                        onPress={() => setState((current) => ({ ...current, defaultLanguage: languageCode, translations: current.translations.filter((translation) => translation.languageCode !== languageCode) }))}
++                      />
++                    ))}
++                  </View>
++                </View>
++                {state.translations.map((translation) => (
++                  <View key={translation.languageCode} style={[styles.placeTranslationFields, { borderColor: theme.semantic.place.border, backgroundColor: theme.semantic.place.softBg }]}>
++                    <View style={styles.placeTranslationFieldsHeader}>
++                      <View style={styles.feedTitleWrap}>
++                        <AppText style={styles.formLabel}>{placeLanguageLabel(translation.languageCode)} translation</AppText>
++                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>Fill title and description for this language.</AppText>
++                      </View>
++                      <SecondaryButton label="Remove" onPress={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))} />
++                    </View>
++                    <TextField label="Translated Place name" value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder="Translated place name" maxLength={120} />
++                    <TextField label="Translated description" value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder="Translated description" multiline maxLength={2000} />
++                  </View>
++                ))}
++                {nextPlaceTranslationLanguage(state) ? (
++                  <Pressable accessibilityRole="button" onPress={() => setState(addPlaceTranslationDraft)} style={({ pressed }) => [styles.placeTranslationAddRow, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
++                    <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={16} /></View>
++                    <View style={styles.sourceOptionCopy}>
++                      <AppText style={styles.placeTranslationAddTitle}>{state.translations.length ? 'Add another translation' : 'Add translation'}</AppText>
++                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>Translate Place name and description</AppText>
++                    </View>
++                  </Pressable>
++                ) : null}
++              </View>
++              {message ? <InfoNotice tone="success" body={message} /> : null}
++              {error ? <InfoNotice tone="danger" body={error} /> : null}
++              <View style={[styles.placeCreateActionFooter, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
++                <PrimaryButton label="Continue to image" onPress={goToImageStep} disabled={saving || state.title.trim().length < 3} />
+               </View>
+             </View>
+-            <View style={styles.placeCreateDividerBlock}>
+-              <ModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
+-            </View>
+-            <TextField label="Place name" value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder="Quiet coffee near République" maxLength={120} />
+-            {state.mode === 'remote' ? (
+-              <>
+-                <TextField label="Online label" value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder="Zoom, Discord, website" maxLength={120} />
+-                <TextField label="Online URL" value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
+-              </>
+-            ) : (
+-              <TextField label="Area / address" value={state.location} onChangeText={(location) => setState((current) => ({ ...current, location }))} placeholder="Paris 11 or a public spot" maxLength={240} />
+-            )}
+-            <TextField label="Description (optional)" value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder="Useful details for this Place." multiline maxLength={2000} />
+-            <View style={styles.placeTranslationBlock}>
+-              <View style={styles.placeTranslationSummaryRow}>
++          ) : (
++            <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: 'transparent', borderColor: theme.semantic.place.border }]}>
++              <View style={styles.placeCreateSectionHeader}>
+                 <View style={styles.feedTitleWrap}>
+-                  <AppText style={styles.formLabel}>Translations</AppText>
+-                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>Original content: {placeLanguageLabel(state.defaultLanguage)}</AppText>
+-                </View>
+-                <View style={styles.filterRow}>
+-                  {placeLanguageOptions.map((languageCode) => (
+-                    <PillButton
+-                      key={languageCode}
+-                      label={placeLanguageLabel(languageCode)}
+-                      active={state.defaultLanguage === languageCode}
+-                      onPress={() => setState((current) => ({ ...current, defaultLanguage: languageCode, translations: current.translations.filter((translation) => translation.languageCode !== languageCode) }))}
+-                    />
+-                  ))}
++                  <AppText style={styles.sectionTitle}>Place image</AppText>
++                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>Optional. One image can become the background for Plan cards later.</AppText>
+                 </View>
+               </View>
+-              {state.translations.map((translation) => (
+-                <View key={translation.languageCode} style={[styles.placeTranslationFields, { borderColor: theme.semantic.place.border, backgroundColor: theme.semantic.place.softBg }]}>
+-                  <View style={styles.placeTranslationFieldsHeader}>
++              {selectedExistingMedia && selectedExistingMediaUrl ? (
++                <View style={[styles.placeImagePreviewCard, { borderColor: theme.color.border, backgroundColor: theme.color.surface }]}>
++                  <Image source={{ uri: selectedExistingMediaUrl }} style={styles.placeImagePreview} resizeMode="cover" />
++                  <View style={styles.placeImagePreviewFooter}>
+                     <View style={styles.feedTitleWrap}>
+-                      <AppText style={styles.formLabel}>{placeLanguageLabel(translation.languageCode)} translation</AppText>
+-                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>Fill title and description for this language.</AppText>
++                      <AppText style={styles.formLabel}>Current image</AppText>
++                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>Remove it to choose a different image.</AppText>
+                     </View>
+-                    <Pressable accessibilityRole="button" onPress={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))} style={({ pressed }) => [styles.pillButton, { borderColor: theme.semantic.danger.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
+-                      <AppText style={[styles.pillButtonText, { color: theme.semantic.danger.text }]}>Remove</AppText>
+-                    </Pressable>
++                    <SecondaryButton label="Remove" disabled={saving} onPress={() => removeExistingImage(selectedExistingMedia.id)} />
+                   </View>
+-                  <TextField label="Translated Place name" value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder="Translated place name" maxLength={120} />
+-                  <TextField label="Translated description" value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder="Translated description" multiline maxLength={2000} />
+                 </View>
+-              ))}
+-              {nextPlaceTranslationLanguage(state) ? (
+-                <Pressable accessibilityRole="button" onPress={() => setState(addPlaceTranslationDraft)} style={({ pressed }) => [styles.placeTranslationAddRow, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
+-                  <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={17} /></View>
+-                  <View style={styles.feedTitleWrap}>
+-                    <AppText style={styles.placeTranslationAddTitle}>{state.translations.length ? 'Add another translation' : 'Add translation'}</AppText>
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Translate Place name and description.</AppText>
+-                  </View>
+-                  <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+-                </Pressable>
+               ) : null}
++              <ImagePickerField
++                images={newImages}
++                onChange={(images) => setNewImages(images.slice(0, 1))}
++                disabled={saving || Boolean(selectedExistingMedia)}
++                maxImages={1}
++                label="Place image"
++                hint={imageSlotFilled ? 'Remove the current image to choose another one.' : 'Add one photo that represents this Place.'}
++                reviewBody="Place images are optional and should show the location or online context without private/sensitive information."
++              />
++              {uploadProgressLabel ? <InfoNotice tone="info" title="Uploading image" body={uploadProgressLabel} /> : null}
++              {message ? <InfoNotice tone="success" body={message} /> : null}
++              {error ? <InfoNotice tone="danger" body={error} /> : null}
++              <View style={[styles.placeCreateActionFooter, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
++                <View style={styles.twoColumnRow}>
++                  <SecondaryButton label="Back" onPress={() => setStep('details')} disabled={saving} />
++                  <PrimaryButton label={saving ? uploadProgressLabel ? 'Uploading...' : 'Saving...' : returnToPlan ? isEditing ? 'Update and return' : 'Save and return' : isEditing ? 'Update Place' : 'Save Place'} onPress={() => { void submit(); }} disabled={saving || state.title.trim().length < 3} />
++                </View>
++              </View>
+             </View>
+-            {message ? <InfoNotice tone="success" title="Place saved" body={message} /> : null}
+-            {error ? <InfoNotice tone="warning" title="Could not save Place" body={error} /> : null}
+-            <View style={[styles.placeCreateActionFooter, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
+-              <Pressable accessibilityRole="button" disabled={saving || state.title.trim().length < 3} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.place.bg }, pressed && styles.pressed, (saving || state.title.trim().length < 3) && styles.disabled]}>
+-                <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? 'Saving...' : route.params?.returnToCreatePlan ? isEditing ? 'Update and return to Plan' : 'Save and return to Plan' : isEditing ? 'Update Place' : 'Save Place'}</AppText>
+-              </Pressable>
+-            </View>
+-          </View>
++          )}
+         </ScrollView>
+         <KeyboardDoneAccessory />
+       </KeyboardAvoidingView>
+@@ -2221,6 +2325,10 @@ const styles = StyleSheet.create({
+   inlineSmallLoading: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 8 },
+   formCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 13 },
+   placeCreateFormCard: { borderRadius: 0, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 0, paddingHorizontal: 0, paddingTop: 13, gap: 14 },
++  placeStepRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
++  placeImagePreviewCard: { borderRadius: 22, borderWidth: 1, overflow: 'hidden', gap: 0 },
++  placeImagePreview: { width: '100%', height: 210 },
++  placeImagePreviewFooter: { padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+   placeCreateSectionHeader: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 12 },
+   placeCreateDividerBlock: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 14 },
+   placeCreateActionFooter: { marginTop: 3, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 13, paddingBottom: Platform.OS === 'ios' ? 4 : 0 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index d103277..ab3a7ae 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2770,6 +2770,23 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ .plan-place-card__full-image { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; border: 1px solid var(--app-border); border-radius: 18px; margin-top: 8px; background: var(--app-surface); }
+ 
+ 
++
++.place-step-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); padding: 5px; }
++.place-step-tabs button { min-height: 38px; border: 0; border-radius: 999px; background: transparent; color: var(--app-text-muted); font: inherit; font-size: 12px; font-weight: 950; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; }
++.place-step-tabs button.is-active { background: var(--place-bg); color: #fff; box-shadow: var(--app-control-shadow); }
++.place-step-tabs button:disabled { opacity: 0.58; cursor: not-allowed; }
++.place-image-step { display: grid; gap: 13px; }
++.place-image-picker-panel { display: grid; gap: 12px; border-top: 1px solid var(--app-divider); padding-top: 13px; }
++.place-image-preview-card { margin: 0; overflow: hidden; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface); }
++.place-image-preview-card img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; background: var(--app-surface-soft); }
++.place-image-preview-card figcaption { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; }
++.place-image-preview-card figcaption div { display: grid; gap: 3px; min-width: 0; }
++.place-image-preview-card figcaption strong { font-size: 13px; font-weight: 950; }
++.place-image-preview-card figcaption span { color: var(--app-text-muted); font-size: 12px; font-weight: 800; }
++.place-image-empty { display: grid; gap: 5px; border: 1px dashed var(--place-border); border-radius: 22px; background: color-mix(in srgb, var(--place-bg) 8%, var(--app-surface)); padding: 18px; }
++.place-image-empty strong { font-size: 16px; font-weight: 950; }
++.place-image-empty span { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
++
+ .place-create-intro { padding-bottom: 2px; }
+ .place-create-intro p { max-width: 34rem; font-size: 13px; line-height: 1.35; }
+ .place-clean-form { border: 0; border-top: 1px solid var(--place-border); border-radius: 0; background: transparent; box-shadow: none; padding: 14px 0 0; }
+diff --git a/apps/web/src/features/plans/PlaceCreateClient.tsx b/apps/web/src/features/plans/PlaceCreateClient.tsx
+index 9d28835..9007c5d 100644
+--- a/apps/web/src/features/plans/PlaceCreateClient.tsx
++++ b/apps/web/src/features/plans/PlaceCreateClient.tsx
+@@ -2,12 +2,13 @@
+ 
+ import Link from 'next/link';
+ import { useRouter, useSearchParams } from 'next/navigation';
+-import type { FormEvent } from 'react';
++import type { ChangeEvent, FormEvent } from 'react';
+ import { useEffect, useState } from 'react';
+-import type { DiscoveryLanguage, InventoryTranslationDto, PlanPlaceMode } from '@hellowhen/contracts';
++import type { DiscoveryLanguage, InventoryTranslationDto, MediaAssetDto, PlanPlaceMode } from '@hellowhen/contracts';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
++import { mediaSrc, normalizeMediaUpload } from '../inventory/inventoryPresentation';
+ import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
+ 
+ type PlaceCreateClientProps = {
+@@ -17,6 +18,7 @@ type PlaceCreateClientProps = {
+ };
+ 
+ type PlaceTranslationFormValue = { languageCode: DiscoveryLanguage; title: string; description: string };
++type PlaceCreateStep = 'details' | 'image';
+ 
+ type PlaceCreateFormState = {
+   mode: PlanPlaceMode;
+@@ -104,6 +106,10 @@ function validatePlaceTranslations(state: PlaceCreateFormState) {
+   return '';
+ }
+ 
++function activePlaceMedia(media?: MediaAssetDto[] | null) {
++  return (media ?? []).filter((asset) => asset.status !== 'removed').slice(0, 1);
++}
++
+ function PlaceModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (value: PlanPlaceMode) => void }) {
+   return (
+     <div className="plan-mode-segment place-mode-segment" aria-label="Place type">
+@@ -121,7 +127,10 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+   const copyFromPlaceId = searchParams.get('copyFromPlaceId');
+   const isEditing = Boolean(placeId);
+   const [state, setState] = useState<PlaceCreateFormState>(makePlaceCreateForm());
++  const [step, setStep] = useState<PlaceCreateStep>('details');
++  const [media, setMedia] = useState<MediaAssetDto[]>([]);
+   const [loadingPlace, setLoadingPlace] = useState(Boolean(placeId || copyFromPlaceId));
++  const [uploading, setUploading] = useState(false);
+   const [saving, setSaving] = useState(false);
+   const [message, setMessage] = useState('');
+   const [error, setError] = useState('');
+@@ -140,6 +149,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+       .then((response) => {
+         if (cancelled) return;
+         setState(formStateFromPlace(response.place));
++        setMedia(isEditing ? activePlaceMedia(response.place.media) : []);
+       })
+       .catch((caughtError) => {
+         if (cancelled) return;
+@@ -152,19 +162,68 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+     return () => { cancelled = true; };
+   }, [auth.hydrated, auth.isAuthenticated, copyFromPlaceId, isEditing, placeId]);
+ 
++  function nextUrl() {
++    return returnToPlan ? (isEditing && placeId ? `/places/${placeId}/edit?returnTo=plan` : '/places/new?returnTo=plan') : isEditing && placeId ? `/places/${placeId}/edit` : '/places/new';
++  }
++
++  function validateDetails() {
++    if (state.title.trim().length < 3) return 'Add a Place name.';
++    return validatePlaceTranslations(state);
++  }
++
++  function goToImageStep() {
++    const detailsError = validateDetails();
++    if (detailsError) {
++      setError(detailsError);
++      return;
++    }
++    setError('');
++    setMessage('');
++    setStep('image');
++  }
++
++  async function uploadPlaceImage(files: FileList | null) {
++    const file = files?.[0];
++    if (!file) return;
++    setUploading(true);
++    setMessage('');
++    setError('');
++    try {
++      const formData = new FormData();
++      formData.append('image', file);
++      const response = await api.media.uploadImage(formData);
++      const uploaded = normalizeMediaUpload(response);
++      if (!uploaded) throw new Error('Upload returned no image.');
++      setMedia([{ ...uploaded, sortOrder: 0, isCover: true }]);
++      setMessage('Place image uploaded. Save the Place to keep it.');
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError, 'Could not upload Place image.'));
++    } finally {
++      setUploading(false);
++    }
++  }
++
++  function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
++    void uploadPlaceImage(event.target.files);
++    event.currentTarget.value = '';
++  }
++
++  function removeImage() {
++    if (saving || uploading) return;
++    setMedia([]);
++    setMessage('Image removed. Save the Place to keep this change.');
++  }
++
+   async function submit(event: FormEvent<HTMLFormElement>) {
+     event.preventDefault();
+     if (!auth.isAuthenticated) {
+-      router.push(`/auth?next=${encodeURIComponent(returnToPlan ? (isEditing && placeId ? `/places/${placeId}/edit?returnTo=plan` : '/places/new?returnTo=plan') : isEditing && placeId ? `/places/${placeId}/edit` : '/places/new')}`);
+-      return;
+-    }
+-    if (state.title.trim().length < 3) {
+-      setError('Add a Place name.');
++      router.push(`/auth?next=${encodeURIComponent(nextUrl())}`);
+       return;
+     }
+-    const translationError = validatePlaceTranslations(state);
+-    if (translationError) {
+-      setError(translationError);
++    const detailsError = validateDetails();
++    if (detailsError) {
++      setError(detailsError);
++      setStep('details');
+       return;
+     }
+ 
+@@ -183,8 +242,10 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+         addressPublicText: state.mode === 'local' ? state.location.trim() || undefined : undefined,
+         onlineLabel: state.mode === 'remote' ? state.onlineLabel.trim() || undefined : undefined,
+         onlineUrl: state.mode === 'remote' ? state.onlineUrl.trim() || undefined : undefined,
++        mediaIds: media.map((item) => item.id).slice(0, 1),
+       };
+       const response = isEditing && placeId ? await api.places.update(placeId, body) : await api.places.create(body);
++      setMedia(activePlaceMedia(response.place.media));
+ 
+       if (returnToPlan) {
+         const queryKey = isEditing ? 'updatedPlaceId' : 'createdPlaceId';
+@@ -193,7 +254,11 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+       }
+ 
+       setMessage(isEditing ? `${response.place.title} was updated.` : `${response.place.title} was saved to My Places.`);
+-      if (!isEditing) setState(makePlaceCreateForm());
++      if (!isEditing) {
++        setState(makePlaceCreateForm());
++        setMedia([]);
++        setStep('details');
++      }
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError, isEditing ? 'Could not update Place.' : 'Could not create Place.'));
+     } finally {
+@@ -201,6 +266,9 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+     }
+   }
+ 
++  const selectedMedia = media[0];
++  const imagePreviewSrc = selectedMedia ? mediaSrc(selectedMedia) : '';
++
+   return (
+     <PlansFeatureGate plansEnabled={plansEnabled}>
+       <main className="mobile-page plans-page">
+@@ -217,7 +285,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+           <section className="mobile-card mobile-card--soft">
+             <h3>Log in required</h3>
+             <p>Create and edit private reusable Places after signing in.</p>
+-            <button type="button" className="button primary" onClick={() => router.push(`/auth?next=${encodeURIComponent(returnToPlan ? (isEditing && placeId ? `/places/${placeId}/edit?returnTo=plan` : '/places/new?returnTo=plan') : isEditing && placeId ? `/places/${placeId}/edit` : '/places/new')}`)}>Log in</button>
++            <button type="button" className="button primary" onClick={() => router.push(`/auth?next=${encodeURIComponent(nextUrl())}`)}>Log in</button>
+           </section>
+         ) : null}
+ 
+@@ -225,107 +293,154 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+ 
+         {auth.isAuthenticated && !loadingPlace ? (
+           <form className="mobile-card plan-form place-clean-form" onSubmit={submit}>
+-            <div className="plan-form__section-title place-form__section-title">
+-              <div>
+-                <h3>Place details</h3>
+-                <p className="meta">Private by default.</p>
+-              </div>
+-              <span className="semantic-badge place">My Place</span>
+-            </div>
+-            <div className="place-form__divider">
+-              <PlaceModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
++            <div className="place-step-tabs" aria-label="Create Place steps">
++              <button type="button" className={step === 'details' ? 'is-active' : ''} onClick={() => setStep('details')} disabled={saving || uploading}>1. Details</button>
++              <button type="button" className={step === 'image' ? 'is-active' : ''} onClick={goToImageStep} disabled={saving || uploading}>2. Image</button>
+             </div>
+-            <label>
+-              <span>Place name</span>
+-              <input value={state.title} onChange={(event) => setState((current) => ({ ...current, title: event.target.value }))} minLength={3} maxLength={120} required placeholder="Quiet coffee near République" />
+-            </label>
+-            {state.mode === 'remote' ? (
+-              <div className="plan-form__row">
++
++            {step === 'details' ? (
++              <>
++                <div className="plan-form__section-title place-form__section-title">
++                  <div>
++                    <h3>Place details</h3>
++                    <p className="meta">Private by default.</p>
++                  </div>
++                  <span className="semantic-badge place">My Place</span>
++                </div>
++                <div className="place-form__divider">
++                  <PlaceModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
++                </div>
+                 <label>
+-                  <span>Online label</span>
+-                  <input value={state.onlineLabel} onChange={(event) => setState((current) => ({ ...current, onlineLabel: event.target.value }))} maxLength={120} placeholder="Zoom, Discord, website" />
++                  <span>Place name</span>
++                  <input value={state.title} onChange={(event) => setState((current) => ({ ...current, title: event.target.value }))} minLength={3} maxLength={120} required placeholder="Quiet coffee near République" />
+                 </label>
+-                <label>
+-                  <span>Online URL</span>
+-                  <input type="url" value={state.onlineUrl} onChange={(event) => setState((current) => ({ ...current, onlineUrl: event.target.value }))} maxLength={500} placeholder="https://..." />
++                {state.mode === 'remote' ? (
++                  <div className="plan-form__row">
++                    <label>
++                      <span>Online label</span>
++                      <input value={state.onlineLabel} onChange={(event) => setState((current) => ({ ...current, onlineLabel: event.target.value }))} maxLength={120} placeholder="Zoom, Discord, website" />
++                    </label>
++                    <label>
++                      <span>Online URL</span>
++                      <input type="url" value={state.onlineUrl} onChange={(event) => setState((current) => ({ ...current, onlineUrl: event.target.value }))} maxLength={500} placeholder="https://..." />
++                    </label>
++                  </div>
++                ) : (
++                  <label>
++                    <span>Area / address</span>
++                    <input value={state.location} onChange={(event) => setState((current) => ({ ...current, location: event.target.value }))} maxLength={240} placeholder="Paris 11 or a public spot" />
++                  </label>
++                )}
++                <label className="place-description-field">
++                  <span>Description <small>Optional</small></span>
++                  <textarea value={state.description} onChange={(event) => setState((current) => ({ ...current, description: event.target.value }))} maxLength={2000} placeholder="Useful details for this Place." />
+                 </label>
+-              </div>
+-            ) : (
+-              <label>
+-                <span>Area / address</span>
+-                <input value={state.location} onChange={(event) => setState((current) => ({ ...current, location: event.target.value }))} maxLength={240} placeholder="Paris 11 or a public spot" />
+-              </label>
+-            )}
+-            <label className="place-description-field">
+-              <span>Description <small>Optional</small></span>
+-              <textarea value={state.description} onChange={(event) => setState((current) => ({ ...current, description: event.target.value }))} maxLength={2000} placeholder="Useful details for this Place." />
+-            </label>
+-
+-            <section className="inventory-translation-compact place-translation-compact">
+-              <div className="inventory-translation-panel__header place-translation-summary">
+-                <div>
+-                  <p className="eyebrow">Translations</p>
+-                  <span className="inventory-language-summary">Original content: {placeLanguageLabel(state.defaultLanguage)}</span>
+-                </div>
+-                <div className="plan-mode-segment" aria-label="Original Place language">
+-                  {placeLanguageOptions.map((languageCode) => (
+-                    <button
+-                      key={languageCode}
+-                      type="button"
+-                      className={state.defaultLanguage === languageCode ? 'is-active' : ''}
+-                      onClick={() => setState((current) => ({ ...current, defaultLanguage: languageCode, translations: current.translations.filter((translation) => translation.languageCode !== languageCode) }))}
+-                    >
+-                      {placeLanguageLabel(languageCode)}
++
++                <section className="inventory-translation-compact place-translation-compact">
++                  <div className="inventory-translation-panel__header place-translation-summary">
++                    <div>
++                      <p className="eyebrow">Translations</p>
++                      <span className="inventory-language-summary">Original content: {placeLanguageLabel(state.defaultLanguage)}</span>
++                    </div>
++                    <div className="plan-mode-segment" aria-label="Original Place language">
++                      {placeLanguageOptions.map((languageCode) => (
++                        <button
++                          key={languageCode}
++                          type="button"
++                          className={state.defaultLanguage === languageCode ? 'is-active' : ''}
++                          onClick={() => setState((current) => ({ ...current, defaultLanguage: languageCode, translations: current.translations.filter((translation) => translation.languageCode !== languageCode) }))}
++                        >
++                          {placeLanguageLabel(languageCode)}
++                        </button>
++                      ))}
++                    </div>
++                  </div>
++                  {state.translations.length ? (
++                    <section className="mobile-card mobile-card--soft inventory-translation-panel inventory-translation-panel--compact place-translation-panel">
++                      {state.translations.map((translation) => (
++                        <div className="inventory-translation-panel__fields place-translation-fields" key={translation.languageCode}>
++                          <div className="inventory-translation-panel__row">
++                            <div>
++                              <p className="eyebrow">{placeLanguageLabel(translation.languageCode)} translation</p>
++                              <small>Fill title and description for this language.</small>
++                            </div>
++                            <button type="button" className="button secondary compact" onClick={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))}>Remove</button>
++                          </div>
++                          <label>
++                            <span>Translated Place name</span>
++                            <input
++                              value={translation.title}
++                              onChange={(event) => setState((current) => setPlaceTranslationDraft(current, { ...translation, title: event.target.value }))}
++                              minLength={translation.title ? 3 : undefined}
++                              maxLength={120}
++                              placeholder="Translated place name"
++                            />
++                          </label>
++                          <label>
++                            <span>Translated description</span>
++                            <textarea
++                              value={translation.description}
++                              onChange={(event) => setState((current) => setPlaceTranslationDraft(current, { ...translation, description: event.target.value }))}
++                              maxLength={2000}
++                              placeholder="Translated description"
++                            />
++                          </label>
++                        </div>
++                      ))}
++                    </section>
++                  ) : null}
++                  {nextPlaceTranslationLanguage(state) ? (
++                    <button type="button" className="inventory-translation-toggle place-translation-add-row" onClick={() => setState(addPlaceTranslationDraft)}>
++                      <span>{state.translations.length ? 'Add another translation' : 'Add translation'}</span>
++                      <strong>Translate Place name and description</strong>
+                     </button>
+-                  ))}
++                  ) : null}
++                </section>
++              </>
++            ) : (
++              <section className="place-image-step">
++                <div className="plan-form__section-title place-form__section-title">
++                  <div>
++                    <h3>Place image</h3>
++                    <p className="meta">Optional. One image can become the background for this Place in Plan cards later.</p>
++                  </div>
++                  <span className="semantic-badge place">Step 2/2</span>
+                 </div>
+-              </div>
+-              {state.translations.length ? (
+-                <section className="mobile-card mobile-card--soft inventory-translation-panel inventory-translation-panel--compact place-translation-panel">
+-                  {state.translations.map((translation) => (
+-                    <div className="inventory-translation-panel__fields place-translation-fields" key={translation.languageCode}>
+-                      <div className="inventory-translation-panel__row">
++                <div className="place-image-picker-panel">
++                  {imagePreviewSrc ? (
++                    <figure className="place-image-preview-card">
++                      <img src={imagePreviewSrc} alt="Selected Place" />
++                      <figcaption>
+                         <div>
+-                          <p className="eyebrow">{placeLanguageLabel(translation.languageCode)} translation</p>
+-                          <small>Fill title and description for this language.</small>
++                          <strong>Selected image</strong>
++                          <span>Save the Place to keep this image.</span>
+                         </div>
+-                        <button type="button" className="button secondary compact" onClick={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))}>Remove</button>
+-                      </div>
+-                      <label>
+-                        <span>Translated Place name</span>
+-                        <input
+-                          value={translation.title}
+-                          onChange={(event) => setState((current) => setPlaceTranslationDraft(current, { ...translation, title: event.target.value }))}
+-                          minLength={translation.title ? 3 : undefined}
+-                          maxLength={120}
+-                          placeholder="Translated place name"
+-                        />
+-                      </label>
+-                      <label>
+-                        <span>Translated description</span>
+-                        <textarea
+-                          value={translation.description}
+-                          onChange={(event) => setState((current) => setPlaceTranslationDraft(current, { ...translation, description: event.target.value }))}
+-                          maxLength={2000}
+-                          placeholder="Translated description"
+-                        />
+-                      </label>
++                        <button type="button" className="button secondary compact" onClick={removeImage} disabled={saving || uploading}>Remove</button>
++                      </figcaption>
++                    </figure>
++                  ) : (
++                    <div className="place-image-empty">
++                      <strong>No image yet</strong>
++                      <span>Add one photo that represents this Place. Avoid private/sensitive information.</span>
+                     </div>
+-                  ))}
+-                </section>
+-              ) : null}
+-              {nextPlaceTranslationLanguage(state) ? (
+-                <button type="button" className="inventory-translation-toggle place-translation-add-row" onClick={() => setState(addPlaceTranslationDraft)}>
+-                  <span>{state.translations.length ? 'Add another translation' : 'Add translation'}</span>
+-                  <strong>Translate Place name and description</strong>
+-                </button>
+-              ) : null}
+-            </section>
++                  )}
++                  <label className="image-upload-button image-upload-button--full">
++                    <input type="file" accept="image/jpeg,image/png,image/webp" disabled={saving || uploading} onChange={handleImageChange} />
++                    {uploading ? 'Uploading...' : imagePreviewSrc ? 'Replace image' : 'Upload image'}
++                  </label>
++                </div>
++              </section>
++            )}
+ 
+             {message ? <p className="success-message">{message}</p> : null}
+             {error ? <p className="form-error">{error}</p> : null}
+             <div className="cta-row place-save-row">
+-              <button className="button primary" type="submit" disabled={saving || state.title.trim().length < 3}>{saving ? 'Saving...' : returnToPlan ? isEditing ? 'Update and return' : 'Save and return' : isEditing ? 'Update Place' : 'Save Place'}</button>
++              {step === 'details' ? (
++                <button className="button primary" type="button" disabled={saving || uploading || state.title.trim().length < 3} onClick={goToImageStep}>Continue to image</button>
++              ) : (
++                <button className="button primary" type="submit" disabled={saving || uploading || state.title.trim().length < 3}>{saving ? 'Saving...' : returnToPlan ? isEditing ? 'Update and return' : 'Save and return' : isEditing ? 'Update Place' : 'Save Place'}</button>
++              )}
++              {step === 'image' ? <button type="button" className="button secondary" onClick={() => setStep('details')} disabled={saving || uploading}>Back to details</button> : null}
+               <Link className="button secondary" href={returnToPlan ? '/plans/new' : '/plans'}>{returnToPlan ? 'Back to Plan draft' : 'Back to Plans'}</Link>
+             </div>
+           </form>

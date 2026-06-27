@@ -13,6 +13,7 @@ export declare const planPublicStatusSchema: z.ZodEnum<{
     open: "open";
     full: "full";
     started: "started";
+    cancelled: "cancelled";
 }>;
 export declare const planJoinApprovalModeSchema: z.ZodEnum<{
     owner_approval: "owner_approval";
