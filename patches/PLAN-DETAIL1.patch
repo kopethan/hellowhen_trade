@@ -1,0 +1,418 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index caf7209..b9b98ba 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+-import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
++import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { DiscoveryLanguage, InventoryTranslationDto, MediaAssetDto, PlaceDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
+@@ -14,6 +14,7 @@ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { api } from '../../lib/api';
+ import { betaFeatures } from '../../lib/betaFeatures';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
++import { buildPublicPlanUrl } from '../../lib/publicUrls';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useAuth } from '../../providers/AuthProvider';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+@@ -352,6 +353,39 @@ function getPlanLocationLabel(plan: PlanDto) {
+   return firstPlace.addressPublicText || firstPlace.sourcePlace?.areaLabel || 'Offline Plan';
+ }
+ 
++function getPlanModeLabel(plan: PlanDto) {
++  if (plan.mode === 'remote') return 'Online';
++  if (plan.mode === 'local') return 'Local';
++  if (plan.mode === 'hybrid') return 'Local/Online';
++  const places = plan.places ?? [];
++  const hasRemote = places.some((place) => place.mode === 'remote');
++  const hasLocal = places.some((place) => place.mode !== 'remote');
++  if (hasRemote && hasLocal) return 'Local/Online';
++  if (hasRemote) return 'Online';
++  if (hasLocal) return 'Local';
++  return 'Local/Online';
++}
++
++function formatPlanStatusLabel(status: string) {
++  return status.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
++}
++
++function getPlanStatusTone(status: string) {
++  if (status === 'open' || status === 'started' || status === 'completed') return 'success' as const;
++  if (status === 'full') return 'warning' as const;
++  if (status === 'cancelled' || status === 'hidden') return 'danger' as const;
++  if (status === 'expired') return 'time' as const;
++  return 'muted' as const;
++}
++
++function getPlanJoinModeLabel(plan: PlanDto) {
++  return plan.joinApprovalMode === 'automatic' ? 'Free join' : 'Request to join';
++}
++
++function getOwnerInitial(plan: PlanDto) {
++  return getOwnerName(plan).trim().slice(0, 1).toUpperCase() || 'H';
++}
++
+ function activeMedia(media: MediaAssetDto[] | undefined) {
+   return (media ?? []).filter((asset) => asset.status === 'active');
+ }
+@@ -671,16 +705,36 @@ function MenuItem({ item }: { item: PlanMenuItem }) {
+   );
+ }
+ 
+-function PlanStatPill({ label, value }: { label: string; value: string }) {
++function PlanDetailInfoRow({ label, value }: { label: string; value: string }) {
+   const theme = useThemeTokens();
+   return (
+-    <View style={[styles.statPill, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+-      <AppText style={styles.statValue}>{value}</AppText>
+-      <AppText style={[styles.statLabel, { color: theme.color.muted }]}>{label}</AppText>
++    <View style={[styles.planDetailInfoRow, { borderBottomColor: theme.color.border }]}>
++      <AppText style={[styles.planDetailInfoLabel, { color: theme.color.muted }]}>{label}</AppText>
++      <AppText style={styles.planDetailInfoValue}>{value}</AppText>
+     </View>
+   );
+ }
+ 
++function PlanOwnerRow({ plan }: { plan: PlanDto }) {
++  const theme = useThemeTokens();
++  return (
++    <View style={[styles.planOwnerRow, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
++      <View style={[styles.planOwnerAvatar, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
++        <AppText style={[styles.planOwnerInitial, { color: theme.semantic.plan.text }]}>{getOwnerInitial(plan)}</AppText>
++      </View>
++      <View style={styles.planOwnerCopy}>
++        <AppText style={[styles.planOwnerLabel, { color: theme.color.muted }]}>Posted by</AppText>
++        <AppText style={styles.planOwnerName}>{getOwnerName(plan)}</AppText>
++      </View>
++    </View>
++  );
++}
++
++function PlanSectionDivider() {
++  const theme = useThemeTokens();
++  return <View style={[styles.planSectionDivider, { backgroundColor: theme.color.border }]} />;
++}
++
+ function ParticipantCompactRow({ participant }: { participant: PlanParticipantDto }) {
+   const theme = useThemeTokens();
+   return (
+@@ -700,41 +754,30 @@ function PlanPlaceTimelineCard({ place, index, showReport }: { place: PlanPlaceD
+   const theme = useThemeTokens();
+   const mediaUrl = activeMediaUrl(getPlanPlaceMedia(place));
+   const locationLabel = getPlanPlaceLocationLabel(place);
++  const description = place.sourcePlace?.description || '';
+ 
+   return (
+-    <View style={styles.timelineRow}>
+-      <View style={styles.timelineRail}>
+-        <View style={[styles.timelineNumber, { backgroundColor: theme.color.text }]}>
+-          <AppText style={[styles.timelineNumberText, { color: theme.color.background }]}>{index + 1}</AppText>
++    <View style={[styles.planRouteStop, { borderBottomColor: theme.color.border }]}>
++      <View style={styles.planRouteStopTop}>
++        <View style={[styles.planRouteNumber, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
++          <AppText style={[styles.planRouteNumberText, { color: theme.semantic.place.text }]}>{index + 1}</AppText>
+         </View>
+-        <View style={[styles.timelineLine, { backgroundColor: theme.color.border }]} />
+-      </View>
+-      <View style={[styles.timelineCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-        <View style={styles.timelineCardHeader}>
+-          <View style={styles.timelineCopy}>
+-            <View style={styles.rowTop}>
+-              <SemanticBadge label={`Place ${index + 1}`} tone="place" size="sm" />
+-              <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
+-              <SemanticBadge label={getPlanPlaceSourceLabel(place)} tone="muted" size="sm" />
+-            </View>
+-            <AppText style={styles.rowTitle}>{place.title}</AppText>
+-          </View>
+-          <View style={[styles.timelineMedia, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
+-            {mediaUrl ? <Image source={{ uri: mediaUrl }} resizeMode="cover" style={styles.timelineImage} /> : <MobileIcon name="calendar" size={24} color={theme.semantic.place.text} />}
++        <View style={styles.planRouteCopy}>
++          <View style={styles.rowTop}>
++            <SemanticBadge label={formatDate(place.startsAt)} tone="time" size="sm" />
++            <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
+           </View>
++          <AppText style={styles.planRouteTitle}>{place.title}</AppText>
++          <AppText style={[styles.planRouteMeta, { color: theme.color.muted }]} numberOfLines={2}>{locationLabel}</AppText>
++          {description ? <AppText style={[styles.planRouteDescription, { color: theme.color.muted }]} numberOfLines={3}>{description}</AppText> : null}
+         </View>
+-        <View style={styles.detailMetaStack}>
+-          <View style={styles.metaRow}>
+-            <MobileIcon name={place.mode === 'remote' ? 'send' : 'calendar'} size={15} color={theme.color.muted} />
+-            <AppText style={[styles.metaText, { color: theme.color.muted }]}>{locationLabel}</AppText>
+-          </View>
+-          <View style={styles.metaRow}>
+-            <MobileIcon name="activity" size={15} color={theme.color.muted} />
+-            <AppText style={[styles.metaText, { color: theme.color.muted }]}>{formatDate(place.startsAt)}</AppText>
++        {mediaUrl ? (
++          <View style={styles.planRouteImageWrap}>
++            <Image source={{ uri: mediaUrl }} resizeMode="cover" style={styles.planRouteImage} />
+           </View>
+-        </View>
+-        {showReport ? <ReportContentPanel targetType="plan_place" targetId={place.id} labelKey="report.button" helperKey="report.helper.content" /> : null}
++        ) : null}
+       </View>
++      {showReport ? <ReportContentPanel targetType="plan_place" targetId={place.id} labelKey="report.button" helperKey="report.helper.content" /> : null}
+     </View>
+   );
+ }
+@@ -745,6 +788,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   const [plan, setPlan] = useState<PlanDto | null>(null);
+   const [loading, setLoading] = useState(isPlansVisible());
+   const [busy, setBusy] = useState(false);
++  const [sharing, setSharing] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+   const [actionMessage, setActionMessage] = useState<string | null>(null);
+   const [actionError, setActionError] = useState<string | null>(null);
+@@ -766,6 +810,22 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+ 
+   useFocusEffect(useCallback(() => { void load(); }, [load]));
+ 
++  async function sharePlan() {
++    if (!plan || sharing) return;
++    setSharing(true);
++    setActionMessage(null);
++    setActionError(null);
++    try {
++      const url = buildPublicPlanUrl(plan.id);
++      await Share.share({ title: plan.title, message: `${plan.title}\n${url}`, url });
++      setActionMessage('Share sheet opened.');
++    } catch {
++      setActionError('Could not open sharing on this device.');
++    } finally {
++      setSharing(false);
++    }
++  }
++
+   async function joinPlan() {
+     if (!plan || busy) return;
+     setBusy(true);
+@@ -811,33 +871,107 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   const joinedCount = plan?.participantCount ?? acceptedParticipants.length;
+   const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
+   const showReportActions = Boolean(auth.user && plan && !isOwner);
++  const header = (
++    <AppHeader
++      title="Plan"
++      onBack={() => navigation.goBack()}
++      rightSlot={plan ? (
++        <Pressable
++          accessibilityRole="button"
++          accessibilityLabel="Share Plan"
++          disabled={sharing}
++          onPress={() => { void sharePlan(); }}
++          style={({ pressed }) => [styles.planHeaderShareButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (pressed || sharing) && styles.pressed]}
++        >
++          <MobileIcon name="share" size={18} color={theme.color.text} />
++        </Pressable>
++      ) : undefined}
++    />
++  );
+ 
+   return (
+-    <AppFixedHeaderScreen header={<AppHeader title={route.params.title ?? 'Plan'} onBack={() => navigation.goBack()} />}>
++    <AppFixedHeaderScreen header={header}>
+       {loading ? <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Plan...</AppText></View> : null}
+       {!loading && error ? <View style={styles.contentPad}><InfoNotice tone="warning" title="Could not load Plan" body={error} /></View> : null}
+       {!loading && plan ? (
+-        <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
+-          <View style={[styles.hero, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-            <View style={styles.rowTop}>
+-              <SemanticBadge label="Plan" tone="trade" />
+-              <SemanticBadge label={plan.status} tone={plan.status === 'open' ? 'success' : 'muted'} />
+-              {isJoined ? <SemanticBadge label="Joined" tone="proposal" /> : null}
++        <ScrollView contentContainerStyle={styles.planDetailContent} showsVerticalScrollIndicator={false}>
++          <View style={styles.planDetailHero}>
++            <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{`${formatPlanStatusLabel(plan.status)} · Plan`}</AppText>
++            <AppText style={styles.planDetailTitle}>{plan.title}</AppText>
++            <AppText style={[styles.planDetailStart, { color: theme.color.muted }]}>Starts {formatDate(plan.startsAt)}</AppText>
++            <View style={styles.planDetailOwnerLine}>
++              <AppText style={[styles.planDetailOwnerPrefix, { color: theme.color.muted }]}>Posted by</AppText>
++              <AppText style={styles.planDetailOwnerName}>{getOwnerName(plan)}</AppText>
+             </View>
+-            <AppText style={styles.heroTitle}>{plan.title}</AppText>
+-            <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{plan.description}</AppText>
+-            <View style={styles.detailMetaStack}>
+-              <View style={styles.metaRow}><MobileIcon name="profile" size={16} color={theme.color.muted} /><AppText style={[styles.metaText, { color: theme.color.muted }]}>By {getOwnerName(plan)}</AppText></View>
+-              <View style={styles.metaRow}><MobileIcon name="calendar" size={16} color={theme.color.muted} /><AppText style={[styles.metaText, { color: theme.color.muted }]}>{formatPlanDateRange(plan)}</AppText></View>
+-              <View style={styles.metaRow}><MobileIcon name="activity" size={16} color={theme.color.muted} /><AppText style={[styles.metaText, { color: theme.color.muted }]}>{getPlanLocationLabel(plan)}</AppText></View>
++            <View style={styles.planDetailChips}>
++              <SemanticBadge label={formatPlanStatusLabel(plan.status)} tone={getPlanStatusTone(plan.status)} size="sm" />
++              <SemanticBadge label={getPlanJoinModeLabel(plan)} tone="proposal" size="sm" />
++              <SemanticBadge label={`${places.length} ${places.length === 1 ? 'place' : 'places'}`} tone="place" size="sm" />
++              <SemanticBadge label={getPlanModeLabel(plan)} tone="muted" size="sm" />
+             </View>
+-            <View style={styles.statGrid}>
+-              <PlanStatPill value={capacityLabel} label="joined" />
+-              <PlanStatPill value={String(places.length)} label="places" />
+-              <PlanStatPill value="Free" label="join" />
++            {plan.description ? <AppText style={[styles.planDetailDescription, { color: theme.color.text }]}>{plan.description}</AppText> : null}
++          </View>
++
++          <PlanSectionDivider />
++
++          <View style={styles.planDetailSectionFlat}>
++            <View style={styles.sectionTitleRow}>
++              <AppText style={styles.sectionTitle}>Route</AppText>
++              <SemanticBadge label={`${places.length}`} tone="place" size="sm" />
++            </View>
++            {places.length === 0 ? <EmptyBlock title="No places yet" body="This Plan does not have places attached yet." /> : null}
++            {places.map((place, index) => <PlanPlaceTimelineCard key={place.id} place={place} index={index} showReport={showReportActions} />)}
++          </View>
++
++          <PlanSectionDivider />
++
++          <View style={styles.planDetailSectionFlat}>
++            <AppText style={styles.sectionTitle}>Details</AppText>
++            <View style={styles.planDetailInfoList}>
++              <PlanDetailInfoRow label="Status" value={formatPlanStatusLabel(plan.status)} />
++              <PlanDetailInfoRow label="Visibility" value={plan.status === 'hidden' ? 'Hidden' : 'Public'} />
++              <PlanDetailInfoRow label="Join mode" value={getPlanJoinModeLabel(plan)} />
++              <PlanDetailInfoRow label="Time" value={formatPlanDateRange(plan)} />
++              <PlanDetailInfoRow label="Place mode" value={getPlanModeLabel(plan)} />
++              <PlanDetailInfoRow label="Created" value={formatDate(plan.createdAt)} />
++            </View>
++          </View>
++
++          <PlanSectionDivider />
++
++          <View style={styles.planDetailSectionFlat}>
++            <AppText style={styles.sectionTitle}>Owner</AppText>
++            <PlanOwnerRow plan={plan} />
++          </View>
++
++          <PlanSectionDivider />
++
++          <View style={styles.planDetailSectionFlat}>
++            <View style={styles.detailSectionHeader}>
++              <View style={styles.detailSectionCopy}>
++                <AppText style={styles.sectionTitle}>Joined people</AppText>
++                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{capacityLabel} joined · {getPlanJoinModeLabel(plan)}</AppText>
++              </View>
++              <SemanticBadge label={String(joinedCount)} tone="proposal" size="sm" />
+             </View>
++            {acceptedParticipants.length === 0 ? <AppText style={[styles.rowBody, { color: theme.color.muted }]}>No participants yet.</AppText> : null}
++            {acceptedParticipants.map((participant) => <ParticipantCompactRow key={participant.id} participant={participant} />)}
++          </View>
++
++          <PlanSectionDivider />
++
++          <View style={styles.planDetailSectionFlat}>
++            <AppText style={styles.sectionTitle}>Actions</AppText>
+             <View style={styles.detailActionStack}>
+-              {isOwner ? <InfoNotice tone="info" title="You own this Plan" body="People can join freely while this first production Plan flow is hidden behind the feature flags." /> : null}
++              {isOwner ? (
++                <View style={[styles.planOwnerManageRow, { borderColor: theme.color.border }]}>
++                  <MobileIcon name="profile" size={18} color={theme.semantic.plan.text} />
++                  <View style={styles.feedTitleWrap}>
++                    <AppText style={styles.planOwnerManageTitle}>You own this plan</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>You can share this plan and review joined people.</AppText>
++                  </View>
++                </View>
++              ) : null}
+               {canJoin ? (
+                 <Pressable disabled={busy} accessibilityRole="button" onPress={joinPlan} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed, busy && styles.disabled]}>
+                   <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{busy ? 'Joining...' : 'Join plan'}</AppText>
+@@ -846,7 +980,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+               {isJoined ? (
+                 <View style={[styles.joinedState, { backgroundColor: theme.semantic.success.softBg, borderColor: theme.semantic.success.border }]}>
+                   <MobileIcon name="proposal-accepted" size={18} color={theme.semantic.success.text} />
+-                  <AppText style={[styles.joinedStateText, { color: theme.semantic.success.text }]}>Joined</AppText>
++                  <AppText style={[styles.joinedStateText, { color: theme.semantic.success.text }]}>You joined this plan</AppText>
+                 </View>
+               ) : null}
+               {canLeave ? (
+@@ -854,35 +988,12 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+                   <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{busy ? 'Updating...' : 'Leave plan'}</AppText>
+                 </Pressable>
+               ) : null}
+-              {!auth.user ? <InfoNotice tone="info" title="Log in to join" body="Plans use the same protected account session as Trade. Log in first, then join freely." /> : null}
+-              {actionMessage ? <InfoNotice tone="success" title="Plan updated" body={actionMessage} /> : null}
++              {!auth.user ? <InfoNotice tone="info" title="Log in to join" body="Log in first, then join freely." /> : null}
++              {actionMessage ? <InfoNotice tone="success" title="Done" body={actionMessage} /> : null}
+               {actionError ? <InfoNotice tone="warning" title="Plan action failed" body={actionError} /> : null}
++              {showReportActions ? <ReportContentPanel targetType="plan" targetId={plan.id} labelKey="report.button" helperKey="report.helper.content" /> : null}
+             </View>
+           </View>
+-
+-          <View style={styles.sectionTitleRow}><AppText style={styles.sectionTitle}>Plan route</AppText><SemanticBadge label={`${places.length}`} tone="place" size="sm" /></View>
+-          {places.length === 0 ? <EmptyBlock title="No places yet" body="This Plan does not have places attached yet." /> : null}
+-          {places.map((place, index) => <PlanPlaceTimelineCard key={place.id} place={place} index={index} showReport={showReportActions} />)}
+-
+-          <View style={[styles.detailSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-            <View style={styles.detailSectionHeader}>
+-              <View style={styles.detailSectionCopy}>
+-                <AppText style={styles.sectionTitle}>Joined people</AppText>
+-                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>Free join is enabled for this first hidden production version.</AppText>
+-              </View>
+-              <SemanticBadge label={String(joinedCount)} tone="proposal" size="sm" />
+-            </View>
+-            {acceptedParticipants.length === 0 ? <AppText style={[styles.rowBody, { color: theme.color.muted }]}>No participants yet.</AppText> : null}
+-            {acceptedParticipants.map((participant) => <ParticipantCompactRow key={participant.id} participant={participant} />)}
+-          </View>
+-
+-          <View style={[styles.detailSection, styles.supportSection, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+-            <View style={styles.detailSectionCopy}>
+-              <AppText style={styles.sectionTitle}>Safety and support</AppText>
+-              <AppText style={[styles.rowBody, { color: theme.color.muted }]}>Plans are still hidden and internal while testing. Public discussion is intentionally postponed for this first production version.</AppText>
+-            </View>
+-            {showReportActions ? <ReportContentPanel targetType="plan" targetId={plan.id} labelKey="report.button" helperKey="report.helper.content" /> : null}
+-          </View>
+         </ScrollView>
+       ) : null}
+     </AppFixedHeaderScreen>
+@@ -1814,6 +1925,41 @@ const styles = StyleSheet.create({
+   deckSectionMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+   inlineLoading: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
+   loadingText: { fontWeight: '800' },
++  planHeaderShareButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  planDetailContent: { gap: 18, paddingBottom: 44 },
++  planDetailHero: { gap: 10, paddingTop: 4 },
++  planDetailEyebrow: { fontSize: 13, lineHeight: 18, fontWeight: '900', letterSpacing: 0.65, textTransform: 'uppercase' },
++  planDetailTitle: { fontSize: 33, lineHeight: 38, fontWeight: '900', letterSpacing: -0.95 },
++  planDetailStart: { fontSize: 14, lineHeight: 20, fontWeight: '900' },
++  planDetailOwnerLine: { flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap' },
++  planDetailOwnerPrefix: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
++  planDetailOwnerName: { fontSize: 13, lineHeight: 18, fontWeight: '900' },
++  planDetailChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, paddingTop: 2 },
++  planDetailDescription: { fontSize: 15, lineHeight: 22, fontWeight: '700', paddingTop: 3 },
++  planSectionDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: -2 },
++  planDetailSectionFlat: { gap: 12 },
++  planRouteStop: { borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 13, gap: 10 },
++  planRouteStopTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
++  planRouteNumber: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
++  planRouteNumberText: { fontSize: 13, fontWeight: '900' },
++  planRouteCopy: { flex: 1, minWidth: 0, gap: 6 },
++  planRouteTitle: { fontSize: 19, lineHeight: 24, fontWeight: '900', letterSpacing: -0.25 },
++  planRouteMeta: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
++  planRouteDescription: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
++  planRouteImageWrap: { width: 56, height: 56, borderRadius: 18, overflow: 'hidden' },
++  planRouteImage: { width: '100%', height: '100%' },
++  planDetailInfoList: { gap: 0 },
++  planDetailInfoRow: { minHeight: 46, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
++  planDetailInfoLabel: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
++  planDetailInfoValue: { flex: 1, textAlign: 'right', fontSize: 14, lineHeight: 19, fontWeight: '900' },
++  planOwnerRow: { borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', gap: 12 },
++  planOwnerAvatar: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  planOwnerInitial: { fontSize: 15, fontWeight: '900' },
++  planOwnerCopy: { flex: 1, minWidth: 0, gap: 2 },
++  planOwnerLabel: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
++  planOwnerName: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
++  planOwnerManageRow: { borderRadius: 18, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
++  planOwnerManageTitle: { fontSize: 14, lineHeight: 19, fontWeight: '900' },
+   rowCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 9 },
+   rowTop: { flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap' },
+   rowTitle: { fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.3 },
+diff --git a/apps/mobile/src/lib/publicUrls.ts b/apps/mobile/src/lib/publicUrls.ts
+index 699992b..9bb00e0 100644
+--- a/apps/mobile/src/lib/publicUrls.ts
++++ b/apps/mobile/src/lib/publicUrls.ts
+@@ -69,3 +69,7 @@ export function getPublicWebOrigin() {
+ export function buildPublicTradeUrl(tradeId: string) {
+   return `${getPublicWebOrigin()}/trades/${encodeURIComponent(tradeId)}`;
+ }
++
++export function buildPublicPlanUrl(planId: string) {
++  return `${getPublicWebOrigin()}/plans/${encodeURIComponent(planId)}`;
++}

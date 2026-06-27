@@ -15,9 +15,17 @@ export const account = {
     future: 'Outils futurs',
   },
   quickActions: {
+    title: 'Actions rapides',
+    body: 'Lancez les actions Hellowhen les plus utiles depuis ici.',
     editProfile: 'Modifier',
     notifications: 'Boîte',
     support: 'Assistance',
+    createTrade: 'Créer un échange',
+    createTradeBody: 'Publier un échange Besoin + Offre.',
+    createPlan: 'Créer un plan',
+    createPlanBody: 'Construire un parcours simple avec des lieux et horaires.',
+    addPlace: 'Ajouter un lieu',
+    addPlaceBody: 'Enregistrer un lieu réutilisable hors ligne ou en ligne.',
   },
   menu: {
     open: 'Ouvrir le menu Me',

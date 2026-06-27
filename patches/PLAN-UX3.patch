@@ -1,0 +1,209 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index e83c99a..debc162 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1579,12 +1579,6 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+           {stage === 'build' ? (
+             <>
+               <View style={[styles.timelineDividerBlock, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
+-                {places.length === 0 ? (
+-                  <View style={[styles.planEmptyInline, { borderTopColor: theme.color.border }]}>
+-                    <AppText style={styles.rowTitle}>No places yet</AppText>
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Add your first place, then set its date and time.</AppText>
+-                  </View>
+-                ) : null}
+                 {places.map((place, index) => (
+                   <View key={place.id}>
+                     <View style={[styles.planTimelineLineItem, styles.placeTimeLineItem, { borderTopColor: theme.color.border }]}>
+@@ -1605,31 +1599,34 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                   </View>
+                 ))}
+ 
+-                <Pressable accessibilityRole="button" onPress={() => openPlaceSourceSheet('new')} style={({ pressed }) => [styles.planAddPlaceRow, { borderTopColor: theme.color.border }, pressed && styles.pressed]}>
++                <Pressable accessibilityRole="button" onPress={() => openPlaceSourceSheet('new')} style={({ pressed }) => [styles.planAddPlaceRow, places.length === 0 && styles.planAddPlaceRowFirst, { borderTopColor: theme.color.border }, pressed && styles.pressed]}>
+                   <View style={styles.timelineCopy}>
+                     <AppText style={styles.sectionTitle}>+ Add place</AppText>
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose the next stop</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{places.length === 0 ? 'Choose the first stop' : 'Choose the next stop'}</AppText>
+                   </View>
+                   <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+                 </Pressable>
+ 
+-                <View style={[styles.planTimelineLineItem, styles.planTimelineOptionalEnd, { borderTopColor: theme.color.border }]}>
+-                  <View style={styles.timelineCopy}>
+-                    <SemanticBadge label="Optional" tone="time" size="sm" />
+-                    <AppText style={styles.sectionTitle}>End time</AppText>
+-                  </View>
+-                  <View style={styles.twoColumnRow}>
+-                    <TextField label="End date" value={planEnd.date} onChangeText={(date) => updatePlanEnd({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+-                    <TextField label="End time" value={planEnd.time} onChangeText={(time) => updatePlanEnd({ time })} placeholder="Optional" keyboardType="numbers-and-punctuation" />
++                {places.length > 0 ? (
++                  <View style={[styles.planTimelineLineItem, styles.planTimelineOptionalEnd, { borderTopColor: theme.color.border }]}>
++                    <View style={styles.timelineCopy}>
++                      <SemanticBadge label="Optional" tone="time" size="sm" />
++                      <AppText style={styles.sectionTitle}>End time</AppText>
++                    </View>
++                    <View style={styles.twoColumnRow}>
++                      <TextField label="End date" value={planEnd.date} onChangeText={(date) => updatePlanEnd({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
++                      <TextField label="End time" value={planEnd.time} onChangeText={(time) => updatePlanEnd({ time })} placeholder="Optional" keyboardType="numbers-and-punctuation" />
++                    </View>
+                   </View>
+-                </View>
++                ) : null}
+               </View>
+ 
+-
+               {validationNotice ? <InfoNotice tone="warning" title="Check plan" body={validationNotice} /> : null}
+-              <Pressable accessibilityRole="button" onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed]}>
+-                <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Preview Plan</AppText>
+-              </Pressable>
++              {places.length > 0 ? (
++                <Pressable accessibilityRole="button" onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed]}>
++                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Preview Plan</AppText>
++                </Pressable>
++              ) : null}
+             </>
+           ) : (
+             <>
+@@ -1960,19 +1957,20 @@ const styles = StyleSheet.create({
+   menuCopy: { flex: 1, minWidth: 0, gap: 2 },
+   menuTitle: { fontSize: 16, fontWeight: '900' },
+   menuBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
+-  listContent: { gap: 12, paddingBottom: 34 },
+-  planCreateCompactHeader: { gap: 9, paddingTop: 2, paddingBottom: 2 },
++  listContent: { gap: 10, paddingBottom: 34 },
++  planCreateCompactHeader: { gap: 7, paddingTop: 0, paddingBottom: 0 },
+   placeCreateCompactHeader: { gap: 7, paddingTop: 2, paddingBottom: 4 },
+   placeCreateTitle: { fontSize: 30, lineHeight: 34, fontWeight: '900', letterSpacing: -0.85 },
+   placeCreateSubtitle: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+-  stageSwitchRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
++  stageSwitchRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: -1 },
+   timelineDividerBlock: { gap: 0, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth },
+   planEmptyInline: { borderTopWidth: 0, paddingVertical: 12, gap: 3 },
+-  planTimelineLineItem: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 14, gap: 11 },
++  planTimelineLineItem: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 13, gap: 10 },
+   placeTimeLineItem: { paddingBottom: 11 },
+   planTimelinePlaceAction: { paddingVertical: 18 },
+-  planAddPlaceRow: { minHeight: 58, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
+-  planTimelineOptionalEnd: { opacity: 0.92 },
++  planAddPlaceRow: { minHeight: 54, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
++  planAddPlaceRowFirst: { borderTopWidth: 0 },
++  planTimelineOptionalEnd: { opacity: 0.9, paddingTop: 12 },
+   placeTimelineRow: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
+   placeDetailSheetContent: { gap: 10, paddingBottom: 12 },
+   placePickerPanel: { gap: 10 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 0415826..127fcd1 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -9076,7 +9076,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ 
+ /* PLAN-PROD6 — Web Create Plan reusable Place picker */
+ .plan-create-intro p { max-width: 620px; }
+-.plan-create-intro--compact { padding-bottom: 4px; }
++.plan-create-intro--compact { padding-bottom: 0; }
+ .plan-source-place-strip { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 8px; border-top: 1px solid var(--app-divider); border-bottom: 1px solid var(--app-divider); background: transparent; padding: 12px 0; }
+ .plan-source-place-strip p { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--app-text); font-size: 13px; font-weight: 900; }
+ .plan-source-place-strip .button { min-height: 34px; padding: 0 11px; }
+@@ -9152,23 +9152,24 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .plan-stage-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 3px; border: 1px solid var(--app-divider); border-radius: 999px; background: transparent; }
+ .plan-stage-tabs button { border: 0; border-radius: 999px; background: transparent; color: var(--app-text-muted); padding: 10px 12px; font: inherit; font-size: 12px; font-weight: 950; letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; }
+ .plan-stage-tabs button.is-active { background: var(--plan-bg); color: var(--plan-text); box-shadow: none; }
+-.plan-form--timeline { gap: 16px; }
++.plan-form--timeline { gap: 12px; }
+ .plan-form--clean { background: transparent; border: 0; box-shadow: none; padding: 0; }
+ .plan-build-timeline { display: grid; gap: 0; border-top: 1px solid var(--app-divider); border-bottom: 1px solid var(--app-divider); }
+-.plan-empty-inline { display: grid; gap: 3px; border-top: 0; padding: 12px 0; }
++.plan-empty-inline { display: grid; gap: 3px; border-top: 0; padding: 8px 0; }
+ .plan-empty-inline strong { color: var(--app-text); font-size: 15px; font-weight: 950; }
+ .plan-empty-inline span { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.35; }
+ .plan-timeline-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; border-top: 1px solid var(--app-divider); padding: 14px 0; }
+ .plan-build-timeline > .plan-timeline-row:first-child { border-top: 0; }
+ .plan-build-timeline > .plan-place-time-group:first-of-type .plan-timeline-row--place-time { border-top: 0; }
+ .plan-timeline-row--time { background: transparent; }
+-.plan-timeline-row--place-time { padding-bottom: 13px; }
++.plan-timeline-row--place-time { padding-bottom: 12px; }
+ .plan-timeline-row--add { display: block; background: transparent; padding: 0; }
+-.plan-add-place-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; width: 100%; min-height: 58px; border: 0; border-top: 1px solid var(--app-divider); background: transparent; color: inherit; padding: 14px 0; text-align: left; cursor: pointer; }
++.plan-add-place-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; width: 100%; min-height: 54px; border: 0; border-top: 1px solid var(--app-divider); background: transparent; color: inherit; padding: 12px 0; text-align: left; cursor: pointer; }
++.plan-add-place-row--first { border-top: 0; }
+ .plan-add-place-row span { color: var(--place-text); font-size: 17px; font-weight: 950; letter-spacing: -0.02em; }
+ .plan-add-place-row small { color: var(--app-text-muted); font-size: 13px; font-weight: 800; }
+ .plan-add-place-row:hover span { text-decoration: underline; text-underline-offset: 3px; }
+-.plan-timeline-row--optional-end { padding-top: 14px; opacity: 0.92; }
++.plan-timeline-row--optional-end { padding-top: 12px; opacity: 0.9; }
+ .plan-timeline-row__main { display: grid; gap: 6px; min-width: 0; }
+ .plan-timeline-row__main h3 { margin: 0; font-size: 18px; letter-spacing: -0.02em; }
+ .plan-timeline-row__main--button { width: 100%; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; padding: 0; }
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index 53ed5cb..de956c7 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -745,13 +745,6 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+             {stage === 'build' ? (
+               <>
+                 <section className="plan-build-timeline" aria-label="Build Plan timeline">
+-                  {places.length === 0 ? (
+-                    <div className="plan-empty-inline">
+-                      <strong>No places yet</strong>
+-                      <span>Add your first place, then set its date and time.</span>
+-                    </div>
+-                  ) : null}
+-
+                   {places.map((place, index) => (
+                     <div className="plan-place-time-group" key={place.id}>
+                       <div className="plan-timeline-row plan-timeline-row--time plan-timeline-row--place-time">
+@@ -788,33 +781,34 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                   ))}
+ 
+                   <div className="plan-timeline-row plan-timeline-row--add">
+-                    <button type="button" className="plan-add-place-row" onClick={addPlaceAndOpenPicker}>
++                    <button type="button" className={`plan-add-place-row ${places.length === 0 ? 'plan-add-place-row--first' : ''}`} onClick={addPlaceAndOpenPicker}>
+                       <span>+ Add place</span>
+-                      <small>Choose the next stop</small>
++                      <small>{places.length === 0 ? 'Choose the first stop' : 'Choose the next stop'}</small>
+                     </button>
+                   </div>
+ 
+-                  <div className="plan-timeline-row plan-timeline-row--time plan-timeline-row--optional-end">
+-                    <div className="plan-timeline-row__main">
+-                      <span className="semantic-badge time">Optional</span>
+-                      <h3>End time</h3>
+-                    </div>
+-                    <div className="plan-timeline-row__fields">
+-                      <label>
+-                        <span>End date</span>
+-                        <input type="date" value={planEnd.date} onChange={(event) => updatePlanEnd({ date: event.target.value })} />
+-                      </label>
+-                      <label>
+-                        <span>End time</span>
+-                        <input type="time" value={planEnd.time} onChange={(event) => updatePlanEnd({ time: event.target.value })} />
+-                      </label>
++                  {places.length > 0 ? (
++                    <div className="plan-timeline-row plan-timeline-row--time plan-timeline-row--optional-end">
++                      <div className="plan-timeline-row__main">
++                        <span className="semantic-badge time">Optional</span>
++                        <h3>End time</h3>
++                      </div>
++                      <div className="plan-timeline-row__fields">
++                        <label>
++                          <span>End date</span>
++                          <input type="date" value={planEnd.date} onChange={(event) => updatePlanEnd({ date: event.target.value })} />
++                        </label>
++                        <label>
++                          <span>End time</span>
++                          <input type="time" value={planEnd.time} onChange={(event) => updatePlanEnd({ time: event.target.value })} />
++                        </label>
++                      </div>
+                     </div>
+-                  </div>
++                  ) : null}
+                 </section>
+ 
+-
+                 {validationNotice ? <p className="form-error">{validationNotice}</p> : null}
+-                <button className="button primary full" type="button" onClick={showPreviewStage} disabled={places.some((place) => place.uploading)}>Preview Plan</button>
++                {places.length > 0 ? <button className="button primary full" type="button" onClick={showPreviewStage} disabled={places.some((place) => place.uploading)}>Preview Plan</button> : null}
+               </>
+             ) : (
+               <>

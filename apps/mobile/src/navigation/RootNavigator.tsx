@@ -19,7 +19,6 @@ import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
 import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
 import { LoginScreen } from '../features/auth/LoginScreen';
 import { OnboardingGuideScreen } from '../features/onboarding-guide/OnboardingGuideScreen';
-import { useOnboardingGuideCompletion } from '../features/onboarding-guide/onboardingGuideStorage';
 import { LegalPolicyScreen } from '../features/legal/LegalPolicyScreen';
 import { ProfileScreen } from '../features/me/MeScreen';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
@@ -46,6 +45,7 @@ import { TradeDeckFeedScreen } from '../features/trade/TradeDeckFeedScreen';
 import { TradeDetailScreen } from '../features/trade/TradeDetailScreen';
 import { TradeIdeaDetailScreen } from '../features/trade/TradeIdeaDetailScreen';
 import { CreatePlaceScreen, CreatePlanScreen, JoinedPlansScreen, MyPlacesScreen, MyPlansScreen, PlaceLibraryScreen, PlanDetailScreen, PlansScreen } from '../features/plans/PlansScreens';
+import { PlanPublicDiscussionScreen } from '../features/plans/PlanPublicDiscussionScreen';
 import { WalletScreen } from '../features/wallet/WalletScreen';
 import { PayoutsScreen } from '../features/wallet/PayoutsScreen';
 import { useAuth } from '../providers/AuthProvider';
@@ -72,6 +72,7 @@ export type RootStackParamList = {
   Agenda: undefined;
   Plans: undefined;
   PlanDetail: { planId: string; title?: string };
+  PlanPublicDiscussion: { planId: string; title?: string };
   MyPlans: undefined;
   JoinedPlans: undefined;
   MyPlaces: undefined;
@@ -162,6 +163,7 @@ const ProtectedSavedLibraryScreen = withAuth(SavedLibraryScreen);
 const ProtectedAgendaScreen = withAuth(AgendaScreen);
 const ProtectedPlansScreen = withAuth(PlansScreen, 'Login to open Plans', 'Plans are joinable place-based activities, so you need an account before joining or creating them.');
 const ProtectedPlanDetailScreen = withAuth(PlanDetailScreen);
+const ProtectedPlanPublicDiscussionScreen = withAuth(PlanPublicDiscussionScreen, 'Login to view Plan discussion', 'Public Plan discussion is available to logged-in members so moderation stays accountable.');
 const ProtectedMyPlansScreen = withAuth(MyPlansScreen);
 const ProtectedJoinedPlansScreen = withAuth(JoinedPlansScreen);
 const ProtectedMyPlacesScreen = withAuth(MyPlacesScreen);
@@ -267,14 +269,13 @@ function TradeTabs() {
 export function RootNavigator() {
   const auth = useAuth();
   const theme = useThemeTokens();
-  const onboardingGuide = useOnboardingGuideCompletion();
 
-  if (!auth.hydrated || !onboardingGuide.hydrated) {
+  if (!auth.hydrated) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.color.background }}><ActivityIndicator /></View>;
   }
 
   return (
-    <Stack.Navigator initialRouteName={onboardingGuide.completed ? 'TradeTabs' : 'OnboardingGuide'} screenOptions={{ headerShown: false }}>
+    <Stack.Navigator initialRouteName="TradeTabs" screenOptions={{ headerShown: false }}>
       <Stack.Screen name="TradeTabs" component={TradeTabs} />
       <Stack.Screen name="TradeDetail" component={TradeDetailScreen} />
       <Stack.Screen name="MyNeeds" component={ProtectedMyNeedsScreen} />
@@ -290,6 +291,7 @@ export function RootNavigator() {
       <Stack.Screen name="Agenda" component={ProtectedAgendaScreen} />
       {betaFeatures.plansEnabled ? <Stack.Screen name="Plans" component={ProtectedPlansScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="PlanDetail" component={ProtectedPlanDetailScreen} /> : null}
+      {betaFeatures.plansEnabled ? <Stack.Screen name="PlanPublicDiscussion" component={ProtectedPlanPublicDiscussionScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="MyPlans" component={ProtectedMyPlansScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="JoinedPlans" component={ProtectedJoinedPlansScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="MyPlaces" component={ProtectedMyPlacesScreen} /> : null}

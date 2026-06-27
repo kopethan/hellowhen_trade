@@ -2,30 +2,14 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import type { PlusSubscriptionSnapshotResponse, PayoutSummaryDto, WalletDto } from '@hellowhen/contracts';
-import { PERSONAL_MEMBERSHIP_TIER_METADATA, normalizePersonalMembershipTier, normalizeSubscriptionStatus, type SubscriptionStatus } from '@hellowhen/shared';
 import { WebIcon, type WebIconName } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
-import { assetUrl, fallbackCurrency, formatMoney, formatPayoutFeeRate, normalizePayoutFeeRateBps, normalizePayouts, normalizeWallet } from './accountPresentation';
+import { assetUrl } from './accountPresentation';
 
 
-function membershipStatusTone(status: SubscriptionStatus) {
-  switch (status) {
-    case 'active':
-    case 'trialing':
-      return 'success';
-    case 'past_due':
-    case 'expired':
-      return 'warning';
-    case 'canceled':
-      return 'neutral';
-    default:
-      return 'neutral';
-  }
-}
 
 type AccountHubItem = {
   href: string;
@@ -36,25 +20,54 @@ type AccountHubItem = {
   featured?: boolean;
   badgeKey?: string;
   actionKey?: string;
+  count?: number;
 };
+
+type AccountHubCounts = {
+  trades?: number;
+  needs?: number;
+  offers?: number;
+  myPlans?: number;
+  joinedPlans?: number;
+  places?: number;
+};
+
+function countCollection(response: unknown, key: string) {
+  if (!response || typeof response !== 'object') return undefined;
+  const value = (response as Record<string, unknown>)[key];
+  return Array.isArray(value) ? value.length : undefined;
+}
 
 export function AccountHubClient() {
   const auth = useWebAuth();
   const { t } = useWebTranslation();
-  const [wallet, setWallet] = useState<WalletDto | null>(null);
-  const [summary, setSummary] = useState<PayoutSummaryDto | null>(null);
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
-  const [membershipSnapshot, setMembershipSnapshot] = useState<PlusSubscriptionSnapshotResponse | null>(null);
-  const [membershipPreviewLoaded, setMembershipPreviewLoaded] = useState(false);
-  const [membershipPreviewError, setMembershipPreviewError] = useState(false);
+  const [accountCounts, setAccountCounts] = useState<AccountHubCounts>({});
+
+  const quickActionItems = useMemo<AccountHubItem[]>(() => [
+    { href: '/trades/create', titleKey: 'account.quickActions.createTrade', bodyKey: 'account.quickActions.createTradeBody', icon: 'trade', featured: true },
+    ...(betaFeatures.plansVisible ? [
+      { href: '/plans/new', titleKey: 'account.quickActions.createPlan', bodyKey: 'account.quickActions.createPlanBody', icon: 'calendar' as WebIconName, featured: true },
+      { href: '/places/new', titleKey: 'account.quickActions.addPlace', bodyKey: 'account.quickActions.addPlaceBody', icon: 'add' as WebIconName, featured: true },
+    ] : [
+      { href: '/needs/new', titleKey: 'trade.wizard.actions.createNeed.title', bodyKey: 'trade.wizard.actions.createNeed.body', icon: 'need' as WebIconName, featured: true },
+      { href: '/offers/new', titleKey: 'trade.wizard.actions.createOffer.title', bodyKey: 'trade.wizard.actions.createOffer.body', icon: 'offer' as WebIconName, featured: true },
+    ]),
+  ], []);
+
+  const activityItems = useMemo<AccountHubItem[]>(() => [
+    { href: '/trades', titleKey: 'trade.wizard.actions.myTrades.title', bodyKey: 'trade.wizard.actions.myTrades.body', icon: 'activity', count: accountCounts.trades },
+    { href: '/needs', titleKey: 'trade.wizard.actions.myNeeds.title', bodyKey: 'trade.wizard.actions.myNeeds.body', icon: 'need', count: accountCounts.needs },
+    { href: '/offers', titleKey: 'trade.wizard.actions.myOffers.title', bodyKey: 'trade.wizard.actions.myOffers.body', icon: 'offer', count: accountCounts.offers },
+  ], [accountCounts.needs, accountCounts.offers, accountCounts.trades]);
 
   const planWorkspaceItems = useMemo<AccountHubItem[]>(() => betaFeatures.plansVisible ? [
     { href: '/plans', titleKey: 'account.items.plansFeature.title', bodyKey: 'account.items.plansFeature.body', icon: 'calendar', featured: true, badgeKey: 'account.items.plansFeature.badge', actionKey: 'account.items.plansFeature.action' },
-    { href: '/plans?view=mine', titleKey: 'account.items.myPlansFeature.title', bodyKey: 'account.items.myPlansFeature.body', icon: 'activity' },
-    { href: '/plans?view=joined', titleKey: 'account.items.joinedPlansFeature.title', bodyKey: 'account.items.joinedPlansFeature.body', icon: 'proposal-accepted' },
+    { href: '/plans?view=mine', titleKey: 'account.items.myPlansFeature.title', bodyKey: 'account.items.myPlansFeature.body', icon: 'activity', count: accountCounts.myPlans },
+    { href: '/plans?view=joined', titleKey: 'account.items.joinedPlansFeature.title', bodyKey: 'account.items.joinedPlansFeature.body', icon: 'proposal-accepted', count: accountCounts.joinedPlans },
     { href: '/plans/new', titleKey: 'account.items.createPlanFeature.title', bodyKey: 'account.items.createPlanFeature.body', icon: 'add' },
     { href: '/places/new', titleKey: 'account.items.createPlaceFeature.title', bodyKey: 'account.items.createPlaceFeature.body', icon: 'add' },
-  ] : [], []);
+  ] : [], [accountCounts.joinedPlans, accountCounts.myPlans]);
 
   const accountItems = useMemo<AccountHubItem[]>(() => [
     { href: '/account/profile', titleKey: 'account.items.profile.title', bodyKey: 'account.items.profile.body', icon: 'profile' },
@@ -81,56 +94,6 @@ export function AccountHubClient() {
     { href: '/account/delete', titleKey: 'account.items.delete.title', bodyKey: 'account.items.delete.body', icon: 'warning' },
   ], []);
 
-  useEffect(() => {
-    let mounted = true;
-    async function loadPreview() {
-      if (!auth.hydrated || !auth.isAuthenticated || !(betaFeatures.walletVisible || betaFeatures.payoutsVisible)) return;
-      try {
-        const [walletResponse, payoutResponse] = await Promise.all([api.wallet.me(), api.wallet.payouts()]);
-        if (!mounted) return;
-        setWallet(normalizeWallet(walletResponse));
-        setSummary(normalizePayouts(payoutResponse).summary);
-      } catch {
-        if (mounted) {
-          setWallet(null);
-          setSummary(null);
-        }
-      }
-    }
-    void loadPreview();
-    return () => { mounted = false; };
-  }, [auth.hydrated, auth.isAuthenticated]);
-
-
-  useEffect(() => {
-    let mounted = true;
-    async function loadMembershipPreview() {
-      if (!auth.hydrated || !auth.isAuthenticated) {
-        if (mounted) {
-          setMembershipSnapshot(null);
-          setMembershipPreviewLoaded(auth.hydrated);
-          setMembershipPreviewError(false);
-        }
-        return;
-      }
-      try {
-        const response = await api.plus.me();
-        if (mounted) {
-          setMembershipSnapshot(response);
-          setMembershipPreviewLoaded(true);
-          setMembershipPreviewError(false);
-        }
-      } catch {
-        if (mounted) {
-          setMembershipSnapshot(null);
-          setMembershipPreviewLoaded(true);
-          setMembershipPreviewError(true);
-        }
-      }
-    }
-    void loadMembershipPreview();
-    return () => { mounted = false; };
-  }, [auth.hydrated, auth.isAuthenticated]);
 
   useEffect(() => {
     let mounted = true;
@@ -150,12 +113,27 @@ export function AccountHubClient() {
     return () => { mounted = false; };
   }, [auth.hydrated, auth.isAuthenticated]);
 
-  const currency = wallet?.currency ?? auth.user?.profile?.preferredCurrency ?? fallbackCurrency;
-  const platformFeeRateBps = normalizePayoutFeeRateBps(summary?.platformFeeRateBps);
-  const membershipTier = normalizePersonalMembershipTier(membershipSnapshot?.state.subscriptionTier);
-  const membershipStatus = normalizeSubscriptionStatus(membershipSnapshot?.state.subscriptionStatus);
-  const membershipMetadata = PERSONAL_MEMBERSHIP_TIER_METADATA[membershipTier];
-  const hasPlusAccess = Boolean(membershipSnapshot?.access.hasPlusAccess);
+  useEffect(() => {
+    let mounted = true;
+    async function loadAccountCounts() {
+      if (!auth.hydrated || !auth.isAuthenticated) {
+        if (mounted) setAccountCounts({});
+        return;
+      }
+      const [trades, needs, offers, myPlans, joinedPlans, places] = await Promise.all([
+        api.trades.mine({ scope: 'created' }).then((response) => countCollection(response, 'trades')).catch(() => undefined),
+        api.needs.mine().then((response) => countCollection(response, 'needs')).catch(() => undefined),
+        api.offers.mine().then((response) => countCollection(response, 'offers')).catch(() => undefined),
+        betaFeatures.plansVisible ? api.plans.mine().then((response) => countCollection(response, 'plans')).catch(() => undefined) : Promise.resolve(undefined),
+        betaFeatures.plansVisible ? api.plans.joined().then((response) => countCollection(response, 'plans')).catch(() => undefined) : Promise.resolve(undefined),
+        betaFeatures.plansVisible ? api.places.mine({ take: 100 }).then((response) => countCollection(response, 'places')).catch(() => undefined) : Promise.resolve(undefined),
+      ]);
+      if (mounted) setAccountCounts({ trades, needs, offers, myPlans, joinedPlans, places });
+    }
+    void loadAccountCounts();
+    return () => { mounted = false; };
+  }, [auth.hydrated, auth.isAuthenticated]);
+
 
   return (
     <div className="mobile-page">
@@ -179,36 +157,24 @@ export function AccountHubClient() {
         </section>
       ) : null}
 
-      {auth.isAuthenticated ? (
-        <Link href="/account/membership" className="membership-hub-preview-card" aria-label={t('account.membershipPreview.openAria')}>
-          <span className="membership-hub-preview-card__icon" aria-hidden="true">★</span>
-          <span className="membership-hub-preview-card__body">
-            <span className="semantic-badge instruction">{t('account.items.membership.badge')}</span>
-            <strong>{membershipPreviewError ? t('account.membershipPreview.unavailable') : membershipPreviewLoaded ? membershipMetadata.displayName : t('account.membershipPreview.loading')}</strong>
-            <span>{membershipPreviewError ? t('account.membershipPreview.unavailableBody') : membershipPreviewLoaded ? t(`account.membershipPreview.status.${membershipStatus}`) : t('account.membershipPreview.loadingBody')}</span>
-            <small>{t('account.membershipPreview.boundary')}</small>
-          </span>
-          <span className="membership-hub-preview-card__meta">
-            <span className={`semantic-badge ${membershipPreviewError ? 'warning' : membershipStatusTone(membershipStatus)}`}>{membershipPreviewError ? t('account.membershipPreview.unavailableShort') : membershipPreviewLoaded ? t(`account.membershipPreview.statusShort.${membershipStatus}`) : t('account.membershipPreview.loadingShort')}</span>
-            <span className={`semantic-badge ${hasPlusAccess ? 'success' : 'neutral'}`}>{hasPlusAccess ? t('account.membershipPreview.plusActive') : t('account.membershipPreview.plusInactive')}</span>
-          </span>
-          <WebIcon name="arrow-right" size={17} decorative className="membership-hub-preview-card__arrow" />
-        </Link>
-      ) : null}
+      <section className="account-hub-section" aria-label={t('account.quickActions.title')}>
+        <div className="account-hub-section__header">
+          <span className="semantic-badge trade">{t('account.quickActions.title')}</span>
+          <p>{t('account.quickActions.body')}</p>
+        </div>
+        <div className="account-quick-action-grid">
+          {quickActionItems.map((item) => <AccountHubLinkCard key={item.href} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick />)}
+        </div>
+      </section>
 
-      {auth.isAuthenticated && (betaFeatures.walletVisible || betaFeatures.payoutsVisible) ? (
-        <section className="wallet-preview-strip">
-          <div>
-            <span>{t('account.walletMoney')}</span>
-            <strong>{formatMoney(wallet?.availableBalanceCents ?? 0, currency)}</strong>
-          </div>
-          <div>
-            <span>{t('account.availableEarnings')}</span>
-            <strong>{formatMoney(wallet?.pendingPayoutCents ?? summary?.availableForPayoutCents ?? 0, currency)}</strong>
-            <small>{t('account.payoutFee', { rate: formatPayoutFeeRate(platformFeeRateBps) })}</small>
-          </div>
-        </section>
-      ) : null}
+      <section className="account-hub-section" aria-label={t('account.sections.activity')}>
+        <div className="account-hub-section__header">
+          <h3>{t('account.sections.activity')}</h3>
+        </div>
+        <div className="mobile-list">
+          {activityItems.map((item) => <AccountHubLinkCard key={item.href} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
+        </div>
+      </section>
 
       {planWorkspaceItems.length > 0 ? (
         <section className="account-hub-section" aria-label={t('account.sections.plans')}>
@@ -217,53 +183,38 @@ export function AccountHubClient() {
             <h3>{t('account.sections.plans')}</h3>
           </div>
           <div className="mobile-list">
-            {planWorkspaceItems.map((item) => {
-              const href = auth.hydrated && !auth.isAuthenticated && !item.publicAccess ? `/auth?next=${encodeURIComponent(item.href)}` : item.href;
-              const className = item.featured ? 'mobile-link-card mobile-link-card--featured' : 'mobile-link-card';
-              return (
-                <Link key={item.href} href={href} className={className}>
-                  {item.icon ? <WebIcon name={item.icon} size={item.featured ? 24 : 22} decorative className="mobile-link-card__icon" /> : null}
-                  <span className="mobile-link-card__body">
-                    <span className="mobile-link-card__title-row">
-                      <strong>{t(item.titleKey)}</strong>
-                      {item.badgeKey ? <span className="semantic-badge instruction">{t(item.badgeKey)}</span> : null}
-                    </span>
-                    <br />
-                    {t(item.bodyKey)}
-                  </span>
-                  {item.actionKey ? <span className="mobile-link-card__action-label">{t(item.actionKey)}</span> : null}
-                  <WebIcon name="arrow-right" size={17} decorative className="mobile-link-card__arrow" />
-                </Link>
-              );
-            })}
+            {planWorkspaceItems.map((item) => <AccountHubLinkCard key={item.href} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
           </div>
         </section>
       ) : null}
 
       <div className="mobile-list">
-        {accountItems.map((item) => {
-          const href = auth.hydrated && !auth.isAuthenticated && !item.publicAccess ? `/auth?next=${encodeURIComponent(item.href)}` : item.href;
-          const className = item.featured ? 'mobile-link-card mobile-link-card--featured' : 'mobile-link-card';
-          return (
-            <Link key={item.href} href={href} className={className}>
-              {item.icon ? <WebIcon name={item.icon} size={item.featured ? 24 : 22} decorative className="mobile-link-card__icon" /> : null}
-              <span className="mobile-link-card__body">
-                <span className="mobile-link-card__title-row">
-                  <strong>{t(item.titleKey)}</strong>
-                  {item.badgeKey ? <span className="semantic-badge instruction">{t(item.badgeKey)}</span> : null}
-                </span>
-                <br />
-                {t(item.bodyKey)}
-              </span>
-              {item.href === '/account/notifications' && notificationUnreadCount > 0 ? (
-                <span className="semantic-badge proposal mobile-link-card__meta-badge">{notificationUnreadCount}</span>
-              ) : null}
-              {item.actionKey ? <span className="mobile-link-card__action-label">{t(item.actionKey)}</span> : null}
-              <WebIcon name="arrow-right" size={17} decorative className="mobile-link-card__arrow" />
-            </Link>
-          );
-        })}
+        {accountItems.map((item) => <AccountHubLinkCard key={item.href} item={item.href === '/account/notifications' ? { ...item, count: notificationUnreadCount > 0 ? notificationUnreadCount : undefined } : item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
       </div>
     </div>
+  );
+}
+
+
+function AccountHubLinkCard({ item, authHydrated, isAuthenticated, t, quick = false }: { item: AccountHubItem; authHydrated: boolean; isAuthenticated: boolean; t: (key: string) => string; quick?: boolean }) {
+  const href = authHydrated && !isAuthenticated && !item.publicAccess ? `/auth?next=${encodeURIComponent(item.href)}` : item.href;
+  const className = [item.featured ? 'mobile-link-card mobile-link-card--featured' : 'mobile-link-card', quick ? 'account-quick-action-card' : null].filter(Boolean).join(' ');
+  return (
+    <Link href={href} className={className}>
+      {item.icon ? <WebIcon name={item.icon} size={item.featured ? 24 : 22} decorative className="mobile-link-card__icon" /> : null}
+      <span className="mobile-link-card__body">
+        <span className="mobile-link-card__title-row">
+          <strong>{t(item.titleKey)}</strong>
+          {item.badgeKey ? <span className="semantic-badge instruction">{t(item.badgeKey)}</span> : null}
+        </span>
+        <br />
+        {t(item.bodyKey)}
+      </span>
+      {typeof item.count === 'number' ? (
+        <span className="semantic-badge proposal mobile-link-card__meta-badge">{Math.min(item.count, 99)}</span>
+      ) : null}
+      {item.actionKey ? <span className="mobile-link-card__action-label">{t(item.actionKey)}</span> : null}
+      <WebIcon name="arrow-right" size={17} decorative className="mobile-link-card__arrow" />
+    </Link>
   );
 }

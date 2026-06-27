@@ -1,0 +1,202 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 6ff46a6..34bf542 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1672,13 +1672,21 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+     <AppFixedHeaderScreen header={<AppHeader title={isEditing ? 'Edit place' : 'Create place'} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label="My Places" onPress={() => navigation.navigate('MyPlaces')} />} />}>
+       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
+         <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+-          <View style={[styles.hero, styles.placeCreateHero, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
++          <View style={styles.placeCreateCompactHeader}>
+             <SemanticBadge label="My Place" tone="place" />
+-            <AppText style={styles.heroTitle}>{isEditing ? 'Edit Place' : 'Create Place'}</AppText>
+-            <AppText style={[styles.heroBody, { color: theme.semantic.place.text }]}>{isEditing ? 'Update your reusable Place for future Plans.' : copyFromPlace ? 'Save a private copy, then return to your Plan.' : 'Save an offline or online Place for Plans.'}</AppText>
++            <AppText style={styles.placeCreateTitle}>{isEditing ? 'Edit Place' : 'Create Place'}</AppText>
++            <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? 'Update this reusable Place.' : copyFromPlace ? 'Save a private copy, then return to your Plan.' : 'Save an offline or online Place.'}</AppText>
+           </View>
+-          <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }]}>
+-            <ModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
++          <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: 'transparent', borderColor: theme.semantic.place.border }]}>
++            <View style={styles.placeCreateSectionHeader}>
++              <View style={styles.feedTitleWrap}>
++                <AppText style={styles.sectionTitle}>Place details</AppText>
++                <AppText style={[styles.metaText, { color: theme.color.muted }]}>Private by default.</AppText>
++              </View>
++            </View>
++            <View style={styles.placeCreateDividerBlock}>
++              <ModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
++            </View>
+             <TextField label="Place name" value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder="Quiet coffee near République" maxLength={120} />
+             {state.mode === 'remote' ? (
+               <>
+@@ -1686,9 +1694,9 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+                 <TextField label="Online URL" value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
+               </>
+             ) : (
+-              <TextField label="Area / address" value={state.location} onChangeText={(location) => setState((current) => ({ ...current, location }))} placeholder="Paris 11 or a public meeting point" maxLength={240} />
++              <TextField label="Area / address" value={state.location} onChangeText={(location) => setState((current) => ({ ...current, location }))} placeholder="Paris 11 or a public spot" maxLength={240} />
+             )}
+-            <TextField label="Description" value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder="Describe this place for later Plans." multiline maxLength={2000} />
++            <TextField label="Description (optional)" value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder="Useful details for this Place." multiline maxLength={2000} />
+             <View style={styles.placeTranslationBlock}>
+               <AppText style={styles.formLabel}>Original language</AppText>
+               <View style={styles.filterRow}>
+@@ -1722,9 +1730,11 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+             </View>
+             {message ? <InfoNotice tone="success" title="Place saved" body={message} /> : null}
+             {error ? <InfoNotice tone="warning" title="Could not save Place" body={error} /> : null}
+-            <Pressable accessibilityRole="button" disabled={saving || state.title.trim().length < 3} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.place.bg }, pressed && styles.pressed, (saving || state.title.trim().length < 3) && styles.disabled]}>
+-              <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? 'Saving...' : route.params?.returnToCreatePlan ? isEditing ? 'Update and return to Plan' : 'Save and return to Plan' : isEditing ? 'Update Place' : 'Save Place'}</AppText>
+-            </Pressable>
++            <View style={[styles.placeCreateActionFooter, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
++              <Pressable accessibilityRole="button" disabled={saving || state.title.trim().length < 3} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.place.bg }, pressed && styles.pressed, (saving || state.title.trim().length < 3) && styles.disabled]}>
++                <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? 'Saving...' : route.params?.returnToCreatePlan ? isEditing ? 'Update and return to Plan' : 'Save and return to Plan' : isEditing ? 'Update Place' : 'Save Place'}</AppText>
++              </Pressable>
++            </View>
+           </View>
+         </ScrollView>
+         <KeyboardDoneAccessory />
+@@ -1757,6 +1767,9 @@ const styles = StyleSheet.create({
+   menuBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
+   listContent: { gap: 12, paddingBottom: 34 },
+   planCreateCompactHeader: { gap: 9, paddingTop: 2, paddingBottom: 2 },
++  placeCreateCompactHeader: { gap: 7, paddingTop: 2, paddingBottom: 4 },
++  placeCreateTitle: { fontSize: 30, lineHeight: 34, fontWeight: '900', letterSpacing: -0.85 },
++  placeCreateSubtitle: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+   stageSwitchRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+   timelineDividerBlock: { gap: 0, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth },
+   planEmptyInline: { borderTopWidth: 0, paddingVertical: 12, gap: 3 },
+@@ -1842,15 +1855,18 @@ const styles = StyleSheet.create({
+   keyboardWrap: { flex: 1, minHeight: 0 },
+   inlineSmallLoading: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 8 },
+   formCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 13 },
+-  placeCreateFormCard: { borderRadius: 0, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 0, paddingHorizontal: 0 },
++  placeCreateFormCard: { borderRadius: 0, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 0, paddingHorizontal: 0, paddingTop: 13, gap: 14 },
++  placeCreateSectionHeader: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 12 },
++  placeCreateDividerBlock: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 14 },
++  placeCreateActionFooter: { marginTop: 3, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 13, paddingBottom: Platform.OS === 'ios' ? 4 : 0 },
+   placeTranslationBlock: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 13, gap: 10 },
+   placeTranslationFields: { borderRadius: 22, borderWidth: 1, padding: 12, gap: 10 },
+   formField: { gap: 7, flex: 1, minWidth: 0 },
+   formLabel: { fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
+   input: { minHeight: 48, borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 11, fontSize: 15, fontWeight: '700' },
+-  textArea: { minHeight: 104, lineHeight: 20 },
++  textArea: { minHeight: 92, lineHeight: 20 },
+   modeSegment: { borderRadius: 18, borderWidth: 1, padding: 4, flexDirection: 'row', gap: 4 },
+-  modeSegmentButton: { flex: 1, minHeight: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
++  modeSegmentButton: { flex: 1, minHeight: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+   modeSegmentText: { fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
+   pillButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
+   pillButtonText: { fontSize: 12, fontWeight: '900' },
+diff --git a/apps/web/src/features/plans/PlaceCreateClient.tsx b/apps/web/src/features/plans/PlaceCreateClient.tsx
+index 099317f..fccd6f0 100644
+--- a/apps/web/src/features/plans/PlaceCreateClient.tsx
++++ b/apps/web/src/features/plans/PlaceCreateClient.tsx
+@@ -106,9 +106,9 @@ function validatePlaceTranslations(state: PlaceCreateFormState) {
+ 
+ function PlaceModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (value: PlanPlaceMode) => void }) {
+   return (
+-    <div className="plan-mode-segment" aria-label="Place type">
+-      <button type="button" className={value === 'local' ? 'is-active' : ''} onClick={() => onChange('local')}>Local</button>
+-      <button type="button" className={value === 'remote' ? 'is-active' : ''} onClick={() => onChange('remote')}>Remote</button>
++    <div className="plan-mode-segment place-mode-segment" aria-label="Place type">
++      <button type="button" className={value === 'local' ? 'is-active' : ''} onClick={() => onChange('local')}>Offline</button>
++      <button type="button" className={value === 'remote' ? 'is-active' : ''} onClick={() => onChange('remote')}>Online</button>
+     </div>
+   );
+ }
+@@ -204,11 +204,11 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+   return (
+     <PlansFeatureGate plansEnabled={plansEnabled}>
+       <main className="mobile-page plans-page">
+-        <section className="page-intro plan-create-intro">
++        <section className="page-intro plan-create-intro place-create-intro">
+           <div>
+             <PlansInternalBadge plansVisible={plansVisible} />
+             <h2>{isEditing ? 'Edit Place' : 'Create Place'}</h2>
+-            <p>{returnToPlan ? (isEditing ? 'Update this Place, then return to your Plan.' : 'Save a Place, then return to your Plan.') : isEditing ? 'Update your reusable Place.' : 'Save an offline or online Place for future Plans.'}</p>
++            <p>{returnToPlan ? (isEditing ? 'Update and return to your Plan.' : 'Save and return to your Plan.') : 'Reusable Place for future Plans.'}</p>
+           </div>
+         </section>
+ 
+@@ -225,14 +225,16 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+ 
+         {auth.isAuthenticated && !loadingPlace ? (
+           <form className="mobile-card plan-form place-clean-form" onSubmit={submit}>
+-            <div className="plan-form__section-title">
++            <div className="plan-form__section-title place-form__section-title">
+               <div>
+                 <h3>Place details</h3>
+-                <p className="meta">Private by default. Reuse it in future Plans.</p>
++                <p className="meta">Private by default.</p>
+               </div>
+               <span className="semantic-badge place">My Place</span>
+             </div>
+-            <PlaceModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
++            <div className="place-form__divider">
++              <PlaceModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
++            </div>
+             <label>
+               <span>Place name</span>
+               <input value={state.title} onChange={(event) => setState((current) => ({ ...current, title: event.target.value }))} minLength={3} maxLength={120} required placeholder="Quiet coffee near République" />
+@@ -251,12 +253,12 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+             ) : (
+               <label>
+                 <span>Area / address</span>
+-                <input value={state.location} onChange={(event) => setState((current) => ({ ...current, location: event.target.value }))} maxLength={240} placeholder="Paris 11 or a public meeting point" />
++                <input value={state.location} onChange={(event) => setState((current) => ({ ...current, location: event.target.value }))} maxLength={240} placeholder="Paris 11 or a public spot" />
+               </label>
+             )}
+-            <label>
+-              <span>Description</span>
+-              <textarea value={state.description} onChange={(event) => setState((current) => ({ ...current, description: event.target.value }))} maxLength={2000} placeholder="Describe this place for later Plans." />
++            <label className="place-description-field">
++              <span>Description <small>Optional</small></span>
++              <textarea value={state.description} onChange={(event) => setState((current) => ({ ...current, description: event.target.value }))} maxLength={2000} placeholder="Useful details for this Place." />
+             </label>
+ 
+             <section className="inventory-translation-compact place-translation-compact">
+@@ -317,7 +319,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+ 
+             {message ? <p className="success-message">{message}</p> : null}
+             {error ? <p className="form-error">{error}</p> : null}
+-            <div className="cta-row">
++            <div className="cta-row place-save-row">
+               <button className="button primary" type="submit" disabled={saving || state.title.trim().length < 3}>{saving ? 'Saving...' : returnToPlan ? isEditing ? 'Update and return' : 'Save and return' : isEditing ? 'Update Place' : 'Save Place'}</button>
+               <Link className="button secondary" href={returnToPlan ? '/plans/new' : '/plans'}>{returnToPlan ? 'Back to Plan draft' : 'Back to Plans'}</Link>
+             </div>
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index ba45276..d32c7d4 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2757,15 +2757,26 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ .plan-place-card__full-image { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; border: 1px solid var(--app-border); border-radius: 18px; margin-top: 8px; background: var(--app-surface); }
+ 
+ 
+-.place-clean-form { border-color: var(--place-border); }
+-.place-clean-form .plan-form__section-title { border-bottom: 1px solid var(--app-border); padding-bottom: 14px; }
+-.place-clean-form textarea { min-height: 118px; }
++.place-create-intro { padding-bottom: 2px; }
++.place-create-intro p { max-width: 34rem; font-size: 13px; line-height: 1.35; }
++.place-clean-form { border: 0; border-top: 1px solid var(--place-border); border-radius: 0; background: transparent; box-shadow: none; padding: 14px 0 0; }
++.place-clean-form .plan-form__section-title { border-bottom: 1px solid var(--app-divider); padding-bottom: 12px; }
++.place-clean-form .plan-form__section-title h3 { font-size: 22px; letter-spacing: -0.03em; }
++.place-clean-form > label, .place-clean-form > .plan-form__row, .place-clean-form > .place-form__divider { border-bottom: 1px solid var(--app-divider); padding-bottom: 13px; }
++.place-clean-form .plan-form__row label { min-width: 0; }
++.place-clean-form textarea { min-height: 92px; }
++.place-clean-form .place-description-field textarea { min-height: 84px; }
++.place-description-field small { color: var(--app-text-soft); font-size: 11px; font-weight: 950; }
++.place-form__divider { display: grid; gap: 8px; }
++.place-save-row { position: sticky; bottom: 10px; z-index: 2; border-top: 1px solid var(--app-divider); background: color-mix(in srgb, var(--app-bg) 88%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); padding: 12px 0 2px; }
+ .place-translation-compact { border-top: 1px solid var(--app-border); padding-top: 14px; }
+-.place-translation-compact .inventory-translation-toggle { border-color: var(--place-border); background: color-mix(in srgb, var(--place-bg) 42%, var(--app-surface)); }
++.place-translation-compact .inventory-translation-toggle { border-color: var(--place-border); background: color-mix(in srgb, var(--place-bg) 28%, var(--app-surface)); }
+ .place-translation-panel { border-color: var(--place-border); }
+ .plan-mode-segment { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); padding: 5px; }
+ .plan-mode-segment button { min-height: 38px; border: 0; border-radius: 999px; background: transparent; color: var(--app-text-muted); font: inherit; font-size: 12px; font-weight: 950; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; }
+ .plan-mode-segment button.is-active { background: var(--place-bg); color: #fff; box-shadow: var(--app-control-shadow); }
++.place-mode-segment { border-color: var(--place-border); background: transparent; }
++.place-mode-segment button { min-height: 36px; }
+ .plan-deck-link { display: grid; gap: 8px; color: inherit; text-decoration: none; }
+ .plan-deck-link__meta { margin: 0 4px 16px; color: var(--app-text-muted); font-size: 12px; font-weight: 850; text-decoration: none; }
+ .plan-deck-link__meta:hover { color: var(--app-text); }

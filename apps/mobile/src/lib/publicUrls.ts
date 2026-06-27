@@ -69,3 +69,7 @@ export function getPublicWebOrigin() {
 export function buildPublicTradeUrl(tradeId: string) {
   return `${getPublicWebOrigin()}/trades/${encodeURIComponent(tradeId)}`;
 }
+
+export function buildPublicPlanUrl(planId: string) {
+  return `${getPublicWebOrigin()}/plans/${encodeURIComponent(planId)}`;
+}

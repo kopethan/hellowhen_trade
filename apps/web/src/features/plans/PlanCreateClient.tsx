@@ -325,7 +325,6 @@ function PlacePickerList({
             <span className="plan-place-picker-card__body">
               <strong>{place.title}</strong>
               <small>{meta || placeSourceLabel(place)}</small>
-              {place.description ? <span>{place.description}</span> : null}
             </span>
             <span className="semantic-badge instruction">Use</span>
           </button>
@@ -436,6 +435,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   const previewDescription = advancedDetails.description.trim() || generatedDescription;
   const filteredMyPlaces = useMemo(() => filterPlaces(myPlaces, placeQuery), [myPlaces, placeQuery]);
   const filteredLibraryPlaces = useMemo(() => filterPlaces(libraryPlaces, placeQuery), [libraryPlaces, placeQuery]);
+  const validationNotice = error;
 
   async function loadReusablePlaces() {
     setLoadingPlaces(true);
@@ -718,11 +718,10 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   return (
     <PlansFeatureGate plansEnabled={plansEnabled}>
       <main className="mobile-page plans-page">
-        <section className="page-intro plan-create-intro">
+        <section className="page-intro plan-create-intro plan-create-intro--compact">
           <div>
             <PlansInternalBadge plansVisible={plansVisible} />
             <h2>Create Plan</h2>
-            <p>Set time, add places, preview.</p>
           </div>
         </section>
 
@@ -745,15 +744,12 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
             {stage === 'build' ? (
               <>
                 <section className="plan-build-timeline" aria-label="Build Plan timeline">
-                  {places.length === 0 ? <p className="meta">Add Place 1 to set its date and time.</p> : null}
-
                   {places.map((place, index) => (
                     <div className="plan-place-time-group" key={place.id}>
                       <div className="plan-timeline-row plan-timeline-row--time plan-timeline-row--place-time">
                         <div className="plan-timeline-row__main">
                           <span className="semantic-badge time">Date / time</span>
-                          <h3>Place {index + 1} time</h3>
-                          <p className="meta">{index === 0 ? 'This becomes the Plan start.' : 'Same time or after the previous place.'}</p>
+                          <h3>Place {index + 1}</h3>
                         </div>
                         <div className="plan-timeline-row__fields">
                           <label>
@@ -784,73 +780,55 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                   ))}
 
                   <div className="plan-timeline-row plan-timeline-row--add">
-                    <div className="plan-timeline-row__main">
-                      <h3>Add a place</h3>
-                      <p className="meta">Choose the next stop.</p>
-                    </div>
-                    <div className="plan-timeline-row__actions">
-                      <button type="button" className="button primary" onClick={addPlaceAndOpenPicker}>+ Add place</button>
-                    </div>
+                    <button type="button" className={`plan-add-place-row ${places.length === 0 ? 'plan-add-place-row--first' : ''}`} onClick={addPlaceAndOpenPicker}>
+                      <span>+ Add place</span>
+                      <small>{places.length === 0 ? 'Choose the first stop' : 'Choose the next stop'}</small>
+                    </button>
                   </div>
 
-                  <div className="plan-timeline-row plan-timeline-row--time">
-                    <div className="plan-timeline-row__main">
-                      <span className="semantic-badge time">Optional</span>
-                      <h3>End date / time</h3>
-                      <p className="meta">Leave empty to end at the last place.</p>
+                  {places.length > 0 ? (
+                    <div className="plan-timeline-row plan-timeline-row--time plan-timeline-row--optional-end">
+                      <div className="plan-timeline-row__main">
+                        <span className="semantic-badge time">Optional</span>
+                        <h3>End time</h3>
+                      </div>
+                      <div className="plan-timeline-row__fields">
+                        <label>
+                          <span>End date</span>
+                          <input type="date" value={planEnd.date} onChange={(event) => updatePlanEnd({ date: event.target.value })} />
+                        </label>
+                        <label>
+                          <span>End time</span>
+                          <input type="time" value={planEnd.time} onChange={(event) => updatePlanEnd({ time: event.target.value })} />
+                        </label>
+                      </div>
                     </div>
-                    <div className="plan-timeline-row__fields">
-                      <label>
-                        <span>End date</span>
-                        <input type="date" value={planEnd.date} onChange={(event) => updatePlanEnd({ date: event.target.value })} />
-                      </label>
-                      <label>
-                        <span>End time</span>
-                        <input type="time" value={planEnd.time} onChange={(event) => updatePlanEnd({ time: event.target.value })} />
-                      </label>
-                    </div>
-                  </div>
+                  ) : null}
                 </section>
 
-
-                {error ? <p className="form-error">{error}</p> : null}
-                <button className="button primary full" type="button" onClick={showPreviewStage} disabled={places.some((place) => place.uploading)}>Preview Plan</button>
+                {validationNotice ? <p className="form-error">{validationNotice}</p> : null}
+                {places.length > 0 ? <button className="button primary full" type="button" onClick={showPreviewStage} disabled={places.some((place) => place.uploading)}>Preview Plan</button> : null}
               </>
             ) : (
               <>
                 <section className="plan-form__preview plan-preview-stage">
-                  <div className="plan-preview-confirm-hero">
+                  <div className="plan-preview-confirm-hero plan-preview-confirm-hero--simple">
                     <div className="plan-preview-confirm-hero__copy">
-                      <span className="semantic-badge plan">Ready to publish</span>
+                      <span className="semantic-badge plan">Preview</span>
                       <h3>{previewTitle}</h3>
                       <p>{previewDescription}</p>
                     </div>
-                    <button type="button" className="button secondary" onClick={() => setStage('build')}>Back to build</button>
-                  </div>
-
-                  <div className="plan-preview-summary-grid" aria-label="Plan confirmation summary">
-                    <div>
-                      <span>Starts</span>
-                      <strong>{schedule.startsAt ? new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Not set'}</strong>
-                    </div>
-                    <div>
-                      <span>Places</span>
-                      <strong>{places.length} {places.length === 1 ? 'place' : 'places'}</strong>
-                    </div>
-                    <div>
-                      <span>Join mode</span>
-                      <strong>Free join</strong>
-                    </div>
-                    <div>
-                      <span>Visibility</span>
-                      <strong>Open / Public</strong>
+                    <div className="plan-preview-inline-meta" aria-label="Plan confirmation summary">
+                      <span>{schedule.startsAt ? new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Start not set'}</span>
+                      <span>{places.length} {places.length === 1 ? 'place' : 'places'}</span>
+                      <span>Free join</span>
+                      <span>Open</span>
                     </div>
                   </div>
 
                   <div className="plan-preview-deck-section">
                     <div className="plan-preview-section-heading">
-                      <span className="semantic-badge plan">Feed deck preview</span>
-                      <p className="meta">Feed deck preview.</p>
+                      <span className="semantic-badge plan">Feed preview</span>
                     </div>
                     <div className="trade-create-preview__deck">
                       <PlanPreviewDeck
@@ -865,8 +843,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
 
                   <div className="plan-preview-itinerary" aria-label="Plan itinerary confirmation">
                     <div className="plan-preview-section-heading">
-                      <span className="semantic-badge place">Place order</span>
-                      <p className="meta">Order and times.</p>
+                      <span className="semantic-badge place">Route</span>
                     </div>
                     {places.map((place, index) => (
                       <div className="plan-preview-itinerary-row" key={`confirm-${place.id}`}>
@@ -878,16 +855,9 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                       </div>
                     ))}
                   </div>
-
-                  <div className="plan-preview-final-note">
-                    <span className="semantic-badge plan">Confirm</span>
-                    <p>This will create an open public Plan with free join. You can still go back before publishing.</p>
-                  </div>
                 </section>
-                {schedule.error && places.length > 0 ? <p className="form-error">{schedule.error}</p> : null}
-                {explicitPlanEnd.error ? <p className="form-error">{explicitPlanEnd.error}</p> : null}
                 {message ? <p className="success-message">{message}</p> : null}
-                {error ? <p className="form-error">{error}</p> : null}
+                {validationNotice ? <p className="form-error">{validationNotice}</p> : null}
                 <div className="plan-preview-actions">
                   <button type="button" className="button secondary" onClick={() => setStage('build')}>Back</button>
                   <button className="button primary" type="submit" disabled={saving || places.some((place) => place.uploading)}>{saving ? 'Creating...' : 'Create Plan'}</button>
@@ -971,7 +941,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
         {pickerIsOpen ? (
           <div className="plan-place-source-overlay" role="presentation">
             <button type="button" className="plan-place-source-backdrop" aria-label="Close place source" onClick={closePlacePicker} />
-            <section className="plan-place-source-sheet" role="dialog" aria-modal="true" aria-label={pickerTitle}>
+            <section className="plan-place-source-sheet plan-place-source-sheet--compact" role="dialog" aria-modal="true" aria-label={pickerTitle}>
               <div className="plan-detail-topbar">
                 <div>
                   <h3>{pickerView === 'source' ? 'Add place' : pickerTab === 'mine' ? 'My Places' : 'Hellowhen Library'}</h3>
@@ -983,26 +953,29 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                 <div className="plan-place-source-grid">
                   <button type="button" className="plan-place-source-option plan-place-source-option--primary" onClick={() => openPickerList('mine')}>
                     <span className="plan-place-source-option__icon">⌖</span>
-                    <span><strong>My Places</strong><small>Saved places you created.</small></span>
+                    <span><strong>My Places</strong></span>
                   </button>
                   <button type="button" className="plan-place-source-option" onClick={() => openPickerList('library')}>
                     <span className="plan-place-source-option__icon">✦</span>
-                    <span><strong>Hellowhen Library</strong><small>Reusable place templates.</small></span>
+                    <span><strong>Hellowhen Library</strong></span>
                   </button>
                   <button type="button" className="plan-place-source-option" onClick={openCreatePlaceFromPicker}>
                     <span className="plan-place-source-option__icon">＋</span>
-                    <span><strong>New Place</strong><small>Save and return here.</small></span>
+                    <span><strong>New Place</strong></span>
                   </button>
                   <button type="button" className="plan-place-source-option" onClick={useCustomPlaceFromPicker}>
                     <span className="plan-place-source-option__icon">•••</span>
-                    <span><strong>Custom stop</strong><small>Only for this Plan.</small></span>
+                    <span><strong>Custom stop</strong></span>
                   </button>
                 </div>
               ) : (
                 <div className="plan-place-picker-panel">
-                  <div className="plans-tabs" role="tablist" aria-label="Place Library source">
-                    <button type="button" className={pickerTab === 'mine' ? 'is-active' : ''} onClick={() => openPickerList('mine')}>My Places</button>
-                    <button type="button" className={pickerTab === 'library' ? 'is-active' : ''} onClick={() => openPickerList('library')}>Hellowhen Library</button>
+                  <div className="plan-place-picker-toolbar">
+                    <div className="plans-tabs" role="tablist" aria-label="Place Library source">
+                      <button type="button" className={pickerTab === 'mine' ? 'is-active' : ''} onClick={() => openPickerList('mine')}>My Places</button>
+                      <button type="button" className={pickerTab === 'library' ? 'is-active' : ''} onClick={() => openPickerList('library')}>Hellowhen Library</button>
+                    </div>
+                    <button type="button" className="button secondary plan-place-picker-refresh" onClick={loadReusablePlaces}>Refresh</button>
                   </div>
                   <label>
                     <span>Search Places</span>

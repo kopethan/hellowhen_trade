@@ -3,11 +3,14 @@ import {
   PLAN_PLACE_MEDIA_LIMITS,
   createPlanJoinRequestSchema,
   createPlanPlaceRequestSchema,
+  createPlanPublicMessageRequestSchema,
   createPlanRequestSchema,
+  listPlanPublicMessagesQuerySchema,
   listPlansQuerySchema,
   updateMyPlanParticipantRequestSchema,
   updatePlanParticipantRequestSchema,
   updatePlanPlaceRequestSchema,
+  updatePlanPublicMessageRequestSchema,
   updatePlanRequestSchema,
 } from '@hellowhen/contracts';
 import { buildGeneratedPlanDisplay } from '@hellowhen/shared';
@@ -17,6 +20,8 @@ import { optionalAuth, requireActiveAccount, requireAuth } from '../../middlewar
 import { attachUploadedMediaToEntity, withMedia } from '../media/media.helpers.js';
 import { stripAnonymousPublicProfileMedia } from '../users/publicUser.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
+import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
+import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
 
 export const plansRoutes = Router();
 
@@ -155,6 +160,37 @@ async function loadPlanForViewer(planId: string, viewerId?: string | null) {
   }
   if (viewerId && plan.ownerId !== viewerId && await usersHaveBlockBetween(viewerId, plan.ownerId)) return null;
   return decoratePlan(plan, viewerId ?? null);
+}
+
+async function loadReadablePlanForDiscussion(planId: string, actorId: string) {
+  const plan = await prisma.plan.findUnique({
+    where: { id: planId },
+    select: { id: true, ownerId: true, status: true, owner: { select: { trustTier: true } } },
+  });
+  if (!plan || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') return null;
+  if (plan.ownerId !== actorId && await usersHaveBlockBetween(actorId, plan.ownerId)) return null;
+  return plan;
+}
+
+function canWritePlanPublicDiscussion(plan: { status: string }) {
+  return publicPlanStatuses.includes(plan.status as any);
+}
+
+function planPublicDiscussionMessageSelect() {
+  return {
+    id: true,
+    planId: true,
+    authorId: true,
+    body: true,
+    status: true,
+    editedAt: true,
+    editCount: true,
+    deletedAt: true,
+    hiddenAt: true,
+    createdAt: true,
+    updatedAt: true,
+    author: { select: userSummarySelect },
+  } as const;
 }
 
 function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequestSchema.parse>) {
@@ -488,6 +524,148 @@ plansRoutes.patch('/:planId/my-join-request', requireAuth, requireActiveAccount,
     include: { user: { select: userSummarySelect } },
   });
   res.json({ participant: updated });
+}));
+
+plansRoutes.get('/:planId/public-messages', requireAuth, asyncRoute(async (req, res) => {
+  const input = listPlanPublicMessagesQuerySchema.parse(req.query);
+  const actorId = req.user!.id;
+  const planId = req.params.planId;
+  if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
+  const plan = await loadReadablePlanForDiscussion(planId, actorId);
+  if (!plan) return res.status(404).json({ error: 'not_found' });
+
+  const messages = await prisma.planPublicMessage.findMany({
+    where: {
+      planId: plan.id,
+      status: { not: 'hidden' },
+      author: { trustTier: { not: 'restricted' } },
+      ...(input.before ? { createdAt: { lt: new Date(input.before) } } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    take: input.take,
+    select: planPublicDiscussionMessageSelect(),
+  });
+
+  return res.json({ messages: messages.reverse() });
+}));
+
+plansRoutes.post('/:planId/public-messages', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const input = createPlanPublicMessageRequestSchema.parse(req.body ?? {});
+  const actorId = req.user!.id;
+  const planId = req.params.planId;
+  if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
+  const plan = await loadReadablePlanForDiscussion(planId, actorId);
+  if (!plan) return res.status(404).json({ error: 'not_found' });
+  if (!canWritePlanPublicDiscussion(plan)) {
+    return res.status(409).json({ error: 'public_discussion_closed', message: 'Public discussion is closed for this plan.' });
+  }
+
+  let message = await prisma.planPublicMessage.create({
+    data: { planId: plan.id, authorId: actorId, body: input.body },
+    select: planPublicDiscussionMessageSelect(),
+  });
+
+  const textReview = await runAiTextReview({
+    contentType: 'public_message',
+    contentId: message.id,
+    contentOwnerId: actorId,
+    visibility: 'public',
+    mode: 'create',
+    message: input.body,
+    actorId,
+    appArea: 'plan_public_discussion_create',
+  });
+  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview);
+  if (textReviewOutcome) {
+    await applyTextReviewContentActionToTarget({
+      contentType: 'public_message',
+      contentId: message.id,
+      action: textReviewOutcome.action,
+      actorId,
+      note: textReviewOutcome.message,
+    });
+    message = await prisma.planPublicMessage.findUniqueOrThrow({ where: { id: message.id }, select: planPublicDiscussionMessageSelect() });
+    const body = { message, moderation: textReviewOutcome.moderation, moderationMessage: textReviewOutcome.message };
+    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, message: textReviewOutcome.message, publicMessage: message, moderation: textReviewOutcome.moderation });
+    return res.status(textReviewOutcome.status).json(body);
+  }
+
+  return res.status(201).json({ message });
+}));
+
+plansRoutes.patch('/:planId/public-messages/:messageId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const input = updatePlanPublicMessageRequestSchema.parse(req.body ?? {});
+  const actorId = req.user!.id;
+  const planId = req.params.planId;
+  const messageId = req.params.messageId;
+  if (!planId || !messageId) return res.status(400).json({ error: 'invalid_message_id' });
+  const plan = await loadReadablePlanForDiscussion(planId, actorId);
+  if (!plan) return res.status(404).json({ error: 'not_found' });
+
+  const existing = await prisma.planPublicMessage.findUnique({ where: { id: messageId } });
+  if (!existing || existing.planId !== plan.id || existing.status === 'hidden') return res.status(404).json({ error: 'not_found' });
+  if (existing.authorId !== actorId) return res.status(403).json({ error: 'forbidden' });
+  if (existing.status === 'deleted' || existing.deletedAt) {
+    return res.status(409).json({ error: 'message_deleted', message: 'Deleted messages cannot be edited.' });
+  }
+
+  let message = await prisma.planPublicMessage.update({
+    where: { id: existing.id },
+    data: { body: input.body, status: 'visible', editedAt: new Date(), editCount: { increment: 1 }, deletedAt: null },
+    select: planPublicDiscussionMessageSelect(),
+  });
+
+  const textReview = await runAiTextReview({
+    contentType: 'public_message',
+    contentId: message.id,
+    contentOwnerId: actorId,
+    visibility: 'public',
+    mode: 'edit',
+    message: input.body,
+    actorId,
+    appArea: 'plan_public_discussion_edit',
+  });
+  const textReviewOutcome = buildAiTextReviewRouteOutcome(textReview);
+  if (textReviewOutcome) {
+    await applyTextReviewContentActionToTarget({
+      contentType: 'public_message',
+      contentId: message.id,
+      action: textReviewOutcome.action,
+      actorId,
+      note: textReviewOutcome.message,
+    });
+    message = await prisma.planPublicMessage.findUniqueOrThrow({ where: { id: message.id }, select: planPublicDiscussionMessageSelect() });
+    const body = { message, moderation: textReviewOutcome.moderation, moderationMessage: textReviewOutcome.message };
+    if (textReviewOutcome.error) return res.status(textReviewOutcome.status).json({ error: textReviewOutcome.error, message: textReviewOutcome.message, publicMessage: message, moderation: textReviewOutcome.moderation });
+    return res.status(textReviewOutcome.status).json(body);
+  }
+
+  return res.json({ message });
+}));
+
+plansRoutes.delete('/:planId/public-messages/:messageId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const actorId = req.user!.id;
+  const planId = req.params.planId;
+  const messageId = req.params.messageId;
+  if (!planId || !messageId) return res.status(400).json({ error: 'invalid_message_id' });
+  const plan = await loadReadablePlanForDiscussion(planId, actorId);
+  if (!plan) return res.status(404).json({ error: 'not_found' });
+
+  const existing = await prisma.planPublicMessage.findUnique({ where: { id: messageId } });
+  if (!existing || existing.planId !== plan.id || existing.status === 'hidden') return res.status(404).json({ error: 'not_found' });
+  if (existing.authorId !== actorId) return res.status(403).json({ error: 'forbidden' });
+
+  if (existing.status === 'deleted' || existing.deletedAt) {
+    const message = await prisma.planPublicMessage.findUniqueOrThrow({ where: { id: existing.id }, select: planPublicDiscussionMessageSelect() });
+    return res.json({ message });
+  }
+
+  const message = await prisma.planPublicMessage.update({
+    where: { id: existing.id },
+    data: { body: '', status: 'deleted', deletedAt: new Date() },
+    select: planPublicDiscussionMessageSelect(),
+  });
+  return res.json({ message });
 }));
 
 plansRoutes.get('/:planId', optionalAuth, asyncRoute(async (req, res) => {

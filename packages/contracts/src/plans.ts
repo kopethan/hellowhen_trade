@@ -172,6 +172,13 @@ export const updateMyPlanParticipantRequestSchema = z.object({
   status: planSelfParticipantActionSchema,
 });
 
+export const createPlanPublicMessageRequestSchema = z.object({ body: z.string().trim().min(1).max(2000) });
+export const updatePlanPublicMessageRequestSchema = z.object({ body: z.string().trim().min(1).max(2000) });
+export const listPlanPublicMessagesQuerySchema = z.object({
+  take: z.coerce.number().int().min(1).max(100).optional().default(50),
+  before: z.string().datetime().optional(),
+});
+
 const publicUserSummarySchema = z.object({
   id: z.string(),
   profile: z.object({
@@ -244,6 +251,25 @@ export const planParticipantSchema = z.object({
   user: publicUserSummarySchema.nullable().optional(),
 }).passthrough();
 
+export const planPublicMessageStatusSchema = z.enum(['visible', 'hidden', 'deleted']);
+export const planPublicMessageSchema = z.object({
+  id: z.string(),
+  planId: z.string(),
+  authorId: z.string(),
+  body: z.string(),
+  status: planPublicMessageStatusSchema.optional().default('visible'),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+  editedAt: z.string().nullable().optional(),
+  editCount: z.number().int().optional().default(0),
+  deletedAt: z.string().nullable().optional(),
+  hiddenAt: z.string().nullable().optional(),
+  author: publicUserSummarySchema.optional(),
+}).passthrough();
+
+export const planPublicMessagesResponseSchema = z.object({ messages: z.array(planPublicMessageSchema) });
+export const planPublicMessageResponseSchema = z.object({ message: planPublicMessageSchema });
+
 export const planSchema = z.object({
   id: z.string(),
   ownerId: z.string(),
@@ -297,13 +323,20 @@ export type ListPlansQuery = z.infer<typeof listPlansQuerySchema>;
 export type CreatePlanJoinRequest = z.infer<typeof createPlanJoinRequestSchema>;
 export type UpdatePlanParticipantRequest = z.infer<typeof updatePlanParticipantRequestSchema>;
 export type UpdateMyPlanParticipantRequest = z.infer<typeof updateMyPlanParticipantRequestSchema>;
+export type CreatePlanPublicMessageRequest = z.infer<typeof createPlanPublicMessageRequestSchema>;
+export type UpdatePlanPublicMessageRequest = z.infer<typeof updatePlanPublicMessageRequestSchema>;
+export type ListPlanPublicMessagesQuery = z.infer<typeof listPlanPublicMessagesQuerySchema>;
 export type PlaceDto = z.infer<typeof placeSchema>;
 export type PlanDto = z.infer<typeof planSchema>;
 export type PlanPlaceDto = z.infer<typeof planPlaceSchema>;
 export type PlanParticipantDto = z.infer<typeof planParticipantSchema>;
+export type PlanPublicMessageStatus = z.infer<typeof planPublicMessageStatusSchema>;
+export type PlanPublicMessageDto = z.infer<typeof planPublicMessageSchema>;
 export type PlaceResponse = z.infer<typeof placeResponseSchema>;
 export type PlacesResponse = z.infer<typeof placesResponseSchema>;
 export type PlanResponse = z.infer<typeof planResponseSchema>;
 export type PlansResponse = z.infer<typeof plansResponseSchema>;
 export type PlanParticipantResponse = z.infer<typeof planParticipantResponseSchema>;
 export type PlanParticipantsResponse = z.infer<typeof planParticipantsResponseSchema>;
+export type PlanPublicMessagesResponse = z.infer<typeof planPublicMessagesResponseSchema>;
+export type PlanPublicMessageResponse = z.infer<typeof planPublicMessageResponseSchema>;

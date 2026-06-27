@@ -16,6 +16,10 @@ const ONBOARDING_EXCLUDED_PREFIXES = [
 const PUBLIC_FILE_PATTERN = /\.(?:avif|ico|jpg|jpeg|png|svg|webp|gif|css|js|map|txt|xml|json|woff2?)$/i;
 const CRAWLER_PATTERN = /bot|crawler|spider|crawling|facebookexternalhit|twitterbot|linkedinbot|slackbot|discordbot|whatsapp|telegrambot/i;
 
+function isTradeFeedGuideTriggerRoute(pathname: string) {
+  return pathname === '/trades';
+}
+
 function isOnboardingExcludedRoute(pathname: string) {
   if (pathname === '/robots.txt' || pathname === '/sitemap.xml' || pathname === '/favicon.ico') return true;
   if (PUBLIC_FILE_PATTERN.test(pathname)) return true;
@@ -35,6 +39,7 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (request.method !== 'GET' && request.method !== 'HEAD') return NextResponse.next();
+  if (!isTradeFeedGuideTriggerRoute(pathname)) return NextResponse.next();
   if (isOnboardingExcludedRoute(pathname)) return NextResponse.next();
   if (isCrawler(request)) return NextResponse.next();
 

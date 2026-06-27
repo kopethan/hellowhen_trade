@@ -106,9 +106,9 @@ function validatePlaceTranslations(state: PlaceCreateFormState) {
 
 function PlaceModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (value: PlanPlaceMode) => void }) {
   return (
-    <div className="plan-mode-segment" aria-label="Place type">
-      <button type="button" className={value === 'local' ? 'is-active' : ''} onClick={() => onChange('local')}>Local</button>
-      <button type="button" className={value === 'remote' ? 'is-active' : ''} onClick={() => onChange('remote')}>Remote</button>
+    <div className="plan-mode-segment place-mode-segment" aria-label="Place type">
+      <button type="button" className={value === 'local' ? 'is-active' : ''} onClick={() => onChange('local')}>Offline</button>
+      <button type="button" className={value === 'remote' ? 'is-active' : ''} onClick={() => onChange('remote')}>Online</button>
     </div>
   );
 }
@@ -204,11 +204,11 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
   return (
     <PlansFeatureGate plansEnabled={plansEnabled}>
       <main className="mobile-page plans-page">
-        <section className="page-intro plan-create-intro">
+        <section className="page-intro plan-create-intro place-create-intro">
           <div>
             <PlansInternalBadge plansVisible={plansVisible} />
             <h2>{isEditing ? 'Edit Place' : 'Create Place'}</h2>
-            <p>{returnToPlan ? (isEditing ? 'Update this Place, then return to your Plan.' : 'Save a Place, then return to your Plan.') : isEditing ? 'Update your reusable Place.' : 'Save an offline or online Place for future Plans.'}</p>
+            <p>{returnToPlan ? (isEditing ? 'Update and return to your Plan.' : 'Save and return to your Plan.') : 'Reusable Place for future Plans.'}</p>
           </div>
         </section>
 
@@ -225,14 +225,16 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
 
         {auth.isAuthenticated && !loadingPlace ? (
           <form className="mobile-card plan-form place-clean-form" onSubmit={submit}>
-            <div className="plan-form__section-title">
+            <div className="plan-form__section-title place-form__section-title">
               <div>
                 <h3>Place details</h3>
-                <p className="meta">Private by default. Reuse it in future Plans.</p>
+                <p className="meta">Private by default.</p>
               </div>
               <span className="semantic-badge place">My Place</span>
             </div>
-            <PlaceModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
+            <div className="place-form__divider">
+              <PlaceModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
+            </div>
             <label>
               <span>Place name</span>
               <input value={state.title} onChange={(event) => setState((current) => ({ ...current, title: event.target.value }))} minLength={3} maxLength={120} required placeholder="Quiet coffee near République" />
@@ -251,17 +253,20 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
             ) : (
               <label>
                 <span>Area / address</span>
-                <input value={state.location} onChange={(event) => setState((current) => ({ ...current, location: event.target.value }))} maxLength={240} placeholder="Paris 11 or a public meeting point" />
+                <input value={state.location} onChange={(event) => setState((current) => ({ ...current, location: event.target.value }))} maxLength={240} placeholder="Paris 11 or a public spot" />
               </label>
             )}
-            <label>
-              <span>Description</span>
-              <textarea value={state.description} onChange={(event) => setState((current) => ({ ...current, description: event.target.value }))} maxLength={2000} placeholder="Describe this place for later Plans." />
+            <label className="place-description-field">
+              <span>Description <small>Optional</small></span>
+              <textarea value={state.description} onChange={(event) => setState((current) => ({ ...current, description: event.target.value }))} maxLength={2000} placeholder="Useful details for this Place." />
             </label>
 
             <section className="inventory-translation-compact place-translation-compact">
-              <div className="inventory-translation-panel__header">
-                <p className="eyebrow">Original language</p>
+              <div className="inventory-translation-panel__header place-translation-summary">
+                <div>
+                  <p className="eyebrow">Translations</p>
+                  <span className="inventory-language-summary">Original content: {placeLanguageLabel(state.defaultLanguage)}</span>
+                </div>
                 <div className="plan-mode-segment" aria-label="Original Place language">
                   {placeLanguageOptions.map((languageCode) => (
                     <button
@@ -278,9 +283,12 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
               {state.translations.length ? (
                 <section className="mobile-card mobile-card--soft inventory-translation-panel inventory-translation-panel--compact place-translation-panel">
                   {state.translations.map((translation) => (
-                    <div className="inventory-translation-panel__fields" key={translation.languageCode}>
+                    <div className="inventory-translation-panel__fields place-translation-fields" key={translation.languageCode}>
                       <div className="inventory-translation-panel__row">
-                        <p className="eyebrow">{placeLanguageLabel(translation.languageCode)} translation</p>
+                        <div>
+                          <p className="eyebrow">{placeLanguageLabel(translation.languageCode)} translation</p>
+                          <small>Fill title and description for this language.</small>
+                        </div>
                         <button type="button" className="button secondary compact" onClick={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))}>Remove</button>
                       </div>
                       <label>
@@ -302,22 +310,21 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
                           placeholder="Translated description"
                         />
                       </label>
-                      <small>Fill both fields to save this language.</small>
                     </div>
                   ))}
-                  {nextPlaceTranslationLanguage(state) ? <button type="button" className="button secondary compact" onClick={() => setState(addPlaceTranslationDraft)}>Add another language</button> : null}
                 </section>
-              ) : (
-                <button type="button" className="inventory-translation-toggle" onClick={() => setState(addPlaceTranslationDraft)}>
-                  <span>Add languages</span>
+              ) : null}
+              {nextPlaceTranslationLanguage(state) ? (
+                <button type="button" className="inventory-translation-toggle place-translation-add-row" onClick={() => setState(addPlaceTranslationDraft)}>
+                  <span>{state.translations.length ? 'Add another translation' : 'Add translation'}</span>
                   <strong>Translate Place name and description</strong>
                 </button>
-              )}
+              ) : null}
             </section>
 
             {message ? <p className="success-message">{message}</p> : null}
             {error ? <p className="form-error">{error}</p> : null}
-            <div className="cta-row">
+            <div className="cta-row place-save-row">
               <button className="button primary" type="submit" disabled={saving || state.title.trim().length < 3}>{saving ? 'Saving...' : returnToPlan ? isEditing ? 'Update and return' : 'Save and return' : isEditing ? 'Update Place' : 'Save Place'}</button>
               <Link className="button secondary" href={returnToPlan ? '/plans/new' : '/plans'}>{returnToPlan ? 'Back to Plan draft' : 'Back to Plans'}</Link>
             </div>

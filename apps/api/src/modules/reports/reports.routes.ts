@@ -119,8 +119,17 @@ export async function findReportTarget(targetType: ReportTargetType, targetId: s
       where: { id: targetId },
       include: { author: { select: reportUserSelect }, trade: { select: { id: true, title: true, ownerId: true, status: true, isPublic: true } } },
     });
-    const label = message?.body?.trim() ? `${message.body.trim().slice(0, 72)}${message.body.trim().length > 72 ? '…' : ''}` : 'Public discussion message';
-    return message ? { type: targetType, id: message.id, label, ownerId: message.authorId, owner: message.author, status: message.status, isPublic: message.trade?.isPublic ?? null, url: message.tradeId ? `/trades/${message.tradeId}/discussion` : null } : null;
+    if (message) {
+      const label = message.body?.trim() ? `${message.body.trim().slice(0, 72)}${message.body.trim().length > 72 ? '…' : ''}` : 'Public discussion message';
+      return { type: targetType, id: message.id, label, ownerId: message.authorId, owner: message.author, status: message.status, isPublic: message.trade?.isPublic ?? null, url: message.tradeId ? `/trades/${message.tradeId}/discussion` : null };
+    }
+
+    const planMessage = await prisma.planPublicMessage.findUnique({
+      where: { id: targetId },
+      include: { author: { select: reportUserSelect }, plan: { select: { id: true, title: true, ownerId: true, status: true } } },
+    });
+    const label = planMessage?.body?.trim() ? `${planMessage.body.trim().slice(0, 72)}${planMessage.body.trim().length > 72 ? '…' : ''}` : 'Plan discussion message';
+    return planMessage ? { type: targetType, id: planMessage.id, label, ownerId: planMessage.authorId, owner: planMessage.author, status: planMessage.status, isPublic: visiblePlanStatuses.includes(planMessage.plan?.status as any), url: planMessage.planId ? `/plans/${planMessage.planId}` : null } : null;
   }
 
   const media = await prisma.mediaAsset.findUnique({ where: { id: targetId }, include: { owner: { select: reportUserSelect } } });
@@ -223,7 +232,23 @@ async function canReportTarget(actorId: string, target: ReportTargetSummary): Pr
       },
       select: { id: true },
     });
-    return message ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+    if (message) return { allowed: true };
+
+    const planMessage = await prisma.planPublicMessage.findFirst({
+      where: {
+        id: target.id,
+        status: 'visible',
+        author: { trustTier: { not: 'restricted' } },
+        plan: {
+          OR: [
+            { status: { in: [...visiblePlanStatuses] } },
+            { participants: { some: { userId: actorId } } },
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    return planMessage ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
   }
 
   if (target.type === 'plan') {
@@ -387,12 +412,20 @@ export async function moderateReportedTarget(targetType: ReportTargetType, targe
     await prisma.plan.update({ where: { id: place.planId }, data: { status: action === 'restore_target' ? 'open' : 'hidden' } });
   }
   else if (targetType === 'public_message') {
-    await prisma.tradePublicMessage.update({
-      where: { id: targetId },
-      data: action === 'restore_target'
-        ? { status: 'visible', hiddenAt: null, hiddenById: null, moderationNote: null }
-        : { status: 'hidden', hiddenAt: new Date(), hiddenById: adminId, moderationNote: reason },
-    });
+    await Promise.all([
+      prisma.tradePublicMessage.updateMany({
+        where: { id: targetId },
+        data: action === 'restore_target'
+          ? { status: 'visible', hiddenAt: null, hiddenById: null, moderationNote: null }
+          : { status: 'hidden', hiddenAt: new Date(), hiddenById: adminId, moderationNote: reason },
+      }),
+      prisma.planPublicMessage.updateMany({
+        where: { id: targetId },
+        data: action === 'restore_target'
+          ? { status: 'visible', hiddenAt: null, hiddenById: null, moderationNote: null }
+          : { status: 'hidden', hiddenAt: new Date(), hiddenById: adminId, moderationNote: reason },
+      }),
+    ]);
   }
   else if (targetType === 'media') await prisma.mediaAsset.update({ where: { id: targetId }, data: { status: action === 'restore_target' ? 'active' : 'removed', reviewedAt: new Date(), reviewerId: adminId, reviewNote: reason } });
   else return null;

@@ -1,0 +1,211 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index debc162..b11841f 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1190,7 +1190,7 @@ function PlaceChoiceCard({ place, onAdd }: { place: PlaceDto; onAdd: () => void
+           <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
+         </View>
+         <AppText style={styles.choiceTitle}>{place.title}</AppText>
+-        <AppText style={[styles.choiceMeta, { color: theme.color.muted }]} numberOfLines={2}>{meta || place.description || 'Reusable Place'}</AppText>
++        <AppText style={[styles.choiceMeta, { color: theme.color.muted }]} numberOfLines={1}>{meta || 'Reusable Place'}</AppText>
+       </View>
+       <View style={[styles.addMini, { backgroundColor: theme.semantic.place.bg }]}>
+         <MobileIcon name="add" size={16} color={theme.color.background} />
+@@ -1741,6 +1741,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+           <View style={styles.sourceSheetOverlay}>
+             <Pressable accessibilityRole="button" accessibilityLabel="Close place source" onPress={closePlaceSourceSheet} style={styles.sourceSheetScrim} />
+             <View style={[styles.sourceSheet, styles.sourceChoiceSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++              <View style={[styles.sourceSheetHandle, { backgroundColor: theme.color.border }]} />
+               <View style={styles.sourceSheetTopbar}>
+                 <View style={styles.sourceSheetTitleBlock}>
+                   <AppText style={styles.sourceSheetTitle}>{placePickerOpen ? (pickerTab === 'mine' ? 'My Places' : 'Hellowhen Library') : 'Add place'}</AppText>
+@@ -1752,22 +1753,22 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+ 
+               {!placePickerOpen ? (
+                 <View style={styles.sourceOptionList}>
+-                  <Pressable accessibilityRole="button" onPress={() => choosePlaceSource('mine')} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}>
++                  <Pressable accessibilityRole="button" onPress={() => choosePlaceSource('mine')} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                     <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="save" color={theme.semantic.place.text} size={17} /></View>
+                     <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>My Places</AppText></View>
+                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+                   </Pressable>
+-                  <Pressable accessibilityRole="button" onPress={() => choosePlaceSource('library')} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}>
++                  <Pressable accessibilityRole="button" onPress={() => choosePlaceSource('library')} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                     <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="search" color={theme.semantic.place.text} size={17} /></View>
+                     <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>Hellowhen Library</AppText></View>
+                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+                   </Pressable>
+-                  <Pressable accessibilityRole="button" onPress={() => { closePlaceSourceSheet(); navigation.navigate('CreatePlace', { returnToCreatePlan: true, targetPlaceIndex: typeof placeSourceTarget === 'number' ? placeSourceTarget : undefined }); }} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}>
++                  <Pressable accessibilityRole="button" onPress={() => { closePlaceSourceSheet(); navigation.navigate('CreatePlace', { returnToCreatePlan: true, targetPlaceIndex: typeof placeSourceTarget === 'number' ? placeSourceTarget : undefined }); }} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                     <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={17} /></View>
+                     <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>New Place</AppText></View>
+                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+                   </Pressable>
+-                  <Pressable accessibilityRole="button" onPress={addCustomPlace} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}>
++                  <Pressable accessibilityRole="button" onPress={addCustomPlace} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                     <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="more" color={theme.semantic.place.text} size={17} /></View>
+                     <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>Custom stop</AppText></View>
+                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+@@ -1775,9 +1776,11 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                 </View>
+               ) : (
+                 <View style={styles.sourceOptionList}>
+-                  <View style={styles.filterRow}>
+-                    <PillButton label="My Places" active={pickerTab === 'mine'} onPress={() => choosePlaceSource('mine')} />
+-                    <PillButton label="Hellowhen Library" active={pickerTab === 'library'} onPress={() => choosePlaceSource('library')} />
++                  <View style={styles.sourcePickerToolbar}>
++                    <View style={styles.sourcePickerTabs}>
++                      <PillButton label="My Places" active={pickerTab === 'mine'} onPress={() => choosePlaceSource('mine')} />
++                      <PillButton label="Hellowhen Library" active={pickerTab === 'library'} onPress={() => choosePlaceSource('library')} />
++                    </View>
+                     <PillButton label="Refresh" onPress={() => { void loadReusablePlaces(); }} />
+                   </View>
+                   <TextField label="Search Places" value={placeQuery} onChangeText={setPlaceQuery} placeholder="Search Places" />
+@@ -1786,7 +1789,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                   <ScrollView style={styles.sourceListScroll} keyboardShouldPersistTaps="handled">
+                     {activeList.map((place) => <PlaceChoiceCard key={place.id} place={place} onAdd={() => addReusablePlace(place)} />)}
+                   </ScrollView>
+-                  <SecondaryButton label="Sources" onPress={() => setPlacePickerOpen(false)} />
++                  <View style={[styles.sourcePickerFooter, { borderTopColor: theme.color.border }]}>
++                    <SecondaryButton label="Sources" onPress={() => setPlacePickerOpen(false)} />
++                  </View>
+                 </View>
+               )}
+             </View>
+@@ -1977,16 +1982,20 @@ const styles = StyleSheet.create({
+   sourceSheetOverlay: { flex: 1, justifyContent: 'flex-end' },
+   sourceSheetScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.38)' },
+   sourceSheet: { maxHeight: '86%', borderTopLeftRadius: 26, borderTopRightRadius: 26, borderWidth: 1, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 24, gap: 10 },
+-  sourceChoiceSheet: { maxHeight: '74%', borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 15, paddingTop: 10, paddingBottom: 16, gap: 6 },
+-  sourceSheetTopbar: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 8 },
++  sourceChoiceSheet: { maxHeight: '70%', borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 15, paddingTop: 8, paddingBottom: 14, gap: 6 },
++  sourceSheetHandle: { alignSelf: 'center', width: 42, height: 4, borderRadius: 999, marginBottom: 2, opacity: 0.9 },
++  sourceSheetTopbar: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 8 },
+   sourceSheetTitleBlock: { flex: 1, minWidth: 0 },
+-  sourceSheetTitle: { fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.25 },
++  sourceSheetTitle: { fontSize: 19, lineHeight: 24, fontWeight: '900', letterSpacing: -0.25 },
+   sourceOptionList: { gap: 0 },
+-  sourceOption: { minHeight: 54, borderRadius: 0, borderWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 0, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 11 },
+-  sourceOptionIcon: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  sourceOption: { minHeight: 50, borderRadius: 0, borderWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 0, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
++  sourceOptionIcon: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+   sourceOptionCopy: { flex: 1, minWidth: 0 },
+   sourceOptionTitle: { fontSize: 15, lineHeight: 20, fontWeight: '900' },
+-  sourceListScroll: { maxHeight: 300 },
++  sourcePickerToolbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingTop: 2, paddingBottom: 2 },
++  sourcePickerTabs: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, flexWrap: 'wrap' },
++  sourcePickerFooter: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, alignItems: 'flex-start' },
++  sourceListScroll: { maxHeight: 270 },
+   deckFeedContent: { gap: 20, paddingTop: 2, paddingBottom: 34 },
+   deckSection: { gap: 10 },
+   deckSectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 2 },
+@@ -2111,12 +2120,12 @@ const styles = StyleSheet.create({
+   modeSegmentText: { fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
+   pillButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
+   pillButtonText: { fontSize: 12, fontWeight: '900' },
+-  choiceCard: { borderRadius: 22, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 11 },
+-  choiceIcon: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+-  choiceCopy: { flex: 1, minWidth: 0, gap: 5 },
+-  choiceTitle: { fontSize: 17, lineHeight: 21, fontWeight: '900' },
+-  choiceMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+-  addMini: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
++  choiceCard: { borderRadius: 0, borderWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 10, paddingHorizontal: 0, flexDirection: 'row', alignItems: 'center', gap: 10 },
++  choiceIcon: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  choiceCopy: { flex: 1, minWidth: 0, gap: 3 },
++  choiceTitle: { fontSize: 16, lineHeight: 20, fontWeight: '900' },
++  choiceMeta: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
++  addMini: { width: 27, height: 27, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+   actionGrid: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+   placeEditorCard: { borderRadius: 0, borderWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 15, gap: 12 },
+   placeEditorHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 127fcd1..b6b77fe 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -9080,33 +9080,36 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .plan-source-place-strip { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 8px; border-top: 1px solid var(--app-divider); border-bottom: 1px solid var(--app-divider); background: transparent; padding: 12px 0; }
+ .plan-source-place-strip p { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--app-text); font-size: 13px; font-weight: 900; }
+ .plan-source-place-strip .button { min-height: 34px; padding: 0 11px; }
+-.plan-place-picker-panel { display: grid; gap: 10px; }
++.plan-place-picker-panel { display: grid; gap: 8px; }
+ .plan-place-picker-panel label, .plan-create-place-box label { display: grid; gap: 7px; color: var(--app-text-muted); font-size: 12px; font-weight: 950; letter-spacing: 0.04em; text-transform: uppercase; }
+ .plan-place-picker-panel input, .plan-place-picker-panel textarea { width: 100%; border: 1px solid var(--app-border-strong); border-radius: 18px; background: var(--app-surface-soft); color: var(--app-text); padding: 12px 13px; font: inherit; font-weight: 750; outline: none; }
+ .plan-place-picker-panel textarea { min-height: 94px; resize: vertical; line-height: 1.35; }
+-.plan-place-picker-list { display: grid; gap: 0; max-height: 420px; overflow: auto; padding-right: 2px; border-top: 1px solid var(--app-divider); }
+-.plan-place-picker-card { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; border: 0; border-bottom: 1px solid var(--app-divider); border-radius: 0; background: transparent; color: inherit; padding: 10px 0; text-align: left; cursor: pointer; }
++.plan-place-picker-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
++.plan-place-picker-toolbar .plans-tabs { flex: 1; min-width: 0; }
++.plan-place-picker-refresh { min-height: 34px; padding: 0 11px; }
++.plan-place-picker-list { display: grid; gap: 0; max-height: 360px; overflow: auto; padding-right: 2px; border-top: 1px solid var(--app-divider); }
++.plan-place-picker-card { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; border: 0; border-bottom: 1px solid var(--app-divider); border-radius: 0; background: transparent; color: inherit; padding: 9px 0; text-align: left; cursor: pointer; }
+ .plan-place-picker-card:hover { background: color-mix(in srgb, var(--place-bg) 20%, transparent); }
+-.plan-place-picker-card__media { display: grid; place-items: center; overflow: hidden; width: 48px; height: 48px; border-radius: 16px; background: var(--place-bg); color: var(--place-text); font-size: 20px; font-weight: 950; }
++.plan-place-picker-card__media { display: grid; place-items: center; overflow: hidden; width: 42px; height: 42px; border-radius: 14px; background: var(--place-bg); color: var(--place-text); font-size: 18px; font-weight: 950; }
+ .plan-place-picker-card__media img { width: 100%; height: 100%; object-fit: cover; }
+-.plan-place-picker-card__body { display: grid; gap: 3px; min-width: 0; }
++.plan-place-picker-card__body { display: grid; gap: 2px; min-width: 0; }
+ .plan-place-picker-card__body strong, .plan-place-picker-card__body small, .plan-place-picker-card__body span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+-.plan-place-picker-card__body strong { color: var(--app-text); font-size: 14px; font-weight: 950; }
++.plan-place-picker-card__body strong { color: var(--app-text); font-size: 14px; line-height: 1.25; font-weight: 950; }
+ .plan-place-picker-card__body small { color: var(--app-text-muted); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; }
+ .plan-place-picker-card__body span { color: var(--app-text-muted); font-size: 12px; font-weight: 800; }
+ .plan-place-source-overlay { position: fixed; inset: 0; z-index: 80; display: grid; align-items: end; justify-items: stretch; padding: 16px; }
+ .plan-place-source-backdrop { position: absolute; inset: 0; border: 0; background: rgba(9, 9, 11, 0.48); cursor: pointer; }
+ .plan-place-source-sheet { position: relative; z-index: 1; display: grid; gap: 10px; width: min(100%, 560px); max-height: min(86vh, 720px); overflow: auto; border: 1px solid var(--app-border); border-radius: 26px 26px 22px 22px; background: var(--app-surface); box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28); padding: 14px; }
+-.plan-place-source-sheet--compact { gap: 6px; width: min(100%, 500px); max-height: min(76vh, 620px); border-radius: 22px 22px 20px 20px; box-shadow: 0 24px 80px rgba(15, 23, 42, 0.24); padding: 12px 14px 16px; }
++.plan-place-source-sheet--compact { gap: 6px; width: min(100%, 480px); max-height: min(70vh, 580px); border-radius: 22px 22px 20px 20px; box-shadow: 0 24px 80px rgba(15, 23, 42, 0.24); padding: 10px 14px 14px; }
+ .plan-place-source-grid { display: grid; gap: 0; border-top: 1px solid var(--app-divider); }
+-.plan-place-source-option { display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 11px; width: 100%; min-height: 54px; border: 0; border-bottom: 1px solid var(--app-divider); border-radius: 0; background: transparent; color: inherit; padding: 9px 0; text-align: left; cursor: pointer; }
++.plan-place-source-option { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 10px; width: 100%; min-height: 50px; border: 0; border-bottom: 1px solid var(--app-divider); border-radius: 0; background: transparent; color: inherit; padding: 8px 0; text-align: left; cursor: pointer; }
+ .plan-place-source-option:hover { background: color-mix(in srgb, var(--place-bg) 18%, transparent); }
+ .plan-place-source-option--primary { background: transparent; }
+-.plan-place-source-option__icon { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--place-border); border-radius: 999px; background: var(--place-bg); color: var(--place-text); font-size: 15px; font-weight: 950; }
++.plan-place-source-option__icon { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--place-border); border-radius: 999px; background: var(--place-bg); color: var(--place-text); font-size: 14px; font-weight: 950; }
+ .plan-place-source-option span:last-child { display: grid; gap: 1px; min-width: 0; }
+-.plan-place-source-option strong { color: var(--app-text); font-size: 15px; line-height: 1.25; font-weight: 950; }
++.plan-place-source-option strong { color: var(--app-text); font-size: 14px; line-height: 1.25; font-weight: 950; }
+ .plan-place-source-option small { color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.28; }
+-.plan-place-picker-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
++.plan-place-picker-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; border-top: 1px solid var(--app-divider); padding-top: 10px; }
+ @media (min-width: 721px) {
+   .plan-place-source-overlay { align-items: center; justify-items: center; }
+   .plan-place-source-sheet { border-radius: 28px; }
+@@ -9116,8 +9119,8 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .plan-create-place-box h4 { margin: 0; letter-spacing: -0.02em; }
+ @media (max-width: 520px) {
+   .plan-source-place-strip { grid-template-columns: 1fr; }
+-  .plan-place-picker-card { grid-template-columns: 48px minmax(0, 1fr); }
+-  .plan-place-picker-card__media { width: 48px; height: 48px; }
++  .plan-place-picker-card { grid-template-columns: 42px minmax(0, 1fr); }
++  .plan-place-picker-card__media { width: 42px; height: 42px; }
+ }
+ 
+ /* PLAN-WIZ4 — Order/time Create Plan wizard polish */
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index de956c7..1256559 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -325,7 +325,6 @@ function PlacePickerList({
+             <span className="plan-place-picker-card__body">
+               <strong>{place.title}</strong>
+               <small>{meta || placeSourceLabel(place)}</small>
+-              {place.description ? <span>{place.description}</span> : null}
+             </span>
+             <span className="semantic-badge instruction">Use</span>
+           </button>
+@@ -971,9 +970,12 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                 </div>
+               ) : (
+                 <div className="plan-place-picker-panel">
+-                  <div className="plans-tabs" role="tablist" aria-label="Place Library source">
+-                    <button type="button" className={pickerTab === 'mine' ? 'is-active' : ''} onClick={() => openPickerList('mine')}>My Places</button>
+-                    <button type="button" className={pickerTab === 'library' ? 'is-active' : ''} onClick={() => openPickerList('library')}>Hellowhen Library</button>
++                  <div className="plan-place-picker-toolbar">
++                    <div className="plans-tabs" role="tablist" aria-label="Place Library source">
++                      <button type="button" className={pickerTab === 'mine' ? 'is-active' : ''} onClick={() => openPickerList('mine')}>My Places</button>
++                      <button type="button" className={pickerTab === 'library' ? 'is-active' : ''} onClick={() => openPickerList('library')}>Hellowhen Library</button>
++                    </div>
++                    <button type="button" className="button secondary plan-place-picker-refresh" onClick={loadReusablePlaces}>Refresh</button>
+                   </div>
+                   <label>
+                     <span>Search Places</span>

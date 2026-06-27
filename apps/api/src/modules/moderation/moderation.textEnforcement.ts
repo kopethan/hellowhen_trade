@@ -93,16 +93,27 @@ export async function applyTextReviewContentActionToTarget(input: {
   }
 
   if (input.contentType === 'public_message') {
-    const updated = await prisma.tradePublicMessage.updateMany({
-      where: { id: input.contentId, status: { not: 'deleted' } },
-      data: {
-        status: 'hidden',
-        hiddenAt: now,
-        hiddenById: null,
-        moderationNote: note,
-      },
-    });
-    return updated.count > 0;
+    const [tradeUpdated, planUpdated] = await Promise.all([
+      prisma.tradePublicMessage.updateMany({
+        where: { id: input.contentId, status: { not: 'deleted' } },
+        data: {
+          status: 'hidden',
+          hiddenAt: now,
+          hiddenById: null,
+          moderationNote: note,
+        },
+      }),
+      prisma.planPublicMessage.updateMany({
+        where: { id: input.contentId, status: { not: 'deleted' } },
+        data: {
+          status: 'hidden',
+          hiddenAt: now,
+          hiddenById: null,
+          moderationNote: note,
+        },
+      }),
+    ]);
+    return tradeUpdated.count + planUpdated.count > 0;
   }
 
   return false;
@@ -180,18 +191,30 @@ export async function applyTextReviewModerationCaseAction(input: {
 
   if (input.contentType === 'public_message') {
     if (input.action === 'approve' || input.action === 'restore') {
-      const updated = await prisma.tradePublicMessage.updateMany({
-        where: { id: input.contentId, status: { not: 'deleted' } },
-        data: { status: 'visible', hiddenAt: null, hiddenById: null, moderationNote: null },
-      });
-      return updated.count > 0;
+      const [tradeUpdated, planUpdated] = await Promise.all([
+        prisma.tradePublicMessage.updateMany({
+          where: { id: input.contentId, status: { not: 'deleted' } },
+          data: { status: 'visible', hiddenAt: null, hiddenById: null, moderationNote: null },
+        }),
+        prisma.planPublicMessage.updateMany({
+          where: { id: input.contentId, status: { not: 'deleted' } },
+          data: { status: 'visible', hiddenAt: null, hiddenById: null, moderationNote: null },
+        }),
+      ]);
+      return tradeUpdated.count + planUpdated.count > 0;
     }
     if (input.action === 'mark_needs_review' || input.action === 'reject' || input.action === 'limit' || input.action === 'remove') {
-      const updated = await prisma.tradePublicMessage.updateMany({
-        where: { id: input.contentId, status: { not: 'deleted' } },
-        data: { status: 'hidden', hiddenAt: now, hiddenById: input.adminId, moderationNote: reason },
-      });
-      return updated.count > 0;
+      const [tradeUpdated, planUpdated] = await Promise.all([
+        prisma.tradePublicMessage.updateMany({
+          where: { id: input.contentId, status: { not: 'deleted' } },
+          data: { status: 'hidden', hiddenAt: now, hiddenById: input.adminId, moderationNote: reason },
+        }),
+        prisma.planPublicMessage.updateMany({
+          where: { id: input.contentId, status: { not: 'deleted' } },
+          data: { status: 'hidden', hiddenAt: now, hiddenById: input.adminId, moderationNote: reason },
+        }),
+      ]);
+      return tradeUpdated.count + planUpdated.count > 0;
     }
   }
 

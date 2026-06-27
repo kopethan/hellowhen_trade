@@ -22,7 +22,6 @@ import { resolveMediaUrl } from '../trade/mediaUrls';
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
 type AccountRoute = 'TradeTabs' | 'CreateTrade' | 'MyNeeds' | 'MyOffers' | 'CreateNeed' | 'CreateOffer' | 'AccountProfile' | 'Notifications' | 'SavedLibrary' | 'Agenda' | 'Plans' | 'MyPlans' | 'JoinedPlans' | 'MyPlaces' | 'PlaceLibrary' | 'CreatePlan' | 'CreatePlace' | 'OnboardingGuide' | 'Membership' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
 type AccountGroupKey = 'activity' | 'plans' | 'settings' | 'future';
-type HubWidgetSize = 'half' | 'full';
 type MeHubSectionKey = 'activity' | 'plans' | 'tools';
 
 type AccountAction = {
@@ -42,8 +41,22 @@ type MeHubWidget = {
   icon: MobileIconName;
   tone: SemanticColorName;
   count?: number;
-  size?: HubWidgetSize;
 };
+
+type MeHubCounts = {
+  trades?: number;
+  needs?: number;
+  offers?: number;
+  myPlans?: number;
+  joinedPlans?: number;
+  places?: number;
+};
+
+function countCollection(response: unknown, key: string) {
+  if (!response || typeof response !== 'object') return undefined;
+  const value = (response as Record<string, unknown>)[key];
+  return Array.isArray(value) ? value.length : undefined;
+}
 
 const accountActions: AccountAction[] = [
   { titleKey: 'account.items.profile.title', descriptionKey: 'account.items.profile.bodyNative', badgeKey: 'account.items.profile.badge', tone: 'info', route: 'AccountProfile', icon: 'profile', group: 'activity' },
@@ -119,6 +132,7 @@ export function AccountScreen() {
   const [walletError, setWalletError] = useState<string | null>(null);
   const [loadingWallet, setLoadingWallet] = useState(false);
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
+  const [meHubCounts, setMeHubCounts] = useState<MeHubCounts>({});
   const [menuOpen, setMenuOpen] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Record<MeHubSectionKey, boolean>>({ activity: false, plans: false, tools: false });
 
@@ -147,10 +161,24 @@ export function AccountScreen() {
     }
   }, []);
 
+  const loadMeHubCounts = useCallback(async () => {
+    if (!auth.user?.id) { setMeHubCounts({}); return; }
+    const [trades, needs, offers, myPlans, joinedPlans, places] = await Promise.all([
+      api.trades.mine({ scope: 'created' }).then((response) => countCollection(response, 'trades')).catch(() => undefined),
+      api.needs.mine().then((response) => countCollection(response, 'needs')).catch(() => undefined),
+      api.offers.mine().then((response) => countCollection(response, 'offers')).catch(() => undefined),
+      betaFeatures.plansVisible ? api.plans.mine().then((response) => countCollection(response, 'plans')).catch(() => undefined) : Promise.resolve(undefined),
+      betaFeatures.plansVisible ? api.plans.joined().then((response) => countCollection(response, 'plans')).catch(() => undefined) : Promise.resolve(undefined),
+      betaFeatures.plansVisible ? api.places.mine({ take: 100 }).then((response) => countCollection(response, 'places')).catch(() => undefined) : Promise.resolve(undefined),
+    ]);
+    setMeHubCounts({ trades, needs, offers, myPlans, joinedPlans, places });
+  }, [auth.user?.id]);
+
   useFocusEffect(useCallback(() => {
     if (betaFeatures.walletVisible || betaFeatures.payoutsVisible) void loadWallet();
     void loadNotificationPreview();
-  }, [loadWallet, loadNotificationPreview]));
+    void loadMeHubCounts();
+  }, [loadWallet, loadMeHubCounts, loadNotificationPreview]));
 
   const displayName = getDisplayName(auth.user);
   const handle = auth.user?.profile?.handle ? `@${auth.user.profile.handle}` : t('account.addHandle');
@@ -196,19 +224,18 @@ export function AccountScreen() {
   }
 
   const activityWidgets = useMemo<MeHubWidget[]>(() => [
-    { title: t('trade.wizard.actions.myTrades.title'), body: t('trade.wizard.actions.myTrades.body'), route: 'TradeTabs', icon: 'activity', tone: 'trade' },
-    { title: t('trade.wizard.actions.proposals.title'), body: t('trade.wizard.actions.proposals.body'), route: 'TradeTabs', icon: 'proposal-accepted', tone: 'proposal' },
-    { title: t('trade.wizard.actions.myNeeds.title'), body: t('trade.wizard.actions.myNeeds.body'), route: 'MyNeeds', icon: 'need', tone: 'need' },
-    { title: t('trade.wizard.actions.myOffers.title'), body: t('trade.wizard.actions.myOffers.body'), route: 'MyOffers', icon: 'offer', tone: 'offer' },
-  ], [t]);
+    { title: t('trade.wizard.actions.myTrades.title'), body: t('trade.wizard.actions.myTrades.body'), route: 'TradeTabs', icon: 'activity', tone: 'trade', count: meHubCounts.trades },
+    { title: t('trade.wizard.actions.myNeeds.title'), body: t('trade.wizard.actions.myNeeds.body'), route: 'MyNeeds', icon: 'need', tone: 'need', count: meHubCounts.needs },
+    { title: t('trade.wizard.actions.myOffers.title'), body: t('trade.wizard.actions.myOffers.body'), route: 'MyOffers', icon: 'offer', tone: 'offer', count: meHubCounts.offers },
+  ], [meHubCounts.needs, meHubCounts.offers, meHubCounts.trades, t]);
 
   const planWidgets = useMemo<MeHubWidget[]>(() => betaFeatures.plansVisible ? [
-    { title: t('account.items.plansFeature.title'), body: t('account.items.plansFeature.bodyNative'), route: 'Plans', icon: 'calendar', tone: 'instruction', size: 'full' },
-    { title: t('account.items.myPlansFeature.title'), body: t('account.items.myPlansFeature.bodyNative'), route: 'MyPlans', icon: 'activity', tone: 'info' },
-    { title: t('account.items.joinedPlansFeature.title'), body: t('account.items.joinedPlansFeature.bodyNative'), route: 'JoinedPlans', icon: 'proposal-accepted', tone: 'success' },
-    { title: t('account.items.myPlacesFeature.title'), body: t('account.items.myPlacesFeature.bodyNative'), route: 'MyPlaces', icon: 'save', tone: 'proposal' },
+    { title: t('account.items.plansFeature.title'), body: t('account.items.plansFeature.bodyNative'), route: 'Plans', icon: 'calendar', tone: 'instruction' },
+    { title: t('account.items.myPlansFeature.title'), body: t('account.items.myPlansFeature.bodyNative'), route: 'MyPlans', icon: 'activity', tone: 'info', count: meHubCounts.myPlans },
+    { title: t('account.items.joinedPlansFeature.title'), body: t('account.items.joinedPlansFeature.bodyNative'), route: 'JoinedPlans', icon: 'proposal-accepted', tone: 'success', count: meHubCounts.joinedPlans },
+    { title: t('account.items.myPlacesFeature.title'), body: t('account.items.myPlacesFeature.bodyNative'), route: 'MyPlaces', icon: 'save', tone: 'proposal', count: meHubCounts.places },
     { title: t('account.items.placeLibraryFeature.title'), body: t('account.items.placeLibraryFeature.bodyNative'), route: 'PlaceLibrary', icon: 'search', tone: 'instruction' },
-  ] : [], [t]);
+  ] : [], [meHubCounts.joinedPlans, meHubCounts.myPlans, meHubCounts.places, t]);
 
   const toolWidgets = useMemo<MeHubWidget[]>(() => [
     ...(betaFeatures.savedLibraryEnabled ? [{ title: t('account.items.saved.title'), body: t('account.items.saved.bodyNative'), route: 'SavedLibrary' as AccountRoute, icon: 'save' as MobileIconName, tone: 'proposal' as SemanticColorName }] : []),
@@ -238,7 +265,7 @@ export function AccountScreen() {
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { if (betaFeatures.walletVisible || betaFeatures.payoutsVisible) void loadWallet(); void loadNotificationPreview(); }} />}
+        refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { if (betaFeatures.walletVisible || betaFeatures.payoutsVisible) void loadWallet(); void loadNotificationPreview(); void loadMeHubCounts(); }} />}
       >
         <View style={[styles.profilePanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
           <View style={styles.profileHero}>
@@ -256,9 +283,9 @@ export function AccountScreen() {
             </View>
           </View>
           <View style={styles.quickActions}>
-            <AccountQuickAction icon="profile" label={t('account.quickActions.editProfile')} onPress={() => navigate('AccountProfile')} tone="info" />
-            <AccountQuickAction icon="bell" label={t('account.quickActions.notifications')} count={notificationUnreadCount} onPress={() => navigate('Notifications')} tone="proposal" />
-            <AccountQuickAction icon="help" label={t('account.quickActions.support')} onPress={() => navigate('SupportCenter')} tone="success" />
+            <AccountQuickAction icon="trade" label={t('account.quickActions.createTrade')} onPress={() => navigate('CreateTrade')} tone="trade" />
+            {betaFeatures.plansVisible ? <AccountQuickAction icon="calendar" label={t('account.quickActions.createPlan')} onPress={() => navigate('CreatePlan')} tone="instruction" /> : <AccountQuickAction icon="bell" label={t('account.quickActions.notifications')} count={notificationUnreadCount} onPress={() => navigate('Notifications')} tone="proposal" />}
+            {betaFeatures.plansVisible ? <AccountQuickAction icon="add" label={t('account.quickActions.addPlace')} onPress={() => navigate('CreatePlace')} tone="proposal" /> : <AccountQuickAction icon="help" label={t('account.quickActions.support')} onPress={() => navigate('SupportCenter')} tone="success" />}
           </View>
         </View>
 
@@ -333,31 +360,34 @@ function MeWidgetSection({ sectionKey, title, widgets, collapsed, onToggle, onNa
         <MobileIcon name={collapsed ? 'chevron-down' : 'chevron-up'} size={18} color={theme.color.muted} />
       </Pressable>
       {!collapsed ? (
-        <View style={styles.widgetGrid}>
-          {widgets.map((widget) => <MeHubWidgetCard key={`${widget.route}-${widget.title}`} widget={widget} onPress={() => onNavigate(widget.route)} />)}
+        <View style={[styles.menuList, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+          {widgets.map((widget, index) => (
+            <MeHubWidgetRow key={`${widget.route}-${widget.title}`} widget={widget} last={index === widgets.length - 1} onPress={() => onNavigate(widget.route)} />
+          ))}
         </View>
       ) : null}
     </View>
   );
 }
 
-function MeHubWidgetCard({ widget, onPress }: { widget: MeHubWidget; onPress: () => void }) {
+function MeHubWidgetRow({ widget, last, onPress }: { widget: MeHubWidget; last?: boolean; onPress: () => void }) {
   const theme = useThemeTokens();
   const tone = theme.semantic[widget.tone];
-  const full = widget.size === 'full';
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={widget.count && widget.count > 0 ? `${widget.title} · ${widget.count}` : widget.title} onPress={onPress} style={({ pressed }) => [styles.widgetCard, full && styles.widgetCardFull, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-      <View style={styles.widgetTopRow}>
-        <View style={[styles.widgetIcon, { backgroundColor: tone.softBg, borderColor: tone.border }]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={typeof widget.count === 'number' ? `${widget.title} · ${widget.count}` : widget.title} onPress={onPress} style={({ pressed }) => [styles.actionRow, !last && { borderBottomColor: theme.color.border, borderBottomWidth: StyleSheet.hairlineWidth }, pressed && styles.pressed]}>
+      <View style={styles.actionContent}>
+        <View style={[styles.actionIcon, { backgroundColor: tone.softBg, borderColor: tone.border }]}>
           <MobileIcon name={widget.icon} size={18} color={tone.text} />
         </View>
-        {widget.count && widget.count > 0 ? <SemanticBadge label={String(Math.min(widget.count, 99))} tone={widget.tone} size="sm" /> : null}
+        <View style={styles.actionTextWrap}>
+          <View style={styles.actionTitleRow}>
+            <AppText style={styles.actionTitle}>{widget.title}</AppText>
+            {typeof widget.count === 'number' ? <SemanticBadge label={String(Math.min(widget.count, 99))} tone={widget.tone} size="sm" /> : null}
+          </View>
+          <AppText style={[styles.actionDescription, { color: theme.color.muted }]} numberOfLines={2}>{widget.body}</AppText>
+        </View>
       </View>
-      <View style={styles.widgetCopy}>
-        <AppText style={styles.widgetTitle} numberOfLines={2}>{widget.title}</AppText>
-        <AppText style={[styles.widgetBody, { color: theme.color.muted }]} numberOfLines={full ? 3 : 2}>{widget.body}</AppText>
-      </View>
-      <View style={styles.widgetChevronRow}><MobileIcon name="chevron-right" size={20} color={theme.color.muted} /></View>
+      <MobileIcon name="chevron-right" size={22} color={theme.color.muted} />
     </Pressable>
   );
 }
@@ -465,15 +495,6 @@ const styles = StyleSheet.create({
   widgetSectionHeader: { minHeight: 34, paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   widgetSectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   widgetSectionTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9, textTransform: 'uppercase' },
-  widgetGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  widgetCard: { width: '48.5%', minHeight: 148, borderRadius: 24, borderWidth: 1, padding: 13, gap: 11 },
-  widgetCardFull: { width: '100%', minHeight: 132 },
-  widgetTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  widgetIcon: { width: 40, height: 40, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  widgetCopy: { flex: 1, minHeight: 0, gap: 5 },
-  widgetTitle: { fontSize: 16, lineHeight: 20, fontWeight: '900', letterSpacing: -0.15 },
-  widgetBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
-  widgetChevronRow: { alignItems: 'flex-end' },
   menuBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(2, 10, 24, 0.42)', paddingHorizontal: 14, paddingBottom: 14 },
   menuSheet: { width: '100%', maxHeight: '86%', borderRadius: 28, borderWidth: 1, padding: 16, gap: 14 },
   menuHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },

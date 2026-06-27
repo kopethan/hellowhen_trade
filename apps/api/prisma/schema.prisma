@@ -884,6 +884,8 @@ model User {
   proposalMessages ProposalMessage[] @relation("SentProposalMessages")
   tradePublicMessages TradePublicMessage[] @relation("AuthoredTradePublicMessages")
   hiddenTradePublicMessages TradePublicMessage[] @relation("HiddenTradePublicMessages")
+  planPublicMessages PlanPublicMessage[] @relation("AuthoredPlanPublicMessages")
+  hiddenPlanPublicMessages PlanPublicMessage[] @relation("HiddenPlanPublicMessages")
   mediaAssets  MediaAsset[] @relation("OwnedMediaAssets")
   reviewedMediaAssets MediaAsset[] @relation("ReviewedMediaAssets")
   creditPurchases CreditPurchase[]
@@ -1835,6 +1837,30 @@ model TradePublicMessage {
   @@index([hiddenById, hiddenAt])
 }
 
+model PlanPublicMessage {
+  id             String                   @id @default(cuid())
+  planId         String
+  authorId       String
+  body           String
+  status         TradePublicMessageStatus @default(visible)
+  editedAt       DateTime?
+  editCount      Int                      @default(0)
+  deletedAt      DateTime?
+  hiddenAt       DateTime?
+  hiddenById     String?
+  moderationNote String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  plan     Plan  @relation(fields: [planId], references: [id], onDelete: Cascade)
+  author   User  @relation("AuthoredPlanPublicMessages", fields: [authorId], references: [id], onDelete: Cascade)
+  hiddenBy User? @relation("HiddenPlanPublicMessages", fields: [hiddenById], references: [id], onDelete: SetNull)
+
+  @@index([planId, status, createdAt])
+  @@index([authorId, createdAt])
+  @@index([hiddenById, hiddenAt])
+}
+
 model MediaAsset {
   id          String           @id @default(cuid())
   ownerId     String
@@ -2675,6 +2701,7 @@ model Plan {
   owner        User              @relation("OwnedPlans", fields: [ownerId], references: [id], onDelete: Cascade)
   places       PlanPlace[]
   participants PlanParticipant[]
+  publicMessages PlanPublicMessage[]
 
   @@index([status, startsAt])
   @@index([ownerId, status, startsAt])

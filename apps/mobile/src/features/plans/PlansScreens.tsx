@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DiscoveryLanguage, InventoryTranslationDto, MediaAssetDto, PlaceDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
@@ -14,6 +14,7 @@ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
+import { buildPublicPlanUrl } from '../../lib/publicUrls';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
@@ -352,6 +353,59 @@ function getPlanLocationLabel(plan: PlanDto) {
   return firstPlace.addressPublicText || firstPlace.sourcePlace?.areaLabel || 'Offline Plan';
 }
 
+function getPlanModeLabel(plan: PlanDto) {
+  if (plan.mode === 'remote') return 'Online';
+  if (plan.mode === 'local') return 'Local';
+  if (plan.mode === 'hybrid') return 'Local/Online';
+  const places = plan.places ?? [];
+  const hasRemote = places.some((place) => place.mode === 'remote');
+  const hasLocal = places.some((place) => place.mode !== 'remote');
+  if (hasRemote && hasLocal) return 'Local/Online';
+  if (hasRemote) return 'Online';
+  if (hasLocal) return 'Local';
+  return 'Local/Online';
+}
+
+function formatPlanStatusLabel(status: string) {
+  return status.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function getPlanStatusTone(status: string) {
+  if (status === 'open' || status === 'started' || status === 'completed') return 'success' as const;
+  if (status === 'full') return 'warning' as const;
+  if (status === 'cancelled' || status === 'hidden') return 'danger' as const;
+  if (status === 'expired') return 'time' as const;
+  return 'muted' as const;
+}
+
+function getPlanJoinModeLabel(plan: PlanDto) {
+  return plan.joinApprovalMode === 'automatic' ? 'Free join' : 'Request to join';
+}
+
+function getPlanJoinActionCopy(plan: PlanDto) {
+  if (plan.status === 'full') return 'This plan is full right now.';
+  if (plan.status === 'started') return 'This plan has already started.';
+  if (plan.status !== 'open') return `This plan is ${formatPlanStatusLabel(plan.status).toLowerCase()}.`;
+  return plan.joinApprovalMode === 'automatic' ? 'Free join is open. You can leave later.' : 'Send your interest to join this plan.';
+}
+
+function getPlanParticipantStateCopy(status: PlanDto['myParticipantStatus']) {
+  if (status === 'pending') return 'Your join request is waiting for the owner.';
+  if (status === 'left') return 'You left this plan.';
+  if (status === 'removed') return 'The owner removed you from this plan.';
+  if (status === 'declined') return 'The owner declined this request.';
+  if (status === 'cancelled') return 'Your join request was cancelled.';
+  return status ? `Your status: ${status}` : '';
+}
+
+function canJoinPlanFromParticipantStatus(status: PlanDto['myParticipantStatus']) {
+  return !status || status === 'left' || status === 'cancelled' || status === 'declined';
+}
+
+function getOwnerInitial(plan: PlanDto) {
+  return getOwnerName(plan).trim().slice(0, 1).toUpperCase() || 'H';
+}
+
 function activeMedia(media: MediaAssetDto[] | undefined) {
   return (media ?? []).filter((asset) => asset.status === 'active');
 }
@@ -370,14 +424,35 @@ function sortedPlanPlaces(plan: PlanDto) {
 }
 
 function getPlanPlaceLocationLabel(place: PlanPlaceDto) {
-  if (place.mode === 'remote') return place.onlineLabel || place.onlineUrl || 'Online place';
-  return place.addressPublicText || place.sourcePlace?.areaLabel || 'Offline place';
+  if (place.mode === 'remote') {
+    return place.onlineLabel && place.onlineUrl ? place.onlineUrl : place.onlineLabel || place.onlineUrl || null;
+  }
+  return place.addressPublicText || place.sourcePlace?.areaLabel || null;
+}
+
+function getPlanPlaceModeDisplay(place: PlanPlaceDto) {
+  return place.mode === 'remote' ? 'Online' : 'Local';
+}
+
+function getPlanPlaceTimeLabel(place: PlanPlaceDto, planStartsAt: string) {
+  const start = formatDate(place.startsAt ?? planStartsAt);
+  const end = place.endsAt ? formatDate(place.endsAt) : '';
+  return end && end !== start ? `${start} → ${end}` : start;
+}
+
+function getPlanPlaceLocationPrefix(place: PlanPlaceDto) {
+  if (place.mode === 'remote') return place.onlineLabel && place.onlineUrl ? place.onlineLabel : 'Online';
+  return 'Place';
+}
+
+function getPlanPlaceDescription(place: PlanPlaceDto) {
+  return place.sourcePlace?.description?.trim() || '';
 }
 
 function getPlanPlaceSourceLabel(place: PlanPlaceDto) {
   if (place.source === 'hellowhen_library') return 'Library place';
   if (place.source === 'my_place') return 'My place';
-  return 'Custom';
+  return 'Custom stop';
 }
 
 function DisabledPlansScreen({ onBack }: { onBack: () => void }) {
@@ -671,14 +746,34 @@ function MenuItem({ item }: { item: PlanMenuItem }) {
   );
 }
 
-function PlanStatPill({ label, value }: { label: string; value: string }) {
+function PlanDetailInfoRow({ label, value }: { label: string; value: string }) {
   const theme = useThemeTokens();
   return (
-    <View style={[styles.statPill, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
-      <AppText style={styles.statValue}>{value}</AppText>
-      <AppText style={[styles.statLabel, { color: theme.color.muted }]}>{label}</AppText>
+    <View style={[styles.planDetailInfoRow, { borderBottomColor: theme.color.border }]}>
+      <AppText style={[styles.planDetailInfoLabel, { color: theme.color.muted }]}>{label}</AppText>
+      <AppText style={styles.planDetailInfoValue}>{value}</AppText>
     </View>
   );
+}
+
+function PlanOwnerRow({ plan }: { plan: PlanDto }) {
+  const theme = useThemeTokens();
+  return (
+    <View style={[styles.planOwnerRow, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
+      <View style={[styles.planOwnerAvatar, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+        <AppText style={[styles.planOwnerInitial, { color: theme.semantic.plan.text }]}>{getOwnerInitial(plan)}</AppText>
+      </View>
+      <View style={styles.planOwnerCopy}>
+        <AppText style={[styles.planOwnerLabel, { color: theme.color.muted }]}>Posted by</AppText>
+        <AppText style={styles.planOwnerName}>{getOwnerName(plan)}</AppText>
+      </View>
+    </View>
+  );
+}
+
+function PlanSectionDivider() {
+  const theme = useThemeTokens();
+  return <View style={[styles.planSectionDivider, { backgroundColor: theme.color.border }]} />;
 }
 
 function ParticipantCompactRow({ participant }: { participant: PlanParticipantDto }) {
@@ -696,45 +791,45 @@ function ParticipantCompactRow({ participant }: { participant: PlanParticipantDt
   );
 }
 
-function PlanPlaceTimelineCard({ place, index, showReport }: { place: PlanPlaceDto; index: number; showReport: boolean }) {
+function PlanPlaceTimelineCard({ place, index, planStartsAt, showReport }: { place: PlanPlaceDto; index: number; planStartsAt: string; showReport: boolean }) {
   const theme = useThemeTokens();
   const mediaUrl = activeMediaUrl(getPlanPlaceMedia(place));
   const locationLabel = getPlanPlaceLocationLabel(place);
+  const description = getPlanPlaceDescription(place);
+  const sourceLabel = getPlanPlaceSourceLabel(place);
 
   return (
-    <View style={styles.timelineRow}>
-      <View style={styles.timelineRail}>
-        <View style={[styles.timelineNumber, { backgroundColor: theme.color.text }]}>
-          <AppText style={[styles.timelineNumberText, { color: theme.color.background }]}>{index + 1}</AppText>
+    <View style={[styles.planRouteStop, { borderBottomColor: theme.color.border }]}>
+      <View style={styles.planRouteStopTop}>
+        <View style={styles.planRouteTimeline}>
+          <View style={[styles.planRouteNumber, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
+            <AppText style={[styles.planRouteNumberText, { color: theme.semantic.place.text }]}>{index + 1}</AppText>
+          </View>
         </View>
-        <View style={[styles.timelineLine, { backgroundColor: theme.color.border }]} />
-      </View>
-      <View style={[styles.timelineCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-        <View style={styles.timelineCardHeader}>
-          <View style={styles.timelineCopy}>
-            <View style={styles.rowTop}>
-              <SemanticBadge label={`Place ${index + 1}`} tone="place" size="sm" />
-              <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
-              <SemanticBadge label={getPlanPlaceSourceLabel(place)} tone="muted" size="sm" />
+        <View style={styles.planRouteCopy}>
+          <View style={styles.planRouteTimeRow}>
+            <AppText style={[styles.planRouteTime, { color: theme.semantic.time.text }]}>{getPlanPlaceTimeLabel(place, planStartsAt)}</AppText>
+            <AppText style={[styles.planRouteSource, { color: theme.color.muted }]}>{getPlanPlaceModeDisplay(place)} · {sourceLabel}</AppText>
+          </View>
+          <View style={styles.planRouteContentRow}>
+            <View style={styles.planRouteTextBlock}>
+              <AppText style={styles.planRouteTitle}>{place.title}</AppText>
+              {locationLabel ? (
+                <AppText style={[styles.planRouteMeta, { color: theme.color.muted }]} numberOfLines={2}>
+                  {getPlanPlaceLocationPrefix(place)} · {locationLabel}
+                </AppText>
+              ) : null}
+              {description ? <AppText style={[styles.planRouteDescription, { color: theme.color.muted }]} numberOfLines={3}>{description}</AppText> : null}
             </View>
-            <AppText style={styles.rowTitle}>{place.title}</AppText>
-          </View>
-          <View style={[styles.timelineMedia, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
-            {mediaUrl ? <Image source={{ uri: mediaUrl }} resizeMode="cover" style={styles.timelineImage} /> : <MobileIcon name="calendar" size={24} color={theme.semantic.place.text} />}
-          </View>
-        </View>
-        <View style={styles.detailMetaStack}>
-          <View style={styles.metaRow}>
-            <MobileIcon name={place.mode === 'remote' ? 'send' : 'calendar'} size={15} color={theme.color.muted} />
-            <AppText style={[styles.metaText, { color: theme.color.muted }]}>{locationLabel}</AppText>
-          </View>
-          <View style={styles.metaRow}>
-            <MobileIcon name="activity" size={15} color={theme.color.muted} />
-            <AppText style={[styles.metaText, { color: theme.color.muted }]}>{formatDate(place.startsAt)}</AppText>
+            {mediaUrl ? (
+              <View style={styles.planRouteImageWrap}>
+                <Image source={{ uri: mediaUrl }} resizeMode="cover" style={styles.planRouteImage} />
+              </View>
+            ) : null}
           </View>
         </View>
-        {showReport ? <ReportContentPanel targetType="plan_place" targetId={place.id} labelKey="report.button" helperKey="report.helper.content" /> : null}
       </View>
+      {showReport ? <ReportContentPanel targetType="plan_place" targetId={place.id} labelKey="report.button" helperKey="report.helper.content" /> : null}
     </View>
   );
 }
@@ -745,9 +840,11 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   const [plan, setPlan] = useState<PlanDto | null>(null);
   const [loading, setLoading] = useState(isPlansVisible());
   const [busy, setBusy] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [publicMessageCount, setPublicMessageCount] = useState(0);
 
   const load = useCallback(async () => {
     if (!isPlansVisible()) { setLoading(false); return; }
@@ -756,15 +853,38 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
     try {
       const response = await api.plans.get(route.params.planId);
       setPlan(response.plan);
+      try {
+        const publicResult = await api.plans.publicMessages(route.params.planId, { take: 100 }) as { messages?: unknown[] };
+        setPublicMessageCount(Array.isArray(publicResult.messages) ? publicResult.messages.length : 0);
+      } catch {
+        setPublicMessageCount(0);
+      }
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
       setPlan(null);
+      setPublicMessageCount(0);
     } finally {
       setLoading(false);
     }
   }, [route.params.planId]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  async function sharePlan() {
+    if (!plan || sharing) return;
+    setSharing(true);
+    setActionMessage(null);
+    setActionError(null);
+    try {
+      const url = buildPublicPlanUrl(plan.id);
+      await Share.share({ title: plan.title, message: `${plan.title}\n${url}`, url });
+      setActionMessage('Share sheet opened.');
+    } catch {
+      setActionError('Could not open sharing on this device.');
+    } finally {
+      setSharing(false);
+    }
+  }
 
   async function joinPlan() {
     if (!plan || busy) return;
@@ -803,72 +923,96 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
 
   const isOwner = Boolean(auth.user?.id && plan?.ownerId === auth.user.id);
-  const isJoined = plan?.myParticipantStatus === 'accepted';
-  const canJoin = Boolean(plan && auth.user && !isOwner && !isJoined && plan.status === 'open');
+  const participantStatus = plan?.myParticipantStatus ?? null;
+  const isJoined = participantStatus === 'accepted';
+  const canJoin = Boolean(plan && auth.user && !isOwner && canJoinPlanFromParticipantStatus(participantStatus) && plan.status === 'open');
   const canLeave = Boolean(plan && !isOwner && isJoined);
+  const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus) : '';
   const places = plan ? sortedPlanPlaces(plan) : [];
   const acceptedParticipants = plan ? getAcceptedParticipants(plan) : [];
   const joinedCount = plan?.participantCount ?? acceptedParticipants.length;
   const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
   const showReportActions = Boolean(auth.user && plan && !isOwner);
+  const header = (
+    <AppHeader
+      title="Plan"
+      onBack={() => navigation.goBack()}
+      rightSlot={plan ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Share Plan"
+          disabled={sharing}
+          onPress={() => { void sharePlan(); }}
+          style={({ pressed }) => [styles.planHeaderShareButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (pressed || sharing) && styles.pressed]}
+        >
+          <MobileIcon name="share" size={18} color={theme.color.text} />
+        </Pressable>
+      ) : undefined}
+    />
+  );
 
   return (
-    <AppFixedHeaderScreen header={<AppHeader title={route.params.title ?? 'Plan'} onBack={() => navigation.goBack()} />}>
+    <AppFixedHeaderScreen header={header}>
       {loading ? <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Plan...</AppText></View> : null}
       {!loading && error ? <View style={styles.contentPad}><InfoNotice tone="warning" title="Could not load Plan" body={error} /></View> : null}
       {!loading && plan ? (
-        <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
-          <View style={[styles.hero, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-            <View style={styles.rowTop}>
-              <SemanticBadge label="Plan" tone="trade" />
-              <SemanticBadge label={plan.status} tone={plan.status === 'open' ? 'success' : 'muted'} />
-              {isJoined ? <SemanticBadge label="Joined" tone="proposal" /> : null}
+        <ScrollView contentContainerStyle={styles.planDetailContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.planDetailHero}>
+            <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{`${formatPlanStatusLabel(plan.status)} · Plan`}</AppText>
+            <AppText style={styles.planDetailTitle}>{plan.title}</AppText>
+            <AppText style={[styles.planDetailStart, { color: theme.color.muted }]}>Starts {formatDate(plan.startsAt)}</AppText>
+            <View style={styles.planDetailOwnerLine}>
+              <AppText style={[styles.planDetailOwnerPrefix, { color: theme.color.muted }]}>Posted by</AppText>
+              <AppText style={styles.planDetailOwnerName}>{getOwnerName(plan)}</AppText>
             </View>
-            <AppText style={styles.heroTitle}>{plan.title}</AppText>
-            <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{plan.description}</AppText>
-            <View style={styles.detailMetaStack}>
-              <View style={styles.metaRow}><MobileIcon name="profile" size={16} color={theme.color.muted} /><AppText style={[styles.metaText, { color: theme.color.muted }]}>By {getOwnerName(plan)}</AppText></View>
-              <View style={styles.metaRow}><MobileIcon name="calendar" size={16} color={theme.color.muted} /><AppText style={[styles.metaText, { color: theme.color.muted }]}>{formatPlanDateRange(plan)}</AppText></View>
-              <View style={styles.metaRow}><MobileIcon name="activity" size={16} color={theme.color.muted} /><AppText style={[styles.metaText, { color: theme.color.muted }]}>{getPlanLocationLabel(plan)}</AppText></View>
+            <View style={styles.planDetailChips}>
+              <SemanticBadge label={formatPlanStatusLabel(plan.status)} tone={getPlanStatusTone(plan.status)} size="sm" />
+              <SemanticBadge label={getPlanJoinModeLabel(plan)} tone="proposal" size="sm" />
+              <SemanticBadge label={`${places.length} ${places.length === 1 ? 'place' : 'places'}`} tone="place" size="sm" />
+              <SemanticBadge label={getPlanModeLabel(plan)} tone="muted" size="sm" />
             </View>
-            <View style={styles.statGrid}>
-              <PlanStatPill value={capacityLabel} label="joined" />
-              <PlanStatPill value={String(places.length)} label="places" />
-              <PlanStatPill value="Free" label="join" />
+            {plan.description ? <AppText style={[styles.planDetailDescription, { color: theme.color.text }]}>{plan.description}</AppText> : null}
+          </View>
+
+          <PlanSectionDivider />
+
+          <View style={styles.planDetailSectionFlat}>
+            <View style={styles.sectionTitleRow}>
+              <AppText style={styles.sectionTitle}>Route</AppText>
+              <SemanticBadge label={`${places.length}`} tone="place" size="sm" />
             </View>
-            <View style={styles.detailActionStack}>
-              {isOwner ? <InfoNotice tone="info" title="You own this Plan" body="People can join freely while this first production Plan flow is hidden behind the feature flags." /> : null}
-              {canJoin ? (
-                <Pressable disabled={busy} accessibilityRole="button" onPress={joinPlan} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed, busy && styles.disabled]}>
-                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{busy ? 'Joining...' : 'Join plan'}</AppText>
-                </Pressable>
-              ) : null}
-              {isJoined ? (
-                <View style={[styles.joinedState, { backgroundColor: theme.semantic.success.softBg, borderColor: theme.semantic.success.border }]}>
-                  <MobileIcon name="proposal-accepted" size={18} color={theme.semantic.success.text} />
-                  <AppText style={[styles.joinedStateText, { color: theme.semantic.success.text }]}>Joined</AppText>
-                </View>
-              ) : null}
-              {canLeave ? (
-                <Pressable disabled={busy} accessibilityRole="button" onPress={leavePlan} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, busy && styles.disabled]}>
-                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{busy ? 'Updating...' : 'Leave plan'}</AppText>
-                </Pressable>
-              ) : null}
-              {!auth.user ? <InfoNotice tone="info" title="Log in to join" body="Plans use the same protected account session as Trade. Log in first, then join freely." /> : null}
-              {actionMessage ? <InfoNotice tone="success" title="Plan updated" body={actionMessage} /> : null}
-              {actionError ? <InfoNotice tone="warning" title="Plan action failed" body={actionError} /> : null}
+            {places.length === 0 ? <EmptyBlock title="No places yet" body="This Plan does not have places attached yet." /> : null}
+            {places.map((place, index) => <PlanPlaceTimelineCard key={place.id} place={place} index={index} planStartsAt={plan.startsAt} showReport={showReportActions} />)}
+          </View>
+
+          <PlanSectionDivider />
+
+          <View style={styles.planDetailSectionFlat}>
+            <AppText style={styles.sectionTitle}>Details</AppText>
+            <View style={styles.planDetailInfoList}>
+              <PlanDetailInfoRow label="Status" value={formatPlanStatusLabel(plan.status)} />
+              <PlanDetailInfoRow label="Visibility" value={plan.status === 'hidden' ? 'Hidden' : 'Public'} />
+              <PlanDetailInfoRow label="Join mode" value={getPlanJoinModeLabel(plan)} />
+              <PlanDetailInfoRow label="Time" value={formatPlanDateRange(plan)} />
+              <PlanDetailInfoRow label="Place mode" value={getPlanModeLabel(plan)} />
+              <PlanDetailInfoRow label="Created" value={formatDate(plan.createdAt)} />
             </View>
           </View>
 
-          <View style={styles.sectionTitleRow}><AppText style={styles.sectionTitle}>Plan route</AppText><SemanticBadge label={`${places.length}`} tone="place" size="sm" /></View>
-          {places.length === 0 ? <EmptyBlock title="No places yet" body="This Plan does not have places attached yet." /> : null}
-          {places.map((place, index) => <PlanPlaceTimelineCard key={place.id} place={place} index={index} showReport={showReportActions} />)}
+          <PlanSectionDivider />
 
-          <View style={[styles.detailSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+          <View style={styles.planDetailSectionFlat}>
+            <AppText style={styles.sectionTitle}>Owner</AppText>
+            <PlanOwnerRow plan={plan} />
+          </View>
+
+          <PlanSectionDivider />
+
+          <View style={styles.planDetailSectionFlat}>
             <View style={styles.detailSectionHeader}>
               <View style={styles.detailSectionCopy}>
                 <AppText style={styles.sectionTitle}>Joined people</AppText>
-                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>Free join is enabled for this first hidden production version.</AppText>
+                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{capacityLabel} joined · {getPlanJoinModeLabel(plan)}</AppText>
               </View>
               <SemanticBadge label={String(joinedCount)} tone="proposal" size="sm" />
             </View>
@@ -876,12 +1020,86 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
             {acceptedParticipants.map((participant) => <ParticipantCompactRow key={participant.id} participant={participant} />)}
           </View>
 
-          <View style={[styles.detailSection, styles.supportSection, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
-            <View style={styles.detailSectionCopy}>
-              <AppText style={styles.sectionTitle}>Safety and support</AppText>
-              <AppText style={[styles.rowBody, { color: theme.color.muted }]}>Plans are still hidden and internal while testing. Public discussion is intentionally postponed for this first production version.</AppText>
+          <PlanSectionDivider />
+
+          <View style={styles.planDetailSectionFlat}>
+            <View style={styles.detailSectionHeader}>
+              <View style={styles.detailSectionCopy}>
+                <AppText style={styles.sectionTitle}>Public discussion</AppText>
+                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{publicMessageCount} {publicMessageCount === 1 ? 'comment' : 'comments'} · visible to logged-in members</AppText>
+              </View>
+              <SemanticBadge label="Public" tone="plan" size="sm" />
             </View>
-            {showReportActions ? <ReportContentPanel targetType="plan" targetId={plan.id} labelKey="report.button" helperKey="report.helper.content" /> : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open Plan public discussion"
+              onPress={() => navigation.navigate('PlanPublicDiscussion', { planId: plan.id, title: plan.title })}
+              style={({ pressed }) => [styles.planDiscussionRow, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}
+            >
+              <View style={[styles.planDiscussionIcon, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+                <MobileIcon name="proposal" size={18} color={theme.semantic.plan.text} />
+              </View>
+              <View style={styles.feedTitleWrap}>
+                <AppText style={styles.planDiscussionTitle}>Open public comments</AppText>
+                <AppText style={[styles.metaText, { color: theme.color.muted }]}>Ask questions, coordinate details, or reply to people interested in this Plan.</AppText>
+              </View>
+              <MobileIcon name="chevron-right" size={18} color={theme.color.muted} />
+            </Pressable>
+          </View>
+
+          <PlanSectionDivider />
+
+          <View style={styles.planDetailSectionFlat}>
+            <View style={styles.detailSectionHeader}>
+              <View style={styles.detailSectionCopy}>
+                <AppText style={styles.sectionTitle}>Actions</AppText>
+                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isOwner ? 'Manage and share this Plan.' : getPlanJoinActionCopy(plan)}</AppText>
+              </View>
+              {!isOwner ? <SemanticBadge label={getPlanJoinModeLabel(plan)} tone="proposal" size="sm" /> : <SemanticBadge label="Owner" tone="plan" size="sm" />}
+            </View>
+            <View style={styles.detailActionStack}>
+              {isOwner ? (
+                <View style={[styles.planOwnerManageRow, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+                  <MobileIcon name="profile" size={18} color={theme.semantic.plan.text} />
+                  <View style={styles.feedTitleWrap}>
+                    <AppText style={styles.planOwnerManageTitle}>You own this plan</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Review joined people here. Use Share to invite more people.</AppText>
+                  </View>
+                </View>
+              ) : null}
+              {canJoin ? (
+                <View style={styles.planPrimaryActionBlock}>
+                  <Pressable disabled={busy} accessibilityRole="button" onPress={joinPlan} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed, busy && styles.disabled]}>
+                    <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{busy ? 'Joining...' : 'Join plan'}</AppText>
+                  </Pressable>
+                  <AppText style={[styles.metaText, styles.planActionFootnote, { color: theme.color.muted }]}>{plan.joinApprovalMode === 'automatic' ? 'Free join · leave anytime.' : 'Join request · owner review.'}</AppText>
+                </View>
+              ) : null}
+              {isJoined ? (
+                <View style={[styles.joinedState, { backgroundColor: theme.semantic.success.softBg, borderColor: theme.semantic.success.border }]}>
+                  <MobileIcon name="proposal-accepted" size={18} color={theme.semantic.success.text} />
+                  <View style={styles.feedTitleWrap}>
+                    <AppText style={[styles.joinedStateText, { color: theme.semantic.success.text }]}>You joined this plan</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>You can leave if this Plan is no longer useful.</AppText>
+                  </View>
+                </View>
+              ) : null}
+              {canLeave ? (
+                <Pressable disabled={busy} accessibilityRole="button" onPress={leavePlan} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, busy && styles.disabled]}>
+                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{busy ? 'Updating...' : 'Leave plan'}</AppText>
+                </Pressable>
+              ) : null}
+              {auth.user && participantStateCopy && !isJoined ? (
+                <View style={[styles.planStatusActionRow, { borderColor: theme.color.border }]}>
+                  <MobileIcon name="calendar" size={17} color={theme.color.muted} />
+                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>{participantStateCopy}</AppText>
+                </View>
+              ) : null}
+              {!auth.user ? <InfoNotice tone="info" title="Log in to join" body="Log in first, then join this plan when it is open." /> : null}
+              {actionMessage ? <InfoNotice tone="success" title="Done" body={actionMessage} /> : null}
+              {actionError ? <InfoNotice tone="warning" title="Plan action failed" body={actionError} /> : null}
+              {showReportActions ? <ReportContentPanel targetType="plan" targetId={plan.id} labelKey="report.button" helperKey="report.helper.content" /> : null}
+            </View>
           </View>
         </ScrollView>
       ) : null}
@@ -1007,7 +1225,7 @@ function PlaceChoiceCard({ place, onAdd }: { place: PlaceDto; onAdd: () => void 
           <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
         </View>
         <AppText style={styles.choiceTitle}>{place.title}</AppText>
-        <AppText style={[styles.choiceMeta, { color: theme.color.muted }]} numberOfLines={2}>{meta || place.description || 'Reusable Place'}</AppText>
+        <AppText style={[styles.choiceMeta, { color: theme.color.muted }]} numberOfLines={1}>{meta || 'Reusable Place'}</AppText>
       </View>
       <View style={[styles.addMini, { backgroundColor: theme.semantic.place.bg }]}>
         <MobileIcon name="add" size={16} color={theme.color.background} />
@@ -1138,6 +1356,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   const generatedDescription = generatedPlanDisplay.description;
   const previewTitle = advancedDetails.title.trim() || generatedTitle;
   const previewDescription = advancedDetails.description.trim() || generatedDescription;
+  const validationNotice = error;
   const previewPlan = useMemo(() => ({
     id: 'create-plan-preview',
     ownerId: 'preview',
@@ -1382,10 +1601,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     <AppFixedHeaderScreen header={<AppHeader title="Create plan" onBack={() => navigation.goBack()} />}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
         <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-          <View style={[styles.hero, styles.planCreateHero, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+          <View style={styles.planCreateCompactHeader}>
             <SemanticBadge label="Plan" tone="plan" />
             <AppText style={styles.heroTitle}>Create plan</AppText>
-            <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Add places, set times, preview.</AppText>
           </View>
 
           <View style={styles.stageSwitchRow}>
@@ -1396,14 +1614,12 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
           {stage === 'build' ? (
             <>
               <View style={[styles.timelineDividerBlock, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
-                {places.length === 0 ? <EmptyBlock title="No places yet" body="Add your first place to set its date and time." /> : null}
                 {places.map((place, index) => (
                   <View key={place.id}>
                     <View style={[styles.planTimelineLineItem, styles.placeTimeLineItem, { borderTopColor: theme.color.border }]}>
                       <View style={styles.timelineCopy}>
                         <SemanticBadge label="Date / time" tone="time" size="sm" />
-                        <AppText style={styles.sectionTitle}>Place {index + 1} time</AppText>
-                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{index === 0 ? 'This becomes the Plan start.' : 'Same time or after the previous place.'}</AppText>
+                        <AppText style={styles.sectionTitle}>Place {index + 1}</AppText>
                       </View>
                       <View style={styles.twoColumnRow}>
                         <TextField label="Date" value={place.date} onChangeText={(date) => updateSelectedPlace(index, { date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
@@ -1418,78 +1634,62 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                   </View>
                 ))}
 
-                <View style={[styles.planTimelineLineItem, styles.planTimelinePlaceAction, { borderTopColor: theme.color.border }]}>
+                <Pressable accessibilityRole="button" onPress={() => openPlaceSourceSheet('new')} style={({ pressed }) => [styles.planAddPlaceRow, places.length === 0 && styles.planAddPlaceRowFirst, { borderTopColor: theme.color.border }, pressed && styles.pressed]}>
                   <View style={styles.timelineCopy}>
-                    <AppText style={styles.sectionTitle}>Add a place</AppText>
-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose the next stop.</AppText>
+                    <AppText style={styles.sectionTitle}>+ Add place</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{places.length === 0 ? 'Choose the first stop' : 'Choose the next stop'}</AppText>
                   </View>
-                  <View style={styles.actionGrid}>
-                    <SecondaryButton label="Add place" icon="add" onPress={() => openPlaceSourceSheet('new')} />
-                  </View>
-                </View>
+                  <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+                </Pressable>
 
-                <View style={[styles.planTimelineLineItem, { borderTopColor: theme.color.border }]}>
-                  <View style={styles.timelineCopy}>
-                    <SemanticBadge label="Optional" tone="time" size="sm" />
-                    <AppText style={styles.sectionTitle}>End date / time</AppText>
-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Leave empty to end at the last place.</AppText>
+                {places.length > 0 ? (
+                  <View style={[styles.planTimelineLineItem, styles.planTimelineOptionalEnd, { borderTopColor: theme.color.border }]}>
+                    <View style={styles.timelineCopy}>
+                      <SemanticBadge label="Optional" tone="time" size="sm" />
+                      <AppText style={styles.sectionTitle}>End time</AppText>
+                    </View>
+                    <View style={styles.twoColumnRow}>
+                      <TextField label="End date" value={planEnd.date} onChangeText={(date) => updatePlanEnd({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+                      <TextField label="End time" value={planEnd.time} onChangeText={(time) => updatePlanEnd({ time })} placeholder="Optional" keyboardType="numbers-and-punctuation" />
+                    </View>
                   </View>
-                  <View style={styles.twoColumnRow}>
-                    <TextField label="End date" value={planEnd.date} onChangeText={(date) => updatePlanEnd({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
-                    <TextField label="End time" value={planEnd.time} onChangeText={(time) => updatePlanEnd({ time })} placeholder="Optional" keyboardType="numbers-and-punctuation" />
-                  </View>
-                </View>
+                ) : null}
               </View>
 
-
-              {error ? <InfoNotice tone="warning" title="Check plan" body={error} /> : null}
-              <Pressable accessibilityRole="button" onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed]}>
-                <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Preview Plan</AppText>
-              </Pressable>
+              {validationNotice ? <InfoNotice tone="warning" title="Check plan" body={validationNotice} /> : null}
+              {places.length > 0 ? (
+                <Pressable accessibilityRole="button" onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed]}>
+                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Preview Plan</AppText>
+                </Pressable>
+              ) : null}
             </>
           ) : (
             <>
               <View style={[styles.previewConfirmStage, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
                 <View style={styles.previewConfirmHero}>
                   <View style={styles.timelineCopy}>
-                    <SemanticBadge label="Ready to publish" tone="plan" size="sm" />
+                    <SemanticBadge label="Preview" tone="plan" size="sm" />
                     <AppText style={styles.previewConfirmTitle}>{previewTitle}</AppText>
-                    <AppText style={[styles.metaText, { color: theme.semantic.plan.text }]}>{previewDescription}</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{previewDescription}</AppText>
                   </View>
-                  <SecondaryButton label="Back to build" onPress={() => setStage('build')} />
-                </View>
-
-                <View style={styles.previewSummaryGrid}>
-                  <View style={[styles.previewSummaryCell, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
-                    <AppText style={[styles.previewSummaryLabel, { color: theme.color.muted }]}>Starts</AppText>
-                    <AppText style={styles.previewSummaryValue}>{schedule.startsAt ? formatDate(schedule.startsAt) : 'Not set'}</AppText>
-                  </View>
-                  <View style={[styles.previewSummaryCell, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
-                    <AppText style={[styles.previewSummaryLabel, { color: theme.color.muted }]}>Places</AppText>
-                    <AppText style={styles.previewSummaryValue}>{places.length} {places.length === 1 ? 'place' : 'places'}</AppText>
-                  </View>
-                  <View style={[styles.previewSummaryCell, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
-                    <AppText style={[styles.previewSummaryLabel, { color: theme.color.muted }]}>Join mode</AppText>
-                    <AppText style={styles.previewSummaryValue}>Free join</AppText>
-                  </View>
-                  <View style={[styles.previewSummaryCell, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
-                    <AppText style={[styles.previewSummaryLabel, { color: theme.color.muted }]}>Visibility</AppText>
-                    <AppText style={styles.previewSummaryValue}>Open / Public</AppText>
+                  <View style={styles.previewInlineMeta}>
+                    <SemanticBadge label={schedule.startsAt ? formatDate(schedule.startsAt) : 'Start not set'} tone="time" size="sm" />
+                    <SemanticBadge label={`${places.length} ${places.length === 1 ? 'place' : 'places'}`} tone="place" size="sm" />
+                    <SemanticBadge label="Free join" tone="plan" size="sm" />
+                    <SemanticBadge label="Open" tone="plan" size="sm" />
                   </View>
                 </View>
 
                 <View style={[styles.previewSectionDivider, { borderTopColor: theme.color.border }]}>
                   <View style={styles.timelineCopy}>
-                    <SemanticBadge label="Feed deck preview" tone="plan" size="sm" />
-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Feed deck preview.</AppText>
+                    <SemanticBadge label="Feed preview" tone="plan" size="sm" />
                   </View>
                   <PlanSquareDeck plan={previewPlan} />
                 </View>
 
                 <View style={[styles.previewSectionDivider, { borderTopColor: theme.color.border }]}>
                   <View style={styles.timelineCopy}>
-                    <SemanticBadge label="Place order" tone="place" size="sm" />
-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Order and times.</AppText>
+                    <SemanticBadge label="Route" tone="place" size="sm" />
                   </View>
                   {places.map((place, index) => (
                     <View key={`preview-${place.id}`} style={[styles.previewPlaceRow, { borderTopColor: theme.color.border }]}>
@@ -1504,17 +1704,11 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                   ))}
                 </View>
 
-                <View style={[styles.previewFinalNote, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
-                  <SemanticBadge label="Confirm" tone="plan" size="sm" />
-                  <AppText style={[styles.metaText, { color: theme.semantic.plan.text }]}>This creates an open public Plan with free join. You can still go back before publishing.</AppText>
-                </View>
-
-                {schedule.error && places.length > 0 ? <InfoNotice tone="warning" title="Schedule check" body={schedule.error} /> : null}
-                {explicitPlanEnd.error ? <InfoNotice tone="warning" title="End time" body={explicitPlanEnd.error} /> : null}
+                {validationNotice ? <InfoNotice tone="warning" title="Check plan" body={validationNotice} /> : null}
               </View>
 
               {message ? <InfoNotice tone="success" title="Plans" body={message} /> : null}
-              {error ? <InfoNotice tone="warning" title="Could not save" body={error} /> : null}
+              {error && !validationNotice ? <InfoNotice tone="warning" title="Could not save" body={error} /> : null}
               <View style={styles.actionGrid}>
                 <SecondaryButton label="Back" onPress={() => setStage('build')} />
                 <Pressable accessibilityRole="button" disabled={saving} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg, flex: 1 }, pressed && styles.pressed, saving && styles.disabled]}>
@@ -1581,10 +1775,11 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
         <Modal visible={placeSourceSheetOpen} transparent animationType="slide" onRequestClose={closePlaceSourceSheet}>
           <View style={styles.sourceSheetOverlay}>
             <Pressable accessibilityRole="button" accessibilityLabel="Close place source" onPress={closePlaceSourceSheet} style={styles.sourceSheetScrim} />
-            <View style={[styles.sourceSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-              <View style={styles.wizardStepRow}>
-                <View style={styles.timelineCopy}>
-                  <AppText style={styles.sectionTitle}>{placePickerOpen ? (pickerTab === 'mine' ? 'My Places' : 'Hellowhen Library') : 'Add place'}</AppText>
+            <View style={[styles.sourceSheet, styles.sourceChoiceSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+              <View style={[styles.sourceSheetHandle, { backgroundColor: theme.color.border }]} />
+              <View style={styles.sourceSheetTopbar}>
+                <View style={styles.sourceSheetTitleBlock}>
+                  <AppText style={styles.sourceSheetTitle}>{placePickerOpen ? (pickerTab === 'mine' ? 'My Places' : 'Hellowhen Library') : 'Add place'}</AppText>
                 </View>
                 <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={closePlaceSourceSheet} style={[styles.headerAction, { borderColor: theme.color.border }]}>
                   <MobileIcon name="close" color={theme.color.text} size={18} />
@@ -1593,32 +1788,34 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
               {!placePickerOpen ? (
                 <View style={styles.sourceOptionList}>
-                  <Pressable accessibilityRole="button" onPress={() => choosePlaceSource('mine')} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}>
-                    <View style={[styles.sourceOptionIcon, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }]}><MobileIcon name="save" color={theme.semantic.place.text} size={19} /></View>
-                    <View style={styles.timelineCopy}><AppText style={styles.sourceOptionTitle}>My Places</AppText><AppText style={[styles.metaText, { color: theme.color.muted }]}>Saved places you created.</AppText></View>
+                  <Pressable accessibilityRole="button" onPress={() => choosePlaceSource('mine')} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                    <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="save" color={theme.semantic.place.text} size={17} /></View>
+                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>My Places</AppText></View>
                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
                   </Pressable>
-                  <Pressable accessibilityRole="button" onPress={() => choosePlaceSource('library')} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}>
-                    <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="search" color={theme.semantic.place.text} size={19} /></View>
-                    <View style={styles.timelineCopy}><AppText style={styles.sourceOptionTitle}>Hellowhen Library</AppText><AppText style={[styles.metaText, { color: theme.color.muted }]}>Reusable place templates.</AppText></View>
+                  <Pressable accessibilityRole="button" onPress={() => choosePlaceSource('library')} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                    <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="search" color={theme.semantic.place.text} size={17} /></View>
+                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>Hellowhen Library</AppText></View>
                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
                   </Pressable>
-                  <Pressable accessibilityRole="button" onPress={() => { closePlaceSourceSheet(); navigation.navigate('CreatePlace', { returnToCreatePlan: true, targetPlaceIndex: typeof placeSourceTarget === 'number' ? placeSourceTarget : undefined }); }} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}>
-                    <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={19} /></View>
-                    <View style={styles.timelineCopy}><AppText style={styles.sourceOptionTitle}>New Place</AppText><AppText style={[styles.metaText, { color: theme.color.muted }]}>Save and return here.</AppText></View>
+                  <Pressable accessibilityRole="button" onPress={() => { closePlaceSourceSheet(); navigation.navigate('CreatePlace', { returnToCreatePlan: true, targetPlaceIndex: typeof placeSourceTarget === 'number' ? placeSourceTarget : undefined }); }} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                    <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={17} /></View>
+                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>New Place</AppText></View>
                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
                   </Pressable>
-                  <Pressable accessibilityRole="button" onPress={addCustomPlace} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}>
-                    <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="more" color={theme.semantic.place.text} size={19} /></View>
-                    <View style={styles.timelineCopy}><AppText style={styles.sourceOptionTitle}>Custom stop</AppText><AppText style={[styles.metaText, { color: theme.color.muted }]}>Only for this Plan.</AppText></View>
+                  <Pressable accessibilityRole="button" onPress={addCustomPlace} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                    <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="more" color={theme.semantic.place.text} size={17} /></View>
+                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>Custom stop</AppText></View>
                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
                   </Pressable>
                 </View>
               ) : (
                 <View style={styles.sourceOptionList}>
-                  <View style={styles.filterRow}>
-                    <PillButton label="My Places" active={pickerTab === 'mine'} onPress={() => choosePlaceSource('mine')} />
-                    <PillButton label="Hellowhen Library" active={pickerTab === 'library'} onPress={() => choosePlaceSource('library')} />
+                  <View style={styles.sourcePickerToolbar}>
+                    <View style={styles.sourcePickerTabs}>
+                      <PillButton label="My Places" active={pickerTab === 'mine'} onPress={() => choosePlaceSource('mine')} />
+                      <PillButton label="Hellowhen Library" active={pickerTab === 'library'} onPress={() => choosePlaceSource('library')} />
+                    </View>
                     <PillButton label="Refresh" onPress={() => { void loadReusablePlaces(); }} />
                   </View>
                   <TextField label="Search Places" value={placeQuery} onChangeText={setPlaceQuery} placeholder="Search Places" />
@@ -1627,7 +1824,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                   <ScrollView style={styles.sourceListScroll} keyboardShouldPersistTaps="handled">
                     {activeList.map((place) => <PlaceChoiceCard key={place.id} place={place} onAdd={() => addReusablePlace(place)} />)}
                   </ScrollView>
-                  <SecondaryButton label="Sources" onPress={() => setPlacePickerOpen(false)} />
+                  <View style={[styles.sourcePickerFooter, { borderTopColor: theme.color.border }]}>
+                    <SecondaryButton label="Sources" onPress={() => setPlacePickerOpen(false)} />
+                  </View>
                 </View>
               )}
             </View>
@@ -1693,13 +1892,21 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
     <AppFixedHeaderScreen header={<AppHeader title={isEditing ? 'Edit place' : 'Create place'} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label="My Places" onPress={() => navigation.navigate('MyPlaces')} />} />}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
         <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-          <View style={[styles.hero, styles.placeCreateHero, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
+          <View style={styles.placeCreateCompactHeader}>
             <SemanticBadge label="My Place" tone="place" />
-            <AppText style={styles.heroTitle}>{isEditing ? 'Edit Place' : 'Create Place'}</AppText>
-            <AppText style={[styles.heroBody, { color: theme.semantic.place.text }]}>{isEditing ? 'Update your reusable Place for future Plans.' : copyFromPlace ? 'Save a private copy, then return to your Plan.' : 'Save an offline or online Place for Plans.'}</AppText>
+            <AppText style={styles.placeCreateTitle}>{isEditing ? 'Edit Place' : 'Create Place'}</AppText>
+            <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? 'Update this reusable Place.' : copyFromPlace ? 'Save a private copy, then return to your Plan.' : 'Save an offline or online Place.'}</AppText>
           </View>
-          <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }]}>
-            <ModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
+          <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: 'transparent', borderColor: theme.semantic.place.border }]}>
+            <View style={styles.placeCreateSectionHeader}>
+              <View style={styles.feedTitleWrap}>
+                <AppText style={styles.sectionTitle}>Place details</AppText>
+                <AppText style={[styles.metaText, { color: theme.color.muted }]}>Private by default.</AppText>
+              </View>
+            </View>
+            <View style={styles.placeCreateDividerBlock}>
+              <ModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
+            </View>
             <TextField label="Place name" value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder="Quiet coffee near République" maxLength={120} />
             {state.mode === 'remote' ? (
               <>
@@ -1707,27 +1914,32 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                 <TextField label="Online URL" value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
               </>
             ) : (
-              <TextField label="Area / address" value={state.location} onChangeText={(location) => setState((current) => ({ ...current, location }))} placeholder="Paris 11 or a public meeting point" maxLength={240} />
+              <TextField label="Area / address" value={state.location} onChangeText={(location) => setState((current) => ({ ...current, location }))} placeholder="Paris 11 or a public spot" maxLength={240} />
             )}
-            <TextField label="Description" value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder="Describe this place for later Plans." multiline maxLength={2000} />
+            <TextField label="Description (optional)" value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder="Useful details for this Place." multiline maxLength={2000} />
             <View style={styles.placeTranslationBlock}>
-              <AppText style={styles.formLabel}>Original language</AppText>
-              <View style={styles.filterRow}>
-                {placeLanguageOptions.map((languageCode) => (
-                  <PillButton
-                    key={languageCode}
-                    label={placeLanguageLabel(languageCode)}
-                    active={state.defaultLanguage === languageCode}
-                    onPress={() => setState((current) => ({ ...current, defaultLanguage: languageCode, translations: current.translations.filter((translation) => translation.languageCode !== languageCode) }))}
-                  />
-                ))}
+              <View style={styles.placeTranslationSummaryRow}>
+                <View style={styles.feedTitleWrap}>
+                  <AppText style={styles.formLabel}>Translations</AppText>
+                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>Original content: {placeLanguageLabel(state.defaultLanguage)}</AppText>
+                </View>
+                <View style={styles.filterRow}>
+                  {placeLanguageOptions.map((languageCode) => (
+                    <PillButton
+                      key={languageCode}
+                      label={placeLanguageLabel(languageCode)}
+                      active={state.defaultLanguage === languageCode}
+                      onPress={() => setState((current) => ({ ...current, defaultLanguage: languageCode, translations: current.translations.filter((translation) => translation.languageCode !== languageCode) }))}
+                    />
+                  ))}
+                </View>
               </View>
               {state.translations.map((translation) => (
                 <View key={translation.languageCode} style={[styles.placeTranslationFields, { borderColor: theme.semantic.place.border, backgroundColor: theme.semantic.place.softBg }]}>
-                  <View style={styles.feedHeader}>
+                  <View style={styles.placeTranslationFieldsHeader}>
                     <View style={styles.feedTitleWrap}>
                       <AppText style={styles.formLabel}>{placeLanguageLabel(translation.languageCode)} translation</AppText>
-                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>Translate the Place name and description.</AppText>
+                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>Fill title and description for this language.</AppText>
                     </View>
                     <Pressable accessibilityRole="button" onPress={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))} style={({ pressed }) => [styles.pillButton, { borderColor: theme.semantic.danger.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
                       <AppText style={[styles.pillButtonText, { color: theme.semantic.danger.text }]}>Remove</AppText>
@@ -1738,14 +1950,23 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                 </View>
               ))}
               {nextPlaceTranslationLanguage(state) ? (
-                <SecondaryButton label={state.translations.length ? 'Add another language' : 'Add language'} onPress={() => setState(addPlaceTranslationDraft)} />
+                <Pressable accessibilityRole="button" onPress={() => setState(addPlaceTranslationDraft)} style={({ pressed }) => [styles.placeTranslationAddRow, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
+                  <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={17} /></View>
+                  <View style={styles.feedTitleWrap}>
+                    <AppText style={styles.placeTranslationAddTitle}>{state.translations.length ? 'Add another translation' : 'Add translation'}</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Translate Place name and description.</AppText>
+                  </View>
+                  <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+                </Pressable>
               ) : null}
             </View>
             {message ? <InfoNotice tone="success" title="Place saved" body={message} /> : null}
             {error ? <InfoNotice tone="warning" title="Could not save Place" body={error} /> : null}
-            <Pressable accessibilityRole="button" disabled={saving || state.title.trim().length < 3} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.place.bg }, pressed && styles.pressed, (saving || state.title.trim().length < 3) && styles.disabled]}>
-              <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? 'Saving...' : route.params?.returnToCreatePlan ? isEditing ? 'Update and return to Plan' : 'Save and return to Plan' : isEditing ? 'Update Place' : 'Save Place'}</AppText>
-            </Pressable>
+            <View style={[styles.placeCreateActionFooter, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
+              <Pressable accessibilityRole="button" disabled={saving || state.title.trim().length < 3} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.place.bg }, pressed && styles.pressed, (saving || state.title.trim().length < 3) && styles.disabled]}>
+                <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? 'Saving...' : route.params?.returnToCreatePlan ? isEditing ? 'Update and return to Plan' : 'Save and return to Plan' : isEditing ? 'Update Place' : 'Save Place'}</AppText>
+              </Pressable>
+            </View>
           </View>
         </ScrollView>
         <KeyboardDoneAccessory />
@@ -1776,23 +1997,40 @@ const styles = StyleSheet.create({
   menuCopy: { flex: 1, minWidth: 0, gap: 2 },
   menuTitle: { fontSize: 16, fontWeight: '900' },
   menuBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
-  listContent: { gap: 12, paddingBottom: 34 },
-  stageSwitchRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  listContent: { gap: 10, paddingBottom: 34 },
+  planCreateCompactHeader: { gap: 7, paddingTop: 0, paddingBottom: 0 },
+  placeCreateCompactHeader: { gap: 7, paddingTop: 2, paddingBottom: 4 },
+  placeCreateTitle: { fontSize: 30, lineHeight: 34, fontWeight: '900', letterSpacing: -0.85 },
+  placeCreateSubtitle: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  stageSwitchRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: -1 },
   timelineDividerBlock: { gap: 0, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth },
-  planTimelineLineItem: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 16, gap: 12 },
-  placeTimeLineItem: { paddingBottom: 12 },
+  planEmptyInline: { borderTopWidth: 0, paddingVertical: 12, gap: 3 },
+  planTimelineLineItem: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 13, gap: 10 },
+  placeTimeLineItem: { paddingBottom: 11 },
   planTimelinePlaceAction: { paddingVertical: 18 },
+  planAddPlaceRow: { minHeight: 54, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  planAddPlaceRowFirst: { borderTopWidth: 0 },
+  planTimelineOptionalEnd: { opacity: 0.9, paddingTop: 12 },
   placeTimelineRow: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
   placeDetailSheetContent: { gap: 10, paddingBottom: 12 },
   placePickerPanel: { gap: 10 },
   sourceSheetOverlay: { flex: 1, justifyContent: 'flex-end' },
   sourceSheetScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.38)' },
   sourceSheet: { maxHeight: '86%', borderTopLeftRadius: 26, borderTopRightRadius: 26, borderWidth: 1, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 24, gap: 10 },
+  sourceChoiceSheet: { maxHeight: '70%', borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 15, paddingTop: 8, paddingBottom: 14, gap: 6 },
+  sourceSheetHandle: { alignSelf: 'center', width: 42, height: 4, borderRadius: 999, marginBottom: 2, opacity: 0.9 },
+  sourceSheetTopbar: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sourceSheetTitleBlock: { flex: 1, minWidth: 0 },
+  sourceSheetTitle: { fontSize: 19, lineHeight: 24, fontWeight: '900', letterSpacing: -0.25 },
   sourceOptionList: { gap: 0 },
-  sourceOption: { minHeight: 62, borderRadius: 0, borderWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 0, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  sourceOptionIcon: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  sourceOptionTitle: { fontSize: 15, fontWeight: '900' },
-  sourceListScroll: { maxHeight: 340 },
+  sourceOption: { minHeight: 50, borderRadius: 0, borderWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 0, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  sourceOptionIcon: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  sourceOptionCopy: { flex: 1, minWidth: 0 },
+  sourceOptionTitle: { fontSize: 15, lineHeight: 20, fontWeight: '900' },
+  sourcePickerToolbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingTop: 2, paddingBottom: 2 },
+  sourcePickerTabs: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, flexWrap: 'wrap' },
+  sourcePickerFooter: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, alignItems: 'flex-start' },
+  sourceListScroll: { maxHeight: 270 },
   deckFeedContent: { gap: 20, paddingTop: 2, paddingBottom: 34 },
   deckSection: { gap: 10 },
   deckSectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 2 },
@@ -1801,6 +2039,50 @@ const styles = StyleSheet.create({
   deckSectionMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
   inlineLoading: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
   loadingText: { fontWeight: '800' },
+  planHeaderShareButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  planDetailContent: { gap: 18, paddingBottom: 44 },
+  planDetailHero: { gap: 10, paddingTop: 4 },
+  planDetailEyebrow: { fontSize: 13, lineHeight: 18, fontWeight: '900', letterSpacing: 0.65, textTransform: 'uppercase' },
+  planDetailTitle: { fontSize: 33, lineHeight: 38, fontWeight: '900', letterSpacing: -0.95 },
+  planDetailStart: { fontSize: 14, lineHeight: 20, fontWeight: '900' },
+  planDetailOwnerLine: { flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap' },
+  planDetailOwnerPrefix: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  planDetailOwnerName: { fontSize: 13, lineHeight: 18, fontWeight: '900' },
+  planDetailChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, paddingTop: 2 },
+  planDetailDescription: { fontSize: 15, lineHeight: 22, fontWeight: '700', paddingTop: 3 },
+  planSectionDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: -2 },
+  planDetailSectionFlat: { gap: 12 },
+  planRouteStop: { borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 14, gap: 10 },
+  planRouteStopTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  planRouteTimeline: { width: 34, alignItems: 'center' },
+  planRouteNumber: { width: 31, height: 31, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  planRouteNumberText: { fontSize: 13, fontWeight: '900' },
+  planRouteCopy: { flex: 1, minWidth: 0, gap: 8 },
+  planRouteTimeRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 },
+  planRouteTime: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 17, fontWeight: '900', letterSpacing: 0.3, textTransform: 'uppercase' },
+  planRouteSource: { flexShrink: 0, fontSize: 11, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase' },
+  planRouteContentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  planRouteTextBlock: { flex: 1, minWidth: 0, gap: 5 },
+  planRouteTitle: { fontSize: 19, lineHeight: 24, fontWeight: '900', letterSpacing: -0.25 },
+  planRouteMeta: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  planRouteDescription: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
+  planRouteImageWrap: { width: 64, height: 64, borderRadius: 19, overflow: 'hidden' },
+  planRouteImage: { width: '100%', height: '100%' },
+  planDetailInfoList: { gap: 0 },
+  planDetailInfoRow: { minHeight: 46, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
+  planDetailInfoLabel: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  planDetailInfoValue: { flex: 1, textAlign: 'right', fontSize: 14, lineHeight: 19, fontWeight: '900' },
+  planOwnerRow: { borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  planOwnerAvatar: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  planOwnerInitial: { fontSize: 15, fontWeight: '900' },
+  planOwnerCopy: { flex: 1, minWidth: 0, gap: 2 },
+  planOwnerLabel: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+  planOwnerName: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
+  planOwnerManageRow: { borderRadius: 18, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  planOwnerManageTitle: { fontSize: 14, lineHeight: 19, fontWeight: '900' },
+  planDiscussionRow: { minHeight: 64, borderRadius: 18, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  planDiscussionIcon: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  planDiscussionTitle: { fontSize: 14, lineHeight: 19, fontWeight: '900' },
   rowCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 9 },
   rowTop: { flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap' },
   rowTitle: { fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.3 },
@@ -1821,11 +2103,14 @@ const styles = StyleSheet.create({
   detailContent: { gap: 14, paddingBottom: 34 },
   detailMetaStack: { gap: 8 },
   detailActionStack: { gap: 10 },
+  planPrimaryActionBlock: { gap: 7 },
+  planActionFootnote: { textAlign: 'center' },
+  planStatusActionRow: { minHeight: 44, borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 9 },
   statGrid: { flexDirection: 'row', gap: 8 },
   statPill: { flex: 1, borderRadius: 18, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 11, gap: 2 },
   statValue: { fontSize: 18, fontWeight: '900', textAlign: 'center' },
   statLabel: { fontSize: 11, fontWeight: '900', textAlign: 'center', textTransform: 'uppercase', letterSpacing: 0.45 },
-  joinedState: { minHeight: 46, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 14 },
+  joinedState: { minHeight: 46, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 9, paddingHorizontal: 14, paddingVertical: 10 },
   joinedStateText: { fontWeight: '900' },
   secondaryButton: { minHeight: 48, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 13, alignSelf: 'stretch' },
   secondaryButtonText: { fontWeight: '900' },
@@ -1854,24 +2139,31 @@ const styles = StyleSheet.create({
   keyboardWrap: { flex: 1, minHeight: 0 },
   inlineSmallLoading: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 8 },
   formCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 13 },
-  placeCreateFormCard: { borderRadius: 0, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 0, paddingHorizontal: 0 },
+  placeCreateFormCard: { borderRadius: 0, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 0, paddingHorizontal: 0, paddingTop: 13, gap: 14 },
+  placeCreateSectionHeader: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 12 },
+  placeCreateDividerBlock: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 14 },
+  placeCreateActionFooter: { marginTop: 3, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 13, paddingBottom: Platform.OS === 'ios' ? 4 : 0 },
   placeTranslationBlock: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 13, gap: 10 },
-  placeTranslationFields: { borderRadius: 22, borderWidth: 1, padding: 12, gap: 10 },
+  placeTranslationSummaryRow: { gap: 8 },
+  placeTranslationFields: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 10 },
+  placeTranslationFieldsHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+  placeTranslationAddRow: { minHeight: 58, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  placeTranslationAddTitle: { fontSize: 14, fontWeight: '900' },
   formField: { gap: 7, flex: 1, minWidth: 0 },
   formLabel: { fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
   input: { minHeight: 48, borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 11, fontSize: 15, fontWeight: '700' },
-  textArea: { minHeight: 104, lineHeight: 20 },
+  textArea: { minHeight: 92, lineHeight: 20 },
   modeSegment: { borderRadius: 18, borderWidth: 1, padding: 4, flexDirection: 'row', gap: 4 },
-  modeSegmentButton: { flex: 1, minHeight: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+  modeSegmentButton: { flex: 1, minHeight: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   modeSegmentText: { fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
   pillButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
   pillButtonText: { fontSize: 12, fontWeight: '900' },
-  choiceCard: { borderRadius: 22, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 11 },
-  choiceIcon: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  choiceCopy: { flex: 1, minWidth: 0, gap: 5 },
-  choiceTitle: { fontSize: 17, lineHeight: 21, fontWeight: '900' },
-  choiceMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
-  addMini: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  choiceCard: { borderRadius: 0, borderWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 10, paddingHorizontal: 0, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  choiceIcon: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  choiceCopy: { flex: 1, minWidth: 0, gap: 3 },
+  choiceTitle: { fontSize: 16, lineHeight: 20, fontWeight: '900' },
+  choiceMeta: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
+  addMini: { width: 27, height: 27, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   actionGrid: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   placeEditorCard: { borderRadius: 0, borderWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 15, gap: 12 },
   placeEditorHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
@@ -1885,9 +2177,10 @@ const styles = StyleSheet.create({
   advancedToggle: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10 },
   advancedPanel: { gap: 12, paddingTop: 2 },
   previewCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 12 },
-  previewConfirmStage: { borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, gap: 16, paddingVertical: 14 },
+  previewConfirmStage: { borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, gap: 15, paddingVertical: 14 },
   previewConfirmHero: { gap: 12 },
-  previewConfirmTitle: { fontSize: 31, lineHeight: 34, fontWeight: '900', letterSpacing: -0.9 },
+  previewInlineMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  previewConfirmTitle: { fontSize: 28, lineHeight: 32, fontWeight: '900', letterSpacing: -0.75 },
   previewSummaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   previewSummaryCell: { width: '48%', minHeight: 74, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, justifyContent: 'center', gap: 4, paddingVertical: 9 },
   previewSummaryLabel: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },

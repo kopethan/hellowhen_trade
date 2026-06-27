@@ -37,6 +37,12 @@ export function buildPublicTradeUrl(tradeId: string) {
   return origin ? `${origin}${path}` : path;
 }
 
+export function buildPublicPlanUrl(planId: string) {
+  const origin = getPublicWebOrigin();
+  const path = `/plans/${encodeURIComponent(planId)}`;
+  return origin ? `${origin}${path}` : path;
+}
+
 export async function copyTextToClipboard(text: string) {
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
     try {

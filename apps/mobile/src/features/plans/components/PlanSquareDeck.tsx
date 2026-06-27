@@ -2,7 +2,6 @@ import React, { useMemo } from 'react';
 import { Image, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import type { MediaAssetDto, PlanDto, PlanPlaceDto } from '@hellowhen/contracts';
 import { AppText } from '../../../components/AppText';
-import { MobileIcon } from '../../../components/MobileIcon';
 import { SemanticBadge } from '../../../components/SemanticUI';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { ContinuousSquareStackDeck, type SquareStackDeckCard } from '../../trade/deck';
@@ -10,6 +9,7 @@ import { resolveMediaUrl } from '../../trade/mediaUrls';
 
 const MOBILE_PLAN_DECK_AVAILABLE_HEIGHT = 404;
 const MOBILE_PLAN_DECK_MAX_CARD_SIZE = 348;
+const FALLBACK_ACCENTS = ['#7C3AED', '#A855F7', '#C084FC', '#F97316'];
 
 type PlanPlaceDeckCard = SquareStackDeckCard & {
   kind: 'place' | 'emptyPlace';
@@ -45,6 +45,24 @@ function sortedPlanPlaces(plan: PlanDto) {
   return [...(plan.places ?? [])].sort((first, second) => first.order - second.order);
 }
 
+function hashString(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function fallbackModel(id: string) {
+  const hash = hashString(id);
+  const accent = FALLBACK_ACCENTS[hash % FALLBACK_ACCENTS.length] ?? '#7C3AED';
+  const lineOffset = hash % 37;
+  const dotOffsetX = ((hash % 29) - 14) * 0.5;
+  const dotOffsetY = (((hash >> 4) % 23) - 11) * 0.5;
+  return { accent, lineOffset, dotOffsetX, dotOffsetY };
+}
+
 function buildPlanPlaceDeckCards(plan: PlanDto): PlanPlaceDeckCard[] {
   const places = sortedPlanPlaces(plan);
   if (places.length === 0) {
@@ -70,13 +88,9 @@ function formatPlanPlaceDate(value?: string | null) {
 }
 
 function getPlaceLocationLabel(place: PlanPlaceDto | undefined) {
-  if (!place) return 'Add places to this Plan';
-  if (place.mode === 'remote') return place.onlineLabel || place.onlineUrl || 'Online place';
-  return place.addressPublicText || place.sourcePlace?.areaLabel || 'Offline place';
-}
-
-function getPlanOwnerName(plan: PlanDto) {
-  return plan.owner?.profile?.displayName || plan.owner?.profile?.handle || 'Hellowhen member';
+  if (!place) return '';
+  if (place.mode === 'remote') return place.onlineLabel || place.onlineUrl || '';
+  return place.addressPublicText || place.sourcePlace?.areaLabel || '';
 }
 
 function getPlanParticipantLabel(plan: PlanDto) {
@@ -84,56 +98,76 @@ function getPlanParticipantLabel(plan: PlanDto) {
   return `${count} joined`;
 }
 
+function getPlaceDateLabel(place: PlanPlaceDto | undefined, planStartsAt: string) {
+  return formatPlanPlaceDate(place?.startsAt ?? planStartsAt);
+}
+
 function PlanPlaceDeckCardView({ card, onOpen }: { card: PlanPlaceDeckCard; onOpen: () => void }) {
   const theme = useThemeTokens();
   const imageUrl = activeMediaUrl(card.media);
+  const fallback = useMemo(() => fallbackModel(card.id), [card.id]);
   const place = card.place;
   const isEmpty = card.kind === 'emptyPlace' || !place;
   const cardCounter = isEmpty ? '0 places' : `${String(card.placeIndex + 1).padStart(2, '0')}/${String(card.placeTotal).padStart(2, '0')}`;
-  const sourceLabel = place?.source === 'hellowhen_library' ? 'Library place' : place?.source === 'my_place' ? 'My place' : 'Custom place';
   const modeLabel = place?.mode === 'remote' ? 'Online' : 'Offline';
   const placeTitle = place?.title ?? 'No places yet';
-  const placeBody = place?.note || place?.sourcePlace?.description || getPlaceLocationLabel(place);
+  const locationLabel = isEmpty ? '' : getPlaceLocationLabel(place);
+  const timeLabel = isEmpty ? getPlanParticipantLabel(card.plan) : getPlaceDateLabel(place, card.plan.startsAt);
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${card.plan.title}. ${isEmpty ? 'No places yet' : `Place ${card.placeIndex + 1}: ${placeTitle}`}. View plan.`}
+      accessibilityLabel={`${card.plan.title}. ${isEmpty ? 'No places yet' : `Place ${card.placeIndex + 1}: ${placeTitle}`}. Open plan.`}
       onPress={onOpen}
       style={({ pressed }) => [
         styles.card,
-        { backgroundColor: imageUrl ? theme.color.surface : theme.semantic.instruction.softBg, borderColor: theme.color.border },
+        { backgroundColor: imageUrl ? theme.color.surface : theme.semantic.place.softBg, borderColor: imageUrl ? theme.color.border : theme.semantic.place.border },
         pressed && styles.pressed,
       ]}
     >
-      {imageUrl ? <Image source={{ uri: imageUrl }} resizeMode="cover" style={styles.cardImage} /> : null}
-      {imageUrl ? <View style={[styles.imageScrim, { backgroundColor: theme.color.background }]} /> : null}
+      {imageUrl ? (
+        <Image source={{ uri: imageUrl }} resizeMode="cover" style={styles.cardImage} />
+      ) : (
+        <View style={[styles.fallbackMedia, { backgroundColor: theme.semantic.place.softBg }]}>
+          {Array.from({ length: 7 }, (_, index) => (
+            <View
+              key={`${card.id}:fallback-line:${index}`}
+              style={[
+                styles.fallbackLine,
+                {
+                  top: 24 + index * 31,
+                  left: `${8 + ((fallback.lineOffset + index * 13) % 40)}%`,
+                  backgroundColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(92,33,182,0.08)',
+                },
+              ]}
+            />
+          ))}
+          <View style={[styles.fallbackRouteLine, { backgroundColor: theme.mode === 'dark' ? 'rgba(251,146,60,0.20)' : 'rgba(249,115,22,0.16)' }]} />
+          <View
+            style={[
+              styles.fallbackDot,
+              {
+                backgroundColor: fallback.accent,
+                borderColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.64)',
+                transform: [{ translateX: fallback.dotOffsetX }, { translateY: fallback.dotOffsetY }],
+              },
+            ]}
+          />
+        </View>
+      )}
+      {imageUrl ? <View style={[styles.imageScrim, { backgroundColor: theme.color.background }]} /> : <View style={[styles.fallbackScrim, { backgroundColor: theme.color.background }]} />}
 
       <View style={styles.cardTopRow}>
         <SemanticBadge label={`Place · ${cardCounter}`} tone="instruction" size="sm" />
         {!isEmpty ? <SemanticBadge label={modeLabel} tone="muted" size="sm" /> : null}
       </View>
 
-      <View style={styles.cardBody}>
+      <View style={styles.cardCopy}>
         <AppText style={[styles.planTitle, { color: theme.color.muted }]} numberOfLines={1}>{card.plan.title}</AppText>
-        <AppText style={[styles.placeTitle, { color: theme.color.text }]} numberOfLines={3}>{placeTitle}</AppText>
-        <AppText style={[styles.placeBody, { color: theme.color.muted }]} numberOfLines={3}>{isEmpty ? 'This Plan will appear as place cards once places are attached.' : placeBody}</AppText>
-      </View>
-
-      <View style={styles.cardFooter}>
-        <View style={styles.footerMetaStack}>
-          <View style={styles.footerMetaRow}>
-            <MobileIcon name={place?.mode === 'remote' ? 'send' : 'calendar'} size={15} color={theme.color.muted} />
-            <AppText style={[styles.footerMetaText, { color: theme.color.muted }]} numberOfLines={1}>{isEmpty ? getPlanOwnerName(card.plan) : getPlaceLocationLabel(place)}</AppText>
-          </View>
-          <View style={styles.footerMetaRow}>
-            <MobileIcon name="activity" size={15} color={theme.color.muted} />
-            <AppText style={[styles.footerMetaText, { color: theme.color.muted }]} numberOfLines={1}>{isEmpty ? getPlanParticipantLabel(card.plan) : `${sourceLabel} · ${formatPlanPlaceDate(place?.startsAt)}`}</AppText>
-          </View>
-        </View>
-        <View style={[styles.openPill, { backgroundColor: theme.color.text }]}>
-          <AppText style={[styles.openPillText, { color: theme.color.background }]}>View plan</AppText>
-        </View>
+        <AppText style={[styles.placeTitle, { color: theme.color.text }]} numberOfLines={2}>{placeTitle}</AppText>
+        {isEmpty ? <AppText style={[styles.emptyHint, { color: theme.color.muted }]} numberOfLines={2}>Add a first stop to turn this Plan into route cards.</AppText> : null}
+        {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: theme.color.muted }]} numberOfLines={1}>{locationLabel}</AppText> : null}
+        <AppText style={[styles.placeTimeText, { color: theme.color.muted }]} numberOfLines={1}>{timeLabel}</AppText>
       </View>
     </Pressable>
   );
@@ -175,9 +209,45 @@ const styles = StyleSheet.create({
   cardImage: {
     ...StyleSheet.absoluteFillObject,
   },
+  fallbackMedia: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
+  },
+  fallbackLine: {
+    position: 'absolute',
+    width: '66%',
+    height: 16,
+    borderRadius: 999,
+    transform: [{ rotate: '-16deg' }],
+  },
+  fallbackRouteLine: {
+    position: 'absolute',
+    left: '16%',
+    right: '16%',
+    bottom: '30%',
+    height: 7,
+    borderRadius: 999,
+    transform: [{ rotate: '-16deg' }],
+  },
+  fallbackDot: {
+    position: 'absolute',
+    left: '50%',
+    top: '38%',
+    width: 58,
+    height: 58,
+    marginLeft: -29,
+    marginTop: -29,
+    borderRadius: 999,
+    borderWidth: 3,
+    opacity: 0.9,
+  },
   imageScrim: {
     ...StyleSheet.absoluteFillObject,
-    opacity: 0.74,
+    opacity: 0.62,
+  },
+  fallbackScrim: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.04,
   },
   cardTopRow: {
     flexDirection: 'row',
@@ -186,52 +256,36 @@ const styles = StyleSheet.create({
     gap: 8,
     flexWrap: 'wrap',
   },
-  cardBody: {
-    gap: 8,
-    paddingVertical: 14,
+  cardCopy: {
+    gap: 6,
+    paddingTop: 128,
   },
   planTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '900',
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    letterSpacing: 0.9,
   },
   placeTitle: {
-    fontSize: 29,
-    lineHeight: 34,
+    fontSize: 31,
+    lineHeight: 35,
     fontWeight: '900',
-    letterSpacing: -0.9,
+    letterSpacing: -1,
   },
-  placeBody: {
-    fontSize: 15,
-    lineHeight: 21,
-    fontWeight: '700',
+  emptyHint: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '800',
   },
-  cardFooter: {
-    gap: 12,
-  },
-  footerMetaStack: {
-    gap: 7,
-  },
-  footerMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-  },
-  footerMetaText: {
-    flex: 1,
+  placeMetaText: {
+    marginTop: 6,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '800',
   },
-  openPill: {
-    minHeight: 43,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-  },
-  openPillText: {
+  placeTimeText: {
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '900',
   },
   pressed: {

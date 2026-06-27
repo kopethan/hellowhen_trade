@@ -17,6 +17,10 @@ function isOnboardingExcludedRoute(pathname: string) {
   return ONBOARDING_EXCLUDED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
+function isTradeFeedGuideTriggerRoute(pathname: string) {
+  return pathname === '/trades';
+}
+
 function buildCurrentPath(pathname: string, search: string) {
   const query = search ? `?${search}` : '';
   const hash = typeof window !== 'undefined' ? window.location.hash : '';
@@ -33,6 +37,7 @@ export function WebOnboardingGate() {
 
   useEffect(() => {
     if (!auth.hydrated) return;
+    if (!isTradeFeedGuideTriggerRoute(pathname)) return;
     if (isOnboardingExcludedRoute(pathname)) return;
     if (hasCompletedWebOnboardingGuideForVisitor(userId)) return;
 

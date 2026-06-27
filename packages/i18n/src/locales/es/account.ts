@@ -20,9 +20,17 @@ export const account = {
   },
   quickActions: {
     ...enAccount.quickActions,
+    title: 'Acciones rápidas',
+    body: 'Inicia las acciones más útiles de Hellowhen desde aquí.',
     editProfile: 'Editar',
     notifications: 'Bandeja',
     support: 'Soporte',
+    createTrade: 'Crear intercambio',
+    createTradeBody: 'Publica un intercambio de Necesidad + Oferta.',
+    createPlan: 'Crear plan',
+    createPlanBody: 'Construye una ruta sencilla con lugares y horarios.',
+    addPlace: 'Añadir lugar',
+    addPlaceBody: 'Guarda un lugar reutilizable offline u online.',
   },
   menu: {
     ...enAccount.menu,
