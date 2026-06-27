@@ -195,6 +195,11 @@ const ProtectedProposalDetailScreen = withAuth(ProposalDetailScreen);
 const ProtectedTradePublicDiscussionScreen = withAuth(TradePublicDiscussionScreen, 'Login to view public discussion', 'Public discussion is available to logged-in members so moderation stays accountable.');
 const ProtectedTradePrivateProposalsScreen = withAuth(TradePrivateProposalsScreen, 'Login to view private proposals', 'Private proposal conversations are visible only to the trade owner and each applicant.');
 
+function MeHomeScreen() {
+  const auth = useAuth();
+  return auth.isAuthenticated ? <AccountScreen /> : <LoginScreen />;
+}
+
 function getTabIconName(routeName: keyof MainTabParamList): MobileIconName {
   if (routeName === 'Trades' || routeName === 'TradeTab') return 'trade';
   if (routeName === 'Needs') return 'need';
@@ -226,6 +231,7 @@ function TradeTabs() {
 
   return (
     <Tabs.Navigator
+      initialRouteName={usePlansMeTradeNav ? 'MeTab' : 'Trades'}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: true,
@@ -243,7 +249,7 @@ function TradeTabs() {
       {usePlansMeTradeNav ? (
         <>
           <Tabs.Screen name="PlanTab" component={ProtectedPlansScreen} options={{ tabBarLabel: t('navigation.tabs.plans') }} />
-          <Tabs.Screen name="MeTab" component={ProtectedAccountScreen} options={{ tabBarLabel: t('navigation.tabs.me'), tabBarBadge: notificationUnreadCount > 0 ? Math.min(notificationUnreadCount, 99) : undefined }} />
+          <Tabs.Screen name="MeTab" component={MeHomeScreen} options={{ tabBarLabel: t('navigation.tabs.me'), tabBarBadge: notificationUnreadCount > 0 ? Math.min(notificationUnreadCount, 99) : undefined }} />
           <Tabs.Screen name="TradeTab" component={TradeDeckFeedScreen} options={{ tabBarLabel: t('navigation.tabs.trade') }} />
         </>
       ) : (

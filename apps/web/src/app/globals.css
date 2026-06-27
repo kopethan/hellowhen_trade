@@ -2673,6 +2673,8 @@ html[data-theme="dark"] .inventory-empty-state__plus {
 .plans-feed-icon-button--primary { background: var(--trade-bg); color: var(--trade-text); border-color: transparent; }
 .plans-feed-popover, .plans-feed-menu { display: grid; gap: 6px; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface); padding: 8px; box-shadow: var(--app-card-shadow); }
 .plans-feed-popover { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.plans-feed-filter-note { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; color: var(--app-text); }
+.plans-feed-filter-note span { color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.35; }
 .plans-feed-popover button, .plans-feed-menu button, .plans-feed-menu a { min-height: 38px; border: 0; border-radius: 16px; background: transparent; color: var(--app-text-muted); font: inherit; font-size: 13px; font-weight: 950; text-align: left; text-decoration: none; padding: 0 11px; cursor: pointer; }
 .plans-feed-popover button { text-align: center; }
 .plans-feed-popover button.is-active, .plans-feed-menu button:hover:not(:disabled), .plans-feed-menu a:hover { background: var(--app-surface-soft); color: var(--app-text); }

@@ -485,7 +485,7 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
   const fallbackNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const navigation = (props.navigation ?? fallbackNavigation) as NativeStackNavigationProp<RootStackParamList>;
   const theme = useThemeTokens();
-  const [scope, setScope] = useState<PlanListScope>('feed');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
@@ -505,8 +505,8 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
         <AppText style={styles.feedTitle}>Plans</AppText>
       </View>
       <View style={styles.headerActions}>
-        <HeaderAction icon="filter" label="Filter Plans" onPress={() => setScope((current) => current === 'feed' ? 'mine' : current === 'mine' ? 'joined' : 'feed')} />
-        <HeaderAction icon="more" label="Open Plan menu" onPress={() => setMenuOpen((value) => !value)} />
+        <HeaderAction icon="filter" label="Filter Plans" onPress={() => { setFiltersOpen((value) => !value); setMenuOpen(false); }} />
+        <HeaderAction icon="more" label="Open Plan menu" onPress={() => { setMenuOpen((value) => !value); setFiltersOpen(false); }} />
         <HeaderAction icon="add" label="Create Plan" onPress={() => navigation.navigate('CreatePlan')} />
       </View>
     </View>
@@ -515,19 +515,23 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
   return (
     <AppFixedHeaderScreen header={header}>
       <View style={styles.bodyWrap}>
-        <View style={styles.filterRow}>
-          {(['feed', 'mine', 'joined'] as PlanListScope[]).map((value) => (
-            <Pressable key={value} accessibilityRole="button" onPress={() => setScope(value)} style={({ pressed }) => [styles.filterChip, { borderColor: scope === value ? theme.color.text : theme.color.border, backgroundColor: scope === value ? theme.color.text : theme.color.surface }, pressed && styles.pressed]}>
-              <AppText style={[styles.filterChipText, { color: scope === value ? theme.color.background : theme.color.text }]}>{value === 'feed' ? 'Open' : value === 'mine' ? 'My plans' : 'Joined'}</AppText>
-            </Pressable>
-          ))}
-        </View>
+        {filtersOpen ? (
+          <View style={[styles.filterNotice, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+            <View style={[styles.menuIcon, { backgroundColor: theme.semantic.instruction.softBg, borderColor: theme.semantic.instruction.border }]}>
+              <MobileIcon name="filter" size={17} color={theme.semantic.instruction.text} />
+            </View>
+            <View style={styles.menuCopy}>
+              <AppText style={styles.menuTitle}>Open Plans feed</AppText>
+              <AppText style={[styles.menuBody, { color: theme.color.muted }]}>This feed shows public Plans. My plans, joined Plans, and Places live in the menu.</AppText>
+            </View>
+          </View>
+        ) : null}
         {menuOpen ? (
           <View style={[styles.menuPanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
             {menuItems.map((item) => <MenuItem key={item.title} item={item} />)}
           </View>
         ) : null}
-        <PlanList scope={scope} navigation={navigation} />
+        <PlanList scope="feed" navigation={navigation} />
       </View>
     </AppFixedHeaderScreen>
   );
@@ -1286,6 +1290,7 @@ const styles = StyleSheet.create({
   filterRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   filterChip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
   filterChipText: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
+  filterNotice: { borderRadius: 22, borderWidth: 1, padding: 12, flexDirection: 'row', gap: 11, alignItems: 'center' },
   menuPanel: { borderRadius: 22, borderWidth: 1, overflow: 'hidden' },
   menuItem: { minHeight: 70, borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', gap: 11 },
   menuIcon: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },

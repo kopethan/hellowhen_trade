@@ -11,12 +11,24 @@ export const account = {
     activity: 'Activité',
     plans: 'Plans',
     settings: 'Paramètres et sécurité',
+    tools: 'Outils',
     future: 'Outils futurs',
   },
   quickActions: {
     editProfile: 'Modifier',
     notifications: 'Boîte',
     support: 'Assistance',
+  },
+  menu: {
+    open: 'Ouvrir le menu Me',
+    close: 'Fermer le menu Me',
+    title: 'Menu Me',
+    body: 'Compte, paramètres, sécurité, assistance et outils futurs sont ici pour garder le hub Me plus clair.',
+    sections: {
+      settings: 'Réglages et sécurité',
+      help: 'Aide',
+      future: 'Outils futurs',
+    },
   },
   signedOut: {
     title: 'Connectez-vous pour ouvrir votre compte',

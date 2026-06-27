@@ -1,0 +1,47 @@
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index 13a465b..f388bf3 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -195,6 +195,11 @@ const ProtectedProposalDetailScreen = withAuth(ProposalDetailScreen);
+ const ProtectedTradePublicDiscussionScreen = withAuth(TradePublicDiscussionScreen, 'Login to view public discussion', 'Public discussion is available to logged-in members so moderation stays accountable.');
+ const ProtectedTradePrivateProposalsScreen = withAuth(TradePrivateProposalsScreen, 'Login to view private proposals', 'Private proposal conversations are visible only to the trade owner and each applicant.');
+ 
++function MeHomeScreen() {
++  const auth = useAuth();
++  return auth.isAuthenticated ? <AccountScreen /> : <LoginScreen />;
++}
++
+ function getTabIconName(routeName: keyof MainTabParamList): MobileIconName {
+   if (routeName === 'Trades' || routeName === 'TradeTab') return 'trade';
+   if (routeName === 'Needs') return 'need';
+@@ -226,6 +231,7 @@ function TradeTabs() {
+ 
+   return (
+     <Tabs.Navigator
++      initialRouteName={usePlansMeTradeNav ? 'MeTab' : 'Trades'}
+       screenOptions={({ route }) => ({
+         headerShown: false,
+         tabBarShowLabel: true,
+@@ -243,7 +249,7 @@ function TradeTabs() {
+       {usePlansMeTradeNav ? (
+         <>
+           <Tabs.Screen name="PlanTab" component={ProtectedPlansScreen} options={{ tabBarLabel: t('navigation.tabs.plans') }} />
+-          <Tabs.Screen name="MeTab" component={ProtectedAccountScreen} options={{ tabBarLabel: t('navigation.tabs.me'), tabBarBadge: notificationUnreadCount > 0 ? Math.min(notificationUnreadCount, 99) : undefined }} />
++          <Tabs.Screen name="MeTab" component={MeHomeScreen} options={{ tabBarLabel: t('navigation.tabs.me'), tabBarBadge: notificationUnreadCount > 0 ? Math.min(notificationUnreadCount, 99) : undefined }} />
+           <Tabs.Screen name="TradeTab" component={TradeDeckFeedScreen} options={{ tabBarLabel: t('navigation.tabs.trade') }} />
+         </>
+       ) : (
+diff --git a/docs/product/hidden-plans-foundation.md b/docs/product/hidden-plans-foundation.md
+index 1a19cc3..3a1e95a 100644
+--- a/docs/product/hidden-plans-foundation.md
++++ b/docs/product/hidden-plans-foundation.md
+@@ -394,3 +394,9 @@ Native mobile Plans no longer shows the inline `Open / My plans / Joined` scope
+ The filter icon is kept for future Plan discovery filters, but it no longer cycles between personal scopes. It now opens a small feed note so the header shape remains stable.
+ 
+ Web Plans mirrors the same direction: the header keeps filter, menu, and create actions, while My plans and Joined plans remain accessible from the menu/query-backed view without showing scope tabs in the feed shell.
++
++## ME-HUB1 auth/home behavior
++
++When the optional `Plans / Me / Trade` mobile navigation experiment is enabled, the tab navigator now opens on the center `Me` tab first while keeping the visual tab order as `Plans / Me / Trade`.
++
++Logged-out users see the existing Hellowhen login/register/reset auth content directly inside `Me` instead of a separate "login required" blocker. Logged-in users continue to see the normal Account/Me hub. This keeps the first app visit focused on identity and onboarding while leaving `Plans` and `Trade` available from the bottom tabs.

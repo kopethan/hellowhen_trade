@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { AuthUser, LedgerEntryDto, WalletDto } from '@hellowhen/contracts';
@@ -20,8 +20,10 @@ import { DetailInfoList, DetailSection } from '../../components/detail';
 import { resolveMediaUrl } from '../trade/mediaUrls';
 
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
-type AccountRoute = 'AccountProfile' | 'Notifications' | 'SavedLibrary' | 'Agenda' | 'Plans' | 'MyPlans' | 'JoinedPlans' | 'MyPlaces' | 'PlaceLibrary' | 'CreatePlan' | 'CreatePlace' | 'OnboardingGuide' | 'Membership' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
+type AccountRoute = 'TradeTabs' | 'CreateTrade' | 'MyNeeds' | 'MyOffers' | 'CreateNeed' | 'CreateOffer' | 'AccountProfile' | 'Notifications' | 'SavedLibrary' | 'Agenda' | 'Plans' | 'MyPlans' | 'JoinedPlans' | 'MyPlaces' | 'PlaceLibrary' | 'CreatePlan' | 'CreatePlace' | 'OnboardingGuide' | 'Membership' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
 type AccountGroupKey = 'activity' | 'plans' | 'settings' | 'future';
+type HubWidgetSize = 'half' | 'full';
+type MeHubSectionKey = 'activity' | 'plans' | 'tools';
 
 type AccountAction = {
   titleKey: string;
@@ -31,6 +33,16 @@ type AccountAction = {
   route: AccountRoute;
   icon: MobileIconName;
   group: AccountGroupKey;
+};
+
+type MeHubWidget = {
+  title: string;
+  body: string;
+  route: AccountRoute;
+  icon: MobileIconName;
+  tone: SemanticColorName;
+  count?: number;
+  size?: HubWidgetSize;
 };
 
 const accountActions: AccountAction[] = [
@@ -107,6 +119,8 @@ export function AccountScreen() {
   const [walletError, setWalletError] = useState<string | null>(null);
   const [loadingWallet, setLoadingWallet] = useState(false);
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState<Record<MeHubSectionKey, boolean>>({ activity: false, plans: false, tools: false });
 
   const loadWallet = useCallback(async () => {
     if (!(betaFeatures.walletVisible || betaFeatures.payoutsVisible)) { setWallet(null); setWalletError(null); return; }
@@ -145,8 +159,19 @@ export function AccountScreen() {
   const recentEntries = wallet?.entries?.filter((entry) => entry.amountCents !== 0 && entry.type !== 'starting_demo_credits').slice(0, 3) ?? [];
   const groupedActions = useMemo(() => groupActions(accountActions), []);
 
+  function toggleMeSection(section: MeHubSectionKey) {
+    setCollapsedSections((current) => ({ ...current, [section]: !current[section] }));
+  }
+
   function navigate(route: AccountRoute) {
-    if (route === 'AccountProfile') navigation.navigate('AccountProfile');
+    setMenuOpen(false);
+    if (route === 'TradeTabs') navigation.navigate('TradeTabs');
+    else if (route === 'CreateTrade') navigation.navigate('CreateTrade');
+    else if (route === 'MyNeeds') navigation.navigate('MyNeeds');
+    else if (route === 'MyOffers') navigation.navigate('MyOffers');
+    else if (route === 'CreateNeed') navigation.navigate('CreateNeed');
+    else if (route === 'CreateOffer') navigation.navigate('CreateOffer');
+    else if (route === 'AccountProfile') navigation.navigate('AccountProfile');
     else if (route === 'Notifications') navigation.navigate('Notifications');
     else if (route === 'SavedLibrary') navigation.navigate('SavedLibrary');
     else if (route === 'Agenda') navigation.navigate('Agenda');
@@ -170,11 +195,41 @@ export function AccountScreen() {
     else navigation.navigate('BuyCredits');
   }
 
+  const activityWidgets = useMemo<MeHubWidget[]>(() => [
+    { title: t('trade.wizard.actions.myTrades.title'), body: t('trade.wizard.actions.myTrades.body'), route: 'TradeTabs', icon: 'activity', tone: 'trade' },
+    { title: t('trade.wizard.actions.proposals.title'), body: t('trade.wizard.actions.proposals.body'), route: 'TradeTabs', icon: 'proposal-accepted', tone: 'proposal' },
+    { title: t('trade.wizard.actions.myNeeds.title'), body: t('trade.wizard.actions.myNeeds.body'), route: 'MyNeeds', icon: 'need', tone: 'need' },
+    { title: t('trade.wizard.actions.myOffers.title'), body: t('trade.wizard.actions.myOffers.body'), route: 'MyOffers', icon: 'offer', tone: 'offer' },
+  ], [t]);
+
+  const planWidgets = useMemo<MeHubWidget[]>(() => betaFeatures.plansVisible ? [
+    { title: t('account.items.plansFeature.title'), body: t('account.items.plansFeature.bodyNative'), route: 'Plans', icon: 'calendar', tone: 'instruction', size: 'full' },
+    { title: t('account.items.myPlansFeature.title'), body: t('account.items.myPlansFeature.bodyNative'), route: 'MyPlans', icon: 'activity', tone: 'info' },
+    { title: t('account.items.joinedPlansFeature.title'), body: t('account.items.joinedPlansFeature.bodyNative'), route: 'JoinedPlans', icon: 'proposal-accepted', tone: 'success' },
+    { title: t('account.items.myPlacesFeature.title'), body: t('account.items.myPlacesFeature.bodyNative'), route: 'MyPlaces', icon: 'save', tone: 'proposal' },
+    { title: t('account.items.placeLibraryFeature.title'), body: t('account.items.placeLibraryFeature.bodyNative'), route: 'PlaceLibrary', icon: 'search', tone: 'instruction' },
+  ] : [], [t]);
+
+  const toolWidgets = useMemo<MeHubWidget[]>(() => [
+    ...(betaFeatures.savedLibraryEnabled ? [{ title: t('account.items.saved.title'), body: t('account.items.saved.bodyNative'), route: 'SavedLibrary' as AccountRoute, icon: 'save' as MobileIconName, tone: 'proposal' as SemanticColorName }] : []),
+    ...(betaFeatures.agendaEnabled ? [{ title: t('account.items.agenda.title'), body: t('account.items.agenda.bodyNative'), route: 'Agenda' as AccountRoute, icon: 'calendar' as MobileIconName, tone: 'instruction' as SemanticColorName }] : []),
+    { title: t('account.items.notifications.title'), body: t('account.items.notifications.bodyNative'), route: 'Notifications', icon: 'bell', tone: 'proposal', count: notificationUnreadCount },
+    { title: t('account.items.support.title'), body: t('account.items.support.bodyNative'), route: 'SupportCenter', icon: 'help', tone: 'success' },
+  ], [notificationUnreadCount, t]);
+
+  const futureActions = groupedActions.future;
+  const menuActions = [...groupedActions.settings, ...futureActions, groupedActions.activity.find((action) => action.route === 'OnboardingGuide'), groupedActions.activity.find((action) => action.route === 'SupportCenter')].filter(Boolean) as AccountAction[];
+
   const header = (
-    <View style={styles.header}>
-      <View style={styles.headerBadgeRow}><SemanticBadge label={t('common.states.beta')} tone="instruction" /></View>
-      <AppText style={styles.title}>{t(betaFeatures.mainNavPlansMeTrade ? 'navigation.tabs.me' : 'account.title')}</AppText>
-      <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.headerBody')}</AppText>
+    <View style={styles.headerRowTop}>
+      <View style={styles.headerCopy}>
+        <View style={styles.headerBadgeRow}><SemanticBadge label={t('common.states.beta')} tone="instruction" /></View>
+        <AppText style={styles.title}>{t(betaFeatures.mainNavPlansMeTrade ? 'navigation.tabs.me' : 'account.title')}</AppText>
+        <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.headerBody')}</AppText>
+      </View>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('account.menu.open')} onPress={() => setMenuOpen(true)} style={({ pressed }) => [styles.headerMenuButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+        <MobileIcon name="more" size={21} color={theme.color.text} />
+      </Pressable>
     </View>
   );
 
@@ -206,6 +261,10 @@ export function AccountScreen() {
             <AccountQuickAction icon="help" label={t('account.quickActions.support')} onPress={() => navigate('SupportCenter')} tone="success" />
           </View>
         </View>
+
+        <MeWidgetSection sectionKey="activity" title={t('account.sections.activity')} widgets={activityWidgets} collapsed={collapsedSections.activity} onToggle={toggleMeSection} onNavigate={navigate} />
+        {planWidgets.length > 0 ? <MeWidgetSection sectionKey="plans" title={t('account.sections.plans')} widgets={planWidgets} collapsed={collapsedSections.plans} onToggle={toggleMeSection} onNavigate={navigate} /> : null}
+        <MeWidgetSection sectionKey="tools" title={t('account.sections.tools')} widgets={toolWidgets} collapsed={collapsedSections.tools} onToggle={toggleMeSection} onNavigate={navigate} />
 
         {(betaFeatures.walletVisible || betaFeatures.payoutsVisible) ? (
           <DetailSection title={t('account.wallet.title')} description={t('account.wallet.body')} compact={false}>
@@ -241,14 +300,7 @@ export function AccountScreen() {
           </DetailSection>
         ) : null}
 
-        <AccountActionGroup title={t('account.sections.activity')} actions={groupedActions.activity} unreadCount={notificationUnreadCount} onNavigate={navigate} />
-        {groupedActions.plans.length > 0 ? <AccountActionGroup title={t('account.sections.plans')} actions={groupedActions.plans} unreadCount={notificationUnreadCount} onNavigate={navigate} /> : null}
-        <AccountActionGroup title={t('account.sections.settings')} actions={groupedActions.settings} unreadCount={notificationUnreadCount} onNavigate={navigate} />
-        {groupedActions.future.length > 0 ? <AccountActionGroup title={t('account.sections.future')} actions={groupedActions.future} unreadCount={notificationUnreadCount} onNavigate={navigate} /> : null}
-
-        <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.logout')} onPress={() => { void auth.logout(); }} style={({ pressed }) => [styles.logoutButton, { borderColor: theme.semantic.danger.border, backgroundColor: theme.semantic.danger.softBg }, pressed && styles.pressed]}>
-          <AppText style={[styles.logoutButtonText, { color: theme.semantic.danger.text }]}>{t('common.actions.logout')}</AppText>
-        </Pressable>
+        <AccountMenuModal visible={menuOpen} actions={menuActions} unreadCount={notificationUnreadCount} onClose={() => setMenuOpen(false)} onLogout={() => { setMenuOpen(false); void auth.logout(); }} onNavigate={navigate} />
       </ScrollView>
     </AppFixedHeaderScreen>
   );
@@ -265,6 +317,95 @@ function AccountQuickAction({ icon, label, count, onPress, tone }: { icon: Mobil
       </View>
       <AppText style={styles.quickLabel} numberOfLines={1}>{label}</AppText>
     </Pressable>
+  );
+}
+
+function MeWidgetSection({ sectionKey, title, widgets, collapsed, onToggle, onNavigate }: { sectionKey: MeHubSectionKey; title: string; widgets: MeHubWidget[]; collapsed: boolean; onToggle: (section: MeHubSectionKey) => void; onNavigate: (route: AccountRoute) => void }) {
+  const theme = useThemeTokens();
+  if (widgets.length === 0) return null;
+  return (
+    <View style={styles.widgetSection}>
+      <Pressable accessibilityRole="button" accessibilityLabel={title} onPress={() => onToggle(sectionKey)} style={({ pressed }) => [styles.widgetSectionHeader, pressed && styles.pressed]}>
+        <View style={styles.widgetSectionTitleRow}>
+          <AppText style={[styles.widgetSectionTitle, { color: theme.color.muted }]}>{title}</AppText>
+          <SemanticBadge label={String(widgets.length)} tone="info" size="sm" />
+        </View>
+        <MobileIcon name={collapsed ? 'chevron-down' : 'chevron-up'} size={18} color={theme.color.muted} />
+      </Pressable>
+      {!collapsed ? (
+        <View style={styles.widgetGrid}>
+          {widgets.map((widget) => <MeHubWidgetCard key={`${widget.route}-${widget.title}`} widget={widget} onPress={() => onNavigate(widget.route)} />)}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function MeHubWidgetCard({ widget, onPress }: { widget: MeHubWidget; onPress: () => void }) {
+  const theme = useThemeTokens();
+  const tone = theme.semantic[widget.tone];
+  const full = widget.size === 'full';
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={widget.count && widget.count > 0 ? `${widget.title} · ${widget.count}` : widget.title} onPress={onPress} style={({ pressed }) => [styles.widgetCard, full && styles.widgetCardFull, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+      <View style={styles.widgetTopRow}>
+        <View style={[styles.widgetIcon, { backgroundColor: tone.softBg, borderColor: tone.border }]}>
+          <MobileIcon name={widget.icon} size={18} color={tone.text} />
+        </View>
+        {widget.count && widget.count > 0 ? <SemanticBadge label={String(Math.min(widget.count, 99))} tone={widget.tone} size="sm" /> : null}
+      </View>
+      <View style={styles.widgetCopy}>
+        <AppText style={styles.widgetTitle} numberOfLines={2}>{widget.title}</AppText>
+        <AppText style={[styles.widgetBody, { color: theme.color.muted }]} numberOfLines={full ? 3 : 2}>{widget.body}</AppText>
+      </View>
+      <View style={styles.widgetChevronRow}><MobileIcon name="chevron-right" size={20} color={theme.color.muted} /></View>
+    </Pressable>
+  );
+}
+
+function AccountMenuModal({ actions, unreadCount, visible, onClose, onLogout, onNavigate }: { actions: AccountAction[]; unreadCount: number; visible: boolean; onClose: () => void; onLogout: () => void; onNavigate: (route: AccountRoute) => void }) {
+  const theme = useThemeTokens();
+  const { t } = useTranslation();
+  const settingsActions = actions.filter((action) => action.group === 'settings');
+  const futureActions = actions.filter((action) => action.group === 'future');
+  const helpActions = actions.filter((action) => action.route === 'OnboardingGuide' || action.route === 'SupportCenter');
+
+  return (
+    <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('account.menu.close')} onPress={onClose} style={styles.menuBackdrop}>
+        <Pressable accessibilityRole="menu" onPress={(event) => event.stopPropagation()} style={[styles.menuSheet, { backgroundColor: theme.color.elevated, borderColor: theme.color.border }]}>
+          <View style={styles.menuHeader}>
+            <View style={styles.menuHeaderCopy}>
+              <AppText style={styles.menuTitle}>{t('account.menu.title')}</AppText>
+              <AppText style={[styles.menuBody, { color: theme.color.muted }]}>{t('account.menu.body')}</AppText>
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('account.menu.close')} onPress={onClose} style={({ pressed }) => [styles.menuCloseButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+              <MobileIcon name="close" size={19} color={theme.color.text} />
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={styles.menuScrollContent} showsVerticalScrollIndicator={false}>
+            <AccountMenuSection title={t('account.menu.sections.settings')} actions={settingsActions} unreadCount={unreadCount} onNavigate={onNavigate} />
+            <AccountMenuSection title={t('account.menu.sections.help')} actions={helpActions} unreadCount={unreadCount} onNavigate={onNavigate} />
+            <AccountMenuSection title={t('account.menu.sections.future')} actions={futureActions} unreadCount={unreadCount} onNavigate={onNavigate} />
+            <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.logout')} onPress={onLogout} style={({ pressed }) => [styles.logoutButton, { borderColor: theme.semantic.danger.border, backgroundColor: theme.semantic.danger.softBg }, pressed && styles.pressed]}>
+              <AppText style={[styles.logoutButtonText, { color: theme.semantic.danger.text }]}>{t('common.actions.logout')}</AppText>
+            </Pressable>
+          </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function AccountMenuSection({ title, actions, unreadCount, onNavigate }: { title: string; actions: AccountAction[]; unreadCount: number; onNavigate: (route: AccountRoute) => void }) {
+  const theme = useThemeTokens();
+  if (actions.length === 0) return null;
+  return (
+    <View style={styles.menuSection}>
+      <AppText style={[styles.menuSectionTitle, { color: theme.color.muted }]}>{title}</AppText>
+      <View style={[styles.menuList, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+        {actions.map((action, index) => <AccountActionRow key={`${action.route}-${index}`} action={action} unreadCount={action.route === 'Notifications' ? unreadCount : 0} last={index === actions.length - 1} onPress={() => onNavigate(action.route)} />)}
+      </View>
+    </View>
   );
 }
 
@@ -317,6 +458,29 @@ function LedgerRow({ entry }: { entry: LedgerEntryDto }) {
 
 const styles = StyleSheet.create({
   content: { paddingBottom: 34, gap: 12 },
+  headerRowTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  headerCopy: { flex: 1, minWidth: 0, gap: 8 },
+  headerMenuButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 14 },
+  widgetSection: { gap: 9 },
+  widgetSectionHeader: { minHeight: 34, paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  widgetSectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  widgetSectionTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9, textTransform: 'uppercase' },
+  widgetGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  widgetCard: { width: '48.5%', minHeight: 148, borderRadius: 24, borderWidth: 1, padding: 13, gap: 11 },
+  widgetCardFull: { width: '100%', minHeight: 132 },
+  widgetTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  widgetIcon: { width: 40, height: 40, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  widgetCopy: { flex: 1, minHeight: 0, gap: 5 },
+  widgetTitle: { fontSize: 16, lineHeight: 20, fontWeight: '900', letterSpacing: -0.15 },
+  widgetBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
+  widgetChevronRow: { alignItems: 'flex-end' },
+  menuBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(2, 10, 24, 0.42)', paddingHorizontal: 14, paddingBottom: 14 },
+  menuSheet: { width: '100%', maxHeight: '86%', borderRadius: 28, borderWidth: 1, padding: 16, gap: 14 },
+  menuHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  menuHeaderCopy: { flex: 1, minWidth: 0, gap: 5 },
+  menuTitle: { fontSize: 25, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 },
+  menuBody: { lineHeight: 19, fontWeight: '700' },
+  menuCloseButton: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   header: { gap: 8 },
   headerBadgeRow: { flexDirection: 'row', alignItems: 'center' },
   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
@@ -342,8 +506,11 @@ const styles = StyleSheet.create({
   inlinePrimaryText: { fontWeight: '900' },
   inlineSecondary: { flex: 1, minWidth: 96, borderRadius: 16, borderWidth: 1, paddingVertical: 13, alignItems: 'center' },
   inlineSecondaryText: { fontWeight: '900' },
-  menuList: { borderRadius: 20, overflow: 'hidden' },
-  actionRow: { minHeight: 72, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  menuScrollContent: { gap: 12, paddingBottom: 2 },
+  menuSection: { gap: 8 },
+  menuSectionTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9, textTransform: 'uppercase', paddingHorizontal: 4 },
+  menuList: { borderRadius: 20, borderWidth: 1, overflow: 'hidden' },
+  actionRow: { minHeight: 72, paddingVertical: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   actionContent: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
   actionIcon: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   actionTextWrap: { flex: 1, gap: 3 },

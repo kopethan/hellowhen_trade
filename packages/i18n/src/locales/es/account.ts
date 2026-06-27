@@ -15,6 +15,7 @@ export const account = {
     activity: 'Actividad',
     plans: 'Planes',
     settings: 'Ajustes y seguridad',
+    tools: 'Herramientas',
     future: 'Herramientas futuras',
   },
   quickActions: {
@@ -22,6 +23,18 @@ export const account = {
     editProfile: 'Editar',
     notifications: 'Bandeja',
     support: 'Soporte',
+  },
+  menu: {
+    ...enAccount.menu,
+    open: 'Abrir menú Me',
+    close: 'Cerrar menú Me',
+    title: 'Menú Me',
+    body: 'Cuenta, ajustes, seguridad, soporte y herramientas futuras viven aquí para mantener limpio el hub Me.',
+    sections: {
+      settings: 'Ajustes y seguridad',
+      help: 'Ayuda',
+      future: 'Herramientas futuras',
+    },
   },
   signedOut: {
     ...enAccount.signedOut,

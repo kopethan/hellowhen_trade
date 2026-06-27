@@ -377,3 +377,46 @@ Safety rules:
 - The experiment can be disabled by turning the new nav flag back to `false`.
 
 On native mobile, the tab route names are internal (`PlanTab`, `MeTab`, `TradeTab`) so they do not collide with existing stack routes like `Plans`. On web, the header and bottom tabs switch to a three-tab set while the old web tabs remain the default fallback.
+
+## PLAN-POLISH1 Plan feed scope tab cleanup
+
+The Plans discovery feed is now cleaner and matches the Trade feed direction more closely.
+
+Native mobile Plans no longer shows the inline `Open / My plans / Joined` scope pills on the main feed. The main Plans tab is dedicated to public/open Plan discovery. Personal Plan areas stay available from the Plan menu:
+
+- My plans
+- Joined plans
+- My places
+- Hellowhen Place Library
+- Create place
+- Create plan
+
+The filter icon is kept for future Plan discovery filters, but it no longer cycles between personal scopes. It now opens a small feed note so the header shape remains stable.
+
+Web Plans mirrors the same direction: the header keeps filter, menu, and create actions, while My plans and Joined plans remain accessible from the menu/query-backed view without showing scope tabs in the feed shell.
+
+## ME-HUB1 auth/home behavior
+
+When the optional `Plans / Me / Trade` mobile navigation experiment is enabled, the tab navigator now opens on the center `Me` tab first while keeping the visual tab order as `Plans / Me / Trade`.
+
+Logged-out users see the existing Hellowhen login/register/reset auth content directly inside `Me` instead of a separate "login required" blocker. Logged-in users continue to see the normal Account/Me hub. This keeps the first app visit focused on identity and onboarding while leaving `Plans` and `Trade` available from the bottom tabs.
+
+## ME-HUB2 widget-based Me hub
+
+When the optional `Plans / Me / Trade` navigation experiment is enabled and the user is logged in, the native `Me` tab now behaves like a personal command center instead of a long account/settings list.
+
+The visible page prioritizes a profile widget and compact widget sections for activity, Plans, and tools. Trade activity, My needs, My offers, Plans, My plans, Joined plans, My places, Saved Library, Agenda, Notifications, and Support can be opened from widget cards.
+
+Heavier account actions are moved into the top-right `Me menu` sheet: settings, legal/safety, account deletion, future tools, onboarding guide, support, and logout. This keeps account/settings controls available while avoiding a settings-dump feeling on the main Me screen.
+
+## ME-HUB3 Me menu polish
+
+The native `Me` hub now keeps its main widget areas collapsible so the page can stay calm as more tools are added. Activity, Plans, and Tools remain expanded by default, but each section can be collapsed from its header.
+
+The top-right `Me menu` sheet is grouped instead of flat:
+
+- Settings & safety
+- Help
+- Future tools
+
+Logout remains separated at the bottom of the sheet. This keeps the Me hub focused on useful widgets while still making account, safety, support, and future feature entry points reachable from the menu.

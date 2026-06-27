@@ -138,18 +138,9 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
           </header>
 
           {filtersOpen ? (
-            <section className="plans-feed-popover" aria-label="Plan filters">
-              {(Object.keys(viewLabels) as PlansView[]).map((nextView) => (
-                <button
-                  key={nextView}
-                  type="button"
-                  className={activeView === nextView ? 'is-active' : ''}
-                  disabled={nextView !== 'feed' && !canLoadPrivateViews}
-                  onClick={() => selectView(nextView)}
-                >
-                  {viewLabels[nextView]}
-                </button>
-              ))}
+            <section className="plans-feed-popover plans-feed-filter-note" aria-label="Plan filters">
+              <strong>Open Plans feed</strong>
+              <span>Browse public Plans here. My plans, joined Plans, and Places live in the menu.</span>
             </section>
           ) : null}
 
@@ -164,9 +155,6 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
             </section>
           ) : null}
 
-          <div className="plans-feed-view-label" aria-live="polite">
-            <span>{viewLabels[activeView]}</span>
-          </div>
         </section>
 
         {error ? <section className="mobile-card mobile-card--soft"><p>{error}</p></section> : null}
