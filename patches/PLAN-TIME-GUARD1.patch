@@ -1,0 +1,147 @@
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+index 2a0fd03..6649f04 100644
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -281,6 +281,46 @@ function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequ
+   };
+ }
+ 
++
++const activeOwnedPlanTimeStatuses = ['draft', 'open', 'full', 'started'] as const;
++
++function effectivePlanRange(input: { startsAt: string; endsAt?: string | null }) {
++  const startsAt = new Date(input.startsAt);
++  const endsAt = input.endsAt ? new Date(input.endsAt) : startsAt;
++  return { startsAt, endsAt };
++}
++
++async function findOwnedPlanTimeOverlap(ownerId: string, input: { startsAt: string; endsAt?: string | null }, excludePlanId?: string) {
++  const { startsAt, endsAt } = effectivePlanRange(input);
++  return prisma.plan.findFirst({
++    where: {
++      ownerId,
++      ...(excludePlanId ? { id: { not: excludePlanId } } : {}),
++      status: { in: [...activeOwnedPlanTimeStatuses] as any },
++      startsAt: { lte: endsAt },
++      OR: [
++        { endsAt: { gte: startsAt } },
++        { endsAt: null, startsAt: { gte: startsAt } },
++      ],
++    },
++    select: { id: true, title: true, startsAt: true, endsAt: true },
++    orderBy: [{ startsAt: 'asc' }, { createdAt: 'desc' }],
++  });
++}
++
++function planTimeOverlapResponse(conflict: { id: string; title: string; startsAt: Date; endsAt: Date | null }) {
++  return {
++    error: 'plan_time_overlap',
++    message: `This overlaps with your existing Plan “${conflict.title}”. Choose a different time or cancel the existing Plan first.`,
++    plan: {
++      id: conflict.id,
++      title: conflict.title,
++      startsAt: conflict.startsAt.toISOString(),
++      endsAt: conflict.endsAt ? conflict.endsAt.toISOString() : null,
++    },
++  };
++}
++
+ function planUpdateData(input: ReturnType<typeof updatePlanRequestSchema.parse>) {
+   return {
+     ...(input.title !== undefined ? { title: input.title } : {}),
+@@ -494,6 +534,8 @@ plansRoutes.get('/joined', requireAuth, asyncRoute(async (req, res) => {
+ 
+ plansRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = createPlanRequestSchema.parse(req.body ?? {});
++  const overlappingPlan = await findOwnedPlanTimeOverlap(req.user!.id, input);
++  if (overlappingPlan) return res.status(409).json(planTimeOverlapResponse(overlappingPlan));
+   const plan = await prisma.plan.create({ data: planCreateData(req.user!.id, input) as any });
+   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan' as any, plan.id);
+ 
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index 1d75147..b11a6a3 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -231,6 +231,13 @@ function parseOptionalPlanEnd(end: PlanEndState, fallbackStartAt: string) {
+   return { endsAt: parsed.toISOString(), error: '' };
+ }
+ 
++function parseRequiredPlanEnd(end: PlanEndState, fallbackStartAt: string) {
++  if (!end.date.trim() && !end.time.trim()) return { endsAt: '', error: 'Add an estimated end date and time so your Plans do not overlap.' };
++  const parsed = parseOptionalPlanEnd(end, fallbackStartAt);
++  if (parsed.error) return { endsAt: '', error: parsed.error.replace('or leave the end empty.', 'even if it is estimated.') };
++  return parsed;
++}
++
+ function rangeLabelWithEnd(schedule: ReturnType<typeof buildPlanSchedule>, end: PlanEndState) {
+   if (!schedule.startsAt) return '';
+   const parsedEnd = parseOptionalPlanEnd(end, schedule.startsAt);
+@@ -470,7 +477,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   const placesForGeneratedDisplay = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceTitle?.trim()), [places]);
+   const schedulablePlaces = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceId), [places]);
+   const schedule = useMemo(() => buildPlanSchedule(schedulablePlaces), [schedulablePlaces]);
+-  const explicitPlanEnd = useMemo(() => parseOptionalPlanEnd(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
++  const explicitPlanEnd = useMemo(() => parseRequiredPlanEnd(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
+   const rangeLabel = rangeLabelWithEnd(schedule, planEnd);
+   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
+     places: placesForGeneratedDisplay,
+@@ -715,11 +722,15 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+     const customDescription = advancedDetails.description.trim();
+     const customCategory = advancedDetails.category.trim();
+     const customTags = parsePlanTagsInput(advancedDetails.tags);
+-    const nextExplicitEnd = parseOptionalPlanEnd(planEnd, nextSchedule.startsAt);
++    const nextExplicitEnd = parseRequiredPlanEnd(planEnd, nextSchedule.startsAt);
+     if (nextSchedule.error || !nextSchedule.startsAt || usablePlaces.length === 0) {
+       setError(nextSchedule.error || 'Add at least one place with a valid date and time.');
+       return;
+     }
++    if (nextExplicitEnd.error) {
++      setError(nextExplicitEnd.error);
++      return;
++    }
+     if (customTitle && customTitle.length < 3) {
+       setError('Custom Plan title must be at least 3 characters.');
+       return;
+@@ -750,7 +761,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+         tags: customTags.length ? customTags : undefined,
+         mode: planModeFromPlaces(usablePlaces),
+         startsAt: nextSchedule.startsAt,
+-        endsAt: nextExplicitEnd.endsAt || nextSchedule.endsAt || nextSchedule.startsAt,
++        endsAt: nextExplicitEnd.endsAt,
+         joinApprovalMode: 'automatic',
+         status: 'open',
+         places: usablePlaces.map((place, index) => ({
+@@ -862,17 +873,17 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                   {places.length > 0 ? (
+                     <div className="plan-timeline-row plan-timeline-row--time plan-timeline-row--optional-end">
+                       <div className="plan-timeline-row__main">
+-                        <span className="semantic-badge time">Optional</span>
+-                        <h3>End time</h3>
++                        <span className="semantic-badge time">Required</span>
++                        <h3>Plan end time</h3>
+                       </div>
+                       <div className="plan-timeline-row__fields">
+                         <label>
+                           <span>End date</span>
+-                          <input type="date" value={planEnd.date} onChange={(event) => updatePlanEnd({ date: event.target.value })} />
++                          <input type="date" value={planEnd.date} onChange={(event) => updatePlanEnd({ date: event.target.value })} required />
+                         </label>
+                         <label>
+                           <span>End time</span>
+-                          <input type="time" value={planEnd.time} onChange={(event) => updatePlanEnd({ time: event.target.value })} />
++                          <input type="time" value={planEnd.time} onChange={(event) => updatePlanEnd({ time: event.target.value })} required />
+                         </label>
+                       </div>
+                     </div>
+diff --git a/apps/web/src/lib/webErrors.ts b/apps/web/src/lib/webErrors.ts
+index 5419b16..c1e3e74 100644
+--- a/apps/web/src/lib/webErrors.ts
++++ b/apps/web/src/lib/webErrors.ts
+@@ -44,6 +44,7 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
+   if (apiError.body?.error === 'validation_error') return apiError.body.message ?? 'Please check the form fields and try again.';
+   if (apiError.body?.error === 'plans_disabled') return 'Plans are disabled by the API flag. Set PLANS_ENABLED=true in the root .env file and restart the API dev server.';
+   if (apiError.body?.error === 'plans_hidden') return 'Plans are hidden by the API visibility flag.';
++  if (apiError.body?.error === 'plan_time_overlap') return apiError.body.message ?? 'This overlaps with another active Plan you created. Choose a different time before creating this Plan.';
+   if (apiError.body?.error === 'saved_library_plus_required' || apiError.body?.error === 'saved_library_limit_reached') return apiError.body.message ?? 'Saved Library is included with Plus Membership. Review Membership to unlock private saves, people, and collections when upgrades are available.';
+   if (apiError.body?.error === 'saved_collections_plus_required') return apiError.body.message ?? 'Saved collections are included with Plus Membership. Review Membership to unlock private organization tools when upgrades are available.';
+   if (apiError.body?.error === 'agenda_disabled') return apiError.body.message ?? 'Agenda is disabled by the API flag.';

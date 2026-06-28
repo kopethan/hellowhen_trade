@@ -54,7 +54,7 @@ export function AccountHubClient() {
     { href: '/trades/create', titleKey: 'account.quickActions.createTrade', bodyKey: 'account.quickActions.createTradeBody', icon: 'trade', featured: true, tone: 'trade' },
     ...(betaFeatures.plansVisible ? [
       { href: '/plans/new', titleKey: 'account.quickActions.createPlan', bodyKey: 'account.quickActions.createPlanBody', icon: 'plan' as WebIconName, featured: true, tone: 'plan' as AccountHubTone },
-      { href: '/places/new', titleKey: 'account.quickActions.addPlace', bodyKey: 'account.quickActions.addPlaceBody', icon: 'add' as WebIconName, featured: true, tone: 'plan' as AccountHubTone },
+      { href: '/places/new', titleKey: 'account.quickActions.addPlace', bodyKey: 'account.quickActions.addPlaceBody', icon: 'location-on' as WebIconName, featured: true, tone: 'plan' as AccountHubTone },
     ] : [
       { href: '/needs/new', titleKey: 'trade.wizard.actions.createNeed.title', bodyKey: 'trade.wizard.actions.createNeed.body', icon: 'need' as WebIconName, featured: true, tone: 'need' as AccountHubTone },
       { href: '/offers/new', titleKey: 'trade.wizard.actions.createOffer.title', bodyKey: 'trade.wizard.actions.createOffer.body', icon: 'offer' as WebIconName, featured: true, tone: 'offer' as AccountHubTone },
@@ -72,7 +72,7 @@ export function AccountHubClient() {
     { href: '/plans?view=mine', titleKey: 'account.items.myPlansFeature.title', bodyKey: 'account.items.myPlansFeature.body', icon: 'plan', count: accountCounts.myPlans, tone: 'plan' },
     { href: '/plans?view=joined', titleKey: 'account.items.joinedPlansFeature.title', bodyKey: 'account.items.joinedPlansFeature.body', icon: 'proposal-accepted', count: accountCounts.joinedPlans, tone: 'info' },
     { href: '/plans', titleKey: 'account.items.plansFeature.title', bodyKey: 'account.items.plansFeature.body', icon: 'search', featured: true, badgeKey: 'account.items.plansFeature.badge', actionKey: 'account.items.plansFeature.action', tone: 'plan' },
-    { href: '/places', titleKey: 'account.items.myPlacesFeature.title', bodyKey: 'account.items.myPlacesFeature.body', icon: 'save', count: accountCounts.places, tone: 'plan' },
+    { href: '/places', titleKey: 'account.items.myPlacesFeature.title', bodyKey: 'account.items.myPlacesFeature.body', icon: 'location-on', count: accountCounts.places, tone: 'plan' },
   ] : [], [accountCounts.joinedPlans, accountCounts.myPlans, accountCounts.places]);
 
   const toolsItems = useMemo<AccountHubItem[]>(() => [
@@ -110,6 +110,14 @@ export function AccountHubClient() {
     { href: '/offers', titleKey: 'trade.wizard.actions.myOffers.title', bodyKey: 'trade.wizard.actions.myOffers.body', icon: 'offer', count: accountCounts.offers, tone: 'offer' },
     ...(betaFeatures.plansVisible ? [{ href: '/plans?view=mine', titleKey: 'account.items.myPlansFeature.title', bodyKey: 'account.items.myPlansFeature.body', icon: 'plan' as WebIconName, count: accountCounts.myPlans, tone: 'plan' as AccountHubTone }] : []),
   ], [accountCounts.myPlans, accountCounts.needs, accountCounts.offers, accountCounts.trades]);
+
+  const widgetToolItem = betaFeatures.agendaEnabled
+    ? { href: '/account/agenda', titleKey: 'account.widgets.library.title', bodyKey: 'account.widgets.library.agendaBody', icon: 'calendar' as WebIconName, tone: 'info' as AccountHubTone, actionKey: 'account.widgets.library.agendaAction' }
+    : betaFeatures.savedLibraryEnabled
+      ? { href: '/account/saved', titleKey: 'account.widgets.library.title', bodyKey: 'account.widgets.library.savedBody', icon: 'save' as WebIconName, tone: 'info' as AccountHubTone, actionKey: 'account.widgets.library.savedAction' }
+      : null;
+
+  const [primaryQuickAction, ...secondaryQuickActions] = quickActionItems;
 
   useEffect(() => {
     let mounted = true;
@@ -189,9 +197,47 @@ export function AccountHubClient() {
       </section>
 
       {auth.isAuthenticated ? (
-        <section className="me-hub-stat-grid" aria-label={t('account.sections.activity')}>
-          {statItems.map((item) => <MeHubStatCard key={item.href + item.titleKey} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
-        </section>
+        <>
+          <section className="me-hub-overview" aria-label={t('account.sections.activity')}>
+            <div className="me-hub-stat-grid">
+              {statItems.map((item) => <MeHubStatCard key={item.href + item.titleKey} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
+            </div>
+          </section>
+
+          <section className="me-hub-widget-strip" aria-label={t('account.widgets.title')}>
+            <MeHubWidgetCard
+              badge={t('account.widgets.today.badge')}
+              title={t('account.widgets.today.title')}
+              body={notificationUnreadCount > 0 ? t('account.widgets.today.notificationsBody') : t('account.widgets.today.body')}
+              href={notificationUnreadCount > 0 ? '/account/notifications' : '/trades/create'}
+              action={notificationUnreadCount > 0 ? t('account.widgets.today.notificationsAction') : t('account.widgets.today.action')}
+              icon={notificationUnreadCount > 0 ? 'bell' : 'clock'}
+              metric={notificationUnreadCount > 0 ? notificationUnreadCount : undefined}
+              tone={notificationUnreadCount > 0 ? 'proposal' : 'trade'}
+            />
+            <MeHubWidgetCard
+              badge={t('account.widgets.attention.badge')}
+              title={t('account.widgets.attention.title')}
+              body={notificationUnreadCount > 0 ? t('account.widgets.attention.withNotifications') : t('account.widgets.attention.body')}
+              href={notificationUnreadCount > 0 ? '/account/notifications' : '/trades'}
+              action={t('account.widgets.attention.action')}
+              icon="activity"
+              metric={notificationUnreadCount > 0 ? notificationUnreadCount : accountCounts.trades}
+              tone={notificationUnreadCount > 0 ? 'proposal' : 'trade'}
+            />
+            {widgetToolItem ? (
+              <MeHubWidgetCard
+                badge={t('account.widgets.library.badge')}
+                title={t(widgetToolItem.titleKey)}
+                body={t(widgetToolItem.bodyKey)}
+                href={widgetToolItem.href}
+                action={widgetToolItem.actionKey ? t(widgetToolItem.actionKey) : t('account.widgets.library.savedAction')}
+                icon={widgetToolItem.icon ?? 'save'}
+                tone={widgetToolItem.tone}
+              />
+            ) : null}
+          </section>
+        </>
       ) : null}
 
       <section className="account-hub-section me-hub-section me-hub-section--quick" aria-label={t('account.quickActions.title')}>
@@ -202,28 +248,59 @@ export function AccountHubClient() {
           </div>
           <p>{t('account.quickActions.body')}</p>
         </div>
-        <div className="account-quick-action-grid me-hub-quick-grid">
-          {quickActionItems.map((item) => <AccountHubLinkCard key={item.href} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick />)}
+        <div className="me-hub-quick-actions">
+          {primaryQuickAction ? (
+            <AccountHubLinkCard item={primaryQuickAction} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick quickVariant="primary" />
+          ) : null}
+          {secondaryQuickActions.length > 0 ? (
+            <div className="account-quick-action-grid me-hub-quick-grid">
+              {secondaryQuickActions.map((item) => <AccountHubLinkCard key={item.href} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick quickVariant="compact" />)}
+            </div>
+          ) : null}
         </div>
       </section>
 
       <div className="me-hub-layout">
-        <div className="me-hub-layout__main">
+        <div className="me-hub-layout__primary">
           <MeHubSection title={t('account.sections.activity')} items={activityItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />
-          {planWorkspaceItems.length > 0 ? <MeHubSection title={t('account.sections.plans')} badge={t('account.items.plansFeature.badge')} items={planWorkspaceItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} /> : null}
         </div>
-        <div className="me-hub-layout__side">
+        <div className="me-hub-layout__secondary">
+          {planWorkspaceItems.length > 0 ? <MeHubSection title={t('account.sections.plans')} badge={t('account.items.plansFeature.badge')} items={planWorkspaceItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} /> : null}
           <MeHubSection title={t('account.sections.tools')} items={toolsItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />
-          <MeHubSection title={t('account.sections.settings')} items={settingsItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />
+        </div>
+        <div className="me-hub-layout__quiet">
+          <MeHubSection title={t('account.sections.settings')} items={settingsItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quiet />
         </div>
       </div>
     </div>
   );
 }
 
-function MeHubSection({ title, badge, items, authHydrated, isAuthenticated, t }: { title: string; badge?: string; items: AccountHubItem[]; authHydrated: boolean; isAuthenticated: boolean; t: (key: string) => string }) {
+function MeHubWidgetCard({ badge, title, body, href, action, icon, metric, tone = 'info' }: { badge: string; title: string; body: string; href: string; action: string; icon: WebIconName; metric?: number; tone?: AccountHubTone }) {
   return (
-    <section className="account-hub-section me-hub-section" aria-label={title}>
+    <Link href={href} className={`me-hub-widget-card me-hub-widget-card--${tone}`}>
+      <span className="me-hub-widget-card__topline">
+        <span className="semantic-badge instruction">{badge}</span>
+        {typeof metric === 'number' ? <span className="me-hub-widget-card__metric">{Math.min(metric, 99)}</span> : null}
+      </span>
+      <span className="me-hub-widget-card__body">
+        <WebIcon name={icon} size={22} decorative className="me-hub-widget-card__icon" />
+        <span>
+          <strong>{title}</strong>
+          <small>{body}</small>
+        </span>
+      </span>
+      <span className="me-hub-widget-card__action">
+        {action}
+        <WebIcon name="arrow-right" size={15} decorative />
+      </span>
+    </Link>
+  );
+}
+
+function MeHubSection({ title, badge, items, authHydrated, isAuthenticated, t, quiet = false }: { title: string; badge?: string; items: AccountHubItem[]; authHydrated: boolean; isAuthenticated: boolean; t: (key: string) => string; quiet?: boolean }) {
+  return (
+    <section className={`account-hub-section me-hub-section${quiet ? ' me-hub-section--quiet' : ''}`} aria-label={title}>
       <div className="account-hub-section__header me-hub-section__header">
         <div>
           {badge ? <span className="semantic-badge instruction">{badge}</span> : null}
@@ -245,16 +322,18 @@ function MeHubStatCard({ item, authHydrated, isAuthenticated, t }: { item: Accou
       <span>
         <strong>{typeof item.count === 'number' ? Math.min(item.count, 99) : '—'}</strong>
         <small>{t(item.titleKey)}</small>
+        <small className="me-hub-stat-card__hint">{t(item.bodyKey)}</small>
       </span>
     </Link>
   );
 }
 
-function AccountHubLinkCard({ item, authHydrated, isAuthenticated, t, quick = false }: { item: AccountHubItem; authHydrated: boolean; isAuthenticated: boolean; t: (key: string) => string; quick?: boolean }) {
+function AccountHubLinkCard({ item, authHydrated, isAuthenticated, t, quick = false, quickVariant }: { item: AccountHubItem; authHydrated: boolean; isAuthenticated: boolean; t: (key: string) => string; quick?: boolean; quickVariant?: 'primary' | 'compact' }) {
   const href = authHydrated && !isAuthenticated && !item.publicAccess ? `/auth?next=${encodeURIComponent(item.href)}` : item.href;
   const className = [
     item.featured ? 'mobile-link-card mobile-link-card--featured' : 'mobile-link-card',
     quick ? 'account-quick-action-card' : null,
+    quickVariant ? `account-quick-action-card--${quickVariant}` : null,
     'me-hub-link-card',
     `me-hub-link-card--${item.tone ?? 'info'}`,
   ].filter(Boolean).join(' ');

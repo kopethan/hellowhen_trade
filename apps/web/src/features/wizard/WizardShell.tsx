@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { getWizardActiveStep, type WizardStepDefinition } from '@hellowhen/shared';
+import { WebIcon } from '../../components/WebIcon';
 import { WizardProgress } from './WizardProgress';
 
 type WizardShellProps<TStepId extends string> = {
@@ -40,7 +41,7 @@ export function WizardShell<TStepId extends string>({
     <div className={className ? `wizard-shell ${className}` : 'wizard-shell'}>
       <header className="wizard-shell__header">
         <div className="wizard-shell__title-row">
-          {backHref ? <Link className="web-back-button" href={backHref} aria-label={backLabel}>‹</Link> : null}
+          {backHref ? <Link className="web-back-button" href={backHref} aria-label={backLabel}><WebIcon name="back" size={18} decorative /></Link> : null}
           <div className="wizard-shell__title-copy">
             <h1>{title}</h1>
             {subtitle ? <p>{subtitle}</p> : null}

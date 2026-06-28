@@ -160,6 +160,28 @@ function updatePlaceData(input: ReturnType<typeof updatePlaceRequestSchema.parse
   };
 }
 
+
+function isArchiveOnlyPlaceUpdate(input: ReturnType<typeof updatePlaceRequestSchema.parse>) {
+  const keys = Object.keys(input);
+  return keys.length === 1 && input.status === 'archived';
+}
+
+async function loadPlaceUsageCounts(placeIds: string[]) {
+  const ids = Array.from(new Set(placeIds.filter(Boolean)));
+  if (!ids.length) return new Map<string, number>();
+  const rows = await prisma.planPlace.groupBy({
+    by: ['placeId'],
+    where: { placeId: { in: ids } },
+    _count: { _all: true },
+  } as any);
+  return new Map((rows as any[]).map((row) => [row.placeId, row._count?._all ?? 0]));
+}
+
+async function placeUsedInPlansCount(placeId: string) {
+  const counts = await loadPlaceUsageCounts([placeId]);
+  return counts.get(placeId) ?? 0;
+}
+
 function cleanPlaceForViewer(place: any, viewerId?: string | null, actorRole?: string | null) {
   const isOwner = Boolean(viewerId && place.ownerId === viewerId);
   const isAdmin = actorRole === 'admin';
@@ -173,13 +195,15 @@ function cleanPlaceForViewer(place: any, viewerId?: string | null, actorRole?: s
     visibility: place.visibility ?? (place.source === 'hellowhen_library' ? 'library' : 'private'),
     addressPrivateText: canSeePrivateDetails ? place.addressPrivateText ?? null : null,
     defaultMeetingInstructions: canSeePrivateDetails ? place.defaultMeetingInstructions ?? null : null,
+    usedInPlansCount: canSeePrivateDetails ? place.usedInPlansCount ?? 0 : undefined,
   };
 }
 
 async function decoratePlaces(places: any[], viewerId?: string | null, visibility: MediaVisibility = 'owner', actorRole?: string | null) {
   const withTranslations = await withInventoryTranslations(prisma, 'place', places);
   const withPlaceMedia = await withMedia('place' as any, withTranslations, visibility);
-  return withPlaceMedia.map((place) => cleanPlaceForViewer(place, viewerId ?? null, actorRole ?? null));
+  const usageCounts = await loadPlaceUsageCounts(withPlaceMedia.map((place: any) => place.id));
+  return withPlaceMedia.map((place: any) => cleanPlaceForViewer({ ...place, usedInPlansCount: usageCounts.get(place.id) ?? 0 }, viewerId ?? null, actorRole ?? null));
 }
 
 async function decoratePlace(place: any, viewerId?: string | null, visibility: MediaVisibility = 'owner', actorRole?: string | null) {
@@ -282,6 +306,14 @@ placesRoutes.patch('/:placeId', requireAuth, requireActiveAccount, asyncRoute(as
     include: placeInclude(),
   });
   if (!existing) return res.status(404).json({ error: 'not_found' });
+  const usedInPlansCount = await placeUsedInPlansCount(existing.id);
+  if (existing.source === 'user' && usedInPlansCount > 0 && !isArchiveOnlyPlaceUpdate(input)) {
+    return res.status(409).json({
+      error: 'place_locked_by_plan',
+      message: 'This Place is already used in a Plan. Archive it or create a new Place to change the details.',
+      usedInPlansCount,
+    });
+  }
   const normalized = normalizeUpdateInput(input, existing as any, actor);
   const mediaLimit = await placeMediaLimitFor(actor, existing.source);
   const updated = await prisma.place.update({ where: { id: existing.id }, data: updatePlaceData(input, normalized) as any, include: placeInclude() });

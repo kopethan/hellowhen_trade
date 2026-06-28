@@ -1,0 +1,101 @@
+diff --git a/apps/mobile/src/components/MobileIcon.tsx b/apps/mobile/src/components/MobileIcon.tsx
+index 6e185a0..7873bd9 100644
+--- a/apps/mobile/src/components/MobileIcon.tsx
++++ b/apps/mobile/src/components/MobileIcon.tsx
+@@ -20,6 +20,7 @@ export type MobileIconName =
+   | 'filter'
+   | 'help'
+   | 'image'
++  | 'location-on'
+   | 'more'
+   | 'need'
+   | 'offer'
+@@ -87,6 +88,8 @@ function IconPaths({ name, color }: { name: MobileIconName; color: string }) {
+       return <><Circle cx={12} cy={12} r={8} stroke={color} strokeWidth={2} fill="none" /><Path d="M11.233 13.5455V13.4943C11.2386 12.9517 11.2955 12.5199 11.4034 12.1989C11.5114 11.8778 11.6648 11.6179 11.8636 11.419C12.0625 11.2202 12.3011 11.0369 12.5795 10.8693C12.7472 10.767 12.8977 10.6463 13.0312 10.5071C13.1648 10.3651 13.2699 10.2017 13.3466 10.017C13.4261 9.83239 13.4659 9.62784 13.4659 9.40341C13.4659 9.125 13.4006 8.88352 13.2699 8.67898C13.1392 8.47443 12.9645 8.31676 12.7457 8.20597C12.527 8.09517 12.2841 8.03977 12.017 8.03977C11.7841 8.03977 11.5597 8.08807 11.3438 8.18466C11.1278 8.28125 10.9474 8.43324 10.8026 8.64062C10.6577 8.84801 10.5739 9.11932 10.5511 9.45455H9.47727C9.5 8.97159 9.625 8.55824 9.85227 8.21449C10.0824 7.87074 10.3849 7.60795 10.7599 7.42614C11.1378 7.24432 11.5568 7.15341 12.017 7.15341C12.517 7.15341 12.9517 7.25284 13.321 7.4517C13.6932 7.65057 13.9801 7.9233 14.1818 8.26989C14.3864 8.61648 14.4886 9.01136 14.4886 9.45455C14.4886 9.76705 14.4403 10.0497 14.3438 10.3026C14.25 10.5554 14.1136 10.7812 13.9347 10.9801C13.7585 11.179 13.5455 11.3551 13.2955 11.5085C13.0455 11.6648 12.8452 11.8295 12.6946 12.0028C12.544 12.1733 12.4347 12.3764 12.3665 12.6122C12.2983 12.848 12.2614 13.142 12.2557 13.4943V13.5455H11.233ZM11.7784 16.0682C11.5682 16.0682 11.3878 15.9929 11.2372 15.8423C11.0866 15.6918 11.0114 15.5114 11.0114 15.3011C11.0114 15.0909 11.0866 14.9105 11.2372 14.7599C11.3878 14.6094 11.5682 14.5341 11.7784 14.5341C11.9886 14.5341 12.169 14.6094 12.3196 14.7599C12.4702 14.9105 12.5455 15.0909 12.5455 15.3011C12.5455 15.4403 12.5099 15.5682 12.4389 15.6847C12.3707 15.8011 12.2784 15.8949 12.1619 15.9659C12.0483 16.0341 11.9205 16.0682 11.7784 16.0682Z" fill={color} /></>;
+     case 'image':
+       return <><Rect x={4} y={5} width={16} height={14} rx={2.5} stroke={color} strokeWidth={1.8} fill="none" /><Circle cx={9} cy={10} r={1.5} fill={color} /><Path d="M5.5 17L10 12.5L13 15.5L15 13.5L18.5 17" strokeWidth={1.8} {...strokeProps} /></>;
++    case 'location-on':
++      return <><Path d="M12 3.25C8.78 3.25 6.25 5.76 6.25 8.85C6.25 12.18 10.05 17.54 11.34 19.2C11.68 19.64 12.32 19.64 12.66 19.2C13.95 17.54 17.75 12.18 17.75 8.85C17.75 5.76 15.22 3.25 12 3.25Z" stroke={color} strokeWidth={1.7} fill="none" strokeLinecap="round" strokeLinejoin="round" /><Circle cx={12} cy={8.85} r={2.05} stroke={color} strokeWidth={1.7} fill="none" /><Path d="M8.65 18.15C9.5 18.85 10.68 19.25 12 19.25C13.32 19.25 14.5 18.85 15.35 18.15" stroke={color} strokeWidth={1.45} strokeLinecap="round" opacity={0.42} /></>;
+     case 'more':
+       return <><Circle cx={5} cy={12} r={2} fill={color} /><Circle cx={12} cy={12} r={2} fill={color} /><Circle cx={19} cy={12} r={2} fill={color} /></>;
+     case 'need':
+diff --git a/apps/mobile/src/features/account/AccountScreen.tsx b/apps/mobile/src/features/account/AccountScreen.tsx
+index 5d6814a..0e0d68d 100644
+--- a/apps/mobile/src/features/account/AccountScreen.tsx
++++ b/apps/mobile/src/features/account/AccountScreen.tsx
+@@ -67,10 +67,10 @@ const accountActions: AccountAction[] = [
+     { titleKey: 'account.items.plansFeature.title', descriptionKey: 'account.items.plansFeature.bodyNative', badgeKey: 'account.items.plansFeature.badge', tone: 'instruction' as SemanticColorName, route: 'Plans' as AccountRoute, icon: 'plan' as MobileIconName, group: 'plans' as AccountGroupKey },
+     { titleKey: 'account.items.myPlansFeature.title', descriptionKey: 'account.items.myPlansFeature.bodyNative', badgeKey: 'account.items.myPlansFeature.badge', tone: 'info' as SemanticColorName, route: 'MyPlans' as AccountRoute, icon: 'activity' as MobileIconName, group: 'plans' as AccountGroupKey },
+     { titleKey: 'account.items.joinedPlansFeature.title', descriptionKey: 'account.items.joinedPlansFeature.bodyNative', badgeKey: 'account.items.joinedPlansFeature.badge', tone: 'success' as SemanticColorName, route: 'JoinedPlans' as AccountRoute, icon: 'proposal-accepted' as MobileIconName, group: 'plans' as AccountGroupKey },
+-    { titleKey: 'account.items.myPlacesFeature.title', descriptionKey: 'account.items.myPlacesFeature.bodyNative', badgeKey: 'account.items.myPlacesFeature.badge', tone: 'proposal' as SemanticColorName, route: 'MyPlaces' as AccountRoute, icon: 'save' as MobileIconName, group: 'plans' as AccountGroupKey },
++    { titleKey: 'account.items.myPlacesFeature.title', descriptionKey: 'account.items.myPlacesFeature.bodyNative', badgeKey: 'account.items.myPlacesFeature.badge', tone: 'proposal' as SemanticColorName, route: 'MyPlaces' as AccountRoute, icon: 'location-on' as MobileIconName, group: 'plans' as AccountGroupKey },
+     { titleKey: 'account.items.placeLibraryFeature.title', descriptionKey: 'account.items.placeLibraryFeature.bodyNative', badgeKey: 'account.items.placeLibraryFeature.badge', tone: 'instruction' as SemanticColorName, route: 'PlaceLibrary' as AccountRoute, icon: 'search' as MobileIconName, group: 'plans' as AccountGroupKey },
+     { titleKey: 'account.items.createPlanFeature.title', descriptionKey: 'account.items.createPlanFeature.bodyNative', badgeKey: 'account.items.createPlanFeature.badge', tone: 'success' as SemanticColorName, route: 'CreatePlan' as AccountRoute, icon: 'add' as MobileIconName, group: 'plans' as AccountGroupKey },
+-    { titleKey: 'account.items.createPlaceFeature.title', descriptionKey: 'account.items.createPlaceFeature.bodyNative', badgeKey: 'account.items.createPlaceFeature.badge', tone: 'info' as SemanticColorName, route: 'CreatePlace' as AccountRoute, icon: 'add' as MobileIconName, group: 'plans' as AccountGroupKey },
++    { titleKey: 'account.items.createPlaceFeature.title', descriptionKey: 'account.items.createPlaceFeature.bodyNative', badgeKey: 'account.items.createPlaceFeature.badge', tone: 'info' as SemanticColorName, route: 'CreatePlace' as AccountRoute, icon: 'location-on' as MobileIconName, group: 'plans' as AccountGroupKey },
+   ] : []),
+   { titleKey: 'account.items.guide.title', descriptionKey: 'account.items.guide.bodyNative', badgeKey: 'account.items.guide.badge', tone: 'info', route: 'OnboardingGuide', icon: 'help', group: 'activity' },
+   { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'success', route: 'SupportCenter', icon: 'help', group: 'activity' },
+@@ -233,7 +233,7 @@ export function AccountScreen() {
+     { title: t('account.items.plansFeature.title'), body: t('account.items.plansFeature.bodyNative'), route: 'Plans', icon: 'plan', tone: 'instruction' },
+     { title: t('account.items.myPlansFeature.title'), body: t('account.items.myPlansFeature.bodyNative'), route: 'MyPlans', icon: 'activity', tone: 'info', count: meHubCounts.myPlans },
+     { title: t('account.items.joinedPlansFeature.title'), body: t('account.items.joinedPlansFeature.bodyNative'), route: 'JoinedPlans', icon: 'proposal-accepted', tone: 'success', count: meHubCounts.joinedPlans },
+-    { title: t('account.items.myPlacesFeature.title'), body: t('account.items.myPlacesFeature.bodyNative'), route: 'MyPlaces', icon: 'save', tone: 'proposal', count: meHubCounts.places },
++    { title: t('account.items.myPlacesFeature.title'), body: t('account.items.myPlacesFeature.bodyNative'), route: 'MyPlaces', icon: 'location-on', tone: 'proposal', count: meHubCounts.places },
+     { title: t('account.items.placeLibraryFeature.title'), body: t('account.items.placeLibraryFeature.bodyNative'), route: 'PlaceLibrary', icon: 'search', tone: 'instruction' },
+   ] : [], [meHubCounts.joinedPlans, meHubCounts.myPlans, meHubCounts.places, t]);
+ 
+@@ -285,7 +285,7 @@ export function AccountScreen() {
+           <View style={styles.quickActions}>
+             <AccountQuickAction icon="trade" label={t('account.quickActions.createTrade')} onPress={() => navigate('CreateTrade')} tone="trade" />
+             {betaFeatures.plansVisible ? <AccountQuickAction icon="calendar" label={t('account.quickActions.createPlan')} onPress={() => navigate('CreatePlan')} tone="instruction" /> : <AccountQuickAction icon="bell" label={t('account.quickActions.notifications')} count={notificationUnreadCount} onPress={() => navigate('Notifications')} tone="proposal" />}
+-            {betaFeatures.plansVisible ? <AccountQuickAction icon="add" label={t('account.quickActions.addPlace')} onPress={() => navigate('CreatePlace')} tone="proposal" /> : <AccountQuickAction icon="help" label={t('account.quickActions.support')} onPress={() => navigate('SupportCenter')} tone="success" />}
++            {betaFeatures.plansVisible ? <AccountQuickAction icon="location-on" label={t('account.quickActions.addPlace')} onPress={() => navigate('CreatePlace')} tone="proposal" /> : <AccountQuickAction icon="help" label={t('account.quickActions.support')} onPress={() => navigate('SupportCenter')} tone="success" />}
+           </View>
+         </View>
+ 
+diff --git a/apps/web/public/icons/outline/location-on.svg b/apps/web/public/icons/outline/location-on.svg
+index 851e542..45cd3c2 100644
+--- a/apps/web/public/icons/outline/location-on.svg
++++ b/apps/web/public/icons/outline/location-on.svg
+@@ -1,4 +1,4 @@
+ <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+-  <path d="M12 21s6-6 6-11a6 6 0 1 0-12 0c0 5 6 11 6 11z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+-  <circle cx="12" cy="10" r="2" stroke="currentColor" stroke-width="2"/>
++  <path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M12 3C8.686 3 6 5.57 6 8.74c0 3.55 4.21 9.23 5.38 10.75.31.4.93.4 1.24 0C13.79 17.97 18 12.29 18 8.74 18 5.57 15.314 3 12 3Zm0 7.9a2.15 2.15 0 1 0 0-4.3 2.15 2.15 0 0 0 0 4.3Z"/>
++  <path d="M8 18.2c.98.92 2.38 1.55 4 1.55s3.02-.63 4-1.55" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.36"/>
+ </svg>
+diff --git a/apps/web/src/components/WebIcon.tsx b/apps/web/src/components/WebIcon.tsx
+index 028d66a..d3c487d 100644
+--- a/apps/web/src/components/WebIcon.tsx
++++ b/apps/web/src/components/WebIcon.tsx
+@@ -13,6 +13,7 @@ export type WebIconName =
+   | 'dispute'
+   | 'filter'
+   | 'help'
++  | 'location-on'
+   | 'more'
+   | 'need'
+   | 'offer'
+diff --git a/apps/web/src/features/account/AccountHubClient.tsx b/apps/web/src/features/account/AccountHubClient.tsx
+index aac79b8..8edb0b5 100644
+--- a/apps/web/src/features/account/AccountHubClient.tsx
++++ b/apps/web/src/features/account/AccountHubClient.tsx
+@@ -54,7 +54,7 @@ export function AccountHubClient() {
+     { href: '/trades/create', titleKey: 'account.quickActions.createTrade', bodyKey: 'account.quickActions.createTradeBody', icon: 'trade', featured: true, tone: 'trade' },
+     ...(betaFeatures.plansVisible ? [
+       { href: '/plans/new', titleKey: 'account.quickActions.createPlan', bodyKey: 'account.quickActions.createPlanBody', icon: 'plan' as WebIconName, featured: true, tone: 'plan' as AccountHubTone },
+-      { href: '/places/new', titleKey: 'account.quickActions.addPlace', bodyKey: 'account.quickActions.addPlaceBody', icon: 'add' as WebIconName, featured: true, tone: 'plan' as AccountHubTone },
++      { href: '/places/new', titleKey: 'account.quickActions.addPlace', bodyKey: 'account.quickActions.addPlaceBody', icon: 'location-on' as WebIconName, featured: true, tone: 'plan' as AccountHubTone },
+     ] : [
+       { href: '/needs/new', titleKey: 'trade.wizard.actions.createNeed.title', bodyKey: 'trade.wizard.actions.createNeed.body', icon: 'need' as WebIconName, featured: true, tone: 'need' as AccountHubTone },
+       { href: '/offers/new', titleKey: 'trade.wizard.actions.createOffer.title', bodyKey: 'trade.wizard.actions.createOffer.body', icon: 'offer' as WebIconName, featured: true, tone: 'offer' as AccountHubTone },
+@@ -72,7 +72,7 @@ export function AccountHubClient() {
+     { href: '/plans?view=mine', titleKey: 'account.items.myPlansFeature.title', bodyKey: 'account.items.myPlansFeature.body', icon: 'plan', count: accountCounts.myPlans, tone: 'plan' },
+     { href: '/plans?view=joined', titleKey: 'account.items.joinedPlansFeature.title', bodyKey: 'account.items.joinedPlansFeature.body', icon: 'proposal-accepted', count: accountCounts.joinedPlans, tone: 'info' },
+     { href: '/plans', titleKey: 'account.items.plansFeature.title', bodyKey: 'account.items.plansFeature.body', icon: 'search', featured: true, badgeKey: 'account.items.plansFeature.badge', actionKey: 'account.items.plansFeature.action', tone: 'plan' },
+-    { href: '/places', titleKey: 'account.items.myPlacesFeature.title', bodyKey: 'account.items.myPlacesFeature.body', icon: 'save', count: accountCounts.places, tone: 'plan' },
++    { href: '/places', titleKey: 'account.items.myPlacesFeature.title', bodyKey: 'account.items.myPlacesFeature.body', icon: 'location-on', count: accountCounts.places, tone: 'plan' },
+   ] : [], [accountCounts.joinedPlans, accountCounts.myPlans, accountCounts.places]);
+ 
+   const toolsItems = useMemo<AccountHubItem[]>(() => [

@@ -255,6 +255,7 @@ export const placeSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   archivedAt: z.string().nullable().optional(),
+  usedInPlansCount: z.number().int().nonnegative().optional(),
   owner: publicUserSummarySchema.nullable().optional(),
   media: z.array(mediaAssetSchema).optional(),
 }).passthrough();

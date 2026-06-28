@@ -57,7 +57,7 @@ export function getNormalAppNavItemByMobileTabName(tabName: string | null | unde
 }
 
 export type NormalWorkspaceMenuId = 'plans' | 'trade';
-export type NormalWorkspaceMenuIcon = 'activity' | 'need' | 'offer' | 'plan' | 'proposal-accepted' | 'save' | 'search' | 'trade';
+export type NormalWorkspaceMenuIcon = 'activity' | 'location-on' | 'need' | 'offer' | 'plan' | 'proposal-accepted' | 'save' | 'search' | 'trade';
 export type NormalWorkspaceMenuTone = 'info' | 'need' | 'offer' | 'plan' | 'trade';
 
 export type NormalWorkspaceMenuItem = {
@@ -74,7 +74,7 @@ export const normalWorkspaceMenus = {
   plans: [
     { id: 'my_plans', title: 'My plans', body: 'Plans you created.', icon: 'plan', tone: 'plan' },
     { id: 'joined_plans', title: 'Joined plans', body: 'Plans you joined freely.', icon: 'activity', tone: 'info' },
-    { id: 'my_places', title: 'My places', body: 'Reusable offline or online places.', icon: 'save', tone: 'plan' },
+    { id: 'my_places', title: 'My places', body: 'Reusable offline or online places.', icon: 'location-on', tone: 'plan' },
     { id: 'plan_ideas', title: 'Plan ideas', body: 'Starter Plan ideas you can review and customize.', icon: 'search', tone: 'info' },
   ],
   trade: [

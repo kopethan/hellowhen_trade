@@ -7,6 +7,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { WebIcon } from '../../components/WebIcon';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
 import { planMediaSrc } from './plansPresentation';
 
@@ -27,29 +29,46 @@ function placeMeta(place: PlaceDto) {
   ].filter((value): value is string => Boolean(value && value.trim())).join(' · ');
 }
 
+function placeUsedInPlansCount(place: PlaceDto) {
+  const value = Number((place as PlaceDto & { usedInPlansCount?: number }).usedInPlansCount ?? 0);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function placeUsageLabel(count: number) {
+  return count === 1 ? 'Used in 1 Plan' : `Used in ${count} Plans`;
+}
+
 function PlaceManageCard({ place, onArchive, archiving }: { place: PlaceDto; onArchive: (place: PlaceDto) => void; archiving?: boolean }) {
   const meta = placeMeta(place);
   const imageSrc = planMediaSrc(place.media?.[0] ?? null);
+  const usedInPlansCount = placeUsedInPlansCount(place);
+  const isLocked = usedInPlansCount > 0;
   return (
     <article className="place-manage-card">
       <div className="place-manage-card__main">
         <div className="place-manage-card__media" aria-hidden="true">
-          {imageSrc ? <img src={imageSrc} alt="" loading="lazy" /> : <span>{place.mode === 'remote' ? '↗' : '⌖'}</span>}
+          {imageSrc ? <img src={imageSrc} alt="" loading="lazy" /> : <WebIcon name="location-on" size={28} decorative />}
         </div>
         <div className="place-manage-card__copy">
           <div className="place-manage-card__top">
             <span className="semantic-badge place">My Place</span>
             <span className="semantic-badge muted">{place.mode === 'remote' ? 'Online' : 'Offline'}</span>
+            {isLocked ? <span className="semantic-badge warning">{placeUsageLabel(usedInPlansCount)}</span> : null}
           </div>
           <div className="place-manage-card__body">
             <h3>{place.title}</h3>
             <p>{place.description || 'Reusable Place for future Plans.'}</p>
             <small>{meta || 'Private reusable Place'}</small>
+            {isLocked ? <small className="place-manage-card__locked-note">Already used Places are locked so old Plans keep the saved details.</small> : null}
           </div>
         </div>
       </div>
       <div className="place-manage-card__actions" aria-label={`Manage ${place.title}`}>
-        <Link className="button secondary compact" href={`/places/${place.id}/edit`}>Edit</Link>
+        {isLocked ? (
+          <button type="button" className="button secondary compact" disabled title="This Place is already used in a Plan.">Edit locked</button>
+        ) : (
+          <Link className="button secondary compact" href={`/places/${place.id}/edit`}>Edit</Link>
+        )}
         <button type="button" className="button danger compact" disabled={archiving} onClick={() => onArchive(place)}>{archiving ? 'Deleting...' : 'Delete'}</button>
       </div>
     </article>
@@ -64,6 +83,7 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [archivingPlaceId, setArchivingPlaceId] = useState<string | null>(null);
+  const [deleteDialogPlace, setDeleteDialogPlace] = useState<PlaceDto | null>(null);
 
   const createPlaceHref = auth.isAuthenticated ? '/places/new' : nextAuthHref('/places/new');
 
@@ -93,8 +113,6 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
   const sortedPlaces = useMemo(() => [...places].sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()), [places]);
 
   async function archivePlace(place: PlaceDto) {
-    const confirmed = window.confirm('Delete this Place from My Places? Existing Plans keep their saved Place details.');
-    if (!confirmed) return;
     setArchivingPlaceId(place.id);
     setError('');
     setMessage('');
@@ -102,6 +120,7 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
       await api.places.archive(place.id);
       setPlaces((current) => current.filter((item) => item.id !== place.id));
       setMessage(`${place.title} was removed from My Places.`);
+      setDeleteDialogPlace(null);
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError, 'Could not delete Place.'));
     } finally {
@@ -137,7 +156,7 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
           <>
             <section className="mobile-card mobile-card--soft place-manage-note">
               <strong>Safe delete</strong>
-              <span>Deleting a Place archives it from My Places and future pickers. Old Plans still show the saved Place snapshot.</span>
+              <span>Deleting a Place archives it from My Places and future pickers. Places already used in Plans are locked for editing, and old Plans still show the saved snapshot.</span>
             </section>
             {message ? <p className="success-message">{message}</p> : null}
             {error ? <p className="form-error">{error}</p> : null}
@@ -151,10 +170,36 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
               </section>
             ) : null}
             <section className="place-manage-list" aria-label="My Places">
-              {sortedPlaces.map((place) => <PlaceManageCard key={place.id} place={place} onArchive={archivePlace} archiving={archivingPlaceId === place.id} />)}
+              {sortedPlaces.map((place) => (
+                <PlaceManageCard
+                  key={place.id}
+                  place={place}
+                  onArchive={setDeleteDialogPlace}
+                  archiving={archivingPlaceId === place.id}
+                />
+              ))}
             </section>
           </>
         ) : null}
+        <ConfirmDialog
+          open={Boolean(deleteDialogPlace)}
+          eyebrow="Safe delete"
+          title="Delete this Place?"
+          body={deleteDialogPlace
+            ? `This archives ${deleteDialogPlace.title} from My Places and future pickers. Existing Plans keep their saved Place snapshot.`
+            : 'This archives the Place from My Places and future pickers. Existing Plans keep their saved Place snapshot.'}
+          variant="danger"
+          confirmLabel="Delete Place"
+          loading={Boolean(deleteDialogPlace && archivingPlaceId === deleteDialogPlace.id)}
+          onCancel={() => {
+            if (archivingPlaceId) return;
+            setDeleteDialogPlace(null);
+          }}
+          onConfirm={async () => {
+            if (!deleteDialogPlace) return;
+            await archivePlace(deleteDialogPlace);
+          }}
+        />
       </main>
     </PlansFeatureGate>
   );

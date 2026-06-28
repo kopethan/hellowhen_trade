@@ -2,7 +2,7 @@ export default function TradeDetailLoading() {
   return (
     <article className="trade-detail-page trade-detail-page--social trade-detail-page--loading" aria-busy="true">
       <header className="trade-detail-toolbar trade-detail-toolbar--loading" aria-label="Loading trade">
-        <span className="trade-detail-back-link trade-detail-back-link--loading" aria-hidden="true">←</span>
+        <span className="trade-detail-back-link trade-detail-back-link--loading" aria-hidden="true" />
         <span className="trade-detail-icon-button trade-detail-icon-button--loading" aria-hidden="true" />
       </header>
       <section className="trade-hero-section trade-detail-loading-hero">

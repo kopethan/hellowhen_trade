@@ -281,6 +281,46 @@ function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequ
   };
 }
 
+
+const activeOwnedPlanTimeStatuses = ['draft', 'open', 'full', 'started'] as const;
+
+function effectivePlanRange(input: { startsAt: string; endsAt?: string | null }) {
+  const startsAt = new Date(input.startsAt);
+  const endsAt = input.endsAt ? new Date(input.endsAt) : startsAt;
+  return { startsAt, endsAt };
+}
+
+async function findOwnedPlanTimeOverlap(ownerId: string, input: { startsAt: string; endsAt?: string | null }, excludePlanId?: string) {
+  const { startsAt, endsAt } = effectivePlanRange(input);
+  return prisma.plan.findFirst({
+    where: {
+      ownerId,
+      ...(excludePlanId ? { id: { not: excludePlanId } } : {}),
+      status: { in: [...activeOwnedPlanTimeStatuses] as any },
+      startsAt: { lte: endsAt },
+      OR: [
+        { endsAt: { gte: startsAt } },
+        { endsAt: null, startsAt: { gte: startsAt } },
+      ],
+    },
+    select: { id: true, title: true, startsAt: true, endsAt: true },
+    orderBy: [{ startsAt: 'asc' }, { createdAt: 'desc' }],
+  });
+}
+
+function planTimeOverlapResponse(conflict: { id: string; title: string; startsAt: Date; endsAt: Date | null }) {
+  return {
+    error: 'plan_time_overlap',
+    message: `This overlaps with your existing Plan “${conflict.title}”. Choose a different time or cancel the existing Plan first.`,
+    plan: {
+      id: conflict.id,
+      title: conflict.title,
+      startsAt: conflict.startsAt.toISOString(),
+      endsAt: conflict.endsAt ? conflict.endsAt.toISOString() : null,
+    },
+  };
+}
+
 function planUpdateData(input: ReturnType<typeof updatePlanRequestSchema.parse>) {
   return {
     ...(input.title !== undefined ? { title: input.title } : {}),
@@ -494,6 +534,8 @@ plansRoutes.get('/joined', requireAuth, asyncRoute(async (req, res) => {
 
 plansRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createPlanRequestSchema.parse(req.body ?? {});
+  const overlappingPlan = await findOwnedPlanTimeOverlap(req.user!.id, input);
+  if (overlappingPlan) return res.status(409).json(planTimeOverlapResponse(overlappingPlan));
   const plan = await prisma.plan.create({ data: planCreateData(req.user!.id, input) as any });
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan' as any, plan.id);
 

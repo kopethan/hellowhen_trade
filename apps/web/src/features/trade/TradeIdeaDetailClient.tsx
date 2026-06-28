@@ -128,7 +128,7 @@ function NotFoundIdea() {
   return (
     <article className="mobile-page trade-idea-detail-page">
       <header className="trade-detail-toolbar" aria-label={t('trade.ideaDetail.header')}>
-        <Link href="/trades" className="trade-detail-back-link">← {t('trade.ideaDetail.backToFeed')}</Link>
+        <Link href="/trades" className="trade-detail-back-link"><WebIcon name="back" size={17} decorative /><span>{t('trade.ideaDetail.backToFeed')}</span></Link>
       </header>
       <section className="trade-hero-section trade-idea-detail-hero trade-idea-detail-not-found">
         <span className="semantic-badge warning">{t('trade.labels.notFound')}</span>
@@ -159,7 +159,7 @@ export function TradeIdeaDetailClient({ ideaId }: TradeIdeaDetailClientProps) {
   return (
     <article className="mobile-page trade-idea-detail-page">
       <header className="trade-detail-toolbar" aria-label={t('trade.ideaDetail.header')}>
-        <Link href="/trades" className="trade-detail-back-link">← {t('trade.ideaDetail.backToFeed')}</Link>
+        <Link href="/trades" className="trade-detail-back-link"><WebIcon name="back" size={17} decorative /><span>{t('trade.ideaDetail.backToFeed')}</span></Link>
       </header>
 
       <section className="trade-hero-section trade-idea-detail-hero">

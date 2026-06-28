@@ -1,0 +1,208 @@
+diff --git a/apps/api/src/modules/places/places.routes.ts b/apps/api/src/modules/places/places.routes.ts
+index 53f88cf..6170156 100644
+--- a/apps/api/src/modules/places/places.routes.ts
++++ b/apps/api/src/modules/places/places.routes.ts
+@@ -160,6 +160,28 @@ function updatePlaceData(input: ReturnType<typeof updatePlaceRequestSchema.parse
+   };
+ }
+ 
++
++function isArchiveOnlyPlaceUpdate(input: ReturnType<typeof updatePlaceRequestSchema.parse>) {
++  const keys = Object.keys(input);
++  return keys.length === 1 && input.status === 'archived';
++}
++
++async function loadPlaceUsageCounts(placeIds: string[]) {
++  const ids = Array.from(new Set(placeIds.filter(Boolean)));
++  if (!ids.length) return new Map<string, number>();
++  const rows = await prisma.planPlace.groupBy({
++    by: ['placeId'],
++    where: { placeId: { in: ids } },
++    _count: { _all: true },
++  } as any);
++  return new Map((rows as any[]).map((row) => [row.placeId, row._count?._all ?? 0]));
++}
++
++async function placeUsedInPlansCount(placeId: string) {
++  const counts = await loadPlaceUsageCounts([placeId]);
++  return counts.get(placeId) ?? 0;
++}
++
+ function cleanPlaceForViewer(place: any, viewerId?: string | null, actorRole?: string | null) {
+   const isOwner = Boolean(viewerId && place.ownerId === viewerId);
+   const isAdmin = actorRole === 'admin';
+@@ -173,13 +195,15 @@ function cleanPlaceForViewer(place: any, viewerId?: string | null, actorRole?: s
+     visibility: place.visibility ?? (place.source === 'hellowhen_library' ? 'library' : 'private'),
+     addressPrivateText: canSeePrivateDetails ? place.addressPrivateText ?? null : null,
+     defaultMeetingInstructions: canSeePrivateDetails ? place.defaultMeetingInstructions ?? null : null,
++    usedInPlansCount: canSeePrivateDetails ? place.usedInPlansCount ?? 0 : undefined,
+   };
+ }
+ 
+ async function decoratePlaces(places: any[], viewerId?: string | null, visibility: MediaVisibility = 'owner', actorRole?: string | null) {
+   const withTranslations = await withInventoryTranslations(prisma, 'place', places);
+   const withPlaceMedia = await withMedia('place' as any, withTranslations, visibility);
+-  return withPlaceMedia.map((place) => cleanPlaceForViewer(place, viewerId ?? null, actorRole ?? null));
++  const usageCounts = await loadPlaceUsageCounts(withPlaceMedia.map((place: any) => place.id));
++  return withPlaceMedia.map((place: any) => cleanPlaceForViewer({ ...place, usedInPlansCount: usageCounts.get(place.id) ?? 0 }, viewerId ?? null, actorRole ?? null));
+ }
+ 
+ async function decoratePlace(place: any, viewerId?: string | null, visibility: MediaVisibility = 'owner', actorRole?: string | null) {
+@@ -282,6 +306,14 @@ placesRoutes.patch('/:placeId', requireAuth, requireActiveAccount, asyncRoute(as
+     include: placeInclude(),
+   });
+   if (!existing) return res.status(404).json({ error: 'not_found' });
++  const usedInPlansCount = await placeUsedInPlansCount(existing.id);
++  if (existing.source === 'user' && usedInPlansCount > 0 && !isArchiveOnlyPlaceUpdate(input)) {
++    return res.status(409).json({
++      error: 'place_locked_by_plan',
++      message: 'This Place is already used in a Plan. Archive it or create a new Place to change the details.',
++      usedInPlansCount,
++    });
++  }
+   const normalized = normalizeUpdateInput(input, existing as any, actor);
+   const mediaLimit = await placeMediaLimitFor(actor, existing.source);
+   const updated = await prisma.place.update({ where: { id: existing.id }, data: updatePlaceData(input, normalized) as any, include: placeInclude() });
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 4414a42..24d2490 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -9949,6 +9949,11 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .place-manage-card__body small { color: var(--app-text-muted); font-size: 12px; font-weight: 900; }
+ .place-manage-card__actions { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--app-divider); padding-top: 10px; }
+ .place-manage-card__actions .button { flex: 1 1 130px; }
++.place-manage-card__locked-note { color: var(--warning-text) !important; font-size: 12px; font-weight: 900; line-height: 1.35; }
++.place-edit-locked-card { display: grid; gap: 12px; }
++.place-edit-locked-card h3 { margin: 0; font-size: 22px; line-height: 1.15; letter-spacing: -0.03em; }
++.place-edit-locked-card p { margin: 0; color: var(--app-text-muted); font-size: 14px; font-weight: 800; line-height: 1.5; }
++.place-edit-locked-card .cta-row { margin-top: 4px; }
+ .plans-feed-icon-button--with-badge { position: relative; }
+ .plans-feed-icon-button__badge { position: absolute; top: -5px; right: -5px; display: inline-flex; align-items: center; justify-content: center; min-width: 19px; height: 19px; border: 1px solid var(--app-surface); border-radius: 999px; background: var(--plan-text); color: var(--app-bg); font-size: 10px; line-height: 1; font-weight: 950; padding: 0 5px; }
+ .plans-active-filter-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--plan-border); border-radius: 20px; background: var(--plan-bg); padding: 12px 14px; color: var(--plan-text); }
+diff --git a/apps/web/src/features/plans/PlaceCreateClient.tsx b/apps/web/src/features/plans/PlaceCreateClient.tsx
+index f9b18ce..93abe36 100644
+--- a/apps/web/src/features/plans/PlaceCreateClient.tsx
++++ b/apps/web/src/features/plans/PlaceCreateClient.tsx
+@@ -150,6 +150,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+   const [saving, setSaving] = useState(false);
+   const [message, setMessage] = useState('');
+   const [error, setError] = useState('');
++  const [usedInPlansCount, setUsedInPlansCount] = useState(0);
+ 
+   useEffect(() => {
+     if (isEditing || copyFromPlaceId) return;
+@@ -163,6 +164,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+   useEffect(() => {
+     const sourcePlaceId = placeId || copyFromPlaceId;
+     if (!sourcePlaceId || !auth.hydrated || !auth.isAuthenticated) {
++      setUsedInPlansCount(0);
+       setLoadingPlace(false);
+       return;
+     }
+@@ -176,6 +178,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+         setState(formStateFromPlace(response.place));
+         setTranslationPanelOpen(placeHasTranslations(response.place));
+         setMedia(isEditing ? activePlaceMedia(response.place.media) : []);
++        setUsedInPlansCount(isEditing ? Number((response.place as typeof response.place & { usedInPlansCount?: number }).usedInPlansCount ?? 0) : 0);
+       })
+       .catch((caughtError) => {
+         if (cancelled) return;
+@@ -315,6 +318,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+ 
+   const selectedMedia = media[0];
+   const imagePreviewSrc = selectedMedia ? mediaSrc(selectedMedia) : '';
++  const editingLockedByPlans = isEditing && usedInPlansCount > 0;
+ 
+   return (
+     <PlansFeatureGate plansEnabled={plansEnabled}>
+@@ -338,7 +342,19 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+ 
+         {auth.isAuthenticated && loadingPlace ? <section className="mobile-card"><p className="meta">Loading Place...</p></section> : null}
+ 
+-        {auth.isAuthenticated && !loadingPlace ? (
++        {auth.isAuthenticated && !loadingPlace && editingLockedByPlans ? (
++          <section className="mobile-card mobile-card--soft place-edit-locked-card">
++            <span className="semantic-badge warning">Used in {usedInPlansCount === 1 ? '1 Plan' : `${usedInPlansCount} Plans`}</span>
++            <h3>This Place is locked</h3>
++            <p>It is already used inside a Plan, so its saved details cannot be edited. Existing Plans keep their saved Place snapshot.</p>
++            <div className="cta-row">
++              <Link className="button secondary" href={returnHref}>{returnLabel}</Link>
++              <Link className="button primary" href={`/places/new?copyFromPlaceId=${encodeURIComponent(placeId ?? '')}`}>Create editable copy</Link>
++            </div>
++          </section>
++        ) : null}
++
++        {auth.isAuthenticated && !loadingPlace && !editingLockedByPlans ? (
+           <form className="mobile-card plan-form place-clean-form" onSubmit={handleSubmit} noValidate>
+             <div className="place-step-tabs" aria-label="Create Place steps">
+               <button type="button" className={step === 'details' ? 'is-active' : ''} onClick={() => setStep('details')} disabled={saving || uploading}>1. Details</button>
+diff --git a/apps/web/src/features/plans/PlacesManageClient.tsx b/apps/web/src/features/plans/PlacesManageClient.tsx
+index a33b1d9..2f8f87b 100644
+--- a/apps/web/src/features/plans/PlacesManageClient.tsx
++++ b/apps/web/src/features/plans/PlacesManageClient.tsx
+@@ -29,9 +29,20 @@ function placeMeta(place: PlaceDto) {
+   ].filter((value): value is string => Boolean(value && value.trim())).join(' · ');
+ }
+ 
++function placeUsedInPlansCount(place: PlaceDto) {
++  const value = Number((place as PlaceDto & { usedInPlansCount?: number }).usedInPlansCount ?? 0);
++  return Number.isFinite(value) && value > 0 ? value : 0;
++}
++
++function placeUsageLabel(count: number) {
++  return count === 1 ? 'Used in 1 Plan' : `Used in ${count} Plans`;
++}
++
+ function PlaceManageCard({ place, onArchive, archiving }: { place: PlaceDto; onArchive: (place: PlaceDto) => void; archiving?: boolean }) {
+   const meta = placeMeta(place);
+   const imageSrc = planMediaSrc(place.media?.[0] ?? null);
++  const usedInPlansCount = placeUsedInPlansCount(place);
++  const isLocked = usedInPlansCount > 0;
+   return (
+     <article className="place-manage-card">
+       <div className="place-manage-card__main">
+@@ -42,16 +53,22 @@ function PlaceManageCard({ place, onArchive, archiving }: { place: PlaceDto; onA
+           <div className="place-manage-card__top">
+             <span className="semantic-badge place">My Place</span>
+             <span className="semantic-badge muted">{place.mode === 'remote' ? 'Online' : 'Offline'}</span>
++            {isLocked ? <span className="semantic-badge warning">{placeUsageLabel(usedInPlansCount)}</span> : null}
+           </div>
+           <div className="place-manage-card__body">
+             <h3>{place.title}</h3>
+             <p>{place.description || 'Reusable Place for future Plans.'}</p>
+             <small>{meta || 'Private reusable Place'}</small>
++            {isLocked ? <small className="place-manage-card__locked-note">Already used Places are locked so old Plans keep the saved details.</small> : null}
+           </div>
+         </div>
+       </div>
+       <div className="place-manage-card__actions" aria-label={`Manage ${place.title}`}>
+-        <Link className="button secondary compact" href={`/places/${place.id}/edit`}>Edit</Link>
++        {isLocked ? (
++          <button type="button" className="button secondary compact" disabled title="This Place is already used in a Plan.">Edit locked</button>
++        ) : (
++          <Link className="button secondary compact" href={`/places/${place.id}/edit`}>Edit</Link>
++        )}
+         <button type="button" className="button danger compact" disabled={archiving} onClick={() => onArchive(place)}>{archiving ? 'Deleting...' : 'Delete'}</button>
+       </div>
+     </article>
+@@ -139,7 +156,7 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
+           <>
+             <section className="mobile-card mobile-card--soft place-manage-note">
+               <strong>Safe delete</strong>
+-              <span>Deleting a Place archives it from My Places and future pickers. Old Plans still show the saved Place snapshot.</span>
++              <span>Deleting a Place archives it from My Places and future pickers. Places already used in Plans are locked for editing, and old Plans still show the saved snapshot.</span>
+             </section>
+             {message ? <p className="success-message">{message}</p> : null}
+             {error ? <p className="form-error">{error}</p> : null}
+diff --git a/packages/contracts/src/plans.ts b/packages/contracts/src/plans.ts
+index 97a2a25..0d771e7 100644
+--- a/packages/contracts/src/plans.ts
++++ b/packages/contracts/src/plans.ts
+@@ -255,6 +255,7 @@ export const placeSchema = z.object({
+   createdAt: z.string(),
+   updatedAt: z.string(),
+   archivedAt: z.string().nullable().optional(),
++  usedInPlansCount: z.number().int().nonnegative().optional(),
+   owner: publicUserSummarySchema.nullable().optional(),
+   media: z.array(mediaAssetSchema).optional(),
+ }).passthrough();

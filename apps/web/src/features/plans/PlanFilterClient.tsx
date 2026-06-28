@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { WebIcon } from '../../components/WebIcon';
 import { PlansFeatureGate } from './PlansFeatureGate';
 import { activePlanFilterCount, buildPlanFilterHref, normalizePlanSearchQuery, planFilterGroups, planFiltersFromSearchParams, planSearchQueryFromSearchParams, togglePlanFilterValue } from './planFilters';
 
@@ -33,7 +34,7 @@ export function PlanFilterClient({ plansEnabled }: PlanFilterClientProps) {
     <PlansFeatureGate plansEnabled={plansEnabled}>
       <main className="mobile-page plans-page plans-filter-page app-filter-page app-filter-page--plans web-app-page web-app-page--filter web-app-page--plans">
         <header className="plans-filter-header app-filter-header">
-          <Link className="plans-feed-icon-button app-filter-back" href={backHref} aria-label="Back to Plans">‹</Link>
+          <Link className="plans-feed-icon-button app-filter-back" href={backHref} aria-label="Back to Plans"><WebIcon name="back" size={18} decorative /></Link>
           <div>
             <h1>Plan filters</h1>
             <p>Choose simple filters for public Plans.</p>

@@ -50,7 +50,7 @@ function TradeDetailLoadingSkeleton({ label, title }: { label: string; title: st
   return (
     <article className="trade-detail-page trade-detail-page--social trade-detail-page--loading" aria-busy="true">
       <header className="trade-detail-toolbar trade-detail-toolbar--loading" aria-label={label}>
-        <span className="trade-detail-back-link trade-detail-back-link--loading" aria-hidden="true">←</span>
+        <span className="trade-detail-back-link trade-detail-back-link--loading" aria-hidden="true" />
         <span className="trade-detail-icon-button trade-detail-icon-button--loading" aria-hidden="true">
           <WebIcon name="share" size={17} decorative />
         </span>
@@ -335,7 +335,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
     <article className="trade-detail-page trade-detail-page--social">
       <header className="trade-detail-toolbar" aria-label={t('trade.labels.trade')}>
         <Link href="/trades" className="trade-detail-back-link">
-          <span aria-hidden="true">←</span>
+          <WebIcon name="back" size={17} decorative />
           <span>{t('trade.labels.trade')}</span>
         </Link>
         <div className="trade-detail-toolbar-actions">

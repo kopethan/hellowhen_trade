@@ -6,6 +6,7 @@ import type { ChangeEvent, FormEvent } from 'react';
 import type { MediaAssetDto, PlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
 import { buildGeneratedPlanDisplay, parseStarterPlanIdeaKey, starterPlanIdeas, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
@@ -198,6 +199,13 @@ function selectedMediaIds(media: MediaAssetDto | null) {
   return media?.id ? [media.id] : undefined;
 }
 
+function selectedPlanPlaceMediaIds(place: PlaceFormState) {
+  // Saved Place images already belong to the source Place. Plan Places can
+  // display them through the existing source-place media fallback, so only
+  // newly uploaded Plan-specific images should be attached to the Plan Place.
+  return selectedMediaIds(place.media);
+}
+
 function parsePlanTagsInput(value: string) {
   return Array.from(new Set(value.split(/[,\n]/).map((tag) => tag.trim()).filter(Boolean)));
 }
@@ -221,6 +229,13 @@ function parseOptionalPlanEnd(end: PlanEndState, fallbackStartAt: string) {
   if (Number.isNaN(parsed.getTime())) return { endsAt: '', error: 'Add a valid end date and time, or leave the end empty.' };
   if (fallbackStartAt && parsed.getTime() < new Date(fallbackStartAt).getTime()) return { endsAt: '', error: 'End time must be after the Plan start.' };
   return { endsAt: parsed.toISOString(), error: '' };
+}
+
+function parseRequiredPlanEnd(end: PlanEndState, fallbackStartAt: string) {
+  if (!end.date.trim() && !end.time.trim()) return { endsAt: '', error: 'Add an estimated end date and time so your Plans do not overlap.' };
+  const parsed = parseOptionalPlanEnd(end, fallbackStartAt);
+  if (parsed.error) return { endsAt: '', error: parsed.error.replace('or leave the end empty.', 'even if it is estimated.') };
+  return parsed;
 }
 
 function rangeLabelWithEnd(schedule: ReturnType<typeof buildPlanSchedule>, end: PlanEndState) {
@@ -323,7 +338,7 @@ function PlanPlaceTimelineButton({ place, index, onOpen }: { place: PlaceFormSta
   return (
     <button type="button" className="plan-timeline-row__main plan-timeline-row__main--button plan-place-summary-button" onClick={onOpen}>
       <span className="plan-place-summary-button__media" aria-hidden="true">
-        {imageSrc ? <img src={imageSrc} alt="" loading="lazy" /> : <span>{place.mode === 'remote' ? '↗' : '⌖'}</span>}
+        {imageSrc ? <img src={imageSrc} alt="" loading="lazy" /> : <WebIcon name="location-on" size={24} decorative />}
       </span>
       <span className="plan-place-summary-button__copy">
         <span className="plan-timeline-row__heading">
@@ -357,7 +372,7 @@ function PlacePickerList({
         return (
           <button type="button" className="plan-place-picker-card" key={place.id} onClick={() => onChoose(place)}>
             <span className="plan-place-picker-card__media">
-              {media ? <img src={planMediaSrc(media)} alt={media.filename ?? place.title} /> : '⌖'}
+              {media ? <img src={planMediaSrc(media)} alt={media.filename ?? place.title} /> : <WebIcon name="location-on" size={20} decorative />}
             </span>
             <span className="plan-place-picker-card__body">
               <strong>{place.title}</strong>
@@ -440,6 +455,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   const handledPlanIdeaKeyRef = useRef<string | null>(null);
   const handledCreatedPlaceIdRef = useRef<string | null>(null);
   const handledUpdatedPlaceIdRef = useRef<string | null>(null);
+  const creatingPlanRef = useRef(false);
   const [places, setPlaces] = useState<PlaceFormState[]>(() => safeReadPlanDraft());
   const [advancedDetails, setAdvancedDetails] = useState<AdvancedPlanDetailsState>(() => safeReadAdvancedPlanDetails());
   const [planEnd, setPlanEnd] = useState<PlanEndState>(() => safeReadPlanEndState());
@@ -454,13 +470,14 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   const [detailPlaceIndex, setDetailPlaceIndex] = useState<number | null>(null);
   const [placeQuery, setPlaceQuery] = useState('');
   const [saving, setSaving] = useState(false);
+  const [createdPlanId, setCreatedPlanId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   const placesForGeneratedDisplay = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceTitle?.trim()), [places]);
   const schedulablePlaces = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceId), [places]);
   const schedule = useMemo(() => buildPlanSchedule(schedulablePlaces), [schedulablePlaces]);
-  const explicitPlanEnd = useMemo(() => parseOptionalPlanEnd(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
+  const explicitPlanEnd = useMemo(() => parseRequiredPlanEnd(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
   const rangeLabel = rangeLabelWithEnd(schedule, planEnd);
   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
     places: placesForGeneratedDisplay,
@@ -690,6 +707,11 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (createdPlanId) {
+      router.replace(`/plans/${encodeURIComponent(createdPlanId)}`);
+      return;
+    }
+    if (creatingPlanRef.current) return;
     if (!auth.isAuthenticated) {
       router.push('/auth?next=/plans/new');
       return;
@@ -700,9 +722,13 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     const customDescription = advancedDetails.description.trim();
     const customCategory = advancedDetails.category.trim();
     const customTags = parsePlanTagsInput(advancedDetails.tags);
-    const nextExplicitEnd = parseOptionalPlanEnd(planEnd, nextSchedule.startsAt);
+    const nextExplicitEnd = parseRequiredPlanEnd(planEnd, nextSchedule.startsAt);
     if (nextSchedule.error || !nextSchedule.startsAt || usablePlaces.length === 0) {
       setError(nextSchedule.error || 'Add at least one place with a valid date and time.');
+      return;
+    }
+    if (nextExplicitEnd.error) {
+      setError(nextExplicitEnd.error);
       return;
     }
     if (customTitle && customTitle.length < 3) {
@@ -717,6 +743,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
       setError('Use up to 8 tags, each 32 characters or less.');
       return;
     }
+    creatingPlanRef.current = true;
     setSaving(true);
     setError('');
     setMessage('');
@@ -734,7 +761,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
         tags: customTags.length ? customTags : undefined,
         mode: planModeFromPlaces(usablePlaces),
         startsAt: nextSchedule.startsAt,
-        endsAt: nextExplicitEnd.endsAt || nextSchedule.endsAt || nextSchedule.startsAt,
+        endsAt: nextExplicitEnd.endsAt,
         joinApprovalMode: 'automatic',
         status: 'open',
         places: usablePlaces.map((place, index) => ({
@@ -746,14 +773,17 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
           onlineUrl: place.mode === 'remote' ? place.onlineUrl.trim() || undefined : undefined,
           startsAt: nextSchedule.placeStartsAt[index],
           order: index,
-          mediaIds: selectedMediaIds(place.media ?? place.existingMedia),
+          mediaIds: selectedPlanPlaceMediaIds(place),
         })),
       });
+      const nextPlanId = response.plan.id;
+      setCreatedPlanId(nextPlanId);
       clearPlanDraft();
-      router.replace(`/plans/${response.plan.id}`);
+      setMessage('Plan created. Opening the detail page...');
+      router.replace(`/plans/${encodeURIComponent(nextPlanId)}`);
     } catch (saveError) {
+      creatingPlanRef.current = false;
       setError(getFriendlyApiErrorMessage(saveError, 'Could not create Plan.'));
-    } finally {
       setSaving(false);
     }
   }
@@ -767,7 +797,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
       <main className="mobile-page plans-page web-app-page web-app-page--create web-app-page--plans app-create-shell app-create-shell--plan">
         <header className="app-create-header">
           <div className="app-create-header__title-row">
-            <Link className="web-back-button app-create-back" href="/plans" aria-label="Back to Plans">‹</Link>
+            <Link className="web-back-button app-create-back" href="/plans" aria-label="Back to Plans"><WebIcon name="back" size={18} decorative /></Link>
             <div className="app-create-header__copy">
               <div className="app-create-header__eyebrow">
                 <PlansInternalBadge plansVisible={plansVisible} />
@@ -843,17 +873,17 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                   {places.length > 0 ? (
                     <div className="plan-timeline-row plan-timeline-row--time plan-timeline-row--optional-end">
                       <div className="plan-timeline-row__main">
-                        <span className="semantic-badge time">Optional</span>
-                        <h3>End time</h3>
+                        <span className="semantic-badge time">Required</span>
+                        <h3>Plan end time</h3>
                       </div>
                       <div className="plan-timeline-row__fields">
                         <label>
                           <span>End date</span>
-                          <input type="date" value={planEnd.date} onChange={(event) => updatePlanEnd({ date: event.target.value })} />
+                          <input type="date" value={planEnd.date} onChange={(event) => updatePlanEnd({ date: event.target.value })} required />
                         </label>
                         <label>
                           <span>End time</span>
-                          <input type="time" value={planEnd.time} onChange={(event) => updatePlanEnd({ time: event.target.value })} />
+                          <input type="time" value={planEnd.time} onChange={(event) => updatePlanEnd({ time: event.target.value })} required />
                         </label>
                       </div>
                     </div>
@@ -913,8 +943,12 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                 {message ? <p className="success-message">{message}</p> : null}
                 {validationNotice ? <p className="form-error">{validationNotice}</p> : null}
                 <div className="plan-preview-actions">
-                  <button type="button" className="button secondary" onClick={() => setStage('build')}>Back</button>
-                  <button className="button primary" type="submit" disabled={saving || places.some((place) => place.uploading)}>{saving ? 'Creating...' : 'Create Plan'}</button>
+                  <button type="button" className="button secondary" disabled={saving || Boolean(createdPlanId)} onClick={() => setStage('build')}>Back</button>
+                  {createdPlanId ? (
+                    <Link className="button primary" href={`/plans/${encodeURIComponent(createdPlanId)}`}>Open created Plan</Link>
+                  ) : (
+                    <button className="button primary" type="submit" disabled={saving || places.some((place) => place.uploading)}>{saving ? 'Creating Plan...' : 'Create Plan'}</button>
+                  )}
                 </div>
               </>
             )}
@@ -1006,7 +1040,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
               {pickerView === 'source' ? (
                 <div className="plan-place-source-grid">
                   <button type="button" className="plan-place-source-option plan-place-source-option--primary" onClick={() => openPickerList('mine')}>
-                    <span className="plan-place-source-option__icon">⌖</span>
+                    <span className="plan-place-source-option__icon"><WebIcon name="location-on" size={16} decorative /></span>
                     <span><strong>My Places</strong></span>
                   </button>
                   <button type="button" className="plan-place-source-option" onClick={() => openPickerList('library')}>
@@ -1014,7 +1048,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                     <span><strong>Hellowhen Library</strong></span>
                   </button>
                   <button type="button" className="plan-place-source-option" onClick={openCreatePlaceFromPicker}>
-                    <span className="plan-place-source-option__icon">＋</span>
+                    <span className="plan-place-source-option__icon"><WebIcon name="location-on" size={16} decorative /></span>
                     <span><strong>New Place</strong></span>
                   </button>
                   <button type="button" className="plan-place-source-option" onClick={useCustomPlaceFromPicker}>

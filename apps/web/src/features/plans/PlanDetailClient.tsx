@@ -308,7 +308,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
       <main className="plan-detail-page plan-detail-page--web">
         <header className="plan-detail-toolbar" aria-label="Plan navigation">
           <Link href="/plans" className="plan-detail-back-link">
-            <span aria-hidden="true">←</span>
+            <WebIcon name="back" size={17} decorative />
             <span>Plan</span>
           </Link>
           <div className="plan-detail-toolbar__actions">

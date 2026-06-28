@@ -1,0 +1,72 @@
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index 8a1f8c4..c079a4f 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -441,6 +441,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   const handledPlanIdeaKeyRef = useRef<string | null>(null);
+   const handledCreatedPlaceIdRef = useRef<string | null>(null);
+   const handledUpdatedPlaceIdRef = useRef<string | null>(null);
++  const creatingPlanRef = useRef(false);
+   const [places, setPlaces] = useState<PlaceFormState[]>(() => safeReadPlanDraft());
+   const [advancedDetails, setAdvancedDetails] = useState<AdvancedPlanDetailsState>(() => safeReadAdvancedPlanDetails());
+   const [planEnd, setPlanEnd] = useState<PlanEndState>(() => safeReadPlanEndState());
+@@ -455,6 +456,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   const [detailPlaceIndex, setDetailPlaceIndex] = useState<number | null>(null);
+   const [placeQuery, setPlaceQuery] = useState('');
+   const [saving, setSaving] = useState(false);
++  const [createdPlanId, setCreatedPlanId] = useState<string | null>(null);
+   const [message, setMessage] = useState('');
+   const [error, setError] = useState('');
+ 
+@@ -691,6 +693,11 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+ 
+   async function submit(event: FormEvent<HTMLFormElement>) {
+     event.preventDefault();
++    if (createdPlanId) {
++      router.replace(`/plans/${encodeURIComponent(createdPlanId)}`);
++      return;
++    }
++    if (creatingPlanRef.current) return;
+     if (!auth.isAuthenticated) {
+       router.push('/auth?next=/plans/new');
+       return;
+@@ -718,6 +725,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+       setError('Use up to 8 tags, each 32 characters or less.');
+       return;
+     }
++    creatingPlanRef.current = true;
+     setSaving(true);
+     setError('');
+     setMessage('');
+@@ -750,11 +758,14 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+           mediaIds: selectedMediaIds(place.media ?? place.existingMedia),
+         })),
+       });
++      const nextPlanId = response.plan.id;
++      setCreatedPlanId(nextPlanId);
+       clearPlanDraft();
+-      router.replace(`/plans/${response.plan.id}`);
++      setMessage('Plan created. Opening the detail page...');
++      router.replace(`/plans/${encodeURIComponent(nextPlanId)}`);
+     } catch (saveError) {
++      creatingPlanRef.current = false;
+       setError(getFriendlyApiErrorMessage(saveError, 'Could not create Plan.'));
+-    } finally {
+       setSaving(false);
+     }
+   }
+@@ -914,8 +925,12 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                 {message ? <p className="success-message">{message}</p> : null}
+                 {validationNotice ? <p className="form-error">{validationNotice}</p> : null}
+                 <div className="plan-preview-actions">
+-                  <button type="button" className="button secondary" onClick={() => setStage('build')}>Back</button>
+-                  <button className="button primary" type="submit" disabled={saving || places.some((place) => place.uploading)}>{saving ? 'Creating...' : 'Create Plan'}</button>
++                  <button type="button" className="button secondary" disabled={saving || Boolean(createdPlanId)} onClick={() => setStage('build')}>Back</button>
++                  {createdPlanId ? (
++                    <Link className="button primary" href={`/plans/${encodeURIComponent(createdPlanId)}`}>Open created Plan</Link>
++                  ) : (
++                    <button className="button primary" type="submit" disabled={saving || places.some((place) => place.uploading)}>{saving ? 'Creating Plan...' : 'Create Plan'}</button>
++                  )}
+                 </div>
+               </>
+             )}

@@ -34,7 +34,7 @@ export function TradeFilterClient() {
   return (
     <main className="mobile-page plans-page plans-filter-page trade-filter-page app-filter-page app-filter-page--trade web-app-page web-app-page--filter web-app-page--trade">
       <header className="plans-filter-header app-filter-header">
-        <Link className="plans-feed-icon-button app-filter-back" href={backHref} aria-label="Back to Trade">‹</Link>
+        <Link className="plans-feed-icon-button app-filter-back" href={backHref} aria-label="Back to Trade"><WebIcon name="back" size={18} decorative /></Link>
         <div>
           <h1>Trade filters</h1>
           <p>Search and filter exchange cards.</p>

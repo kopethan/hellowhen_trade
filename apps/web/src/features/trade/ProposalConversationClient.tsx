@@ -1396,7 +1396,8 @@ export function ProposalConversationClient({
       <article className="trade-detail-page proposal-conversation-page">
         <section className="trade-hero-section">
           <Link href={`/trades/${tradeId}`} className="button secondary">
-            ← {t("common.actions.back")}
+            <WebIcon name="back" size={17} decorative />
+            <span>{t("common.actions.back")}</span>
           </Link>
           <span className="semantic-badge danger">
             {t("trade.labels.unavailable")}

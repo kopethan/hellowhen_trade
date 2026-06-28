@@ -138,6 +138,9 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
   const returnToPlan = searchParams.get('returnTo') === 'plan';
   const copyFromPlaceId = searchParams.get('copyFromPlaceId');
   const isEditing = Boolean(placeId);
+  const returnHref = returnToPlan ? '/plans/new' : '/places';
+  const returnLabel = returnToPlan ? 'Back to Plan draft' : 'Back to My Places';
+  const saveLabel = returnToPlan ? (isEditing ? 'Update and return to Plan draft' : 'Save and return to Plan draft') : isEditing ? 'Update Place' : 'Save Place';
   const [state, setState] = useState<PlaceCreateFormState>(() => makePlaceCreateForm(normalizePlaceLanguage(language)));
   const [step, setStep] = useState<PlaceCreateStep>('details');
   const [translationPanelOpen, setTranslationPanelOpen] = useState(false);
@@ -147,6 +150,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [usedInPlansCount, setUsedInPlansCount] = useState(0);
 
   useEffect(() => {
     if (isEditing || copyFromPlaceId) return;
@@ -160,6 +164,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
   useEffect(() => {
     const sourcePlaceId = placeId || copyFromPlaceId;
     if (!sourcePlaceId || !auth.hydrated || !auth.isAuthenticated) {
+      setUsedInPlansCount(0);
       setLoadingPlace(false);
       return;
     }
@@ -173,6 +178,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
         setState(formStateFromPlace(response.place));
         setTranslationPanelOpen(placeHasTranslations(response.place));
         setMedia(isEditing ? activePlaceMedia(response.place.media) : []);
+        setUsedInPlansCount(isEditing ? Number((response.place as typeof response.place & { usedInPlansCount?: number }).usedInPlansCount ?? 0) : 0);
       })
       .catch((caughtError) => {
         if (cancelled) return;
@@ -191,6 +197,14 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
 
   function validateDetails() {
     if (state.title.trim().length < 3) return 'Add a Place name.';
+    if (state.mode === 'remote' && state.onlineUrl.trim()) {
+      try {
+        const parsedUrl = new URL(state.onlineUrl.trim());
+        if (!['http:', 'https:'].includes(parsedUrl.protocol)) return 'Add a valid online URL.';
+      } catch {
+        return 'Add a valid online URL.';
+      }
+    }
     const translationError = validatePlaceTranslations(state);
     if (translationError) setTranslationPanelOpen(true);
     return translationError;
@@ -199,7 +213,9 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
   function goToImageStep() {
     const detailsError = validateDetails();
     if (detailsError) {
+      setMessage('');
       setError(detailsError);
+      setStep('details');
       return;
     }
     setError('');
@@ -239,8 +255,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
     setMessage('Image removed. Save the Place to keep this change.');
   }
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function savePlace() {
     if (!auth.isAuthenticated) {
       router.push(`/auth?next=${encodeURIComponent(nextUrl())}`);
       return;
@@ -258,7 +273,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
     try {
       const body = {
         mode: state.mode,
-        title: state.title,
+        title: state.title.trim(),
         description: state.description.trim() || undefined,
         defaultLanguage: state.defaultLanguage,
         translations: normalizePlaceTranslationsForPayload(state),
@@ -292,8 +307,18 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
     }
   }
 
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (step === 'details') {
+      goToImageStep();
+      return;
+    }
+    void savePlace();
+  }
+
   const selectedMedia = media[0];
   const imagePreviewSrc = selectedMedia ? mediaSrc(selectedMedia) : '';
+  const editingLockedByPlans = isEditing && usedInPlansCount > 0;
 
   return (
     <PlansFeatureGate plansEnabled={plansEnabled}>
@@ -302,7 +327,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
           <div>
             <PlansInternalBadge plansVisible={plansVisible} />
             <h2>{isEditing ? 'Edit Place' : 'Create Place'}</h2>
-            <p>{returnToPlan ? (isEditing ? 'Update and return to your Plan.' : 'Save and return to your Plan.') : 'Reusable Place for future Plans.'}</p>
+            <p>{returnToPlan ? (isEditing ? 'Update this Place and return to your Plan draft.' : 'Save this Place and return to your Plan draft.') : 'Reusable Place for My Places and future Plans.'}</p>
           </div>
         </section>
 
@@ -317,8 +342,20 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
 
         {auth.isAuthenticated && loadingPlace ? <section className="mobile-card"><p className="meta">Loading Place...</p></section> : null}
 
-        {auth.isAuthenticated && !loadingPlace ? (
-          <form className="mobile-card plan-form place-clean-form" onSubmit={submit}>
+        {auth.isAuthenticated && !loadingPlace && editingLockedByPlans ? (
+          <section className="mobile-card mobile-card--soft place-edit-locked-card">
+            <span className="semantic-badge warning">Used in {usedInPlansCount === 1 ? '1 Plan' : `${usedInPlansCount} Plans`}</span>
+            <h3>This Place is locked</h3>
+            <p>It is already used inside a Plan, so its saved details cannot be edited. Existing Plans keep their saved Place snapshot.</p>
+            <div className="cta-row">
+              <Link className="button secondary" href={returnHref}>{returnLabel}</Link>
+              <Link className="button primary" href={`/places/new?copyFromPlaceId=${encodeURIComponent(placeId ?? '')}`}>Create editable copy</Link>
+            </div>
+          </section>
+        ) : null}
+
+        {auth.isAuthenticated && !loadingPlace && !editingLockedByPlans ? (
+          <form className="mobile-card plan-form place-clean-form" onSubmit={handleSubmit} noValidate>
             <div className="place-step-tabs" aria-label="Create Place steps">
               <button type="button" className={step === 'details' ? 'is-active' : ''} onClick={() => setStep('details')} disabled={saving || uploading}>1. Details</button>
               <button type="button" className={step === 'image' ? 'is-active' : ''} onClick={goToImageStep} disabled={saving || uploading}>2. Image</button>
@@ -480,12 +517,12 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
             {error ? <p className="form-error">{error}</p> : null}
             <div className="cta-row place-save-row">
               {step === 'details' ? (
-                <button className="button primary" type="button" disabled={saving || uploading || state.title.trim().length < 3} onClick={goToImageStep}>Continue to image</button>
+                <button className="button primary" type="submit" disabled={saving || uploading}>Continue to image</button>
               ) : (
-                <button className="button primary" type="submit" disabled={saving || uploading || state.title.trim().length < 3}>{saving ? 'Saving...' : returnToPlan ? isEditing ? 'Update and return' : 'Save and return' : isEditing ? 'Update Place' : 'Save Place'}</button>
+                <button className="button primary" type="submit" disabled={saving || uploading}>{saving ? 'Saving...' : saveLabel}</button>
               )}
               {step === 'image' ? <button type="button" className="button secondary" onClick={() => setStep('details')} disabled={saving || uploading}>Back to details</button> : null}
-              <Link className="button secondary" href={returnToPlan ? '/plans/new' : '/plans'}>{returnToPlan ? 'Back to Plan draft' : 'Back to Plans'}</Link>
+              <Link className="button secondary" href={returnHref}>{returnLabel}</Link>
             </div>
           </form>
         ) : null}

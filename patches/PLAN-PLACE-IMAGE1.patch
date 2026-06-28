@@ -1,0 +1,27 @@
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index c079a4f..1d75147 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -199,6 +199,13 @@ function selectedMediaIds(media: MediaAssetDto | null) {
+   return media?.id ? [media.id] : undefined;
+ }
+ 
++function selectedPlanPlaceMediaIds(place: PlaceFormState) {
++  // Saved Place images already belong to the source Place. Plan Places can
++  // display them through the existing source-place media fallback, so only
++  // newly uploaded Plan-specific images should be attached to the Plan Place.
++  return selectedMediaIds(place.media);
++}
++
+ function parsePlanTagsInput(value: string) {
+   return Array.from(new Set(value.split(/[,\n]/).map((tag) => tag.trim()).filter(Boolean)));
+ }
+@@ -755,7 +762,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+           onlineUrl: place.mode === 'remote' ? place.onlineUrl.trim() || undefined : undefined,
+           startsAt: nextSchedule.placeStartsAt[index],
+           order: index,
+-          mediaIds: selectedMediaIds(place.media ?? place.existingMedia),
++          mediaIds: selectedPlanPlaceMediaIds(place),
+         })),
+       });
+       const nextPlanId = response.plan.id;

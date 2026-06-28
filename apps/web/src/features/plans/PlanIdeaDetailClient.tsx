@@ -31,7 +31,7 @@ export function PlanIdeaDetailClient({ ideaId, plansEnabled }: PlanIdeaDetailCli
     <PlansFeatureGate plansEnabled={plansEnabled}>
       <main className="mobile-page plans-page plan-idea-detail-page">
         <header className="plans-filter-header">
-          <Link className="plans-feed-icon-button" href="/plans" aria-label="Back to Plans">‹</Link>
+          <Link className="plans-feed-icon-button" href="/plans" aria-label="Back to Plans"><WebIcon name="back" size={18} decorative /></Link>
           <div>
             <h1>Plan idea</h1>
             <p>Review a transparent starter Plan before creating your own version.</p>

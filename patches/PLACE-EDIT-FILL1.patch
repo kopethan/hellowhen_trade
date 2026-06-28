@@ -1,0 +1,21 @@
+diff --git a/apps/web/src/app/places/[placeId]/edit/page.tsx b/apps/web/src/app/places/[placeId]/edit/page.tsx
+index de3af2c..749d4e7 100644
+--- a/apps/web/src/app/places/[placeId]/edit/page.tsx
++++ b/apps/web/src/app/places/[placeId]/edit/page.tsx
+@@ -5,9 +5,14 @@ import { getPlansWebFlags } from '../../../../lib/serverFeatureFlags';
+ 
+ export const metadata = noIndexMetadata('Edit Place — Hellowhen Trade');
+ 
+-export default function EditPlacePage({ params }: { params: { placeId: string } }) {
++type EditPlacePageProps = {
++  params: Promise<{ placeId: string }>;
++};
++
++export default async function EditPlacePage({ params }: EditPlacePageProps) {
++  const { placeId } = await params;
+   const flags = getPlansWebFlags();
+   if (!flags.plansEnabled) permanentRedirect('/trades');
+ 
+-  return <PlaceCreateClient {...flags} placeId={params.placeId} />;
++  return <PlaceCreateClient {...flags} placeId={placeId} />;
+ }

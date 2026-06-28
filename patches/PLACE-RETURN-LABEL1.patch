@@ -1,0 +1,36 @@
+diff --git a/apps/web/src/features/plans/PlaceCreateClient.tsx b/apps/web/src/features/plans/PlaceCreateClient.tsx
+index 45c597f..f9b18ce 100644
+--- a/apps/web/src/features/plans/PlaceCreateClient.tsx
++++ b/apps/web/src/features/plans/PlaceCreateClient.tsx
+@@ -138,6 +138,9 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+   const returnToPlan = searchParams.get('returnTo') === 'plan';
+   const copyFromPlaceId = searchParams.get('copyFromPlaceId');
+   const isEditing = Boolean(placeId);
++  const returnHref = returnToPlan ? '/plans/new' : '/places';
++  const returnLabel = returnToPlan ? 'Back to Plan draft' : 'Back to My Places';
++  const saveLabel = returnToPlan ? (isEditing ? 'Update and return to Plan draft' : 'Save and return to Plan draft') : isEditing ? 'Update Place' : 'Save Place';
+   const [state, setState] = useState<PlaceCreateFormState>(() => makePlaceCreateForm(normalizePlaceLanguage(language)));
+   const [step, setStep] = useState<PlaceCreateStep>('details');
+   const [translationPanelOpen, setTranslationPanelOpen] = useState(false);
+@@ -320,7 +323,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+           <div>
+             <PlansInternalBadge plansVisible={plansVisible} />
+             <h2>{isEditing ? 'Edit Place' : 'Create Place'}</h2>
+-            <p>{returnToPlan ? (isEditing ? 'Update and return to your Plan.' : 'Save and return to your Plan.') : 'Reusable Place for future Plans.'}</p>
++            <p>{returnToPlan ? (isEditing ? 'Update this Place and return to your Plan draft.' : 'Save this Place and return to your Plan draft.') : 'Reusable Place for My Places and future Plans.'}</p>
+           </div>
+         </section>
+ 
+@@ -500,10 +503,10 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+               {step === 'details' ? (
+                 <button className="button primary" type="submit" disabled={saving || uploading}>Continue to image</button>
+               ) : (
+-                <button className="button primary" type="submit" disabled={saving || uploading}>{saving ? 'Saving...' : returnToPlan ? isEditing ? 'Update and return' : 'Save and return' : isEditing ? 'Update Place' : 'Save Place'}</button>
++                <button className="button primary" type="submit" disabled={saving || uploading}>{saving ? 'Saving...' : saveLabel}</button>
+               )}
+               {step === 'image' ? <button type="button" className="button secondary" onClick={() => setStep('details')} disabled={saving || uploading}>Back to details</button> : null}
+-              <Link className="button secondary" href={returnToPlan ? '/plans/new' : '/plans'}>{returnToPlan ? 'Back to Plan draft' : 'Back to Plans'}</Link>
++              <Link className="button secondary" href={returnHref}>{returnLabel}</Link>
+             </div>
+           </form>
+         ) : null}

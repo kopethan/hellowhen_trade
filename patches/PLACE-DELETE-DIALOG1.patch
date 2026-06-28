@@ -1,0 +1,75 @@
+diff --git a/apps/web/src/features/plans/PlacesManageClient.tsx b/apps/web/src/features/plans/PlacesManageClient.tsx
+index 5cbdae4..a33b1d9 100644
+--- a/apps/web/src/features/plans/PlacesManageClient.tsx
++++ b/apps/web/src/features/plans/PlacesManageClient.tsx
+@@ -8,6 +8,7 @@ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { WebIcon } from '../../components/WebIcon';
++import { ConfirmDialog } from '../../components/ConfirmDialog';
+ import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
+ import { planMediaSrc } from './plansPresentation';
+ 
+@@ -65,6 +66,7 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
+   const [error, setError] = useState('');
+   const [message, setMessage] = useState('');
+   const [archivingPlaceId, setArchivingPlaceId] = useState<string | null>(null);
++  const [deleteDialogPlace, setDeleteDialogPlace] = useState<PlaceDto | null>(null);
+ 
+   const createPlaceHref = auth.isAuthenticated ? '/places/new' : nextAuthHref('/places/new');
+ 
+@@ -94,8 +96,6 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
+   const sortedPlaces = useMemo(() => [...places].sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()), [places]);
+ 
+   async function archivePlace(place: PlaceDto) {
+-    const confirmed = window.confirm('Delete this Place from My Places? Existing Plans keep their saved Place details.');
+-    if (!confirmed) return;
+     setArchivingPlaceId(place.id);
+     setError('');
+     setMessage('');
+@@ -103,6 +103,7 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
+       await api.places.archive(place.id);
+       setPlaces((current) => current.filter((item) => item.id !== place.id));
+       setMessage(`${place.title} was removed from My Places.`);
++      setDeleteDialogPlace(null);
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError, 'Could not delete Place.'));
+     } finally {
+@@ -152,10 +153,36 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
+               </section>
+             ) : null}
+             <section className="place-manage-list" aria-label="My Places">
+-              {sortedPlaces.map((place) => <PlaceManageCard key={place.id} place={place} onArchive={archivePlace} archiving={archivingPlaceId === place.id} />)}
++              {sortedPlaces.map((place) => (
++                <PlaceManageCard
++                  key={place.id}
++                  place={place}
++                  onArchive={setDeleteDialogPlace}
++                  archiving={archivingPlaceId === place.id}
++                />
++              ))}
+             </section>
+           </>
+         ) : null}
++        <ConfirmDialog
++          open={Boolean(deleteDialogPlace)}
++          eyebrow="Safe delete"
++          title="Delete this Place?"
++          body={deleteDialogPlace
++            ? `This archives ${deleteDialogPlace.title} from My Places and future pickers. Existing Plans keep their saved Place snapshot.`
++            : 'This archives the Place from My Places and future pickers. Existing Plans keep their saved Place snapshot.'}
++          variant="danger"
++          confirmLabel="Delete Place"
++          loading={Boolean(deleteDialogPlace && archivingPlaceId === deleteDialogPlace.id)}
++          onCancel={() => {
++            if (archivingPlaceId) return;
++            setDeleteDialogPlace(null);
++          }}
++          onConfirm={async () => {
++            if (!deleteDialogPlace) return;
++            await archivePlace(deleteDialogPlace);
++          }}
++        />
+       </main>
+     </PlansFeatureGate>
+   );

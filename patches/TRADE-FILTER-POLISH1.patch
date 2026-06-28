@@ -1,0 +1,105 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 5c56d61..3448410 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -10999,3 +10999,87 @@ html[data-theme="dark"] .web-app-page--me {
+     margin-top: 0;
+   }
+ }
++
++/* TRADE-FILTER-POLISH1: Trade header action visibility polish */
++.feed-world-header .trade-filter-pill,
++.feed-world-header .trade-activity-pill {
++  border-color: color-mix(in srgb, var(--app-border-strong) 88%, var(--app-text) 10%);
++  background:
++    linear-gradient(180deg, color-mix(in srgb, var(--app-surface) 92%, var(--trade-bg) 8%), color-mix(in srgb, var(--app-surface-soft) 94%, transparent));
++  color: color-mix(in srgb, var(--app-text) 86%, var(--app-text-muted));
++  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.10), var(--app-control-shadow);
++}
++.feed-world-header .trade-filter-pill .web-icon,
++.feed-world-header .trade-activity-pill .web-icon {
++  color: currentColor;
++  opacity: 1;
++  filter: drop-shadow(0 1px 0 color-mix(in srgb, var(--app-surface) 54%, transparent));
++}
++.feed-world-header .trade-filter-pill:hover,
++.feed-world-header .trade-activity-pill:hover {
++  border-color: color-mix(in srgb, var(--trade-border) 72%, var(--app-border-strong));
++  background: color-mix(in srgb, var(--trade-bg) 42%, var(--app-surface));
++  color: var(--trade-text);
++  box-shadow: 0 14px 32px color-mix(in srgb, var(--trade-text) 16%, transparent), var(--app-control-shadow);
++}
++.feed-world-header .trade-filter-pill--active,
++.feed-world-header .trade-activity-pill[aria-expanded="true"] {
++  border-color: color-mix(in srgb, var(--trade-border) 86%, var(--app-border-strong));
++  background:
++    radial-gradient(circle at 35% 20%, color-mix(in srgb, var(--app-surface) 38%, transparent), transparent 48%),
++    var(--trade-bg);
++  color: var(--trade-text);
++  box-shadow: 0 16px 36px color-mix(in srgb, var(--trade-text) 20%, transparent), var(--app-control-shadow);
++}
++.feed-world-header .trade-create-pill {
++  border-color: color-mix(in srgb, var(--trade-border) 78%, transparent);
++  background:
++    radial-gradient(circle at 35% 20%, color-mix(in srgb, #ffffff 28%, transparent), transparent 50%),
++    var(--trade-text);
++  color: var(--trade-bg);
++  box-shadow: 0 16px 34px color-mix(in srgb, var(--trade-text) 24%, transparent), var(--app-control-shadow);
++}
++.feed-world-header .trade-create-pill .web-icon {
++  opacity: 1;
++  filter: drop-shadow(0 1px 0 color-mix(in srgb, var(--trade-border) 36%, transparent));
++}
++.trade-filter-pill .plans-feed-icon-button__badge {
++  top: -6px;
++  right: -6px;
++  min-width: 20px;
++  height: 20px;
++  border-color: color-mix(in srgb, var(--app-bg) 82%, var(--app-surface));
++  background: var(--trade-text);
++  color: var(--trade-bg);
++  box-shadow: 0 8px 18px color-mix(in srgb, var(--trade-text) 24%, transparent);
++}
++.feed-status-row {
++  color: var(--app-text);
++}
++.feed-status-row p {
++  color: color-mix(in srgb, var(--app-text) 92%, var(--app-text-muted));
++  font-weight: 950;
++}
++.feed-status-actions .semantic-badge {
++  border-width: 1px;
++  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
++}
++.feed-status-actions .feed-refresh-button {
++  background: color-mix(in srgb, var(--trade-bg) 48%, var(--app-surface));
++  color: var(--trade-text);
++  border-color: color-mix(in srgb, var(--trade-border) 82%, var(--app-border));
++}
++.feed-status-actions .feed-refresh-button:hover,
++.feed-status-actions .feed-refresh-button:focus-visible {
++  background: var(--trade-bg);
++  color: var(--trade-text);
++}
++@media (max-width: 520px) {
++  .feed-world-header .trade-filter-pill,
++  .feed-world-header .trade-activity-pill,
++  .feed-world-header .trade-create-pill {
++    width: 44px;
++    height: 44px;
++    min-height: 44px;
++  }
++}
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index 09ca54d..185dc4a 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -243,7 +243,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+           <h1>{t('navigation.tabs.trade')}</h1>
+         </div>
+         <div className="feed-world-header__actions trade-feed-controls" aria-label={t('trade.filters.controls')}>
+-          <Link className="feed-world-action trade-filter-pill" href={filterHref} aria-label={activeFilterCount ? `${t('trade.filters.searchAndFilters')}, ${activeFilterCount} active` : t('trade.filters.searchAndFilters')} title={t('trade.filters.searchAndFilters')}>
++          <Link className={`feed-world-action trade-filter-pill${activeFilterCount ? ' trade-filter-pill--active' : ''}`} href={filterHref} aria-label={activeFilterCount ? `${t('trade.filters.searchAndFilters')}, ${activeFilterCount} active` : t('trade.filters.searchAndFilters')} title={t('trade.filters.searchAndFilters')}>
+             <WebIcon name="filter" size={18} decorative />
+             <span className="trade-action-label">{t('trade.filters.searchAndFilters')}</span>
+             {activeFilterCount ? <span className="plans-feed-icon-button__badge">{activeFilterCount}</span> : null}

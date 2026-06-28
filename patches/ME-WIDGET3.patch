@@ -1,0 +1,382 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 5fe89cc..24aa0aa 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -10210,6 +10210,125 @@ html[data-theme="dark"] .web-app-page--me {
+ .me-hub-stat-card--danger .me-hub-stat-card__icon,
+ .me-hub-link-card--danger .mobile-link-card__icon { border-color: color-mix(in srgb, var(--danger-border) 58%, var(--me-widget-border)); background: color-mix(in srgb, var(--danger-bg) 78%, var(--me-widget-surface)); color: var(--danger-text); }
+ 
++.me-hub-stat-card__hint {
++  max-width: 100%;
++  opacity: 0.78;
++}
++
++.me-hub-widget-strip {
++  display: grid;
++  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
++  gap: 14px;
++}
++
++.me-hub-widget-card {
++  display: grid;
++  gap: 16px;
++  min-height: 190px;
++  border: 1px solid var(--me-widget-border);
++  border-radius: 30px;
++  background:
++    radial-gradient(circle at 4% 0, color-mix(in srgb, var(--app-surface-soft) 42%, transparent), transparent 34%),
++    linear-gradient(145deg, var(--me-widget-surface-strong), var(--me-widget-surface));
++  padding: 18px;
++  box-shadow: var(--me-widget-shadow-soft);
++  text-decoration: none;
++  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
++}
++
++.me-hub-widget-card:hover,
++.me-hub-widget-card:focus-visible {
++  border-color: var(--me-widget-border-strong);
++  box-shadow: var(--me-widget-shadow);
++  text-decoration: none;
++  transform: translateY(-1px);
++}
++
++.me-hub-widget-card--trade {
++  border-color: color-mix(in srgb, var(--trade-border) 34%, var(--me-widget-border));
++  background:
++    radial-gradient(circle at 8% 0, color-mix(in srgb, var(--trade-bg) 48%, transparent), transparent 34%),
++    linear-gradient(145deg, var(--me-widget-surface-strong), var(--me-widget-surface));
++}
++
++.me-hub-widget-card--proposal {
++  border-color: color-mix(in srgb, var(--proposal-border) 34%, var(--me-widget-border));
++  background:
++    radial-gradient(circle at 8% 0, color-mix(in srgb, var(--proposal-bg) 48%, transparent), transparent 34%),
++    linear-gradient(145deg, var(--me-widget-surface-strong), var(--me-widget-surface));
++}
++
++.me-hub-widget-card__topline {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 10px;
++}
++
++.me-hub-widget-card__metric {
++  display: inline-grid;
++  place-items: center;
++  min-width: 34px;
++  height: 34px;
++  border: 1px solid color-mix(in srgb, var(--proposal-border) 46%, var(--me-widget-border));
++  border-radius: 999px;
++  background: color-mix(in srgb, var(--proposal-bg) 48%, var(--me-widget-surface));
++  color: var(--proposal-text);
++  font-size: 14px;
++  font-weight: 950;
++}
++
++.me-hub-widget-card__body {
++  display: grid;
++  grid-template-columns: auto minmax(0, 1fr);
++  gap: 13px;
++  align-items: start;
++}
++
++.me-hub-widget-card__icon {
++  display: grid;
++  place-items: center;
++  width: 48px;
++  height: 48px;
++  border: 1px solid var(--me-widget-border);
++  border-radius: 19px;
++  background: color-mix(in srgb, var(--me-widget-surface-soft) 86%, var(--me-widget-surface));
++  color: var(--app-text);
++}
++
++.me-hub-widget-card__body strong {
++  display: block;
++  color: var(--app-text);
++  font-size: 19px;
++  font-weight: 950;
++  letter-spacing: -0.04em;
++  line-height: 1.12;
++}
++
++.me-hub-widget-card__body small {
++  display: block;
++  margin-top: 7px;
++  color: var(--app-text-muted);
++  font-size: 13px;
++  font-weight: 790;
++  line-height: 1.42;
++}
++
++.me-hub-widget-card__action {
++  display: inline-flex;
++  align-items: center;
++  gap: 6px;
++  width: fit-content;
++  min-height: 34px;
++  margin-top: auto;
++  border-radius: 999px;
++  background: color-mix(in srgb, var(--me-widget-surface-soft) 78%, var(--me-widget-surface));
++  color: var(--app-text);
++  padding: 0 12px;
++  font-size: 12px;
++  font-weight: 950;
++}
++
+ .me-hub-section {
+   gap: 16px;
+   border: 1px solid var(--me-widget-border);
+@@ -10457,6 +10576,12 @@ html[data-theme="dark"] .web-app-page--me {
+   }
+ }
+ 
++@media (min-width: 1180px) {
++  .me-hub-widget-strip {
++    grid-template-columns: repeat(3, minmax(0, 1fr));
++  }
++}
++
+ @media (max-width: 900px) and (min-width: 760px) {
+   .me-hub-layout {
+     grid-template-columns: minmax(0, 1fr);
+@@ -10507,6 +10632,16 @@ html[data-theme="dark"] .web-app-page--me {
+     min-height: 88px;
+   }
+ 
++  .me-hub-widget-strip {
++    grid-template-columns: minmax(0, 1fr);
++  }
++
++  .me-hub-widget-card {
++    min-height: 0;
++    border-radius: 28px;
++    padding: 16px;
++  }
++
+   .me-hub-section {
+     border-radius: 28px;
+     padding: 16px;
+diff --git a/apps/web/src/features/account/AccountHubClient.tsx b/apps/web/src/features/account/AccountHubClient.tsx
+index bc8873c..aac79b8 100644
+--- a/apps/web/src/features/account/AccountHubClient.tsx
++++ b/apps/web/src/features/account/AccountHubClient.tsx
+@@ -111,6 +111,12 @@ export function AccountHubClient() {
+     ...(betaFeatures.plansVisible ? [{ href: '/plans?view=mine', titleKey: 'account.items.myPlansFeature.title', bodyKey: 'account.items.myPlansFeature.body', icon: 'plan' as WebIconName, count: accountCounts.myPlans, tone: 'plan' as AccountHubTone }] : []),
+   ], [accountCounts.myPlans, accountCounts.needs, accountCounts.offers, accountCounts.trades]);
+ 
++  const widgetToolItem = betaFeatures.agendaEnabled
++    ? { href: '/account/agenda', titleKey: 'account.widgets.library.title', bodyKey: 'account.widgets.library.agendaBody', icon: 'calendar' as WebIconName, tone: 'info' as AccountHubTone, actionKey: 'account.widgets.library.agendaAction' }
++    : betaFeatures.savedLibraryEnabled
++      ? { href: '/account/saved', titleKey: 'account.widgets.library.title', bodyKey: 'account.widgets.library.savedBody', icon: 'save' as WebIconName, tone: 'info' as AccountHubTone, actionKey: 'account.widgets.library.savedAction' }
++      : null;
++
+   const [primaryQuickAction, ...secondaryQuickActions] = quickActionItems;
+ 
+   useEffect(() => {
+@@ -191,11 +197,47 @@ export function AccountHubClient() {
+       </section>
+ 
+       {auth.isAuthenticated ? (
+-        <section className="me-hub-overview" aria-label={t('account.sections.activity')}>
+-          <div className="me-hub-stat-grid">
+-            {statItems.map((item) => <MeHubStatCard key={item.href + item.titleKey} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
+-          </div>
+-        </section>
++        <>
++          <section className="me-hub-overview" aria-label={t('account.sections.activity')}>
++            <div className="me-hub-stat-grid">
++              {statItems.map((item) => <MeHubStatCard key={item.href + item.titleKey} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
++            </div>
++          </section>
++
++          <section className="me-hub-widget-strip" aria-label={t('account.widgets.title')}>
++            <MeHubWidgetCard
++              badge={t('account.widgets.today.badge')}
++              title={t('account.widgets.today.title')}
++              body={notificationUnreadCount > 0 ? t('account.widgets.today.notificationsBody') : t('account.widgets.today.body')}
++              href={notificationUnreadCount > 0 ? '/account/notifications' : '/trades/create'}
++              action={notificationUnreadCount > 0 ? t('account.widgets.today.notificationsAction') : t('account.widgets.today.action')}
++              icon={notificationUnreadCount > 0 ? 'bell' : 'clock'}
++              metric={notificationUnreadCount > 0 ? notificationUnreadCount : undefined}
++              tone={notificationUnreadCount > 0 ? 'proposal' : 'trade'}
++            />
++            <MeHubWidgetCard
++              badge={t('account.widgets.attention.badge')}
++              title={t('account.widgets.attention.title')}
++              body={notificationUnreadCount > 0 ? t('account.widgets.attention.withNotifications') : t('account.widgets.attention.body')}
++              href={notificationUnreadCount > 0 ? '/account/notifications' : '/trades'}
++              action={t('account.widgets.attention.action')}
++              icon="activity"
++              metric={notificationUnreadCount > 0 ? notificationUnreadCount : accountCounts.trades}
++              tone={notificationUnreadCount > 0 ? 'proposal' : 'trade'}
++            />
++            {widgetToolItem ? (
++              <MeHubWidgetCard
++                badge={t('account.widgets.library.badge')}
++                title={t(widgetToolItem.titleKey)}
++                body={t(widgetToolItem.bodyKey)}
++                href={widgetToolItem.href}
++                action={widgetToolItem.actionKey ? t(widgetToolItem.actionKey) : t('account.widgets.library.savedAction')}
++                icon={widgetToolItem.icon ?? 'save'}
++                tone={widgetToolItem.tone}
++              />
++            ) : null}
++          </section>
++        </>
+       ) : null}
+ 
+       <section className="account-hub-section me-hub-section me-hub-section--quick" aria-label={t('account.quickActions.title')}>
+@@ -234,6 +276,28 @@ export function AccountHubClient() {
+   );
+ }
+ 
++function MeHubWidgetCard({ badge, title, body, href, action, icon, metric, tone = 'info' }: { badge: string; title: string; body: string; href: string; action: string; icon: WebIconName; metric?: number; tone?: AccountHubTone }) {
++  return (
++    <Link href={href} className={`me-hub-widget-card me-hub-widget-card--${tone}`}>
++      <span className="me-hub-widget-card__topline">
++        <span className="semantic-badge instruction">{badge}</span>
++        {typeof metric === 'number' ? <span className="me-hub-widget-card__metric">{Math.min(metric, 99)}</span> : null}
++      </span>
++      <span className="me-hub-widget-card__body">
++        <WebIcon name={icon} size={22} decorative className="me-hub-widget-card__icon" />
++        <span>
++          <strong>{title}</strong>
++          <small>{body}</small>
++        </span>
++      </span>
++      <span className="me-hub-widget-card__action">
++        {action}
++        <WebIcon name="arrow-right" size={15} decorative />
++      </span>
++    </Link>
++  );
++}
++
+ function MeHubSection({ title, badge, items, authHydrated, isAuthenticated, t, quiet = false }: { title: string; badge?: string; items: AccountHubItem[]; authHydrated: boolean; isAuthenticated: boolean; t: (key: string) => string; quiet?: boolean }) {
+   return (
+     <section className={`account-hub-section me-hub-section${quiet ? ' me-hub-section--quiet' : ''}`} aria-label={title}>
+@@ -258,6 +322,7 @@ function MeHubStatCard({ item, authHydrated, isAuthenticated, t }: { item: Accou
+       <span>
+         <strong>{typeof item.count === 'number' ? Math.min(item.count, 99) : '—'}</strong>
+         <small>{t(item.titleKey)}</small>
++        <small className="me-hub-stat-card__hint">{t(item.bodyKey)}</small>
+       </span>
+     </Link>
+   );
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+index 900360d..adb1bb4 100644
+--- a/packages/i18n/src/locales/en/account.ts
++++ b/packages/i18n/src/locales/en/account.ts
+@@ -42,6 +42,32 @@ export const account = {
+     title: 'Login to open your account',
+     body: 'Profile, settings, inbox, and support are available after login.',
+   },
++  widgets: {
++    title: 'Me widgets',
++    today: {
++      badge: 'Today',
++      title: 'Start here',
++      body: 'Create one clear exchange or continue from your next action.',
++      notificationsBody: 'You have unread updates waiting in your inbox.',
++      action: 'Create trade',
++      notificationsAction: 'Open inbox',
++    },
++    attention: {
++      badge: 'Focus',
++      title: 'Needs attention',
++      body: 'Review your trades, proposals, needs, and offers from one calm place.',
++      withNotifications: 'Unread notifications are the first thing to review today.',
++      action: 'Review activity',
++    },
++    library: {
++      badge: 'Private',
++      title: 'Saved & Agenda',
++      savedBody: 'Keep useful trades, needs, offers, and people for later.',
++      agendaBody: 'Organize reminders, follow-ups, deadlines, and trade dates privately.',
++      savedAction: 'Open saved',
++      agendaAction: 'Open agenda',
++    },
++  },
+   addHandle: 'Add a handle',
+   addHandleOnProfile: 'Add a handle on your profile.',
+   editProfile: 'Edit Profile',
+diff --git a/packages/i18n/src/locales/es/account.ts b/packages/i18n/src/locales/es/account.ts
+index 2b4c675..ed1cab4 100644
+--- a/packages/i18n/src/locales/es/account.ts
++++ b/packages/i18n/src/locales/es/account.ts
+@@ -49,6 +49,36 @@ export const account = {
+     title: 'Inicia sesión para abrir tu cuenta',
+     body: 'Perfil, ajustes, bandeja y soporte están disponibles después de iniciar sesión.',
+   },
++  widgets: {
++    ...enAccount.widgets,
++    title: 'Widgets Me',
++    today: {
++      ...enAccount.widgets.today,
++      badge: 'Hoy',
++      title: 'Empieza aquí',
++      body: 'Crea un intercambio claro o continúa desde tu próxima acción.',
++      notificationsBody: 'Tienes actualizaciones sin leer esperando en tu bandeja.',
++      action: 'Crear intercambio',
++      notificationsAction: 'Abrir bandeja',
++    },
++    attention: {
++      ...enAccount.widgets.attention,
++      badge: 'Foco',
++      title: 'Necesita atención',
++      body: 'Revisa tus intercambios, propuestas, necesidades y ofertas desde un lugar tranquilo.',
++      withNotifications: 'Las notificaciones sin leer son lo primero que conviene revisar hoy.',
++      action: 'Revisar actividad',
++    },
++    library: {
++      ...enAccount.widgets.library,
++      badge: 'Privado',
++      title: 'Guardado y Agenda',
++      savedBody: 'Guarda intercambios, necesidades, ofertas y personas útiles para más tarde.',
++      agendaBody: 'Organiza recordatorios, seguimientos, fechas límite y fechas de intercambio en privado.',
++      savedAction: 'Abrir guardado',
++      agendaAction: 'Abrir agenda',
++    },
++  },
+   addHandle: 'Añadir handle',
+   addHandleOnProfile: 'Añade un handle en tu perfil.',
+   editProfile: 'Editar perfil',
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+index e2e7e92..e71a69e 100644
+--- a/packages/i18n/src/locales/fr/account.ts
++++ b/packages/i18n/src/locales/fr/account.ts
+@@ -42,6 +42,32 @@ export const account = {
+     title: 'Connectez-vous pour ouvrir votre compte',
+     body: 'Profil, paramètres, boîte de réception et assistance sont disponibles après connexion.',
+   },
++  widgets: {
++    title: 'Widgets Me',
++    today: {
++      badge: 'Aujourd’hui',
++      title: 'Commencer ici',
++      body: 'Créez un échange clair ou reprenez votre prochaine action.',
++      notificationsBody: 'Vous avez des mises à jour non lues dans votre boîte.',
++      action: 'Créer un échange',
++      notificationsAction: 'Ouvrir la boîte',
++    },
++    attention: {
++      badge: 'Focus',
++      title: 'À vérifier',
++      body: 'Retrouvez vos échanges, propositions, besoins et offres dans un espace calme.',
++      withNotifications: 'Les notifications non lues sont la première chose à regarder aujourd’hui.',
++      action: 'Voir l’activité',
++    },
++    library: {
++      badge: 'Privé',
++      title: 'Enregistrés & Agenda',
++      savedBody: 'Gardez les échanges, besoins, offres et personnes utiles pour plus tard.',
++      agendaBody: 'Organisez rappels, relances, échéances et dates d’échanges en privé.',
++      savedAction: 'Ouvrir les enregistrés',
++      agendaAction: 'Ouvrir l’agenda',
++    },
++  },
+   addHandle: 'Ajouter un identifiant',
+   addHandleOnProfile: 'Ajoutez un identifiant sur votre profil.',
+   editProfile: 'Modifier le profil',

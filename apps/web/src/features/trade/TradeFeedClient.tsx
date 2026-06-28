@@ -243,7 +243,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
           <h1>{t('navigation.tabs.trade')}</h1>
         </div>
         <div className="feed-world-header__actions trade-feed-controls" aria-label={t('trade.filters.controls')}>
-          <Link className="feed-world-action trade-filter-pill" href={filterHref} aria-label={activeFilterCount ? `${t('trade.filters.searchAndFilters')}, ${activeFilterCount} active` : t('trade.filters.searchAndFilters')} title={t('trade.filters.searchAndFilters')}>
+          <Link className={`feed-world-action trade-filter-pill${activeFilterCount ? ' trade-filter-pill--active' : ''}`} href={filterHref} aria-label={activeFilterCount ? `${t('trade.filters.searchAndFilters')}, ${activeFilterCount} active` : t('trade.filters.searchAndFilters')} title={t('trade.filters.searchAndFilters')}>
             <WebIcon name="filter" size={18} decorative />
             <span className="trade-action-label">{t('trade.filters.searchAndFilters')}</span>
             {activeFilterCount ? <span className="plans-feed-icon-button__badge">{activeFilterCount}</span> : null}

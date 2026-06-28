@@ -1,0 +1,280 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index abeb5e0..5fe89cc 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -10124,6 +10124,13 @@ html[data-theme="dark"] .web-app-page--me {
+   min-height: 46px;
+ }
+ 
++.me-hub-overview {
++  border: 1px solid color-mix(in srgb, var(--me-widget-border) 80%, transparent);
++  border-radius: 32px;
++  background: color-mix(in srgb, var(--me-widget-surface) 72%, transparent);
++  padding: 8px;
++}
++
+ .me-hub-stat-grid {
+   display: grid;
+   grid-template-columns: repeat(2, minmax(0, 1fr));
+@@ -10219,6 +10226,12 @@ html[data-theme="dark"] .web-app-page--me {
+     var(--me-widget-surface);
+ }
+ 
++.me-hub-section--quiet {
++  border-color: color-mix(in srgb, var(--me-widget-border) 68%, transparent);
++  background: color-mix(in srgb, var(--me-widget-surface) 72%, transparent);
++  box-shadow: none;
++}
++
+ .me-hub-section__header {
+   align-items: flex-start;
+   gap: 16px;
+@@ -10292,23 +10305,58 @@ html[data-theme="dark"] .web-app-page--me {
+   font-size: 12px;
+ }
+ 
++.me-hub-quick-actions {
++  display: grid;
++  gap: 12px;
++}
++
+ .account-quick-action-card.me-hub-link-card {
+   align-content: start;
+   align-items: start;
+-  min-height: 132px;
++  min-height: 118px;
+   padding: 16px;
+ }
+ 
++.account-quick-action-card--primary.me-hub-link-card {
++  display: grid;
++  grid-template-columns: auto minmax(0, 1fr) auto;
++  align-items: center;
++  min-height: 108px;
++  border-color: color-mix(in srgb, var(--trade-border) 42%, var(--me-widget-border));
++  background:
++    radial-gradient(circle at 0 0, color-mix(in srgb, var(--trade-bg) 42%, transparent), transparent 34%),
++    linear-gradient(135deg, var(--me-widget-surface-strong), var(--me-widget-surface-soft));
++  padding: 18px;
++}
++
++.account-quick-action-card--compact.me-hub-link-card {
++  min-height: 108px;
++}
++
+ .account-quick-action-card.me-hub-link-card .mobile-link-card__icon {
+   width: 46px;
+   height: 46px;
+   border-radius: 18px;
+ }
+ 
++.account-quick-action-card--primary.me-hub-link-card .mobile-link-card__icon {
++  width: 52px;
++  height: 52px;
++  border-radius: 20px;
++}
++
+ .account-quick-action-card.me-hub-link-card .mobile-link-card__title-row {
+   margin-top: 10px;
+ }
+ 
++.account-quick-action-card--primary.me-hub-link-card .mobile-link-card__title-row {
++  margin-top: 0;
++}
++
++.account-quick-action-card--primary.me-hub-link-card .mobile-link-card__title-row strong {
++  font-size: 18px;
++}
++
+ .account-quick-action-card.me-hub-link-card .me-hub-link-card__body-text {
+   max-width: 17rem;
+ }
+@@ -10318,13 +10366,24 @@ html[data-theme="dark"] .web-app-page--me {
+   gap: 18px;
+ }
+ 
+-.me-hub-layout__main,
+-.me-hub-layout__side {
++.me-hub-layout__primary,
++.me-hub-layout__secondary,
++.me-hub-layout__quiet {
+   display: grid;
+   align-content: start;
+   gap: 18px;
+ }
+ 
++.me-hub-layout__quiet .me-hub-list {
++  display: grid;
++  gap: 10px;
++}
++
++.me-hub-layout__quiet .me-hub-link-card {
++  min-height: 68px;
++  background: color-mix(in srgb, var(--me-widget-surface-soft) 56%, transparent);
++}
++
+ @media (min-width: 760px) {
+   .web-app-page--me {
+     padding-bottom: calc(var(--app-dock-height) + 58px + env(safe-area-inset-bottom));
+@@ -10356,27 +10415,59 @@ html[data-theme="dark"] .web-app-page--me {
+     gap: 14px;
+   }
+ 
++  .me-hub-overview {
++    padding: 10px;
++  }
++
+   .me-hub-layout {
+-    grid-template-columns: minmax(0, 1.12fr) minmax(340px, 0.88fr);
++    grid-template-columns: minmax(0, 1.08fr) minmax(340px, 0.92fr);
++    grid-template-areas:
++      "primary secondary"
++      "quiet quiet";
+     align-items: start;
+     gap: 20px;
+   }
+ 
++  .me-hub-layout__primary { grid-area: primary; }
++  .me-hub-layout__secondary { grid-area: secondary; }
++  .me-hub-layout__quiet { grid-area: quiet; }
++
++  .me-hub-layout__quiet .me-hub-list {
++    grid-template-columns: repeat(2, minmax(0, 1fr));
++  }
++
++  .me-hub-quick-actions {
++    grid-template-columns: minmax(260px, 0.95fr) minmax(0, 1.6fr);
++    align-items: stretch;
++  }
++
+   .me-hub-quick-grid {
+-    grid-template-columns: repeat(3, minmax(0, 1fr));
++    grid-template-columns: repeat(2, minmax(0, 1fr));
+     gap: 12px;
+   }
+ }
+ 
+ @media (min-width: 1180px) {
++  .me-hub-quick-actions {
++    grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.7fr);
++  }
++
+   .me-hub-quick-grid {
+-    grid-template-columns: repeat(5, minmax(0, 1fr));
++    grid-template-columns: repeat(4, minmax(0, 1fr));
+   }
+ }
+ 
+ @media (max-width: 900px) and (min-width: 760px) {
+   .me-hub-layout {
+     grid-template-columns: minmax(0, 1fr);
++    grid-template-areas:
++      "primary"
++      "secondary"
++      "quiet";
++  }
++
++  .me-hub-quick-actions {
++    grid-template-columns: minmax(0, 1fr);
+   }
+ 
+   .me-hub-quick-grid {
+@@ -10433,4 +10524,12 @@ html[data-theme="dark"] .web-app-page--me {
+   .account-quick-action-card.me-hub-link-card {
+     min-height: 82px;
+   }
++
++  .account-quick-action-card--primary.me-hub-link-card {
++    grid-template-columns: auto minmax(0, 1fr);
++  }
++
++  .me-hub-layout__quiet .me-hub-list {
++    grid-template-columns: minmax(0, 1fr);
++  }
+ }
+diff --git a/apps/web/src/features/account/AccountHubClient.tsx b/apps/web/src/features/account/AccountHubClient.tsx
+index 22d4891..bc8873c 100644
+--- a/apps/web/src/features/account/AccountHubClient.tsx
++++ b/apps/web/src/features/account/AccountHubClient.tsx
+@@ -111,6 +111,8 @@ export function AccountHubClient() {
+     ...(betaFeatures.plansVisible ? [{ href: '/plans?view=mine', titleKey: 'account.items.myPlansFeature.title', bodyKey: 'account.items.myPlansFeature.body', icon: 'plan' as WebIconName, count: accountCounts.myPlans, tone: 'plan' as AccountHubTone }] : []),
+   ], [accountCounts.myPlans, accountCounts.needs, accountCounts.offers, accountCounts.trades]);
+ 
++  const [primaryQuickAction, ...secondaryQuickActions] = quickActionItems;
++
+   useEffect(() => {
+     let mounted = true;
+     async function loadNotificationPreview() {
+@@ -189,8 +191,10 @@ export function AccountHubClient() {
+       </section>
+ 
+       {auth.isAuthenticated ? (
+-        <section className="me-hub-stat-grid" aria-label={t('account.sections.activity')}>
+-          {statItems.map((item) => <MeHubStatCard key={item.href + item.titleKey} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
++        <section className="me-hub-overview" aria-label={t('account.sections.activity')}>
++          <div className="me-hub-stat-grid">
++            {statItems.map((item) => <MeHubStatCard key={item.href + item.titleKey} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
++          </div>
+         </section>
+       ) : null}
+ 
+@@ -202,28 +206,37 @@ export function AccountHubClient() {
+           </div>
+           <p>{t('account.quickActions.body')}</p>
+         </div>
+-        <div className="account-quick-action-grid me-hub-quick-grid">
+-          {quickActionItems.map((item) => <AccountHubLinkCard key={item.href} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick />)}
++        <div className="me-hub-quick-actions">
++          {primaryQuickAction ? (
++            <AccountHubLinkCard item={primaryQuickAction} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick quickVariant="primary" />
++          ) : null}
++          {secondaryQuickActions.length > 0 ? (
++            <div className="account-quick-action-grid me-hub-quick-grid">
++              {secondaryQuickActions.map((item) => <AccountHubLinkCard key={item.href} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick quickVariant="compact" />)}
++            </div>
++          ) : null}
+         </div>
+       </section>
+ 
+       <div className="me-hub-layout">
+-        <div className="me-hub-layout__main">
++        <div className="me-hub-layout__primary">
+           <MeHubSection title={t('account.sections.activity')} items={activityItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />
+-          {planWorkspaceItems.length > 0 ? <MeHubSection title={t('account.sections.plans')} badge={t('account.items.plansFeature.badge')} items={planWorkspaceItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} /> : null}
+         </div>
+-        <div className="me-hub-layout__side">
++        <div className="me-hub-layout__secondary">
++          {planWorkspaceItems.length > 0 ? <MeHubSection title={t('account.sections.plans')} badge={t('account.items.plansFeature.badge')} items={planWorkspaceItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} /> : null}
+           <MeHubSection title={t('account.sections.tools')} items={toolsItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />
+-          <MeHubSection title={t('account.sections.settings')} items={settingsItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />
++        </div>
++        <div className="me-hub-layout__quiet">
++          <MeHubSection title={t('account.sections.settings')} items={settingsItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quiet />
+         </div>
+       </div>
+     </div>
+   );
+ }
+ 
+-function MeHubSection({ title, badge, items, authHydrated, isAuthenticated, t }: { title: string; badge?: string; items: AccountHubItem[]; authHydrated: boolean; isAuthenticated: boolean; t: (key: string) => string }) {
++function MeHubSection({ title, badge, items, authHydrated, isAuthenticated, t, quiet = false }: { title: string; badge?: string; items: AccountHubItem[]; authHydrated: boolean; isAuthenticated: boolean; t: (key: string) => string; quiet?: boolean }) {
+   return (
+-    <section className="account-hub-section me-hub-section" aria-label={title}>
++    <section className={`account-hub-section me-hub-section${quiet ? ' me-hub-section--quiet' : ''}`} aria-label={title}>
+       <div className="account-hub-section__header me-hub-section__header">
+         <div>
+           {badge ? <span className="semantic-badge instruction">{badge}</span> : null}
+@@ -250,11 +263,12 @@ function MeHubStatCard({ item, authHydrated, isAuthenticated, t }: { item: Accou
+   );
+ }
+ 
+-function AccountHubLinkCard({ item, authHydrated, isAuthenticated, t, quick = false }: { item: AccountHubItem; authHydrated: boolean; isAuthenticated: boolean; t: (key: string) => string; quick?: boolean }) {
++function AccountHubLinkCard({ item, authHydrated, isAuthenticated, t, quick = false, quickVariant }: { item: AccountHubItem; authHydrated: boolean; isAuthenticated: boolean; t: (key: string) => string; quick?: boolean; quickVariant?: 'primary' | 'compact' }) {
+   const href = authHydrated && !isAuthenticated && !item.publicAccess ? `/auth?next=${encodeURIComponent(item.href)}` : item.href;
+   const className = [
+     item.featured ? 'mobile-link-card mobile-link-card--featured' : 'mobile-link-card',
+     quick ? 'account-quick-action-card' : null,
++    quickVariant ? `account-quick-action-card--${quickVariant}` : null,
+     'me-hub-link-card',
+     `me-hub-link-card--${item.tone ?? 'info'}`,
+   ].filter(Boolean).join(' ');
