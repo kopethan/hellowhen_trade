@@ -982,7 +982,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
 
   return (
     <WizardShell
-      className="wizard-shell--trade-create"
+      className="wizard-shell--trade-create web-app-page web-app-page--create web-app-page--trade app-create-shell app-create-shell--trade"
       title={t('trade.create.title')}
       backHref="/trades"
       backLabel={t('common.actions.back')}

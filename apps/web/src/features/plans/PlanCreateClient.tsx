@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ChangeEvent, FormEvent } from 'react';
 import type { MediaAssetDto, PlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
@@ -763,13 +764,27 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
 
   return (
     <PlansFeatureGate plansEnabled={plansEnabled}>
-      <main className="mobile-page plans-page">
-        <section className="page-intro plan-create-intro plan-create-intro--compact">
-          <div>
-            <PlansInternalBadge plansVisible={plansVisible} />
-            <h2>Create Plan</h2>
+      <main className="mobile-page plans-page web-app-page web-app-page--create web-app-page--plans app-create-shell app-create-shell--plan">
+        <header className="app-create-header">
+          <div className="app-create-header__title-row">
+            <Link className="web-back-button app-create-back" href="/plans" aria-label="Back to Plans">‹</Link>
+            <div className="app-create-header__copy">
+              <div className="app-create-header__eyebrow">
+                <PlansInternalBadge plansVisible={plansVisible} />
+              </div>
+              <h1>Create Plan</h1>
+              <p>Build a simple plan from places, dates, and times.</p>
+            </div>
           </div>
-        </section>
+          <div className="app-create-progress" aria-label={stage === 'build' ? 'Step 1 of 2' : 'Step 2 of 2'}>
+            <div className="app-create-progress__label-row">
+              <span>{stage === 'build' ? 'Step 1 of 2' : 'Step 2 of 2'}</span>
+            </div>
+            <div className="app-create-progress__track" aria-hidden="true">
+              <span className="app-create-progress__fill" style={{ width: stage === 'build' ? '50%' : '100%' }} />
+            </div>
+          </div>
+        </header>
 
         {!auth.hydrated ? <section className="mobile-card"><p className="meta">Checking session...</p></section> : null}
         {auth.hydrated && !auth.isAuthenticated ? (

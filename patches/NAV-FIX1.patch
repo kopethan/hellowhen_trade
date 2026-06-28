@@ -1,0 +1,25 @@
+diff --git a/apps/web/src/features/plans/PlansListClient.tsx b/apps/web/src/features/plans/PlansListClient.tsx
+index 0a69eb6..0c053bc 100644
+--- a/apps/web/src/features/plans/PlansListClient.tsx
++++ b/apps/web/src/features/plans/PlansListClient.tsx
+@@ -118,7 +118,6 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState('');
+   const [menuOpen, setMenuOpen] = useState(false);
+-  const [starterRefreshKey] = useState(() => Math.floor(Date.now() / 1000));
+   const [recentStarterIdeaIds, setRecentStarterIdeaIds] = useState<string[]>([]);
+   const [anonymousStarterKey, setAnonymousStarterKey] = useState('anonymous');
+   const searchParams = useSearchParams();
+@@ -187,9 +186,10 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+     realPlanCount: sortedPlans.length,
+     hasActiveSearchOrFilters: activeView !== 'feed' || hasActiveSearchOrFilters,
+     userKey: auth.user?.id ?? anonymousStarterKey,
+-    refreshKey: starterRefreshKey,
++    refreshKey: 'plans-feed',
++    dayKey: 'stable-plan-ideas',
+     recentIdeaIds: recentStarterIdeaIds,
+-  }), [activeView, anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, recentStarterIdeaIds, sortedPlans.length, starterRefreshKey]);
++  }), [activeView, anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, recentStarterIdeaIds, sortedPlans.length]);
+   const feedItems = useMemo(() => buildPlanFeedItems(sortedPlans.length, starterIdeaKeys), [sortedPlans.length, starterIdeaKeys]);
+ 
+   function markStarterIdeaSeen(ideaKey: StarterPlanIdeaKey) {

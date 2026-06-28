@@ -1,0 +1,116 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 947dc9b..ad98d1b 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2831,6 +2831,17 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ .plans-workspace-menu__icon--need { background: var(--need-bg); border-color: var(--need-border); color: var(--need-text); }
+ .plans-workspace-menu__icon--offer { background: var(--offer-bg); border-color: var(--offer-border); color: var(--offer-text); }
+ .plans-workspace-menu__icon--info { background: var(--info-bg); border-color: var(--info-border); color: var(--info-text); }
++.normal-workspace-menu { width: min(var(--web-app-page-toolbar-max, 880px), 100%); margin-right: auto; margin-left: auto; }
++.normal-workspace-menu .plans-workspace-menu__item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; min-height: 66px; border: 0; border-radius: 16px; background: transparent; color: var(--app-text-muted); font: inherit; text-align: left; text-decoration: none; padding: 10px; cursor: pointer; }
++.normal-workspace-menu .plans-workspace-menu__item > span:not(.plans-workspace-menu__icon) { display: grid; gap: 2px; min-width: 0; }
++.normal-workspace-menu .plans-workspace-menu__item strong { color: var(--app-text); font-size: 14px; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.normal-workspace-menu .plans-workspace-menu__item small { color: var(--app-text-muted); font-size: 12px; font-weight: 780; line-height: 1.3; }
++.normal-workspace-menu .plans-workspace-menu__item:hover:not(:disabled),
++.normal-workspace-menu .plans-workspace-menu__item:focus-visible { background: var(--app-surface-soft); color: var(--app-text); }
++.normal-workspace-menu .plans-workspace-menu__item:focus-visible { outline: 3px solid color-mix(in srgb, var(--proposal-border) 42%, transparent); outline-offset: 3px; }
++.normal-workspace-menu .plans-workspace-menu__item:disabled { opacity: 0.42; cursor: not-allowed; }
++.normal-workspace-menu--trade { border-color: color-mix(in srgb, var(--trade-border) 42%, var(--app-border)); }
++.normal-workspace-menu--plans { border-color: color-mix(in srgb, var(--plan-border) 42%, var(--app-border)); }
+ .plans-feed-view-label { display: flex; align-items: center; justify-content: space-between; color: var(--app-text-muted); font-size: 12px; font-weight: 950; letter-spacing: 0.08em; text-transform: uppercase; }
+ .plans-feed-deck-list { gap: 14px; }
+ 
+diff --git a/apps/web/src/features/plans/PlansListClient.tsx b/apps/web/src/features/plans/PlansListClient.tsx
+index 60b1dc7..c04916e 100644
+--- a/apps/web/src/features/plans/PlansListClient.tsx
++++ b/apps/web/src/features/plans/PlansListClient.tsx
+@@ -254,9 +254,9 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+           </header>
+ 
+           {menuOpen ? (
+-            <section className="plans-feed-menu plans-workspace-menu" aria-label="Plans workspace menu">
++            <section className="plans-feed-menu plans-workspace-menu normal-workspace-menu normal-workspace-menu--plans" aria-label="Plans workspace menu">
+               {workspaceItems.map((item) => (
+-                <button key={item.id} type="button" onClick={() => openWorkspaceItem(item)} disabled={!canLoadPrivateViews && item.id !== 'plan_ideas'}>
++                <button key={item.id} type="button" className="plans-workspace-menu__item" onClick={() => openWorkspaceItem(item)} disabled={!canLoadPrivateViews && item.id !== 'plan_ideas'}>
+                   <span className={`plans-workspace-menu__icon plans-workspace-menu__icon--${item.tone}`}><WebIcon name={item.icon} size={17} decorative /></span>
+                   <span>
+                     <strong>{item.title}</strong>
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index 2f3beab..09ca54d 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -221,7 +221,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+     if (hasAppliedFilters && typeof window !== 'undefined') window.location.assign('/trades');
+   }
+   useEffect(() => {
+-    if (!activeToolPanel) return undefined;
++    if (activeToolPanel !== 'activity') return undefined;
+     const root = document.documentElement;
+     root.classList.add('trade-tools-open');
+     function handleKeyDown(event: KeyboardEvent) {
+@@ -258,11 +258,10 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+           </Link>
+         </div>
+       </header>
+-      {activeToolPanel ? <button type="button" className="trade-tools-backdrop" aria-label={t('common.actions.close')} onClick={() => setActiveToolPanel(null)} /> : null}
++      {activeToolPanel === 'activity' ? <button type="button" className="trade-tools-backdrop" aria-label={t('common.actions.close')} onClick={() => setActiveToolPanel(null)} /> : null}
+ 
+       {activeToolPanel === 'menu' ? (
+         <TradeWizardPanel
+-          createTradeHref={createTradeHref}
+           onClose={() => setActiveToolPanel(null)}
+           onOpenActivity={(tab) => { setActivityTab(tab); setActiveToolPanel('activity'); }}
+           onOpenStarterIdeas={openStarterIdeas}
+@@ -500,7 +499,6 @@ function HomeTradeIntroBanner({ onDismiss }: HomeTradeIntroBannerProps) {
+ 
+ 
+ type TradeWizardPanelProps = {
+-  createTradeHref: string;
+   onClose: () => void;
+   onOpenActivity: (tab: TradeActivityTab) => void;
+   onOpenStarterIdeas: () => void;
+@@ -539,35 +537,22 @@ function TradeWizardPanel({ onClose, onOpenActivity, onOpenStarterIdeas }: Trade
+   function renderItem(item: NormalWorkspaceMenuItem) {
+     const content = (
+       <>
+-        <span className={`trade-wizard-panel__item-icon trade-wizard-panel__item-icon--${iconToneClass(item.tone)}`}><WebIcon name={item.icon} size={18} decorative /></span>
+-        <span className="trade-wizard-panel__item-copy">
++        <span className={`plans-workspace-menu__icon plans-workspace-menu__icon--${iconToneClass(item.tone)}`}><WebIcon name={item.icon} size={17} decorative /></span>
++        <span>
+           <strong>{itemTitle(item)}</strong>
+           <small>{itemBody(item)}</small>
+         </span>
+-        <WebIcon name="arrow-right" size={17} decorative className="trade-wizard-panel__arrow" />
++        <WebIcon name="arrow-right" size={16} decorative />
+       </>
+     );
+-    if (item.id === 'my_needs') return <Link key={item.id} href="/needs" className="trade-wizard-panel__item" onClick={onClose}>{content}</Link>;
+-    if (item.id === 'my_offers') return <Link key={item.id} href="/offers" className="trade-wizard-panel__item" onClick={onClose}>{content}</Link>;
+-    return <button key={item.id} type="button" className="trade-wizard-panel__item" onClick={() => selectItem(item)}>{content}</button>;
++    if (item.id === 'my_needs') return <Link key={item.id} href="/needs" className="plans-workspace-menu__item" onClick={onClose}>{content}</Link>;
++    if (item.id === 'my_offers') return <Link key={item.id} href="/offers" className="plans-workspace-menu__item" onClick={onClose}>{content}</Link>;
++    return <button key={item.id} type="button" className="plans-workspace-menu__item" onClick={() => selectItem(item)}>{content}</button>;
+   }
+ 
+   return (
+-    <section className="trade-wizard-panel" role="dialog" aria-modal="true" aria-labelledby="trade-wizard-panel-title">
+-      <div className="trade-filter-panel__header trade-wizard-panel__header">
+-        <div>
+-          <span className="eyebrow">{t('trade.wizard.badge')}</span>
+-          <h2 id="trade-wizard-panel-title">{t('trade.wizard.title')}</h2>
+-          <p>{t('trade.wizard.body')}</p>
+-        </div>
+-        <button type="button" className="trade-filter-panel__close" onClick={onClose} aria-label={t('common.actions.close')}>×</button>
+-      </div>
+-      <div className="trade-wizard-panel__body">
+-        <section className="trade-wizard-panel__group" aria-label="Trade workspace">
+-          <h3>Workspace</h3>
+-          <div className="trade-wizard-panel__items">{workspaceItems.map(renderItem)}</div>
+-        </section>
+-      </div>
++    <section className="plans-feed-menu plans-workspace-menu normal-workspace-menu normal-workspace-menu--trade" aria-label={t('trade.wizard.title')}>
++      {workspaceItems.map(renderItem)}
+     </section>
+   );
+ }

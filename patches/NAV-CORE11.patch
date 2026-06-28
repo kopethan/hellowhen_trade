@@ -1,0 +1,133 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index e4ca8dc..c2ff5ae 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -1833,6 +1833,7 @@ html[data-theme="dark"] .trade-poster-card.has-fallback h2 {
+   .web-app-page--filter { --web-app-page-max: 760px; }
+   .web-app-page--create { --web-app-page-max: 720px; }
+   .web-app-page--feed .plans-feed-shell,
++  .web-app-page--feed .trade-feed-header,
+   .web-app-page--feed .trade-feed-controls,
+   .web-app-page--feed .feed-status-row,
+   .web-app-page--feed .plans-active-filter-card,
+@@ -2767,6 +2768,38 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+   -webkit-line-clamp: 2;
+ }
+ 
++/* Shared normal-app feed headers */
++.feed-world-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
++.feed-world-header__copy { min-width: 0; }
++.feed-world-header h1 { margin: 0; font-size: 32px; line-height: 1; letter-spacing: -0.06em; }
++.feed-world-header__actions { flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
++.feed-world-action { position: relative; flex: 0 0 auto; }
++.feed-world-header .trade-feed-controls { display: grid; grid-template-columns: repeat(3, 42px); align-items: center; justify-content: end; width: auto; margin: 0; padding: 0; gap: 8px; background: transparent; }
++.feed-world-header .trade-filter-pill,
++.feed-world-header .trade-activity-pill,
++.feed-world-header .trade-create-pill { width: 42px; height: 42px; min-height: 42px; padding: 0; }
++.feed-world-header .trade-filter-pill .trade-action-label,
++.feed-world-header .trade-activity-pill .trade-action-label,
++.feed-world-header .trade-create-pill .trade-action-label { display: none; }
++.feed-world-header .trade-create-pill { min-width: 42px; border: 1px solid transparent; background: var(--trade-bg); color: var(--trade-text); }
++.feed-world-header .trade-filter-pill:hover,
++.feed-world-header .trade-activity-pill:hover,
++.feed-world-header .trade-create-pill:hover,
++.feed-world-header .plans-feed-icon-button:hover { border-color: var(--app-border-strong); transform: translateY(-1px); }
++.feed-world-header .trade-filter-pill:focus-visible,
++.feed-world-header .trade-activity-pill:focus-visible,
++.feed-world-header .trade-create-pill:focus-visible,
++.feed-world-header .plans-feed-icon-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--proposal-border) 42%, transparent); outline-offset: 3px; }
++@media (max-width: 540px) {
++  .feed-world-header h1 { font-size: 30px; }
++  .feed-world-header__actions, .feed-world-header .trade-feed-controls { gap: 7px; }
++  .feed-world-header .trade-feed-controls { grid-template-columns: repeat(3, 40px); }
++  .feed-world-header .trade-filter-pill,
++  .feed-world-header .trade-activity-pill,
++  .feed-world-header .trade-create-pill,
++  .feed-world-header .plans-feed-icon-button { width: 40px; height: 40px; min-height: 40px; }
++}
++
+ /* Hidden Plans production shell */
+ .plans-page .page-intro h2 { margin-bottom: 6px; }
+ .plans-feed-page { gap: 14px; }
+diff --git a/apps/web/src/features/plans/PlansListClient.tsx b/apps/web/src/features/plans/PlansListClient.tsx
+index 8075d74..60b1dc7 100644
+--- a/apps/web/src/features/plans/PlansListClient.tsx
++++ b/apps/web/src/features/plans/PlansListClient.tsx
+@@ -229,25 +229,25 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+     <PlansFeatureGate plansEnabled={plansEnabled}>
+       <main className="mobile-page plans-page plans-feed-page web-app-page web-app-page--feed web-app-page--plans">
+         <section className="plans-feed-shell" aria-label="Plans feed">
+-          <header className="plans-feed-header">
+-            <div>
++          <header className="feed-world-header plans-feed-header">
++            <div className="feed-world-header__copy">
+               <h1>Plans</h1>
+             </div>
+-            <div className="plans-feed-header__actions" aria-label="Plan actions">
+-              <Link className="plans-feed-icon-button plans-feed-icon-button--with-badge" href={filterHref} aria-label={activeFilterCount ? `Filter Plans, ${activeFilterCount} active` : 'Filter Plans'}>
++            <div className="feed-world-header__actions plans-feed-header__actions" aria-label="Plan actions">
++              <Link className="feed-world-action plans-feed-icon-button plans-feed-icon-button--with-badge" href={filterHref} aria-label={activeFilterCount ? `Filter Plans, ${activeFilterCount} active` : 'Filter Plans'}>
+                 <WebIcon name="filter" size={18} decorative />
+                 {activeFilterCount ? <span className="plans-feed-icon-button__badge">{activeFilterCount}</span> : null}
+               </Link>
+               <button
+                 type="button"
+-                className="plans-feed-icon-button"
++                className="feed-world-action plans-feed-icon-button"
+                 aria-label="Open Plans menu"
+                 aria-expanded={menuOpen}
+                 onClick={() => setMenuOpen((current) => !current)}
+               >
+                 <WebIcon name="activity" size={18} decorative />
+               </button>
+-              <Link className="plans-feed-icon-button plans-feed-icon-button--primary" href={createPlanHref} aria-label="Create Plan">
++              <Link className="feed-world-action plans-feed-icon-button plans-feed-icon-button--primary" href={createPlanHref} aria-label="Create Plan">
+                 <WebIcon name="add" size={21} decorative />
+               </Link>
+             </div>
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index 4185c99..2f3beab 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -238,21 +238,26 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+     <section className="mobile-page trade-feed-page web-app-page web-app-page--feed web-app-page--trade">
+       {shouldShowHomeIntro ? <HomeTradeIntroBanner onDismiss={dismissHomeIntro} /> : null}
+ 
+-      <div className="trade-feed-controls" aria-label={t('trade.filters.controls')}>
+-        <Link className="trade-filter-pill" href={filterHref} aria-label={activeFilterCount ? `${t('trade.filters.searchAndFilters')}, ${activeFilterCount} active` : t('trade.filters.searchAndFilters')} title={t('trade.filters.searchAndFilters')}>
+-          <WebIcon name="filter" size={17} decorative />
+-          <span className="trade-action-label">{t('trade.filters.searchAndFilters')}</span>
+-          {activeFilterCount ? <span className="plans-feed-icon-button__badge">{activeFilterCount}</span> : null}
+-        </Link>
+-        <button type="button" className="trade-activity-pill" onClick={() => setActiveToolPanel((value) => value === 'menu' ? null : 'menu')} aria-expanded={activeToolPanel === 'menu'} aria-label={t('trade.wizard.open')} title={t('trade.wizard.open')}>
+-          <WebIcon name="activity" size={18} decorative />
+-          <span className="trade-action-label">{t('trade.wizard.title')}</span>
+-        </button>
+-        <Link href={createTradeHref} className="trade-create-pill" aria-label={t('trade.create.title')} title={t('trade.create.title')}>
+-          <WebIcon name="add" size={21} decorative />
+-          <span className="trade-action-label">{t('trade.create.title')}</span>
+-        </Link>
+-      </div>
++      <header className="feed-world-header trade-feed-header">
++        <div className="feed-world-header__copy">
++          <h1>{t('navigation.tabs.trade')}</h1>
++        </div>
++        <div className="feed-world-header__actions trade-feed-controls" aria-label={t('trade.filters.controls')}>
++          <Link className="feed-world-action trade-filter-pill" href={filterHref} aria-label={activeFilterCount ? `${t('trade.filters.searchAndFilters')}, ${activeFilterCount} active` : t('trade.filters.searchAndFilters')} title={t('trade.filters.searchAndFilters')}>
++            <WebIcon name="filter" size={18} decorative />
++            <span className="trade-action-label">{t('trade.filters.searchAndFilters')}</span>
++            {activeFilterCount ? <span className="plans-feed-icon-button__badge">{activeFilterCount}</span> : null}
++          </Link>
++          <button type="button" className="feed-world-action trade-activity-pill" onClick={() => setActiveToolPanel((value) => value === 'menu' ? null : 'menu')} aria-expanded={activeToolPanel === 'menu'} aria-label={t('trade.wizard.open')} title={t('trade.wizard.open')}>
++            <WebIcon name="activity" size={18} decorative />
++            <span className="trade-action-label">{t('trade.wizard.title')}</span>
++          </button>
++          <Link href={createTradeHref} className="feed-world-action trade-create-pill" aria-label={t('trade.create.title')} title={t('trade.create.title')}>
++            <WebIcon name="add" size={21} decorative />
++            <span className="trade-action-label">{t('trade.create.title')}</span>
++          </Link>
++        </div>
++      </header>
+       {activeToolPanel ? <button type="button" className="trade-tools-backdrop" aria-label={t('common.actions.close')} onClick={() => setActiveToolPanel(null)} /> : null}
+ 
+       {activeToolPanel === 'menu' ? (

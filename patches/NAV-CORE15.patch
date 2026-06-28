@@ -1,0 +1,176 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index d849160..88b6175 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -162,6 +162,113 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom:
+ .web-app-page--feed { --web-app-page-max: 100%; }
+ .web-app-page--filter, .web-app-page--create { --web-app-page-max: 760px; }
+ .web-app-page--create.wizard-shell { width: min(100%, var(--web-app-page-max)); }
++.app-create-shell {
++  --app-create-accent-bg: var(--proposal-bg);
++  --app-create-accent-border: var(--proposal-border);
++  --app-create-accent-text: var(--proposal-text);
++  gap: 14px;
++  padding-bottom: 88px;
++}
++.app-create-shell--plan {
++  --app-create-accent-bg: var(--plan-bg);
++  --app-create-accent-border: var(--plan-border);
++  --app-create-accent-text: var(--plan-text);
++}
++.app-create-shell--trade {
++  --app-create-accent-bg: var(--trade-bg);
++  --app-create-accent-border: var(--trade-border);
++  --app-create-accent-text: var(--trade-text);
++}
++.app-create-header,
++.app-create-shell .wizard-shell__header {
++  display: grid;
++  gap: 12px;
++  border: 1px solid color-mix(in srgb, var(--app-create-accent-border) 64%, var(--app-border));
++  border-radius: 28px;
++  background: color-mix(in srgb, var(--app-surface) 91%, var(--app-create-accent-bg));
++  padding: 14px;
++  box-shadow: var(--app-card-shadow);
++}
++.app-create-header__title-row,
++.app-create-shell .wizard-shell__title-row {
++  display: flex;
++  align-items: center;
++  gap: 12px;
++  min-width: 0;
++}
++.app-create-header__copy,
++.app-create-shell .wizard-shell__title-copy {
++  min-width: 0;
++  flex: 1 1 auto;
++}
++.app-create-header__eyebrow {
++  display: flex;
++  align-items: center;
++  gap: 7px;
++  flex-wrap: wrap;
++  margin-bottom: 5px;
++}
++.app-create-header h1,
++.app-create-shell .wizard-shell__title-copy h1 {
++  margin: 0;
++  color: var(--app-text);
++  font-size: 24px;
++  line-height: 1.08;
++  letter-spacing: -0.05em;
++}
++.app-create-header p,
++.app-create-shell .wizard-shell__title-copy p {
++  margin: 5px 0 0;
++  color: var(--app-text-muted);
++  font-size: 13px;
++  font-weight: 760;
++  line-height: 1.45;
++}
++.app-create-back,
++.app-create-shell .web-back-button {
++  border-color: color-mix(in srgb, var(--app-create-accent-border) 44%, var(--app-border));
++}
++.app-create-progress,
++.app-create-shell .wizard-progress {
++  display: grid;
++  gap: 7px;
++}
++.app-create-progress__label-row,
++.app-create-shell .wizard-progress__label-row {
++  display: flex;
++  align-items: center;
++  justify-content: flex-start;
++  gap: 10px;
++  color: var(--app-text-muted);
++  font-size: 11px;
++  font-weight: 950;
++  letter-spacing: 0.12em;
++  line-height: 1;
++  text-transform: uppercase;
++}
++.app-create-progress__track,
++.app-create-shell .wizard-progress__track {
++  position: relative;
++  height: 5px;
++  overflow: hidden;
++  border-radius: 999px;
++  background: color-mix(in srgb, var(--app-create-accent-bg) 42%, var(--app-bg-muted));
++}
++.app-create-progress__fill,
++.app-create-shell .wizard-progress__fill {
++  position: absolute;
++  inset: 0 auto 0 0;
++  border-radius: inherit;
++  background: var(--app-create-accent-text);
++}
++.app-create-shell .wizard-shell__body { gap: 14px; }
++.app-create-shell .wizard-shell__step-intro { gap: 4px; }
++.app-create-shell .wizard-shell__step-intro h2 { font-size: 24px; }
++.app-create-shell .wizard-shell__step-intro p { font-size: 13px; line-height: 1.45; }
++.app-create-shell .wizard-shell__footer-wrap { margin-bottom: 0; }
++.app-create-shell--plan .plan-form--timeline { display: grid; gap: 14px; }
++.app-create-shell--plan .plan-stage-tabs { border-color: color-mix(in srgb, var(--app-create-accent-border) 46%, var(--app-divider)); background: color-mix(in srgb, var(--app-create-accent-bg) 32%, transparent); }
++.app-create-shell--plan .plan-stage-tabs button.is-active { background: var(--app-surface); color: var(--app-create-accent-text); box-shadow: var(--app-control-shadow); }
+ .page-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+ .page-intro p { margin-bottom: 0; }
+ .page-intro__action { flex: 0 0 auto; }
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index 2c63be9..740fcf4 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -1,5 +1,6 @@
+ 'use client';
+ 
++import Link from 'next/link';
+ import { useRouter, useSearchParams } from 'next/navigation';
+ import type { ChangeEvent, FormEvent } from 'react';
+ import type { MediaAssetDto, PlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
+@@ -763,13 +764,27 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+ 
+   return (
+     <PlansFeatureGate plansEnabled={plansEnabled}>
+-      <main className="mobile-page plans-page web-app-page web-app-page--create web-app-page--plans">
+-        <section className="page-intro plan-create-intro plan-create-intro--compact">
+-          <div>
+-            <PlansInternalBadge plansVisible={plansVisible} />
+-            <h2>Create Plan</h2>
++      <main className="mobile-page plans-page web-app-page web-app-page--create web-app-page--plans app-create-shell app-create-shell--plan">
++        <header className="app-create-header">
++          <div className="app-create-header__title-row">
++            <Link className="web-back-button app-create-back" href="/plans" aria-label="Back to Plans">‹</Link>
++            <div className="app-create-header__copy">
++              <div className="app-create-header__eyebrow">
++                <PlansInternalBadge plansVisible={plansVisible} />
++              </div>
++              <h1>Create Plan</h1>
++              <p>Build a simple plan from places, dates, and times.</p>
++            </div>
++          </div>
++          <div className="app-create-progress" aria-label={stage === 'build' ? 'Step 1 of 2' : 'Step 2 of 2'}>
++            <div className="app-create-progress__label-row">
++              <span>{stage === 'build' ? 'Step 1 of 2' : 'Step 2 of 2'}</span>
++            </div>
++            <div className="app-create-progress__track" aria-hidden="true">
++              <span className="app-create-progress__fill" style={{ width: stage === 'build' ? '50%' : '100%' }} />
++            </div>
+           </div>
+-        </section>
++        </header>
+ 
+         {!auth.hydrated ? <section className="mobile-card"><p className="meta">Checking session...</p></section> : null}
+         {auth.hydrated && !auth.isAuthenticated ? (
+diff --git a/apps/web/src/features/trade/TradeCreateClient.tsx b/apps/web/src/features/trade/TradeCreateClient.tsx
+index 9e9213a..1aaf3b8 100644
+--- a/apps/web/src/features/trade/TradeCreateClient.tsx
++++ b/apps/web/src/features/trade/TradeCreateClient.tsx
+@@ -982,7 +982,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
+ 
+   return (
+     <WizardShell
+-      className="wizard-shell--trade-create web-app-page web-app-page--create web-app-page--trade"
++      className="wizard-shell--trade-create web-app-page web-app-page--create web-app-page--trade app-create-shell app-create-shell--trade"
+       title={t('trade.create.title')}
+       backHref="/trades"
+       backLabel={t('common.actions.back')}

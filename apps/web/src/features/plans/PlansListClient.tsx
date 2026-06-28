@@ -118,7 +118,6 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
-  const [starterRefreshKey] = useState(() => Math.floor(Date.now() / 1000));
   const [recentStarterIdeaIds, setRecentStarterIdeaIds] = useState<string[]>([]);
   const [anonymousStarterKey, setAnonymousStarterKey] = useState('anonymous');
   const searchParams = useSearchParams();
@@ -187,9 +186,10 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
     realPlanCount: sortedPlans.length,
     hasActiveSearchOrFilters: activeView !== 'feed' || hasActiveSearchOrFilters,
     userKey: auth.user?.id ?? anonymousStarterKey,
-    refreshKey: starterRefreshKey,
+    refreshKey: 'plans-feed',
+    dayKey: 'stable-plan-ideas',
     recentIdeaIds: recentStarterIdeaIds,
-  }), [activeView, anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, recentStarterIdeaIds, sortedPlans.length, starterRefreshKey]);
+  }), [activeView, anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, recentStarterIdeaIds, sortedPlans.length]);
   const feedItems = useMemo(() => buildPlanFeedItems(sortedPlans.length, starterIdeaKeys), [sortedPlans.length, starterIdeaKeys]);
 
   function markStarterIdeaSeen(ideaKey: StarterPlanIdeaKey) {
@@ -227,36 +227,36 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
 
   return (
     <PlansFeatureGate plansEnabled={plansEnabled}>
-      <main className="mobile-page plans-page plans-feed-page">
+      <main className="mobile-page plans-page plans-feed-page web-app-page web-app-page--feed web-app-page--plans">
         <section className="plans-feed-shell" aria-label="Plans feed">
-          <header className="plans-feed-header">
-            <div>
+          <header className="feed-world-header plans-feed-header">
+            <div className="feed-world-header__copy">
               <h1>Plans</h1>
             </div>
-            <div className="plans-feed-header__actions" aria-label="Plan actions">
-              <Link className="plans-feed-icon-button plans-feed-icon-button--with-badge" href={filterHref} aria-label={activeFilterCount ? `Filter Plans, ${activeFilterCount} active` : 'Filter Plans'}>
+            <div className="feed-world-header__actions plans-feed-header__actions" aria-label="Plan actions">
+              <Link className="feed-world-action plans-feed-icon-button plans-feed-icon-button--with-badge" href={filterHref} aria-label={activeFilterCount ? `Filter Plans, ${activeFilterCount} active` : 'Filter Plans'}>
                 <WebIcon name="filter" size={18} decorative />
                 {activeFilterCount ? <span className="plans-feed-icon-button__badge">{activeFilterCount}</span> : null}
               </Link>
               <button
                 type="button"
-                className="plans-feed-icon-button"
+                className="feed-world-action plans-feed-icon-button"
                 aria-label="Open Plans menu"
                 aria-expanded={menuOpen}
                 onClick={() => setMenuOpen((current) => !current)}
               >
                 <WebIcon name="activity" size={18} decorative />
               </button>
-              <Link className="plans-feed-icon-button plans-feed-icon-button--primary" href={createPlanHref} aria-label="Create Plan">
+              <Link className="feed-world-action plans-feed-icon-button plans-feed-icon-button--primary" href={createPlanHref} aria-label="Create Plan">
                 <WebIcon name="add" size={21} decorative />
               </Link>
             </div>
           </header>
 
           {menuOpen ? (
-            <section className="plans-feed-menu plans-workspace-menu" aria-label="Plans workspace menu">
+            <section className="plans-feed-menu plans-workspace-menu normal-workspace-menu normal-workspace-menu--plans" aria-label="Plans workspace menu">
               {workspaceItems.map((item) => (
-                <button key={item.id} type="button" onClick={() => openWorkspaceItem(item)} disabled={!canLoadPrivateViews && item.id !== 'plan_ideas'}>
+                <button key={item.id} type="button" className="plans-workspace-menu__item" onClick={() => openWorkspaceItem(item)} disabled={!canLoadPrivateViews && item.id !== 'plan_ideas'}>
                   <span className={`plans-workspace-menu__icon plans-workspace-menu__icon--${item.tone}`}><WebIcon name={item.icon} size={17} decorative /></span>
                   <span>
                     <strong>{item.title}</strong>

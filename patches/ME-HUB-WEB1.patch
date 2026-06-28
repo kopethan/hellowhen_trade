@@ -1,0 +1,591 @@
+diff --git a/apps/web/src/app/account/page.tsx b/apps/web/src/app/account/page.tsx
+index 8d3d170..6a7bf91 100644
+--- a/apps/web/src/app/account/page.tsx
++++ b/apps/web/src/app/account/page.tsx
+@@ -1,11 +1,9 @@
+ import { MobilePage } from '../../components/MobilePage';
+-import { WebAuthSummary } from '../../components/WebAuthSummary';
+ import { AccountHubClient } from '../../features/account/AccountHubClient';
+ 
+ export default function AccountPage() {
+   return (
+-    <MobilePage>
+-      <WebAuthSummary />
++    <MobilePage className="web-app-page web-app-page--me">
+       <AccountHubClient />
+     </MobilePage>
+   );
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 88b6175..b5941ee 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -10009,3 +10009,271 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ @media (max-width: 560px) {
+   .app-filter-options { grid-template-columns: minmax(0, 1fr); }
+ }
++
++/* ME-HUB-WEB1: make Account behave like the normal Me hub in the Plans · Me · Trade shell. */
++.web-app-page--me {
++  --web-app-page-max: min(1120px, 100%);
++  display: grid;
++  gap: 18px;
++}
++
++.me-hub-page {
++  display: grid;
++  gap: 18px;
++}
++
++.me-hub-hero {
++  display: grid;
++  gap: 16px;
++  border: 1px solid color-mix(in srgb, var(--instruction-border) 42%, var(--app-border));
++  border-radius: 34px;
++  background:
++    radial-gradient(circle at 0 0, color-mix(in srgb, var(--instruction-bg) 72%, transparent), transparent 34%),
++    linear-gradient(135deg, color-mix(in srgb, var(--app-surface) 88%, var(--instruction-bg)), var(--app-surface));
++  padding: 18px;
++  box-shadow: var(--app-card-shadow-strong);
++}
++
++.me-hub-hero--signed-in {
++  border-color: color-mix(in srgb, var(--success-border) 28%, var(--app-border));
++  background:
++    radial-gradient(circle at 0 0, color-mix(in srgb, var(--success-bg) 48%, transparent), transparent 34%),
++    linear-gradient(135deg, color-mix(in srgb, var(--app-surface) 90%, var(--success-bg)), var(--app-surface));
++}
++
++.me-hub-hero__identity {
++  display: grid;
++  grid-template-columns: auto minmax(0, 1fr);
++  gap: 14px;
++  align-items: center;
++}
++
++.me-hub-hero__copy {
++  min-width: 0;
++}
++
++.me-hub-hero__copy h1 {
++  margin: 8px 0 6px;
++  overflow-wrap: anywhere;
++}
++
++.me-hub-hero__copy p,
++.me-hub-hero__loading {
++  margin: 0;
++  color: var(--app-text-muted);
++  font-size: 13px;
++  font-weight: 800;
++  line-height: 1.4;
++}
++
++.me-hub-hero__actions {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 10px;
++}
++
++.me-hub-hero__actions .button,
++.me-hub-hero__actions button {
++  flex: 1 1 150px;
++  min-height: 42px;
++}
++
++.me-hub-stat-grid {
++  display: grid;
++  grid-template-columns: repeat(2, minmax(0, 1fr));
++  gap: 10px;
++}
++
++.me-hub-stat-card {
++  display: grid;
++  grid-template-columns: auto minmax(0, 1fr);
++  gap: 10px;
++  align-items: center;
++  min-height: 82px;
++  border: 1px solid var(--app-border);
++  border-radius: 24px;
++  background: var(--app-surface);
++  padding: 13px;
++  box-shadow: var(--app-control-shadow);
++  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
++}
++
++.me-hub-stat-card:hover {
++  border-color: var(--app-border-strong);
++  text-decoration: none;
++  transform: translateY(-1px);
++}
++
++.me-hub-stat-card__icon {
++  display: grid;
++  place-items: center;
++  width: 38px;
++  height: 38px;
++  border: 1px solid var(--app-border);
++  border-radius: 15px;
++  background: var(--app-surface-soft);
++  color: var(--app-text);
++}
++
++.me-hub-stat-card span:not(.web-icon) {
++  display: grid;
++  gap: 2px;
++  min-width: 0;
++}
++
++.me-hub-stat-card strong {
++  color: var(--app-text);
++  font-size: 24px;
++  font-weight: 950;
++  letter-spacing: -0.05em;
++  line-height: 1;
++}
++
++.me-hub-stat-card small {
++  overflow: hidden;
++  color: var(--app-text-muted);
++  font-size: 11px;
++  font-weight: 900;
++  line-height: 1.25;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.me-hub-stat-card--trade .me-hub-stat-card__icon,
++.me-hub-link-card--trade .mobile-link-card__icon { border-color: color-mix(in srgb, var(--trade-border) 54%, var(--app-border)); background: var(--trade-bg); color: var(--trade-text); }
++.me-hub-stat-card--need .me-hub-stat-card__icon,
++.me-hub-link-card--need .mobile-link-card__icon { border-color: color-mix(in srgb, var(--need-border) 54%, var(--app-border)); background: var(--need-bg); color: var(--need-text); }
++.me-hub-stat-card--offer .me-hub-stat-card__icon,
++.me-hub-link-card--offer .mobile-link-card__icon { border-color: color-mix(in srgb, var(--offer-border) 54%, var(--app-border)); background: var(--offer-bg); color: var(--offer-text); }
++.me-hub-stat-card--plan .me-hub-stat-card__icon,
++.me-hub-link-card--plan .mobile-link-card__icon { border-color: color-mix(in srgb, var(--plan-border) 54%, var(--app-border)); background: var(--plan-bg); color: var(--plan-text); }
++.me-hub-stat-card--proposal .me-hub-stat-card__icon,
++.me-hub-link-card--proposal .mobile-link-card__icon { border-color: color-mix(in srgb, var(--proposal-border) 54%, var(--app-border)); background: var(--proposal-bg); color: var(--proposal-text); }
++.me-hub-stat-card--danger .me-hub-stat-card__icon,
++.me-hub-link-card--danger .mobile-link-card__icon { border-color: color-mix(in srgb, var(--danger-border) 54%, var(--app-border)); background: var(--danger-bg); color: var(--danger-text); }
++
++.me-hub-section {
++  gap: 12px;
++  border: 1px solid color-mix(in srgb, var(--app-border) 76%, transparent);
++  border-radius: 30px;
++  background: color-mix(in srgb, var(--app-surface) 96%, transparent);
++  padding: 14px;
++  box-shadow: var(--app-card-shadow);
++}
++
++.me-hub-section--quick {
++  border-color: color-mix(in srgb, var(--trade-border) 26%, var(--app-border));
++}
++
++.me-hub-section__header {
++  align-items: flex-start;
++}
++
++.me-hub-section__header h2 {
++  margin: 4px 0 0;
++  font-size: 17px;
++  letter-spacing: -0.03em;
++}
++
++.me-hub-section__header p {
++  max-width: 320px;
++  text-align: right;
++}
++
++.me-hub-list {
++  gap: 8px;
++}
++
++.me-hub-link-card {
++  align-items: center;
++  border-radius: 22px;
++  background: color-mix(in srgb, var(--app-surface-soft) 60%, var(--app-surface));
++}
++
++.me-hub-link-card:hover {
++  transform: translateY(-1px);
++}
++
++.me-hub-link-card__body-text {
++  display: block;
++  margin-top: 4px;
++  color: var(--app-text-muted);
++  font-size: 12px;
++  font-weight: 800;
++  line-height: 1.35;
++}
++
++.me-hub-layout {
++  display: grid;
++  gap: 16px;
++}
++
++.me-hub-layout__main,
++.me-hub-layout__side {
++  display: grid;
++  align-content: start;
++  gap: 16px;
++}
++
++@media (min-width: 760px) {
++  .web-app-page--me {
++    padding-bottom: 16px;
++  }
++
++  .me-hub-page {
++    gap: 20px;
++  }
++
++  .me-hub-hero {
++    grid-template-columns: minmax(0, 1fr) auto;
++    align-items: center;
++    padding: 22px;
++  }
++
++  .me-hub-hero__actions {
++    justify-content: flex-end;
++    min-width: 250px;
++  }
++
++  .me-hub-hero__actions .button,
++  .me-hub-hero__actions button {
++    flex: 0 0 auto;
++  }
++
++  .me-hub-stat-grid {
++    grid-template-columns: repeat(4, minmax(0, 1fr));
++  }
++
++  .me-hub-layout {
++    grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr);
++    align-items: start;
++  }
++
++  .me-hub-quick-grid {
++    grid-template-columns: repeat(3, minmax(0, 1fr));
++  }
++}
++
++@media (max-width: 560px) {
++  .me-hub-hero__identity {
++    grid-template-columns: 1fr;
++  }
++
++  .me-hub-hero__actions {
++    display: grid;
++    grid-template-columns: 1fr;
++  }
++
++  .me-hub-stat-grid {
++    grid-template-columns: 1fr;
++  }
++
++  .me-hub-section__header {
++    display: grid;
++  }
++
++  .me-hub-section__header p {
++    max-width: none;
++    text-align: left;
++  }
++}
+diff --git a/apps/web/src/features/account/AccountHubClient.tsx b/apps/web/src/features/account/AccountHubClient.tsx
+index e26115f..22d4891 100644
+--- a/apps/web/src/features/account/AccountHubClient.tsx
++++ b/apps/web/src/features/account/AccountHubClient.tsx
+@@ -1,6 +1,7 @@
+ 'use client';
+ 
+ import Link from 'next/link';
++import { useRouter } from 'next/navigation';
+ import { useEffect, useMemo, useState } from 'react';
+ import { WebIcon, type WebIconName } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
+@@ -9,7 +10,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { assetUrl } from './accountPresentation';
+ 
+-
++type AccountHubTone = 'danger' | 'info' | 'need' | 'offer' | 'plan' | 'proposal' | 'trade';
+ 
+ type AccountHubItem = {
+   href: string;
+@@ -21,6 +22,7 @@ type AccountHubItem = {
+   badgeKey?: string;
+   actionKey?: string;
+   count?: number;
++  tone?: AccountHubTone;
+ };
+ 
+ type AccountHubCounts = {
+@@ -40,41 +42,43 @@ function countCollection(response: unknown, key: string) {
+ 
+ export function AccountHubClient() {
+   const auth = useWebAuth();
++  const router = useRouter();
+   const { t } = useWebTranslation();
+   const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
+   const [accountCounts, setAccountCounts] = useState<AccountHubCounts>({});
+ 
++  const displayName = auth.user?.profile?.displayName ?? auth.user?.email ?? t('navigation.tabs.me');
++  const handle = auth.user?.profile?.handle ? `@${auth.user.profile.handle}` : null;
++
+   const quickActionItems = useMemo<AccountHubItem[]>(() => [
+-    { href: '/trades/create', titleKey: 'account.quickActions.createTrade', bodyKey: 'account.quickActions.createTradeBody', icon: 'trade', featured: true },
++    { href: '/trades/create', titleKey: 'account.quickActions.createTrade', bodyKey: 'account.quickActions.createTradeBody', icon: 'trade', featured: true, tone: 'trade' },
+     ...(betaFeatures.plansVisible ? [
+-      { href: '/plans/new', titleKey: 'account.quickActions.createPlan', bodyKey: 'account.quickActions.createPlanBody', icon: 'plan' as WebIconName, featured: true },
+-      { href: '/places/new', titleKey: 'account.quickActions.addPlace', bodyKey: 'account.quickActions.addPlaceBody', icon: 'add' as WebIconName, featured: true },
++      { href: '/plans/new', titleKey: 'account.quickActions.createPlan', bodyKey: 'account.quickActions.createPlanBody', icon: 'plan' as WebIconName, featured: true, tone: 'plan' as AccountHubTone },
++      { href: '/places/new', titleKey: 'account.quickActions.addPlace', bodyKey: 'account.quickActions.addPlaceBody', icon: 'add' as WebIconName, featured: true, tone: 'plan' as AccountHubTone },
+     ] : [
+-      { href: '/needs/new', titleKey: 'trade.wizard.actions.createNeed.title', bodyKey: 'trade.wizard.actions.createNeed.body', icon: 'need' as WebIconName, featured: true },
+-      { href: '/offers/new', titleKey: 'trade.wizard.actions.createOffer.title', bodyKey: 'trade.wizard.actions.createOffer.body', icon: 'offer' as WebIconName, featured: true },
++      { href: '/needs/new', titleKey: 'trade.wizard.actions.createNeed.title', bodyKey: 'trade.wizard.actions.createNeed.body', icon: 'need' as WebIconName, featured: true, tone: 'need' as AccountHubTone },
++      { href: '/offers/new', titleKey: 'trade.wizard.actions.createOffer.title', bodyKey: 'trade.wizard.actions.createOffer.body', icon: 'offer' as WebIconName, featured: true, tone: 'offer' as AccountHubTone },
+     ]),
+   ], []);
+ 
+   const activityItems = useMemo<AccountHubItem[]>(() => [
+-    { href: '/trades', titleKey: 'trade.wizard.actions.myTrades.title', bodyKey: 'trade.wizard.actions.myTrades.body', icon: 'activity', count: accountCounts.trades },
+-    { href: '/needs', titleKey: 'trade.wizard.actions.myNeeds.title', bodyKey: 'trade.wizard.actions.myNeeds.body', icon: 'need', count: accountCounts.needs },
+-    { href: '/offers', titleKey: 'trade.wizard.actions.myOffers.title', bodyKey: 'trade.wizard.actions.myOffers.body', icon: 'offer', count: accountCounts.offers },
++    { href: '/trades', titleKey: 'trade.wizard.actions.myTrades.title', bodyKey: 'trade.wizard.actions.myTrades.body', icon: 'activity', count: accountCounts.trades, tone: 'trade' },
++    { href: '/trades', titleKey: 'trade.wizard.actions.proposals.title', bodyKey: 'trade.wizard.actions.proposals.body', icon: 'proposal-accepted', tone: 'proposal' },
++    { href: '/needs', titleKey: 'trade.wizard.actions.myNeeds.title', bodyKey: 'trade.wizard.actions.myNeeds.body', icon: 'need', count: accountCounts.needs, tone: 'need' },
++    { href: '/offers', titleKey: 'trade.wizard.actions.myOffers.title', bodyKey: 'trade.wizard.actions.myOffers.body', icon: 'offer', count: accountCounts.offers, tone: 'offer' },
+   ], [accountCounts.needs, accountCounts.offers, accountCounts.trades]);
+ 
+   const planWorkspaceItems = useMemo<AccountHubItem[]>(() => betaFeatures.plansVisible ? [
+-    { href: '/plans', titleKey: 'account.items.plansFeature.title', bodyKey: 'account.items.plansFeature.body', icon: 'plan', featured: true, badgeKey: 'account.items.plansFeature.badge', actionKey: 'account.items.plansFeature.action' },
+-    { href: '/plans?view=mine', titleKey: 'account.items.myPlansFeature.title', bodyKey: 'account.items.myPlansFeature.body', icon: 'activity', count: accountCounts.myPlans },
+-    { href: '/plans?view=joined', titleKey: 'account.items.joinedPlansFeature.title', bodyKey: 'account.items.joinedPlansFeature.body', icon: 'proposal-accepted', count: accountCounts.joinedPlans },
+-    { href: '/plans/new', titleKey: 'account.items.createPlanFeature.title', bodyKey: 'account.items.createPlanFeature.body', icon: 'add' },
+-    { href: '/places/new', titleKey: 'account.items.createPlaceFeature.title', bodyKey: 'account.items.createPlaceFeature.body', icon: 'add' },
+-  ] : [], [accountCounts.joinedPlans, accountCounts.myPlans]);
+-
+-  const accountItems = useMemo<AccountHubItem[]>(() => [
+-    { href: '/account/profile', titleKey: 'account.items.profile.title', bodyKey: 'account.items.profile.body', icon: 'profile' },
+-    ...(betaFeatures.savedLibraryEnabled ? [{ href: '/account/saved', titleKey: 'account.items.saved.title', bodyKey: 'account.items.saved.body', icon: 'save' as WebIconName }] : []),
+-    ...(betaFeatures.agendaEnabled ? [{ href: '/account/agenda', titleKey: 'account.items.agenda.title', bodyKey: 'account.items.agenda.body', icon: 'calendar' as WebIconName }] : []),
+-    { href: '/account/membership', titleKey: 'account.items.membership.title', bodyKey: 'account.items.membership.body', icon: 'profile' },
+-    { href: '/account/notifications', titleKey: 'account.items.notifications.title', bodyKey: 'account.items.notifications.body', icon: 'bell' },
++    { href: '/plans?view=mine', titleKey: 'account.items.myPlansFeature.title', bodyKey: 'account.items.myPlansFeature.body', icon: 'plan', count: accountCounts.myPlans, tone: 'plan' },
++    { href: '/plans?view=joined', titleKey: 'account.items.joinedPlansFeature.title', bodyKey: 'account.items.joinedPlansFeature.body', icon: 'proposal-accepted', count: accountCounts.joinedPlans, tone: 'info' },
++    { href: '/plans', titleKey: 'account.items.plansFeature.title', bodyKey: 'account.items.plansFeature.body', icon: 'search', featured: true, badgeKey: 'account.items.plansFeature.badge', actionKey: 'account.items.plansFeature.action', tone: 'plan' },
++    { href: '/places', titleKey: 'account.items.myPlacesFeature.title', bodyKey: 'account.items.myPlacesFeature.body', icon: 'save', count: accountCounts.places, tone: 'plan' },
++  ] : [], [accountCounts.joinedPlans, accountCounts.myPlans, accountCounts.places]);
++
++  const toolsItems = useMemo<AccountHubItem[]>(() => [
++    ...(betaFeatures.savedLibraryEnabled ? [{ href: '/account/saved', titleKey: 'account.items.saved.title', bodyKey: 'account.items.saved.body', icon: 'save' as WebIconName, tone: 'info' as AccountHubTone }] : []),
++    ...(betaFeatures.agendaEnabled ? [{ href: '/account/agenda', titleKey: 'account.items.agenda.title', bodyKey: 'account.items.agenda.body', icon: 'calendar' as WebIconName, tone: 'info' as AccountHubTone }] : []),
++    { href: '/account/notifications', titleKey: 'account.items.notifications.title', bodyKey: 'account.items.notifications.body', icon: 'bell', count: notificationUnreadCount > 0 ? notificationUnreadCount : undefined, tone: 'proposal' },
+     {
+       href: '/onboarding-guide?replay=1&next=/account',
+       titleKey: 'account.items.guide.title',
+@@ -84,16 +88,28 @@ export function AccountHubClient() {
+       featured: true,
+       badgeKey: 'account.items.guide.badge',
+       actionKey: 'account.items.guide.action',
++      tone: 'info',
+     },
+-    ...(betaFeatures.businessAccountsVisible ? [{ href: '/account/business', titleKey: 'account.items.business.title', bodyKey: 'account.items.business.body' }] : []),
+-    ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', titleKey: 'account.items.wallet.title', bodyKey: 'account.items.wallet.body' }] : []),
+-    ...(betaFeatures.payoutsVisible ? [{ href: '/account/payouts', titleKey: 'account.items.payouts.title', bodyKey: 'account.items.payouts.body' }] : []),
+-    { href: '/account/settings', titleKey: 'account.items.settings.title', bodyKey: 'account.items.settings.body', icon: 'settings' },
+-    { href: '/legal', titleKey: 'account.items.legal.title', bodyKey: 'account.items.legal.body', icon: 'warning', publicAccess: true },
+-    { href: '/account/support', titleKey: 'account.items.support.title', bodyKey: 'account.items.support.body', icon: 'help' },
+-    { href: '/account/delete', titleKey: 'account.items.delete.title', bodyKey: 'account.items.delete.body', icon: 'warning' },
++  ], [notificationUnreadCount]);
++
++  const settingsItems = useMemo<AccountHubItem[]>(() => [
++    { href: '/account/profile', titleKey: 'account.items.profile.title', bodyKey: 'account.items.profile.body', icon: 'profile', tone: 'info' },
++    { href: '/account/membership', titleKey: 'account.items.membership.title', bodyKey: 'account.items.membership.body', icon: 'profile', tone: 'info' },
++    ...(betaFeatures.businessAccountsVisible ? [{ href: '/account/business', titleKey: 'account.items.business.title', bodyKey: 'account.items.business.body', icon: 'profile' as WebIconName, tone: 'info' as AccountHubTone }] : []),
++    ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', titleKey: 'account.items.wallet.title', bodyKey: 'account.items.wallet.body', icon: 'calendar' as WebIconName, tone: 'info' as AccountHubTone }] : []),
++    ...(betaFeatures.payoutsVisible ? [{ href: '/account/payouts', titleKey: 'account.items.payouts.title', bodyKey: 'account.items.payouts.body', icon: 'calendar' as WebIconName, tone: 'info' as AccountHubTone }] : []),
++    { href: '/account/settings', titleKey: 'account.items.settings.title', bodyKey: 'account.items.settings.body', icon: 'settings', tone: 'info' },
++    { href: '/legal', titleKey: 'account.items.legal.title', bodyKey: 'account.items.legal.body', icon: 'warning', publicAccess: true, tone: 'info' },
++    { href: '/account/support', titleKey: 'account.items.support.title', bodyKey: 'account.items.support.body', icon: 'help', tone: 'info' },
++    { href: '/account/delete', titleKey: 'account.items.delete.title', bodyKey: 'account.items.delete.body', icon: 'warning', tone: 'danger' },
+   ], []);
+ 
++  const statItems = useMemo<AccountHubItem[]>(() => [
++    { href: '/trades', titleKey: 'trade.wizard.actions.myTrades.title', bodyKey: 'trade.wizard.actions.myTrades.body', icon: 'trade', count: accountCounts.trades, tone: 'trade' },
++    { href: '/needs', titleKey: 'trade.wizard.actions.myNeeds.title', bodyKey: 'trade.wizard.actions.myNeeds.body', icon: 'need', count: accountCounts.needs, tone: 'need' },
++    { href: '/offers', titleKey: 'trade.wizard.actions.myOffers.title', bodyKey: 'trade.wizard.actions.myOffers.body', icon: 'offer', count: accountCounts.offers, tone: 'offer' },
++    ...(betaFeatures.plansVisible ? [{ href: '/plans?view=mine', titleKey: 'account.items.myPlansFeature.title', bodyKey: 'account.items.myPlansFeature.body', icon: 'plan' as WebIconName, count: accountCounts.myPlans, tone: 'plan' as AccountHubTone }] : []),
++  ], [accountCounts.myPlans, accountCounts.needs, accountCounts.offers, accountCounts.trades]);
+ 
+   useEffect(() => {
+     let mounted = true;
+@@ -134,71 +150,114 @@ export function AccountHubClient() {
+     return () => { mounted = false; };
+   }, [auth.hydrated, auth.isAuthenticated]);
+ 
+-
+   return (
+-    <div className="mobile-page">
+-      {auth.isAuthenticated ? (
+-        <section className="account-overview-card">
+-          <div className="account-avatar" aria-hidden="true">
+-            {auth.user?.profile?.avatarUrl ? <img src={assetUrl(auth.user.profile.avatarUrl)} alt="" /> : <span>{auth.user?.profile?.displayName?.slice(0, 1).toUpperCase() ?? 'H'}</span>}
++    <div className="me-hub-page">
++      <section className={auth.isAuthenticated ? 'me-hub-hero me-hub-hero--signed-in' : 'me-hub-hero'}>
++        <div className="me-hub-hero__identity">
++          <div className="account-avatar account-avatar--large" aria-hidden="true">
++            {auth.user?.profile?.avatarUrl ? <img src={assetUrl(auth.user.profile.avatarUrl)} alt="" /> : <span>{displayName.slice(0, 1).toUpperCase()}</span>}
+           </div>
+-          <div>
+-            <span className="semantic-badge instruction">{t('common.states.signedIn')}</span>
+-            <h2>{auth.user?.profile?.displayName ?? auth.user?.email}</h2>
+-            <p>{auth.user?.profile?.handle ? `@${auth.user.profile.handle}` : t('account.addHandleOnProfile')}</p>
++          <div className="me-hub-hero__copy">
++            <span className="semantic-badge instruction">{t('navigation.tabs.me')}</span>
++            <h1>{auth.isAuthenticated ? displayName : t('account.signedOut.title')}</h1>
++            <p>{auth.isAuthenticated ? (handle ?? auth.user?.email ?? t('account.body')) : t('account.signedOut.body')}</p>
+           </div>
+-        </section>
+-      ) : auth.hydrated ? (
+-        <section className="mobile-card mobile-card--soft">
+-          <span className="semantic-badge instruction">{t('common.states.signedOut')}</span>
+-          <h3>{t('account.signedOut.title')}</h3>
+-          <p>{t('account.signedOut.body')}</p>
+-          <Link href="/auth?next=/account" className="button primary">{t('common.actions.loginOrRegister')}</Link>
++        </div>
++        {auth.hydrated ? (
++          auth.isAuthenticated ? (
++            <div className="me-hub-hero__actions">
++              <Link href="/account/profile" className="button secondary">{t('account.quickActions.editProfile')}</Link>
++              <button
++                type="button"
++                className="secondary"
++                onClick={() => {
++                  void auth.logout().then(() => router.push('/auth'));
++                }}
++              >
++                {t('common.actions.logout')}
++              </button>
++            </div>
++          ) : (
++            <div className="me-hub-hero__actions">
++              <Link href="/auth?next=/account" className="button primary">{t('common.actions.loginOrRegister')}</Link>
++              <Link href="/legal" className="button secondary">{t('account.items.legal.title')}</Link>
++            </div>
++          )
++        ) : (
++          <p className="me-hub-hero__loading">{t('auth.session.checkingBody')}</p>
++        )}
++      </section>
++
++      {auth.isAuthenticated ? (
++        <section className="me-hub-stat-grid" aria-label={t('account.sections.activity')}>
++          {statItems.map((item) => <MeHubStatCard key={item.href + item.titleKey} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
+         </section>
+       ) : null}
+ 
+-      <section className="account-hub-section" aria-label={t('account.quickActions.title')}>
+-        <div className="account-hub-section__header">
+-          <span className="semantic-badge trade">{t('account.quickActions.title')}</span>
++      <section className="account-hub-section me-hub-section me-hub-section--quick" aria-label={t('account.quickActions.title')}>
++        <div className="account-hub-section__header me-hub-section__header">
++          <div>
++            <span className="semantic-badge trade">{t('account.quickActions.title')}</span>
++            <h2>{t('account.quickActions.title')}</h2>
++          </div>
+           <p>{t('account.quickActions.body')}</p>
+         </div>
+-        <div className="account-quick-action-grid">
++        <div className="account-quick-action-grid me-hub-quick-grid">
+           {quickActionItems.map((item) => <AccountHubLinkCard key={item.href} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick />)}
+         </div>
+       </section>
+ 
+-      <section className="account-hub-section" aria-label={t('account.sections.activity')}>
+-        <div className="account-hub-section__header">
+-          <h3>{t('account.sections.activity')}</h3>
++      <div className="me-hub-layout">
++        <div className="me-hub-layout__main">
++          <MeHubSection title={t('account.sections.activity')} items={activityItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />
++          {planWorkspaceItems.length > 0 ? <MeHubSection title={t('account.sections.plans')} badge={t('account.items.plansFeature.badge')} items={planWorkspaceItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} /> : null}
+         </div>
+-        <div className="mobile-list">
+-          {activityItems.map((item) => <AccountHubLinkCard key={item.href} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
++        <div className="me-hub-layout__side">
++          <MeHubSection title={t('account.sections.tools')} items={toolsItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />
++          <MeHubSection title={t('account.sections.settings')} items={settingsItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />
+         </div>
+-      </section>
+-
+-      {planWorkspaceItems.length > 0 ? (
+-        <section className="account-hub-section" aria-label={t('account.sections.plans')}>
+-          <div className="account-hub-section__header">
+-            <span className="semantic-badge instruction">{t('account.items.plansFeature.badge')}</span>
+-            <h3>{t('account.sections.plans')}</h3>
+-          </div>
+-          <div className="mobile-list">
+-            {planWorkspaceItems.map((item) => <AccountHubLinkCard key={item.href} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
+-          </div>
+-        </section>
+-      ) : null}
+-
+-      <div className="mobile-list">
+-        {accountItems.map((item) => <AccountHubLinkCard key={item.href} item={item.href === '/account/notifications' ? { ...item, count: notificationUnreadCount > 0 ? notificationUnreadCount : undefined } : item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
+       </div>
+     </div>
+   );
+ }
+ 
++function MeHubSection({ title, badge, items, authHydrated, isAuthenticated, t }: { title: string; badge?: string; items: AccountHubItem[]; authHydrated: boolean; isAuthenticated: boolean; t: (key: string) => string }) {
++  return (
++    <section className="account-hub-section me-hub-section" aria-label={title}>
++      <div className="account-hub-section__header me-hub-section__header">
++        <div>
++          {badge ? <span className="semantic-badge instruction">{badge}</span> : null}
++          <h2>{title}</h2>
++        </div>
++      </div>
++      <div className="mobile-list me-hub-list">
++        {items.map((item) => <AccountHubLinkCard key={item.href + item.titleKey} item={item} authHydrated={authHydrated} isAuthenticated={isAuthenticated} t={t} />)}
++      </div>
++    </section>
++  );
++}
++
++function MeHubStatCard({ item, authHydrated, isAuthenticated, t }: { item: AccountHubItem; authHydrated: boolean; isAuthenticated: boolean; t: (key: string) => string }) {
++  const href = authHydrated && !isAuthenticated && !item.publicAccess ? `/auth?next=${encodeURIComponent(item.href)}` : item.href;
++  return (
++    <Link href={href} className={`me-hub-stat-card me-hub-stat-card--${item.tone ?? 'info'}`}>
++      {item.icon ? <WebIcon name={item.icon} size={18} decorative className="me-hub-stat-card__icon" /> : null}
++      <span>
++        <strong>{typeof item.count === 'number' ? Math.min(item.count, 99) : '—'}</strong>
++        <small>{t(item.titleKey)}</small>
++      </span>
++    </Link>
++  );
++}
+ 
+ function AccountHubLinkCard({ item, authHydrated, isAuthenticated, t, quick = false }: { item: AccountHubItem; authHydrated: boolean; isAuthenticated: boolean; t: (key: string) => string; quick?: boolean }) {
+   const href = authHydrated && !isAuthenticated && !item.publicAccess ? `/auth?next=${encodeURIComponent(item.href)}` : item.href;
+-  const className = [item.featured ? 'mobile-link-card mobile-link-card--featured' : 'mobile-link-card', quick ? 'account-quick-action-card' : null].filter(Boolean).join(' ');
++  const className = [
++    item.featured ? 'mobile-link-card mobile-link-card--featured' : 'mobile-link-card',
++    quick ? 'account-quick-action-card' : null,
++    'me-hub-link-card',
++    `me-hub-link-card--${item.tone ?? 'info'}`,
++  ].filter(Boolean).join(' ');
+   return (
+     <Link href={href} className={className}>
+       {item.icon ? <WebIcon name={item.icon} size={item.featured ? 24 : 22} decorative className="mobile-link-card__icon" /> : null}
+@@ -207,8 +266,7 @@ function AccountHubLinkCard({ item, authHydrated, isAuthenticated, t, quick = fa
+           <strong>{t(item.titleKey)}</strong>
+           {item.badgeKey ? <span className="semantic-badge instruction">{t(item.badgeKey)}</span> : null}
+         </span>
+-        <br />
+-        {t(item.bodyKey)}
++        <span className="me-hub-link-card__body-text">{t(item.bodyKey)}</span>
+       </span>
+       {typeof item.count === 'number' ? (
+         <span className="semantic-badge proposal mobile-link-card__meta-badge">{Math.min(item.count, 99)}</span>

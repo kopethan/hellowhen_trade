@@ -1,0 +1,18 @@
+diff --git a/apps/web/src/app/page.tsx b/apps/web/src/app/page.tsx
+index b160fc1..120bbed 100644
+--- a/apps/web/src/app/page.tsx
++++ b/apps/web/src/app/page.tsx
+@@ -1,4 +1,6 @@
++import { redirect } from 'next/navigation';
+ import { TradeFeedClient } from '../features/trade/TradeFeedClient';
++import { betaFeatures } from '../lib/betaFeatures';
+ import { publicPageMetadata } from '../lib/seo';
+ 
+ export const metadata = publicPageMetadata({
+@@ -8,5 +10,6 @@ export const metadata = publicPageMetadata({
+ });
+ 
+ export default function HomePage() {
++  if (betaFeatures.mainNavPlansMeTrade) redirect('/account');
+   return <TradeFeedClient showHomeIntro />;
+ }
