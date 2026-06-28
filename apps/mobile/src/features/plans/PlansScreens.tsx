@@ -4,7 +4,7 @@ import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform,
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DiscoveryLanguage, InventoryTranslationDto, ListPlansQuery, MediaAssetDto, PlaceDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
-import { buildGeneratedPlanDisplay, buildPlanFeedItems, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+import { buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type NormalWorkspaceMenuItem, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { AppText } from '../../components/AppText';
@@ -32,13 +32,6 @@ type PlanIdeaDetailProps = NativeStackScreenProps<RootStackParamList, 'PlanIdeaD
 type SimpleScreenProps<RouteName extends keyof RootStackParamList> = NativeStackScreenProps<RootStackParamList, RouteName>;
 type PlanListScope = 'feed' | 'mine' | 'joined';
 type PlaceListScope = 'mine' | 'library';
-
-type PlanMenuItem = {
-  title: string;
-  body: string;
-  icon: MobileIconName;
-  onPress: () => void;
-};
 
 type PlanFilterOption = { label: string; value: string; body?: string };
 type PlanFilterGroup = { title: string; body: string; options: PlanFilterOption[] };
@@ -1125,14 +1118,24 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
 
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
 
-  const menuItems: PlanMenuItem[] = [
-    { title: 'My plans', body: 'Plans you created.', icon: 'plan', onPress: () => { setMenuOpen(false); navigation.navigate('MyPlans'); } },
-    { title: 'Joined plans', body: 'Plans you joined freely.', icon: 'activity', onPress: () => { setMenuOpen(false); navigation.navigate('JoinedPlans'); } },
-    { title: 'My places', body: 'Reusable offline or online places.', icon: 'save', onPress: () => { setMenuOpen(false); navigation.navigate('MyPlaces'); } },
-    { title: 'Hellowhen Place Library', body: 'Starter/library places for Plans.', icon: 'search', onPress: () => { setMenuOpen(false); navigation.navigate('PlaceLibrary'); } },
-    { title: 'Create place', body: 'Prepare a reusable place.', icon: 'add', onPress: () => { setMenuOpen(false); navigation.navigate('CreatePlace'); } },
-    { title: 'Create plan', body: 'Choose places and arrange them.', icon: 'add', onPress: () => { setMenuOpen(false); navigation.navigate('CreatePlan'); } },
-  ];
+  const menuItems = getNormalWorkspaceMenuItems('plans');
+
+  function openWorkspaceItem(itemId: string) {
+    setMenuOpen(false);
+    if (itemId === 'my_plans') {
+      navigation.navigate('MyPlans');
+      return;
+    }
+    if (itemId === 'joined_plans') {
+      navigation.navigate('JoinedPlans');
+      return;
+    }
+    if (itemId === 'my_places') {
+      navigation.navigate('MyPlaces');
+      return;
+    }
+    navigation.navigate('Plans');
+  }
 
   const header = (
     <View style={styles.feedHeader}>
@@ -1152,7 +1155,7 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
       <View style={styles.bodyWrap}>
         {menuOpen ? (
           <View style={[styles.menuPanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-            {menuItems.map((item) => <MenuItem key={item.title} item={item} />)}
+            {menuItems.map((item) => <MenuItem key={item.id} item={item} onPress={() => openWorkspaceItem(item.id)} />)}
           </View>
         ) : null}
         <PlanList scope="feed" navigation={navigation} filters={activeFilters} searchQuery={activeSearchQuery} />
@@ -1268,11 +1271,11 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
   );
 }
 
-function MenuItem({ item }: { item: PlanMenuItem }) {
+function MenuItem({ item, onPress }: { item: NormalWorkspaceMenuItem; onPress: () => void }) {
   const theme = useThemeTokens();
   return (
-    <Pressable accessibilityRole="button" onPress={item.onPress} style={({ pressed }) => [styles.menuItem, { borderBottomColor: theme.color.border }, pressed && styles.pressed]}>
-      <View style={[styles.menuIcon, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}><MobileIcon name={item.icon} size={17} color={theme.semantic.plan.text} /></View>
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.menuItem, { borderBottomColor: theme.color.border }, pressed && styles.pressed]}>
+      <View style={[styles.menuIcon, { backgroundColor: theme.semantic[item.tone].softBg, borderColor: theme.semantic[item.tone].border }]}><MobileIcon name={item.icon} size={17} color={theme.semantic[item.tone].text} /></View>
       <View style={styles.menuCopy}>
         <AppText style={styles.menuTitle}>{item.title}</AppText>
         <AppText style={[styles.menuBody, { color: theme.color.muted }]}>{item.body}</AppText>

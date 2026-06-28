@@ -1,0 +1,33 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 1484fa2..a0a0f05 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -1833,13 +1833,13 @@ html[data-theme="dark"] .trade-poster-card.has-fallback h2 {
+   .support-mobile-page > .notice-box { grid-column: 1 / -1; }
+   .support-compose-card, .support-thread-card { min-width: 0; }
+   .trade-feed-page { gap: 22px; max-width: none; }
+-  .trade-feed-controls { grid-template-columns: minmax(280px, 520px) auto auto; justify-content: center; gap: 10px; width: min(960px, 100%); margin: 0 auto; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+-  .trade-activity-pill { width: auto; padding: 0 14px; }
+-  .trade-activity-pill .trade-action-label { display: inline; }
+-  .trade-create-pill { width: auto; min-width: 44px; padding: 0 14px; }
+-  .trade-create-pill .trade-action-label { display: inline; }
++  .trade-feed-controls { grid-template-columns: repeat(3, 42px); justify-content: center; align-items: center; gap: 8px; width: min(880px, 100%); margin: 0 auto; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
++  .trade-filter-pill, .trade-activity-pill, .trade-create-pill { width: 42px; height: 42px; min-height: 42px; padding: 0; }
++  .trade-filter-pill { justify-content: center; }
++  .trade-filter-pill .trade-action-label, .trade-activity-pill .trade-action-label, .trade-create-pill .trade-action-label { display: none; }
++  .trade-create-pill { min-width: 42px; border: 1px solid transparent; background: var(--trade-bg); color: var(--trade-text); }
+   .inventory-controls { width: 100%; margin-right: auto; margin-left: auto; padding: 0 0 4px; background: transparent; }
+-  .trade-feed-controls .trade-filter-panel--filter { grid-template-columns: minmax(0, 720px); padding: calc(26px + env(safe-area-inset-top)) 32px calc(30px + env(safe-area-inset-bottom)); }
++  .trade-feed-controls .trade-filter-panel--filter { justify-self: center; width: min(720px, calc(100vw - 48px)); grid-template-columns: minmax(0, 720px); padding: calc(26px + env(safe-area-inset-top)) 32px calc(30px + env(safe-area-inset-bottom)); }
+   .trade-activity-panel { padding: calc(26px + env(safe-area-inset-top)) 32px calc(30px + env(safe-area-inset-bottom)); }
+   .trade-activity-panel > * { width: min(920px, 100%); }
+   .feed-status-row { width: min(880px, 100%); margin: 0 auto; }
+@@ -2755,6 +2755,8 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ .plans-feed-header__actions { display: flex; align-items: center; gap: 8px; }
+ .plans-feed-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 42px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text); font: inherit; font-size: 17px; font-weight: 950; text-decoration: none; box-shadow: var(--app-control-shadow); cursor: pointer; }
+ .plans-feed-icon-button:hover { border-color: var(--app-border-strong); transform: translateY(-1px); }
++.plans-feed-icon-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--proposal-border) 42%, transparent); outline-offset: 3px; }
++.plans-feed-icon-button[aria-expanded="true"] { background: var(--app-text); color: var(--app-bg); border-color: var(--app-text); }
+ .plans-feed-icon-button--primary { background: var(--trade-bg); color: var(--trade-text); border-color: transparent; }
+ .plans-feed-popover, .plans-feed-menu { display: grid; gap: 6px; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface); padding: 8px; box-shadow: var(--app-card-shadow); }
+ .plans-feed-popover { grid-template-columns: repeat(3, minmax(0, 1fr)); }

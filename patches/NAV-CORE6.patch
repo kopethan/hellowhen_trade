@@ -1,0 +1,35 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 2664769..1484fa2 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -1824,6 +1824,11 @@ html[data-theme="dark"] .trade-poster-card.has-fallback h2 {
+   }
+ 
+   .mobile-page:not(.trade-feed-page), .wallet-page, .trade-detail-page { max-width: 760px; margin-right: auto; margin-left: auto; }
++  .mobile-page.plans-feed-page { gap: 22px; max-width: none; }
++  .plans-feed-page .plans-feed-shell,
++  .plans-feed-page .plans-active-filter-card,
++  .plans-feed-page > .mobile-card,
++  .plans-feed-page > .inventory-empty-state { width: min(880px, 100%); margin-right: auto; margin-left: auto; }
+   .support-mobile-page { max-width: min(1120px, 100%); margin-right: auto; margin-left: auto; grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.1fr); align-items: start; }
+   .support-mobile-page > .notice-box { grid-column: 1 / -1; }
+   .support-compose-card, .support-thread-card { min-width: 0; }
+@@ -1838,13 +1843,16 @@ html[data-theme="dark"] .trade-poster-card.has-fallback h2 {
+   .trade-activity-panel { padding: calc(26px + env(safe-area-inset-top)) 32px calc(30px + env(safe-area-inset-bottom)); }
+   .trade-activity-panel > * { width: min(920px, 100%); }
+   .feed-status-row { width: min(880px, 100%); margin: 0 auto; }
+-  .trade-deck-grid { --trade-deck-max: 360px; --trade-deck-pad-left: 16px; --trade-deck-pad-right: 36px; --trade-deck-col: calc(var(--trade-deck-max) + var(--trade-deck-pad-left) + var(--trade-deck-pad-right)); display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--trade-deck-col)), var(--trade-deck-col))); justify-content: center; align-items: start; column-gap: clamp(22px, 3vw, 48px); row-gap: clamp(26px, 4vw, 56px); width: 100%; margin: 2px auto 0; padding: 6px 0 24px; }
++  .trade-deck-grid, .plans-feed-deck-list { --trade-deck-max: 360px; --trade-deck-pad-left: 16px; --trade-deck-pad-right: 36px; --trade-deck-col: calc(var(--trade-deck-max) + var(--trade-deck-pad-left) + var(--trade-deck-pad-right)); display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--trade-deck-col)), var(--trade-deck-col))); justify-content: center; align-items: start; column-gap: clamp(22px, 3vw, 48px); row-gap: clamp(26px, 4vw, 56px); width: 100%; margin: 2px auto 0; padding: 6px 0 24px; }
++  .plans-feed-page .plans-feed-deck-list { gap: clamp(26px, 4vw, 56px); }
++  .plans-feed-deck-list .plan-deck-link { width: 100%; max-width: var(--trade-deck-col); }
++  .plans-feed-deck-list .plan-deck-link__meta { margin: 0 16px 0; }
+   .trade-stack-deck { width: 100%; max-width: var(--trade-deck-col); padding: 16px 36px 38px 16px; }
+   .trade-stack-card__body h2 { font-size: clamp(23px, 1.85vw, 27px); }
+ }
+ 
+ @media (min-width: 1180px) {
+-  .trade-deck-grid { --trade-deck-max: 370px; }
++  .trade-deck-grid, .plans-feed-deck-list { --trade-deck-max: 370px; }
+ }
+ 
+ @media (max-width: 759px) {

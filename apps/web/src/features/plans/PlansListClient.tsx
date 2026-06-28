@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { PlanDto } from '@hellowhen/contracts';
-import { buildPlanFeedItems, mergeRecentStarterPlanIdeaIds, selectStarterPlanIdeaKeys, starterPlanIdeas, type StarterPlanIdeaKey } from '@hellowhen/shared';
+import { buildPlanFeedItems, getNormalWorkspaceMenuItems, mergeRecentStarterPlanIdeaIds, selectStarterPlanIdeaKeys, starterPlanIdeas, type NormalWorkspaceMenuItem, type StarterPlanIdeaKey } from '@hellowhen/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
@@ -112,6 +112,7 @@ function readAnonymousPlanIdeaKey() {
 
 export function PlansListClient({ plansEnabled }: PlansListClientProps) {
   const auth = useWebAuth();
+  const router = useRouter();
   const [view, setView] = useState<PlansView>('feed');
   const [plans, setPlans] = useState<PlanDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -131,6 +132,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
   const canLoadPrivateViews = auth.hydrated && auth.isAuthenticated;
   const activeView = view !== 'feed' && !canLoadPrivateViews ? 'feed' : view;
   const createPlanHref = auth.isAuthenticated ? '/plans/new' : nextAuthHref('/plans/new');
+  const workspaceItems = getNormalWorkspaceMenuItems('plans');
 
   useEffect(() => {
     setRecentStarterIdeaIds(readRecentPlanIdeaIds());
@@ -201,6 +203,28 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
     setMenuOpen(false);
   }
 
+  function openWorkspaceItem(item: NormalWorkspaceMenuItem) {
+    setMenuOpen(false);
+    if (!canLoadPrivateViews && item.id !== 'plan_ideas') {
+      router.push(nextAuthHref('/plans'));
+      return;
+    }
+    if (item.id === 'my_plans') {
+      setView('mine');
+      return;
+    }
+    if (item.id === 'joined_plans') {
+      setView('joined');
+      return;
+    }
+    if (item.id === 'my_places') {
+      router.push('/places');
+      return;
+    }
+    setView('feed');
+    router.push('/plans');
+  }
+
   return (
     <PlansFeatureGate plansEnabled={plansEnabled}>
       <main className="mobile-page plans-page plans-feed-page">
@@ -230,13 +254,17 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
           </header>
 
           {menuOpen ? (
-            <section className="plans-feed-menu" aria-label="Plans menu">
-              <button type="button" onClick={() => selectView('mine')} disabled={!canLoadPrivateViews}>My plans</button>
-              <button type="button" onClick={() => selectView('joined')} disabled={!canLoadPrivateViews}>Joined plans</button>
-              <Link href={canLoadPrivateViews ? '/places' : nextAuthHref('/places')}>My places</Link>
-              <button type="button" disabled>Hellowhen Place Library</button>
-              <Link href={auth.isAuthenticated ? '/places/new' : nextAuthHref('/places/new')}>Create place</Link>
-              <Link href={createPlanHref}>Create plan</Link>
+            <section className="plans-feed-menu plans-workspace-menu" aria-label="Plans workspace menu">
+              {workspaceItems.map((item) => (
+                <button key={item.id} type="button" onClick={() => openWorkspaceItem(item)} disabled={!canLoadPrivateViews && item.id !== 'plan_ideas'}>
+                  <span className={`plans-workspace-menu__icon plans-workspace-menu__icon--${item.tone}`}><WebIcon name={item.icon} size={17} decorative /></span>
+                  <span>
+                    <strong>{item.title}</strong>
+                    <small>{item.body}</small>
+                  </span>
+                  <WebIcon name="arrow-right" size={16} decorative />
+                </button>
+              ))}
             </section>
           ) : null}
 

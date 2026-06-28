@@ -4,7 +4,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { ListTradesFeedQuery, TradeExchangeMode, TradePostType, TradeSearchKeywordSource, TradeSearchSuggestion } from '@hellowhen/contracts';
-import { getTradeOwnerVisibilityState, isTradeOwnerCloseAllowed, isTradeOwnerRenewAllowed } from '@hellowhen/shared';
+import { getNormalWorkspaceMenuItems, getTradeOwnerVisibilityState, isTradeOwnerCloseAllowed, isTradeOwnerRenewAllowed, type NormalWorkspaceMenuItem, type NormalWorkspaceMenuTone } from '@hellowhen/shared';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
@@ -241,38 +241,8 @@ export function TradeDeckFeedScreen() {
     navigation.navigate('CreateTrade');
   }, [auth.isAuthenticated, navigation]);
 
-  const createOpenNeed = useCallback(() => {
-    if (!auth.isAuthenticated) {
-      navigation.navigate('Login');
-      return;
-    }
-    navigation.navigate('CreateTrade', { initialPostType: 'open_need' });
-  }, [auth.isAuthenticated, navigation]);
-
-  const createOpenOffer = useCallback(() => {
-    if (!auth.isAuthenticated) {
-      navigation.navigate('Login');
-      return;
-    }
-    navigation.navigate('CreateTrade', { initialPostType: 'open_offer' });
-  }, [auth.isAuthenticated, navigation]);
-
   const openTradeWizardAction = useCallback((action: TradeWizardAction) => {
-    if (action === 'browse_trades') {
-      setPostTypeFilter('all');
-      setSeenTradeIds([]);
-      setRefreshSeed(createFeedRefreshSeed());
-      setWizardModalVisible(false);
-      return;
-    }
-    if (action === 'browse_open_needs' || action === 'browse_open_offers') {
-      setPostTypeFilter(action === 'browse_open_needs' ? 'open_need' : 'open_offer');
-      setSeenTradeIds([]);
-      setRefreshSeed(createFeedRefreshSeed());
-      setWizardModalVisible(false);
-      return;
-    }
-    if (action === 'my_trades' || action === 'involved_trades' || action === 'proposals') {
+    if (action === 'my_trades' || action === 'proposals') {
       setActivityTab(action === 'my_trades' ? 'mine' : 'involved');
       setWizardModalVisible(false);
       setActivityModalVisible(true);
@@ -288,29 +258,14 @@ export function TradeDeckFeedScreen() {
       navigation.navigate('MyOffers');
       return;
     }
-    if (action === 'create_need') {
-      setWizardModalVisible(false);
-      navigation.navigate('CreateNeed');
-      return;
-    }
-    if (action === 'create_offer') {
-      setWizardModalVisible(false);
-      navigation.navigate('CreateOffer');
-      return;
-    }
-    if (action === 'create_open_need') {
-      setWizardModalVisible(false);
-      createOpenNeed();
-      return;
-    }
-    if (action === 'create_open_offer') {
-      setWizardModalVisible(false);
-      createOpenOffer();
-      return;
-    }
+    setPostTypeFilter('all');
+    setCategory('');
+    setImagesOnly(false);
+    setMoneyOnly(false);
+    setSeenTradeIds([]);
+    setRefreshSeed(createFeedRefreshSeed());
     setWizardModalVisible(false);
-    createTrade();
-  }, [createOpenNeed, createOpenOffer, createTrade, navigation]);
+  }, [navigation]);
 
   const openTradeIdea = useCallback((ideaKey: FeedTradeIdeaKey) => {
     navigation.navigate('TradeIdeaDetail', { ideaId: ideaKey });
@@ -588,20 +543,7 @@ function TradeFeedInlineIdeaCard({ ideaKey, onOpenIdea }: { ideaKey: FeedTradeId
 }
 
 
-type TradeWizardAction =
-  | 'browse_trades'
-  | 'browse_open_needs'
-  | 'browse_open_offers'
-  | 'my_trades'
-  | 'involved_trades'
-  | 'proposals'
-  | 'my_needs'
-  | 'create_need'
-  | 'my_offers'
-  | 'create_offer'
-  | 'create_trade'
-  | 'create_open_need'
-  | 'create_open_offer';
+type TradeWizardAction = NormalWorkspaceMenuItem['id'];
 
 type TradeWizardMenuModalProps = {
   visible: boolean;
@@ -616,46 +558,21 @@ function TradeWizardMenuModal({ visible, onClose, onSelect }: TradeWizardMenuMod
   const isWideLayout = width >= 720;
   const { t } = useTranslation();
 
-  const groups: Array<{ title: string; items: Array<{ action: TradeWizardAction; icon: MobileIconName; title: string; body: string; tone: 'trade' | 'need' | 'offer' | 'info' }> }> = [
-    {
-      title: t('trade.wizard.groups.trade'),
-      items: [
-        { action: 'browse_trades', icon: 'trade', title: t('trade.wizard.actions.browseTrades.title'), body: t('trade.wizard.actions.browseTrades.body'), tone: 'trade' },
-        { action: 'my_trades', icon: 'activity', title: t('trade.wizard.actions.myTrades.title'), body: t('trade.wizard.actions.myTrades.body'), tone: 'trade' },
-        { action: 'involved_trades', icon: 'proposal', title: t('trade.wizard.actions.involvedTrades.title'), body: t('trade.wizard.actions.involvedTrades.body'), tone: 'info' },
-        { action: 'proposals', icon: 'proposal-accepted', title: t('trade.wizard.actions.proposals.title'), body: t('trade.wizard.actions.proposals.body'), tone: 'info' },
-      ],
-    },
-    {
-      title: t('trade.wizard.groups.needs'),
-      items: [
-        { action: 'browse_open_needs', icon: 'need', title: t('trade.wizard.actions.openNeeds.title'), body: t('trade.wizard.actions.openNeeds.body'), tone: 'need' },
-        { action: 'my_needs', icon: 'save', title: t('trade.wizard.actions.myNeeds.title'), body: t('trade.wizard.actions.myNeeds.body'), tone: 'need' },
-        { action: 'create_need', icon: 'add', title: t('trade.wizard.actions.createNeed.title'), body: t('trade.wizard.actions.createNeed.body'), tone: 'need' },
-      ],
-    },
-    {
-      title: t('trade.wizard.groups.offers'),
-      items: [
-        { action: 'browse_open_offers', icon: 'offer', title: t('trade.wizard.actions.openOffers.title'), body: t('trade.wizard.actions.openOffers.body'), tone: 'offer' },
-        { action: 'my_offers', icon: 'save', title: t('trade.wizard.actions.myOffers.title'), body: t('trade.wizard.actions.myOffers.body'), tone: 'offer' },
-        { action: 'create_offer', icon: 'add', title: t('trade.wizard.actions.createOffer.title'), body: t('trade.wizard.actions.createOffer.body'), tone: 'offer' },
-      ],
-    },
-    {
-      title: t('trade.wizard.groups.create'),
-      items: [
-        { action: 'create_trade', icon: 'trade', title: t('trade.wizard.actions.createTrade.title'), body: t('trade.wizard.actions.createTrade.body'), tone: 'trade' },
-        { action: 'create_open_need', icon: 'need', title: t('trade.wizard.actions.createOpenNeed.title'), body: t('trade.wizard.actions.createOpenNeed.body'), tone: 'need' },
-        { action: 'create_open_offer', icon: 'offer', title: t('trade.wizard.actions.createOpenOffer.title'), body: t('trade.wizard.actions.createOpenOffer.body'), tone: 'offer' },
-      ],
-    },
-  ];
+  const workspaceItems = getNormalWorkspaceMenuItems('trade');
 
-  function toneColors(tone: 'trade' | 'need' | 'offer' | 'info') {
+  function itemTitle(item: NormalWorkspaceMenuItem) {
+    return item.titleKey ? t(item.titleKey) : item.title;
+  }
+
+  function itemBody(item: NormalWorkspaceMenuItem) {
+    return item.bodyKey ? t(item.bodyKey) : item.body;
+  }
+
+  function toneColors(tone: NormalWorkspaceMenuTone) {
     if (tone === 'need') return theme.semantic.need;
     if (tone === 'offer') return theme.semantic.offer;
     if (tone === 'info') return theme.semantic.info;
+    if (tone === 'plan') return theme.semantic.plan;
     return theme.semantic.trade;
   }
 
@@ -673,26 +590,24 @@ function TradeWizardMenuModal({ visible, onClose, onSelect }: TradeWizardMenuMod
             </Pressable>
           </View>
           <ScrollView contentContainerStyle={styles.wizardContent} showsVerticalScrollIndicator={false}>
-            {groups.map((group) => (
-              <View key={group.title} style={styles.wizardGroup}>
-                <AppText style={[styles.wizardGroupTitle, { color: theme.color.muted }]}>{group.title}</AppText>
-                <View style={styles.wizardItems}>
-                  {group.items.map((item) => {
-                    const colors = toneColors(item.tone);
-                    return (
-                      <Pressable key={item.action} accessibilityRole="button" onPress={() => onSelect(item.action)} style={({ pressed }) => [styles.wizardItem, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-                        <View style={[styles.wizardIcon, { backgroundColor: colors.softBg, borderColor: colors.border }]}><MobileIcon name={item.icon} size={17} color={colors.text} /></View>
-                        <View style={styles.wizardCopy}>
-                          <AppText style={styles.wizardTitle}>{item.title}</AppText>
-                          <AppText style={[styles.wizardBody, { color: theme.color.muted }]}>{item.body}</AppText>
-                        </View>
-                        <MobileIcon name="chevron-right" size={20} color={theme.color.muted} />
-                      </Pressable>
-                    );
-                  })}
-                </View>
+            <View style={styles.wizardGroup}>
+              <AppText style={[styles.wizardGroupTitle, { color: theme.color.muted }]}>Workspace</AppText>
+              <View style={styles.wizardItems}>
+                {workspaceItems.map((item) => {
+                  const colors = toneColors(item.tone);
+                  return (
+                    <Pressable key={item.id} accessibilityRole="button" onPress={() => onSelect(item.id)} style={({ pressed }) => [styles.wizardItem, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                      <View style={[styles.wizardIcon, { backgroundColor: colors.softBg, borderColor: colors.border }]}><MobileIcon name={item.icon} size={17} color={colors.text} /></View>
+                      <View style={styles.wizardCopy}>
+                        <AppText style={styles.wizardTitle}>{itemTitle(item)}</AppText>
+                        <AppText style={[styles.wizardBody, { color: theme.color.muted }]}>{itemBody(item)}</AppText>
+                      </View>
+                      <MobileIcon name="chevron-right" size={20} color={theme.color.muted} />
+                    </Pressable>
+                  );
+                })}
               </View>
-            ))}
+            </View>
           </ScrollView>
         </View>
       </View>

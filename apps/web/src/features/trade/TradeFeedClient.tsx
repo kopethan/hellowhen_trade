@@ -3,10 +3,10 @@
 import Link from 'next/link';
 import type { FormEvent } from 'react';
 import type { TradeDto, TradePostType, TradeSearchKeywordSource, TradeSearchSuggestion } from '@hellowhen/contracts';
-import { getTradeOwnerVisibilityState, isTradeOwnerCloseAllowed, isTradeOwnerRenewAllowed } from '@hellowhen/shared';
+import { getNormalWorkspaceMenuItems, getTradeOwnerVisibilityState, isTradeOwnerCloseAllowed, isTradeOwnerRenewAllowed, type NormalWorkspaceMenuItem, type NormalWorkspaceMenuTone } from '@hellowhen/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../lib/api';
-import { WebIcon, type WebIconName } from '../../components/WebIcon';
+import { WebIcon } from '../../components/WebIcon';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockTrades } from '../../lib/mockData';
@@ -113,8 +113,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   const demoDataEnabled = isWebDemoDataEnabled();
   const auth = useWebAuth();
   const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
-  const createOpenNeedHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create%3FpostType%3Dopen_need' : '/trades/create?postType=open_need';
-  const createOpenOfferHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create%3FpostType%3Dopen_offer' : '/trades/create?postType=open_offer';
   const createTradeIdeaHref = useCallback((ideaKey: FeedTradeIdeaKey) => createFeedIdeaTradeHref(ideaKey), []);
   const shouldShowHomeIntro = showHomeIntro && homeIntroReady && auth.hydrated && !auth.isAuthenticated && !homeIntroDismissed;
 
@@ -285,8 +283,9 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
     setRefreshSeed(createFeedRefreshSeed());
   }
 
-  function browsePostType(postType: FeedFilters['postType']) {
-    submitFilters({ ...initialFilters, postType });
+  function openStarterIdeas() {
+    resetFilters();
+    setActiveToolPanel(null);
   }
 
   useEffect(() => {
@@ -384,11 +383,9 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
       {activeToolPanel === 'menu' ? (
         <TradeWizardPanel
           createTradeHref={createTradeHref}
-          createOpenNeedHref={createOpenNeedHref}
-          createOpenOfferHref={createOpenOfferHref}
-          onBrowsePostType={browsePostType}
           onClose={() => setActiveToolPanel(null)}
           onOpenActivity={(tab) => { setActivityTab(tab); setActiveToolPanel('activity'); }}
+          onOpenStarterIdeas={openStarterIdeas}
         />
       ) : null}
 
@@ -640,66 +637,55 @@ function HomeTradeIntroBanner({ onDismiss }: HomeTradeIntroBannerProps) {
 
 type TradeWizardPanelProps = {
   createTradeHref: string;
-  createOpenNeedHref: string;
-  createOpenOfferHref: string;
-  onBrowsePostType: (postType: FeedFilters['postType']) => void;
   onClose: () => void;
   onOpenActivity: (tab: TradeActivityTab) => void;
+  onOpenStarterIdeas: () => void;
 };
 
-function TradeWizardPanel({ createTradeHref, createOpenNeedHref, createOpenOfferHref, onBrowsePostType, onClose, onOpenActivity }: TradeWizardPanelProps) {
+function TradeWizardPanel({ onClose, onOpenActivity, onOpenStarterIdeas }: TradeWizardPanelProps) {
   const { t } = useWebTranslation();
-  const groups: Array<{ title: string; items: Array<{ key: string; icon: WebIconName; title: string; body: string; href?: string; onClick?: () => void; tone: 'trade' | 'need' | 'offer' | 'info' }> }> = [
-    {
-      title: t('trade.wizard.groups.trade'),
-      items: [
-        { key: 'browse-trades', icon: 'trade', title: t('trade.wizard.actions.browseTrades.title'), body: t('trade.wizard.actions.browseTrades.body'), onClick: () => onBrowsePostType(''), tone: 'trade' },
-        { key: 'my-trades', icon: 'activity', title: t('trade.wizard.actions.myTrades.title'), body: t('trade.wizard.actions.myTrades.body'), onClick: () => onOpenActivity('mine'), tone: 'trade' },
-        { key: 'involved-trades', icon: 'proposal', title: t('trade.wizard.actions.involvedTrades.title'), body: t('trade.wizard.actions.involvedTrades.body'), onClick: () => onOpenActivity('involved'), tone: 'info' },
-        { key: 'proposals', icon: 'proposal-accepted', title: t('trade.wizard.actions.proposals.title'), body: t('trade.wizard.actions.proposals.body'), onClick: () => onOpenActivity('involved'), tone: 'info' },
-      ],
-    },
-    {
-      title: t('trade.wizard.groups.needs'),
-      items: [
-        { key: 'open-needs', icon: 'need', title: t('trade.wizard.actions.openNeeds.title'), body: t('trade.wizard.actions.openNeeds.body'), onClick: () => onBrowsePostType('open_need'), tone: 'need' },
-        { key: 'my-needs', icon: 'save', title: t('trade.wizard.actions.myNeeds.title'), body: t('trade.wizard.actions.myNeeds.body'), href: '/needs', tone: 'need' },
-        { key: 'create-need', icon: 'add', title: t('trade.wizard.actions.createNeed.title'), body: t('trade.wizard.actions.createNeed.body'), href: '/needs/new', tone: 'need' },
-      ],
-    },
-    {
-      title: t('trade.wizard.groups.offers'),
-      items: [
-        { key: 'open-offers', icon: 'offer', title: t('trade.wizard.actions.openOffers.title'), body: t('trade.wizard.actions.openOffers.body'), onClick: () => onBrowsePostType('open_offer'), tone: 'offer' },
-        { key: 'my-offers', icon: 'save', title: t('trade.wizard.actions.myOffers.title'), body: t('trade.wizard.actions.myOffers.body'), href: '/offers', tone: 'offer' },
-        { key: 'create-offer', icon: 'add', title: t('trade.wizard.actions.createOffer.title'), body: t('trade.wizard.actions.createOffer.body'), href: '/offers/new', tone: 'offer' },
-      ],
-    },
-    {
-      title: t('trade.wizard.groups.create'),
-      items: [
-        { key: 'create-trade', icon: 'trade', title: t('trade.wizard.actions.createTrade.title'), body: t('trade.wizard.actions.createTrade.body'), href: createTradeHref, tone: 'trade' },
-        { key: 'create-open-need', icon: 'need', title: t('trade.wizard.actions.createOpenNeed.title'), body: t('trade.wizard.actions.createOpenNeed.body'), href: createOpenNeedHref, tone: 'need' },
-        { key: 'create-open-offer', icon: 'offer', title: t('trade.wizard.actions.createOpenOffer.title'), body: t('trade.wizard.actions.createOpenOffer.body'), href: createOpenOfferHref, tone: 'offer' },
-      ],
-    },
-  ];
+  const workspaceItems = getNormalWorkspaceMenuItems('trade');
 
-  function renderItem(item: (typeof groups)[number]['items'][number]) {
+  function itemTitle(item: NormalWorkspaceMenuItem) {
+    return item.titleKey ? t(item.titleKey) : item.title;
+  }
+
+  function itemBody(item: NormalWorkspaceMenuItem) {
+    return item.bodyKey ? t(item.bodyKey) : item.body;
+  }
+
+  function iconToneClass(tone: NormalWorkspaceMenuTone) {
+    return tone === 'plan' ? 'info' : tone;
+  }
+
+  function selectItem(item: NormalWorkspaceMenuItem) {
+    if (item.id === 'my_trades') {
+      onOpenActivity('mine');
+      return;
+    }
+    if (item.id === 'proposals') {
+      onOpenActivity('involved');
+      return;
+    }
+    if (item.id === 'starter_ideas') {
+      onOpenStarterIdeas();
+    }
+  }
+
+  function renderItem(item: NormalWorkspaceMenuItem) {
     const content = (
       <>
-        <span className={`trade-wizard-panel__item-icon trade-wizard-panel__item-icon--${item.tone}`}><WebIcon name={item.icon} size={18} decorative /></span>
+        <span className={`trade-wizard-panel__item-icon trade-wizard-panel__item-icon--${iconToneClass(item.tone)}`}><WebIcon name={item.icon} size={18} decorative /></span>
         <span className="trade-wizard-panel__item-copy">
-          <strong>{item.title}</strong>
-          <small>{item.body}</small>
+          <strong>{itemTitle(item)}</strong>
+          <small>{itemBody(item)}</small>
         </span>
         <WebIcon name="arrow-right" size={17} decorative className="trade-wizard-panel__arrow" />
       </>
     );
-    if (item.href) {
-      return <Link key={item.key} href={item.href} className="trade-wizard-panel__item" onClick={onClose}>{content}</Link>;
-    }
-    return <button key={item.key} type="button" className="trade-wizard-panel__item" onClick={() => { item.onClick?.(); }}>{content}</button>;
+    if (item.id === 'my_needs') return <Link key={item.id} href="/needs" className="trade-wizard-panel__item" onClick={onClose}>{content}</Link>;
+    if (item.id === 'my_offers') return <Link key={item.id} href="/offers" className="trade-wizard-panel__item" onClick={onClose}>{content}</Link>;
+    return <button key={item.id} type="button" className="trade-wizard-panel__item" onClick={() => selectItem(item)}>{content}</button>;
   }
 
   return (
@@ -713,12 +699,10 @@ function TradeWizardPanel({ createTradeHref, createOpenNeedHref, createOpenOffer
         <button type="button" className="trade-filter-panel__close" onClick={onClose} aria-label={t('common.actions.close')}>×</button>
       </div>
       <div className="trade-wizard-panel__body">
-        {groups.map((group) => (
-          <section key={group.title} className="trade-wizard-panel__group" aria-label={group.title}>
-            <h3>{group.title}</h3>
-            <div className="trade-wizard-panel__items">{group.items.map(renderItem)}</div>
-          </section>
-        ))}
+        <section className="trade-wizard-panel__group" aria-label="Trade workspace">
+          <h3>Workspace</h3>
+          <div className="trade-wizard-panel__items">{workspaceItems.map(renderItem)}</div>
+        </section>
       </div>
     </section>
   );

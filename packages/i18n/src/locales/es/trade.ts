@@ -727,7 +727,7 @@ export const trade = {
     close: 'Cerrar menú de Trade',
     badge: 'Menú de Trade',
     title: 'Menú de Trade',
-    body: 'Salta entre intercambios, necesidades, ofertas, propuestas y acciones de creación sin añadir más pestañas principales.',
+    body: 'Salta entre tus intercambios, propuestas, necesidades, ofertas e ideas starter sin añadir más pestañas principales.',
     groups: {
       trade: 'Trade',
       needs: 'Necesidades',
@@ -741,6 +741,7 @@ export const trade = {
       myTrades: { title: 'Mis intercambios', body: 'Gestiona los intercambios que creaste.' },
       involvedTrades: { title: 'Intercambios implicados', body: 'Sigue intercambios donde enviaste o aceptaste propuestas.' },
       proposals: { title: 'Propuestas', body: 'Abre tu actividad de propuestas/deals.' },
+      starterIdeas: { title: 'Ideas starter', body: 'Abre ideas starter creativas que puedes convertir en intercambios.' },
       myNeeds: { title: 'Mis necesidades', body: 'Gestiona necesidades reutilizables.' },
       createNeed: { title: 'Crear necesidad', body: 'Crea una necesidad reutilizable para futuros intercambios.' },
       myOffers: { title: 'Mis ofertas', body: 'Gestiona ofertas reutilizables.' },

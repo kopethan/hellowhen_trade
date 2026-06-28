@@ -1,0 +1,679 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 32fb7d7..481777b 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -4,7 +4,7 @@ import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform,
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { DiscoveryLanguage, InventoryTranslationDto, ListPlansQuery, MediaAssetDto, PlaceDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
+-import { buildGeneratedPlanDisplay, buildPlanFeedItems, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
++import { buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type NormalWorkspaceMenuItem, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppText } from '../../components/AppText';
+@@ -33,13 +33,6 @@ type SimpleScreenProps<RouteName extends keyof RootStackParamList> = NativeStack
+ type PlanListScope = 'feed' | 'mine' | 'joined';
+ type PlaceListScope = 'mine' | 'library';
+ 
+-type PlanMenuItem = {
+-  title: string;
+-  body: string;
+-  icon: MobileIconName;
+-  onPress: () => void;
+-};
+-
+ type PlanFilterOption = { label: string; value: string; body?: string };
+ type PlanFilterGroup = { title: string; body: string; options: PlanFilterOption[] };
+ 
+@@ -1125,14 +1118,24 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
+ 
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+ 
+-  const menuItems: PlanMenuItem[] = [
+-    { title: 'My plans', body: 'Plans you created.', icon: 'plan', onPress: () => { setMenuOpen(false); navigation.navigate('MyPlans'); } },
+-    { title: 'Joined plans', body: 'Plans you joined freely.', icon: 'activity', onPress: () => { setMenuOpen(false); navigation.navigate('JoinedPlans'); } },
+-    { title: 'My places', body: 'Reusable offline or online places.', icon: 'save', onPress: () => { setMenuOpen(false); navigation.navigate('MyPlaces'); } },
+-    { title: 'Hellowhen Place Library', body: 'Starter/library places for Plans.', icon: 'search', onPress: () => { setMenuOpen(false); navigation.navigate('PlaceLibrary'); } },
+-    { title: 'Create place', body: 'Prepare a reusable place.', icon: 'add', onPress: () => { setMenuOpen(false); navigation.navigate('CreatePlace'); } },
+-    { title: 'Create plan', body: 'Choose places and arrange them.', icon: 'add', onPress: () => { setMenuOpen(false); navigation.navigate('CreatePlan'); } },
+-  ];
++  const menuItems = getNormalWorkspaceMenuItems('plans');
++
++  function openWorkspaceItem(itemId: string) {
++    setMenuOpen(false);
++    if (itemId === 'my_plans') {
++      navigation.navigate('MyPlans');
++      return;
++    }
++    if (itemId === 'joined_plans') {
++      navigation.navigate('JoinedPlans');
++      return;
++    }
++    if (itemId === 'my_places') {
++      navigation.navigate('MyPlaces');
++      return;
++    }
++    navigation.navigate('Plans');
++  }
+ 
+   const header = (
+     <View style={styles.feedHeader}>
+@@ -1152,7 +1155,7 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
+       <View style={styles.bodyWrap}>
+         {menuOpen ? (
+           <View style={[styles.menuPanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-            {menuItems.map((item) => <MenuItem key={item.title} item={item} />)}
++            {menuItems.map((item) => <MenuItem key={item.id} item={item} onPress={() => openWorkspaceItem(item.id)} />)}
+           </View>
+         ) : null}
+         <PlanList scope="feed" navigation={navigation} filters={activeFilters} searchQuery={activeSearchQuery} />
+@@ -1268,11 +1271,11 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
+   );
+ }
+ 
+-function MenuItem({ item }: { item: PlanMenuItem }) {
++function MenuItem({ item, onPress }: { item: NormalWorkspaceMenuItem; onPress: () => void }) {
+   const theme = useThemeTokens();
+   return (
+-    <Pressable accessibilityRole="button" onPress={item.onPress} style={({ pressed }) => [styles.menuItem, { borderBottomColor: theme.color.border }, pressed && styles.pressed]}>
+-      <View style={[styles.menuIcon, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}><MobileIcon name={item.icon} size={17} color={theme.semantic.plan.text} /></View>
++    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.menuItem, { borderBottomColor: theme.color.border }, pressed && styles.pressed]}>
++      <View style={[styles.menuIcon, { backgroundColor: theme.semantic[item.tone].softBg, borderColor: theme.semantic[item.tone].border }]}><MobileIcon name={item.icon} size={17} color={theme.semantic[item.tone].text} /></View>
+       <View style={styles.menuCopy}>
+         <AppText style={styles.menuTitle}>{item.title}</AppText>
+         <AppText style={[styles.menuBody, { color: theme.color.muted }]}>{item.body}</AppText>
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index fa07b5f..fccbe6d 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -4,7 +4,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { ListTradesFeedQuery, TradeExchangeMode, TradePostType, TradeSearchKeywordSource, TradeSearchSuggestion } from '@hellowhen/contracts';
+-import { getTradeOwnerVisibilityState, isTradeOwnerCloseAllowed, isTradeOwnerRenewAllowed } from '@hellowhen/shared';
++import { getNormalWorkspaceMenuItems, getTradeOwnerVisibilityState, isTradeOwnerCloseAllowed, isTradeOwnerRenewAllowed, type NormalWorkspaceMenuItem, type NormalWorkspaceMenuTone } from '@hellowhen/shared';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+@@ -241,38 +241,8 @@ export function TradeDeckFeedScreen() {
+     navigation.navigate('CreateTrade');
+   }, [auth.isAuthenticated, navigation]);
+ 
+-  const createOpenNeed = useCallback(() => {
+-    if (!auth.isAuthenticated) {
+-      navigation.navigate('Login');
+-      return;
+-    }
+-    navigation.navigate('CreateTrade', { initialPostType: 'open_need' });
+-  }, [auth.isAuthenticated, navigation]);
+-
+-  const createOpenOffer = useCallback(() => {
+-    if (!auth.isAuthenticated) {
+-      navigation.navigate('Login');
+-      return;
+-    }
+-    navigation.navigate('CreateTrade', { initialPostType: 'open_offer' });
+-  }, [auth.isAuthenticated, navigation]);
+-
+   const openTradeWizardAction = useCallback((action: TradeWizardAction) => {
+-    if (action === 'browse_trades') {
+-      setPostTypeFilter('all');
+-      setSeenTradeIds([]);
+-      setRefreshSeed(createFeedRefreshSeed());
+-      setWizardModalVisible(false);
+-      return;
+-    }
+-    if (action === 'browse_open_needs' || action === 'browse_open_offers') {
+-      setPostTypeFilter(action === 'browse_open_needs' ? 'open_need' : 'open_offer');
+-      setSeenTradeIds([]);
+-      setRefreshSeed(createFeedRefreshSeed());
+-      setWizardModalVisible(false);
+-      return;
+-    }
+-    if (action === 'my_trades' || action === 'involved_trades' || action === 'proposals') {
++    if (action === 'my_trades' || action === 'proposals') {
+       setActivityTab(action === 'my_trades' ? 'mine' : 'involved');
+       setWizardModalVisible(false);
+       setActivityModalVisible(true);
+@@ -288,29 +258,14 @@ export function TradeDeckFeedScreen() {
+       navigation.navigate('MyOffers');
+       return;
+     }
+-    if (action === 'create_need') {
+-      setWizardModalVisible(false);
+-      navigation.navigate('CreateNeed');
+-      return;
+-    }
+-    if (action === 'create_offer') {
+-      setWizardModalVisible(false);
+-      navigation.navigate('CreateOffer');
+-      return;
+-    }
+-    if (action === 'create_open_need') {
+-      setWizardModalVisible(false);
+-      createOpenNeed();
+-      return;
+-    }
+-    if (action === 'create_open_offer') {
+-      setWizardModalVisible(false);
+-      createOpenOffer();
+-      return;
+-    }
++    setPostTypeFilter('all');
++    setCategory('');
++    setImagesOnly(false);
++    setMoneyOnly(false);
++    setSeenTradeIds([]);
++    setRefreshSeed(createFeedRefreshSeed());
+     setWizardModalVisible(false);
+-    createTrade();
+-  }, [createOpenNeed, createOpenOffer, createTrade, navigation]);
++  }, [navigation]);
+ 
+   const openTradeIdea = useCallback((ideaKey: FeedTradeIdeaKey) => {
+     navigation.navigate('TradeIdeaDetail', { ideaId: ideaKey });
+@@ -588,20 +543,7 @@ function TradeFeedInlineIdeaCard({ ideaKey, onOpenIdea }: { ideaKey: FeedTradeId
+ }
+ 
+ 
+-type TradeWizardAction =
+-  | 'browse_trades'
+-  | 'browse_open_needs'
+-  | 'browse_open_offers'
+-  | 'my_trades'
+-  | 'involved_trades'
+-  | 'proposals'
+-  | 'my_needs'
+-  | 'create_need'
+-  | 'my_offers'
+-  | 'create_offer'
+-  | 'create_trade'
+-  | 'create_open_need'
+-  | 'create_open_offer';
++type TradeWizardAction = NormalWorkspaceMenuItem['id'];
+ 
+ type TradeWizardMenuModalProps = {
+   visible: boolean;
+@@ -616,46 +558,21 @@ function TradeWizardMenuModal({ visible, onClose, onSelect }: TradeWizardMenuMod
+   const isWideLayout = width >= 720;
+   const { t } = useTranslation();
+ 
+-  const groups: Array<{ title: string; items: Array<{ action: TradeWizardAction; icon: MobileIconName; title: string; body: string; tone: 'trade' | 'need' | 'offer' | 'info' }> }> = [
+-    {
+-      title: t('trade.wizard.groups.trade'),
+-      items: [
+-        { action: 'browse_trades', icon: 'trade', title: t('trade.wizard.actions.browseTrades.title'), body: t('trade.wizard.actions.browseTrades.body'), tone: 'trade' },
+-        { action: 'my_trades', icon: 'activity', title: t('trade.wizard.actions.myTrades.title'), body: t('trade.wizard.actions.myTrades.body'), tone: 'trade' },
+-        { action: 'involved_trades', icon: 'proposal', title: t('trade.wizard.actions.involvedTrades.title'), body: t('trade.wizard.actions.involvedTrades.body'), tone: 'info' },
+-        { action: 'proposals', icon: 'proposal-accepted', title: t('trade.wizard.actions.proposals.title'), body: t('trade.wizard.actions.proposals.body'), tone: 'info' },
+-      ],
+-    },
+-    {
+-      title: t('trade.wizard.groups.needs'),
+-      items: [
+-        { action: 'browse_open_needs', icon: 'need', title: t('trade.wizard.actions.openNeeds.title'), body: t('trade.wizard.actions.openNeeds.body'), tone: 'need' },
+-        { action: 'my_needs', icon: 'save', title: t('trade.wizard.actions.myNeeds.title'), body: t('trade.wizard.actions.myNeeds.body'), tone: 'need' },
+-        { action: 'create_need', icon: 'add', title: t('trade.wizard.actions.createNeed.title'), body: t('trade.wizard.actions.createNeed.body'), tone: 'need' },
+-      ],
+-    },
+-    {
+-      title: t('trade.wizard.groups.offers'),
+-      items: [
+-        { action: 'browse_open_offers', icon: 'offer', title: t('trade.wizard.actions.openOffers.title'), body: t('trade.wizard.actions.openOffers.body'), tone: 'offer' },
+-        { action: 'my_offers', icon: 'save', title: t('trade.wizard.actions.myOffers.title'), body: t('trade.wizard.actions.myOffers.body'), tone: 'offer' },
+-        { action: 'create_offer', icon: 'add', title: t('trade.wizard.actions.createOffer.title'), body: t('trade.wizard.actions.createOffer.body'), tone: 'offer' },
+-      ],
+-    },
+-    {
+-      title: t('trade.wizard.groups.create'),
+-      items: [
+-        { action: 'create_trade', icon: 'trade', title: t('trade.wizard.actions.createTrade.title'), body: t('trade.wizard.actions.createTrade.body'), tone: 'trade' },
+-        { action: 'create_open_need', icon: 'need', title: t('trade.wizard.actions.createOpenNeed.title'), body: t('trade.wizard.actions.createOpenNeed.body'), tone: 'need' },
+-        { action: 'create_open_offer', icon: 'offer', title: t('trade.wizard.actions.createOpenOffer.title'), body: t('trade.wizard.actions.createOpenOffer.body'), tone: 'offer' },
+-      ],
+-    },
+-  ];
++  const workspaceItems = getNormalWorkspaceMenuItems('trade');
++
++  function itemTitle(item: NormalWorkspaceMenuItem) {
++    return item.titleKey ? t(item.titleKey) : item.title;
++  }
++
++  function itemBody(item: NormalWorkspaceMenuItem) {
++    return item.bodyKey ? t(item.bodyKey) : item.body;
++  }
+ 
+-  function toneColors(tone: 'trade' | 'need' | 'offer' | 'info') {
++  function toneColors(tone: NormalWorkspaceMenuTone) {
+     if (tone === 'need') return theme.semantic.need;
+     if (tone === 'offer') return theme.semantic.offer;
+     if (tone === 'info') return theme.semantic.info;
++    if (tone === 'plan') return theme.semantic.plan;
+     return theme.semantic.trade;
+   }
+ 
+@@ -673,26 +590,24 @@ function TradeWizardMenuModal({ visible, onClose, onSelect }: TradeWizardMenuMod
+             </Pressable>
+           </View>
+           <ScrollView contentContainerStyle={styles.wizardContent} showsVerticalScrollIndicator={false}>
+-            {groups.map((group) => (
+-              <View key={group.title} style={styles.wizardGroup}>
+-                <AppText style={[styles.wizardGroupTitle, { color: theme.color.muted }]}>{group.title}</AppText>
+-                <View style={styles.wizardItems}>
+-                  {group.items.map((item) => {
+-                    const colors = toneColors(item.tone);
+-                    return (
+-                      <Pressable key={item.action} accessibilityRole="button" onPress={() => onSelect(item.action)} style={({ pressed }) => [styles.wizardItem, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+-                        <View style={[styles.wizardIcon, { backgroundColor: colors.softBg, borderColor: colors.border }]}><MobileIcon name={item.icon} size={17} color={colors.text} /></View>
+-                        <View style={styles.wizardCopy}>
+-                          <AppText style={styles.wizardTitle}>{item.title}</AppText>
+-                          <AppText style={[styles.wizardBody, { color: theme.color.muted }]}>{item.body}</AppText>
+-                        </View>
+-                        <MobileIcon name="chevron-right" size={20} color={theme.color.muted} />
+-                      </Pressable>
+-                    );
+-                  })}
+-                </View>
++            <View style={styles.wizardGroup}>
++              <AppText style={[styles.wizardGroupTitle, { color: theme.color.muted }]}>Workspace</AppText>
++              <View style={styles.wizardItems}>
++                {workspaceItems.map((item) => {
++                  const colors = toneColors(item.tone);
++                  return (
++                    <Pressable key={item.id} accessibilityRole="button" onPress={() => onSelect(item.id)} style={({ pressed }) => [styles.wizardItem, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++                      <View style={[styles.wizardIcon, { backgroundColor: colors.softBg, borderColor: colors.border }]}><MobileIcon name={item.icon} size={17} color={colors.text} /></View>
++                      <View style={styles.wizardCopy}>
++                        <AppText style={styles.wizardTitle}>{itemTitle(item)}</AppText>
++                        <AppText style={[styles.wizardBody, { color: theme.color.muted }]}>{itemBody(item)}</AppText>
++                      </View>
++                      <MobileIcon name="chevron-right" size={20} color={theme.color.muted} />
++                    </Pressable>
++                  );
++                })}
+               </View>
+-            ))}
++            </View>
+           </ScrollView>
+         </View>
+       </View>
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index f1aad00..79020d7 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2707,6 +2707,17 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ .plans-feed-popover button { text-align: center; }
+ .plans-feed-popover button.is-active, .plans-feed-menu button:hover:not(:disabled), .plans-feed-menu a:hover { background: var(--app-surface-soft); color: var(--app-text); }
+ .plans-feed-popover button:disabled, .plans-feed-menu button:disabled { opacity: 0.42; cursor: not-allowed; }
++.plans-workspace-menu { gap: 8px; padding: 9px; }
++.plans-workspace-menu button { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; min-height: 66px; padding: 10px; }
++.plans-workspace-menu button > span:not(.plans-workspace-menu__icon) { display: grid; gap: 2px; min-width: 0; }
++.plans-workspace-menu button strong { color: var(--app-text); font-size: 14px; line-height: 1.15; }
++.plans-workspace-menu button small { color: var(--app-text-muted); font-size: 12px; font-weight: 780; line-height: 1.3; }
++.plans-workspace-menu__icon { display: inline-grid; place-items: center; width: 38px; height: 38px; border: 1px solid; border-radius: 15px; }
++.plans-workspace-menu__icon--plan { background: var(--plan-bg); border-color: var(--plan-border); color: var(--plan-text); }
++.plans-workspace-menu__icon--trade { background: var(--trade-bg); border-color: var(--trade-border); color: var(--trade-text); }
++.plans-workspace-menu__icon--need { background: var(--need-bg); border-color: var(--need-border); color: var(--need-text); }
++.plans-workspace-menu__icon--offer { background: var(--offer-bg); border-color: var(--offer-border); color: var(--offer-text); }
++.plans-workspace-menu__icon--info { background: var(--info-bg); border-color: var(--info-border); color: var(--info-text); }
+ .plans-feed-view-label { display: flex; align-items: center; justify-content: space-between; color: var(--app-text-muted); font-size: 12px; font-weight: 950; letter-spacing: 0.08em; text-transform: uppercase; }
+ .plans-feed-deck-list { gap: 14px; }
+ 
+diff --git a/apps/web/src/features/plans/PlansListClient.tsx b/apps/web/src/features/plans/PlansListClient.tsx
+index 1b9cc8b..0a69eb6 100644
+--- a/apps/web/src/features/plans/PlansListClient.tsx
++++ b/apps/web/src/features/plans/PlansListClient.tsx
+@@ -3,7 +3,7 @@
+ import Link from 'next/link';
+ import { useRouter, useSearchParams } from 'next/navigation';
+ import type { PlanDto } from '@hellowhen/contracts';
+-import { buildPlanFeedItems, mergeRecentStarterPlanIdeaIds, selectStarterPlanIdeaKeys, starterPlanIdeas, type StarterPlanIdeaKey } from '@hellowhen/shared';
++import { buildPlanFeedItems, getNormalWorkspaceMenuItems, mergeRecentStarterPlanIdeaIds, selectStarterPlanIdeaKeys, starterPlanIdeas, type NormalWorkspaceMenuItem, type StarterPlanIdeaKey } from '@hellowhen/shared';
+ import { useEffect, useMemo, useState } from 'react';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+@@ -112,6 +112,7 @@ function readAnonymousPlanIdeaKey() {
+ 
+ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   const auth = useWebAuth();
++  const router = useRouter();
+   const [view, setView] = useState<PlansView>('feed');
+   const [plans, setPlans] = useState<PlanDto[]>([]);
+   const [loading, setLoading] = useState(true);
+@@ -131,6 +132,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   const canLoadPrivateViews = auth.hydrated && auth.isAuthenticated;
+   const activeView = view !== 'feed' && !canLoadPrivateViews ? 'feed' : view;
+   const createPlanHref = auth.isAuthenticated ? '/plans/new' : nextAuthHref('/plans/new');
++  const workspaceItems = getNormalWorkspaceMenuItems('plans');
+ 
+   useEffect(() => {
+     setRecentStarterIdeaIds(readRecentPlanIdeaIds());
+@@ -201,6 +203,28 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+     setMenuOpen(false);
+   }
+ 
++  function openWorkspaceItem(item: NormalWorkspaceMenuItem) {
++    setMenuOpen(false);
++    if (!canLoadPrivateViews && item.id !== 'plan_ideas') {
++      router.push(nextAuthHref('/plans'));
++      return;
++    }
++    if (item.id === 'my_plans') {
++      setView('mine');
++      return;
++    }
++    if (item.id === 'joined_plans') {
++      setView('joined');
++      return;
++    }
++    if (item.id === 'my_places') {
++      router.push('/places');
++      return;
++    }
++    setView('feed');
++    router.push('/plans');
++  }
++
+   return (
+     <PlansFeatureGate plansEnabled={plansEnabled}>
+       <main className="mobile-page plans-page plans-feed-page">
+@@ -230,13 +254,17 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+           </header>
+ 
+           {menuOpen ? (
+-            <section className="plans-feed-menu" aria-label="Plans menu">
+-              <button type="button" onClick={() => selectView('mine')} disabled={!canLoadPrivateViews}>My plans</button>
+-              <button type="button" onClick={() => selectView('joined')} disabled={!canLoadPrivateViews}>Joined plans</button>
+-              <Link href={canLoadPrivateViews ? '/places' : nextAuthHref('/places')}>My places</Link>
+-              <button type="button" disabled>Hellowhen Place Library</button>
+-              <Link href={auth.isAuthenticated ? '/places/new' : nextAuthHref('/places/new')}>Create place</Link>
+-              <Link href={createPlanHref}>Create plan</Link>
++            <section className="plans-feed-menu plans-workspace-menu" aria-label="Plans workspace menu">
++              {workspaceItems.map((item) => (
++                <button key={item.id} type="button" onClick={() => openWorkspaceItem(item)} disabled={!canLoadPrivateViews && item.id !== 'plan_ideas'}>
++                  <span className={`plans-workspace-menu__icon plans-workspace-menu__icon--${item.tone}`}><WebIcon name={item.icon} size={17} decorative /></span>
++                  <span>
++                    <strong>{item.title}</strong>
++                    <small>{item.body}</small>
++                  </span>
++                  <WebIcon name="arrow-right" size={16} decorative />
++                </button>
++              ))}
+             </section>
+           ) : null}
+ 
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index 062fdf2..ce8a418 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -3,10 +3,10 @@
+ import Link from 'next/link';
+ import type { FormEvent } from 'react';
+ import type { TradeDto, TradePostType, TradeSearchKeywordSource, TradeSearchSuggestion } from '@hellowhen/contracts';
+-import { getTradeOwnerVisibilityState, isTradeOwnerCloseAllowed, isTradeOwnerRenewAllowed } from '@hellowhen/shared';
++import { getNormalWorkspaceMenuItems, getTradeOwnerVisibilityState, isTradeOwnerCloseAllowed, isTradeOwnerRenewAllowed, type NormalWorkspaceMenuItem, type NormalWorkspaceMenuTone } from '@hellowhen/shared';
+ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+ import { api } from '../../lib/api';
+-import { WebIcon, type WebIconName } from '../../components/WebIcon';
++import { WebIcon } from '../../components/WebIcon';
+ import { betaFeatures } from '../../lib/betaFeatures';
+ import { isWebDemoDataEnabled } from '../../lib/demoMode';
+ import { mockTrades } from '../../lib/mockData';
+@@ -113,8 +113,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+   const demoDataEnabled = isWebDemoDataEnabled();
+   const auth = useWebAuth();
+   const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
+-  const createOpenNeedHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create%3FpostType%3Dopen_need' : '/trades/create?postType=open_need';
+-  const createOpenOfferHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create%3FpostType%3Dopen_offer' : '/trades/create?postType=open_offer';
+   const createTradeIdeaHref = useCallback((ideaKey: FeedTradeIdeaKey) => createFeedIdeaTradeHref(ideaKey), []);
+   const shouldShowHomeIntro = showHomeIntro && homeIntroReady && auth.hydrated && !auth.isAuthenticated && !homeIntroDismissed;
+ 
+@@ -285,8 +283,9 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+     setRefreshSeed(createFeedRefreshSeed());
+   }
+ 
+-  function browsePostType(postType: FeedFilters['postType']) {
+-    submitFilters({ ...initialFilters, postType });
++  function openStarterIdeas() {
++    resetFilters();
++    setActiveToolPanel(null);
+   }
+ 
+   useEffect(() => {
+@@ -384,11 +383,9 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+       {activeToolPanel === 'menu' ? (
+         <TradeWizardPanel
+           createTradeHref={createTradeHref}
+-          createOpenNeedHref={createOpenNeedHref}
+-          createOpenOfferHref={createOpenOfferHref}
+-          onBrowsePostType={browsePostType}
+           onClose={() => setActiveToolPanel(null)}
+           onOpenActivity={(tab) => { setActivityTab(tab); setActiveToolPanel('activity'); }}
++          onOpenStarterIdeas={openStarterIdeas}
+         />
+       ) : null}
+ 
+@@ -640,66 +637,55 @@ function HomeTradeIntroBanner({ onDismiss }: HomeTradeIntroBannerProps) {
+ 
+ type TradeWizardPanelProps = {
+   createTradeHref: string;
+-  createOpenNeedHref: string;
+-  createOpenOfferHref: string;
+-  onBrowsePostType: (postType: FeedFilters['postType']) => void;
+   onClose: () => void;
+   onOpenActivity: (tab: TradeActivityTab) => void;
++  onOpenStarterIdeas: () => void;
+ };
+ 
+-function TradeWizardPanel({ createTradeHref, createOpenNeedHref, createOpenOfferHref, onBrowsePostType, onClose, onOpenActivity }: TradeWizardPanelProps) {
++function TradeWizardPanel({ onClose, onOpenActivity, onOpenStarterIdeas }: TradeWizardPanelProps) {
+   const { t } = useWebTranslation();
+-  const groups: Array<{ title: string; items: Array<{ key: string; icon: WebIconName; title: string; body: string; href?: string; onClick?: () => void; tone: 'trade' | 'need' | 'offer' | 'info' }> }> = [
+-    {
+-      title: t('trade.wizard.groups.trade'),
+-      items: [
+-        { key: 'browse-trades', icon: 'trade', title: t('trade.wizard.actions.browseTrades.title'), body: t('trade.wizard.actions.browseTrades.body'), onClick: () => onBrowsePostType(''), tone: 'trade' },
+-        { key: 'my-trades', icon: 'activity', title: t('trade.wizard.actions.myTrades.title'), body: t('trade.wizard.actions.myTrades.body'), onClick: () => onOpenActivity('mine'), tone: 'trade' },
+-        { key: 'involved-trades', icon: 'proposal', title: t('trade.wizard.actions.involvedTrades.title'), body: t('trade.wizard.actions.involvedTrades.body'), onClick: () => onOpenActivity('involved'), tone: 'info' },
+-        { key: 'proposals', icon: 'proposal-accepted', title: t('trade.wizard.actions.proposals.title'), body: t('trade.wizard.actions.proposals.body'), onClick: () => onOpenActivity('involved'), tone: 'info' },
+-      ],
+-    },
+-    {
+-      title: t('trade.wizard.groups.needs'),
+-      items: [
+-        { key: 'open-needs', icon: 'need', title: t('trade.wizard.actions.openNeeds.title'), body: t('trade.wizard.actions.openNeeds.body'), onClick: () => onBrowsePostType('open_need'), tone: 'need' },
+-        { key: 'my-needs', icon: 'save', title: t('trade.wizard.actions.myNeeds.title'), body: t('trade.wizard.actions.myNeeds.body'), href: '/needs', tone: 'need' },
+-        { key: 'create-need', icon: 'add', title: t('trade.wizard.actions.createNeed.title'), body: t('trade.wizard.actions.createNeed.body'), href: '/needs/new', tone: 'need' },
+-      ],
+-    },
+-    {
+-      title: t('trade.wizard.groups.offers'),
+-      items: [
+-        { key: 'open-offers', icon: 'offer', title: t('trade.wizard.actions.openOffers.title'), body: t('trade.wizard.actions.openOffers.body'), onClick: () => onBrowsePostType('open_offer'), tone: 'offer' },
+-        { key: 'my-offers', icon: 'save', title: t('trade.wizard.actions.myOffers.title'), body: t('trade.wizard.actions.myOffers.body'), href: '/offers', tone: 'offer' },
+-        { key: 'create-offer', icon: 'add', title: t('trade.wizard.actions.createOffer.title'), body: t('trade.wizard.actions.createOffer.body'), href: '/offers/new', tone: 'offer' },
+-      ],
+-    },
+-    {
+-      title: t('trade.wizard.groups.create'),
+-      items: [
+-        { key: 'create-trade', icon: 'trade', title: t('trade.wizard.actions.createTrade.title'), body: t('trade.wizard.actions.createTrade.body'), href: createTradeHref, tone: 'trade' },
+-        { key: 'create-open-need', icon: 'need', title: t('trade.wizard.actions.createOpenNeed.title'), body: t('trade.wizard.actions.createOpenNeed.body'), href: createOpenNeedHref, tone: 'need' },
+-        { key: 'create-open-offer', icon: 'offer', title: t('trade.wizard.actions.createOpenOffer.title'), body: t('trade.wizard.actions.createOpenOffer.body'), href: createOpenOfferHref, tone: 'offer' },
+-      ],
+-    },
+-  ];
++  const workspaceItems = getNormalWorkspaceMenuItems('trade');
++
++  function itemTitle(item: NormalWorkspaceMenuItem) {
++    return item.titleKey ? t(item.titleKey) : item.title;
++  }
++
++  function itemBody(item: NormalWorkspaceMenuItem) {
++    return item.bodyKey ? t(item.bodyKey) : item.body;
++  }
++
++  function iconToneClass(tone: NormalWorkspaceMenuTone) {
++    return tone === 'plan' ? 'info' : tone;
++  }
+ 
+-  function renderItem(item: (typeof groups)[number]['items'][number]) {
++  function selectItem(item: NormalWorkspaceMenuItem) {
++    if (item.id === 'my_trades') {
++      onOpenActivity('mine');
++      return;
++    }
++    if (item.id === 'proposals') {
++      onOpenActivity('involved');
++      return;
++    }
++    if (item.id === 'starter_ideas') {
++      onOpenStarterIdeas();
++    }
++  }
++
++  function renderItem(item: NormalWorkspaceMenuItem) {
+     const content = (
+       <>
+-        <span className={`trade-wizard-panel__item-icon trade-wizard-panel__item-icon--${item.tone}`}><WebIcon name={item.icon} size={18} decorative /></span>
++        <span className={`trade-wizard-panel__item-icon trade-wizard-panel__item-icon--${iconToneClass(item.tone)}`}><WebIcon name={item.icon} size={18} decorative /></span>
+         <span className="trade-wizard-panel__item-copy">
+-          <strong>{item.title}</strong>
+-          <small>{item.body}</small>
++          <strong>{itemTitle(item)}</strong>
++          <small>{itemBody(item)}</small>
+         </span>
+         <WebIcon name="arrow-right" size={17} decorative className="trade-wizard-panel__arrow" />
+       </>
+     );
+-    if (item.href) {
+-      return <Link key={item.key} href={item.href} className="trade-wizard-panel__item" onClick={onClose}>{content}</Link>;
+-    }
+-    return <button key={item.key} type="button" className="trade-wizard-panel__item" onClick={() => { item.onClick?.(); }}>{content}</button>;
++    if (item.id === 'my_needs') return <Link key={item.id} href="/needs" className="trade-wizard-panel__item" onClick={onClose}>{content}</Link>;
++    if (item.id === 'my_offers') return <Link key={item.id} href="/offers" className="trade-wizard-panel__item" onClick={onClose}>{content}</Link>;
++    return <button key={item.id} type="button" className="trade-wizard-panel__item" onClick={() => selectItem(item)}>{content}</button>;
+   }
+ 
+   return (
+@@ -713,12 +699,10 @@ function TradeWizardPanel({ createTradeHref, createOpenNeedHref, createOpenOffer
+         <button type="button" className="trade-filter-panel__close" onClick={onClose} aria-label={t('common.actions.close')}>×</button>
+       </div>
+       <div className="trade-wizard-panel__body">
+-        {groups.map((group) => (
+-          <section key={group.title} className="trade-wizard-panel__group" aria-label={group.title}>
+-            <h3>{group.title}</h3>
+-            <div className="trade-wizard-panel__items">{group.items.map(renderItem)}</div>
+-          </section>
+-        ))}
++        <section className="trade-wizard-panel__group" aria-label="Trade workspace">
++          <h3>Workspace</h3>
++          <div className="trade-wizard-panel__items">{workspaceItems.map(renderItem)}</div>
++        </section>
+       </div>
+     </section>
+   );
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index b8409f0..92460ff 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -718,7 +718,7 @@ export const trade = {
+     close: 'Close Trade menu',
+     badge: 'Trade menu',
+     title: 'Trade menu',
+-    body: 'Jump between trades, needs, offers, proposals, and create actions without adding more main navigation tabs.',
++    body: 'Jump between your trades, proposals, needs, offers, and starter ideas without adding more main navigation tabs.',
+     groups: {
+       trade: 'Trade',
+       needs: 'Needs',
+@@ -732,6 +732,7 @@ export const trade = {
+       myTrades: { title: 'My trades', body: 'Manage trades you created.' },
+       involvedTrades: { title: 'Involved trades', body: 'Follow trades where you sent or accepted proposals.' },
+       proposals: { title: 'Proposals', body: 'Open your proposal/deal activity.' },
++      starterIdeas: { title: 'Starter ideas', body: 'Open creative starter ideas you can turn into trades.' },
+       myNeeds: { title: 'My needs', body: 'Manage reusable needs.' },
+       createNeed: { title: 'Create need', body: 'Create a reusable need for future trades.' },
+       myOffers: { title: 'My offers', body: 'Manage reusable offers.' },
+diff --git a/packages/i18n/src/locales/es/trade.ts b/packages/i18n/src/locales/es/trade.ts
+index 90e046b..7e07cba 100644
+--- a/packages/i18n/src/locales/es/trade.ts
++++ b/packages/i18n/src/locales/es/trade.ts
+@@ -727,7 +727,7 @@ export const trade = {
+     close: 'Cerrar menú de Trade',
+     badge: 'Menú de Trade',
+     title: 'Menú de Trade',
+-    body: 'Salta entre intercambios, necesidades, ofertas, propuestas y acciones de creación sin añadir más pestañas principales.',
++    body: 'Salta entre tus intercambios, propuestas, necesidades, ofertas e ideas starter sin añadir más pestañas principales.',
+     groups: {
+       trade: 'Trade',
+       needs: 'Necesidades',
+@@ -741,6 +741,7 @@ export const trade = {
+       myTrades: { title: 'Mis intercambios', body: 'Gestiona los intercambios que creaste.' },
+       involvedTrades: { title: 'Intercambios implicados', body: 'Sigue intercambios donde enviaste o aceptaste propuestas.' },
+       proposals: { title: 'Propuestas', body: 'Abre tu actividad de propuestas/deals.' },
++      starterIdeas: { title: 'Ideas starter', body: 'Abre ideas starter creativas que puedes convertir en intercambios.' },
+       myNeeds: { title: 'Mis necesidades', body: 'Gestiona necesidades reutilizables.' },
+       createNeed: { title: 'Crear necesidad', body: 'Crea una necesidad reutilizable para futuros intercambios.' },
+       myOffers: { title: 'Mis ofertas', body: 'Gestiona ofertas reutilizables.' },
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index 0efb1a2..312fe7f 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -718,7 +718,7 @@ export const trade = {
+     close: 'Fermer le menu Trade',
+     badge: 'Menu Trade',
+     title: 'Menu Trade',
+-    body: 'Passez entre échanges, besoins, offres, propositions et actions de création sans ajouter d’onglets principaux.',
++    body: 'Passez entre vos échanges, propositions, besoins, offres et idées starter sans ajouter d’onglets principaux.',
+     groups: {
+       trade: 'Trade',
+       needs: 'Besoins',
+@@ -732,6 +732,7 @@ export const trade = {
+       myTrades: { title: 'Mes échanges', body: 'Gérer les échanges que vous avez créés.' },
+       involvedTrades: { title: 'Échanges impliqués', body: 'Suivre les échanges où vous avez envoyé ou accepté des propositions.' },
+       proposals: { title: 'Propositions', body: 'Ouvrir votre activité de propositions/deals.' },
++      starterIdeas: { title: 'Idées starter', body: 'Ouvrir des idées starter créatives à transformer en échanges.' },
+       myNeeds: { title: 'Mes besoins', body: 'Gérer vos besoins réutilisables.' },
+       createNeed: { title: 'Créer un besoin', body: 'Créer un besoin réutilisable pour de futurs échanges.' },
+       myOffers: { title: 'Mes offres', body: 'Gérer vos offres réutilisables.' },
+diff --git a/packages/shared/src/appNavigation.ts b/packages/shared/src/appNavigation.ts
+index db76f1d..e7d2010 100644
+--- a/packages/shared/src/appNavigation.ts
++++ b/packages/shared/src/appNavigation.ts
+@@ -55,3 +55,37 @@ export function getNormalAppNavItem(id: NormalAppNavItemId): NormalAppNavItem {
+ export function getNormalAppNavItemByMobileTabName(tabName: string | null | undefined): NormalAppNavItem | null {
+   return normalAppNavItems.find((item) => item.mobileTabName === tabName) ?? null;
+ }
++
++export type NormalWorkspaceMenuId = 'plans' | 'trade';
++export type NormalWorkspaceMenuIcon = 'activity' | 'need' | 'offer' | 'plan' | 'proposal-accepted' | 'save' | 'search' | 'trade';
++export type NormalWorkspaceMenuTone = 'info' | 'need' | 'offer' | 'plan' | 'trade';
++
++export type NormalWorkspaceMenuItem = {
++  id: string;
++  title: string;
++  body: string;
++  titleKey?: string;
++  bodyKey?: string;
++  icon: NormalWorkspaceMenuIcon;
++  tone: NormalWorkspaceMenuTone;
++};
++
++export const normalWorkspaceMenus = {
++  plans: [
++    { id: 'my_plans', title: 'My plans', body: 'Plans you created.', icon: 'plan', tone: 'plan' },
++    { id: 'joined_plans', title: 'Joined plans', body: 'Plans you joined freely.', icon: 'activity', tone: 'info' },
++    { id: 'my_places', title: 'My places', body: 'Reusable offline or online places.', icon: 'save', tone: 'plan' },
++    { id: 'plan_ideas', title: 'Plan ideas', body: 'Starter Plan ideas you can review and customize.', icon: 'search', tone: 'info' },
++  ],
++  trade: [
++    { id: 'my_trades', title: 'My trades', body: 'Manage trades you created.', titleKey: 'trade.wizard.actions.myTrades.title', bodyKey: 'trade.wizard.actions.myTrades.body', icon: 'trade', tone: 'trade' },
++    { id: 'proposals', title: 'Proposals', body: 'Open your proposal/deal activity.', titleKey: 'trade.wizard.actions.proposals.title', bodyKey: 'trade.wizard.actions.proposals.body', icon: 'proposal-accepted', tone: 'info' },
++    { id: 'my_needs', title: 'My needs', body: 'Manage reusable needs.', titleKey: 'trade.wizard.actions.myNeeds.title', bodyKey: 'trade.wizard.actions.myNeeds.body', icon: 'need', tone: 'need' },
++    { id: 'my_offers', title: 'My offers', body: 'Manage reusable offers.', titleKey: 'trade.wizard.actions.myOffers.title', bodyKey: 'trade.wizard.actions.myOffers.body', icon: 'offer', tone: 'offer' },
++    { id: 'starter_ideas', title: 'Starter ideas', body: 'Open creative starter ideas you can turn into trades.', titleKey: 'trade.wizard.actions.starterIdeas.title', bodyKey: 'trade.wizard.actions.starterIdeas.body', icon: 'search', tone: 'info' },
++  ],
++} as const satisfies Record<NormalWorkspaceMenuId, readonly NormalWorkspaceMenuItem[]>;
++
++export function getNormalWorkspaceMenuItems(menuId: NormalWorkspaceMenuId): readonly NormalWorkspaceMenuItem[] {
++  return normalWorkspaceMenus[menuId] ?? [];
++}

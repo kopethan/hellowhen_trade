@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { isUtilityRoute } from '../lib/webRoutes';
+import { betaFeatures } from '../lib/betaFeatures';
 import { WebBottomTabs } from './WebBottomTabs';
 import { WebTopHeader } from './WebTopHeader';
 import { useWebTranslation } from '../providers/WebI18nProvider';
@@ -19,6 +20,7 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [hideTopHeader, setHideTopHeader] = useState(false);
+  const shellClassName = betaFeatures.mainNavPlansMeTrade ? 'web-app-shell web-app-shell--normal-dock' : 'web-app-shell';
 
   useEffect(() => {
     if (utility) {
@@ -67,7 +69,7 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
 
   return (
     <main className="web-app-viewport">
-      <section className="web-app-shell" aria-label={t('common.messages.webAppLabel')}>
+      <section className={shellClassName} data-nav-mode={betaFeatures.mainNavPlansMeTrade ? 'plans-me-trade' : 'classic'} aria-label={t('common.messages.webAppLabel')}>
         <WebTopHeader hiddenOnMobile={hideTopHeader} />
         <div ref={scrollAreaRef} className="web-scroll-area">
           {auth.user?.trustTier === 'restricted' ? (

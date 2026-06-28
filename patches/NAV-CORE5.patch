@@ -1,0 +1,159 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 79020d7..2664769 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -22,6 +22,7 @@
+   --app-shell-width: 460px;
+   --app-header-height: 92px;
+   --app-tab-height: 78px;
++  --app-dock-height: 68px;
+   --onboarding-guide-bg: #FEFEFE;
+ 
+   --need-bg: #DBEAFE; --need-text: #1E3A8A; --need-border: #93C5FD;
+@@ -134,8 +135,9 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom:
+ .web-scroll-area::-webkit-scrollbar { display: none; }
+ .web-bottom-tabs { position: fixed; z-index: 90; bottom: 0; left: 50%; width: min(100vw, var(--app-shell-width)); min-height: calc(var(--app-tab-height) + env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: color-mix(in srgb, var(--app-bg) 92%, transparent); border-top: 1px solid color-mix(in srgb, var(--app-border) 85%, transparent); backdrop-filter: blur(18px); }
+ .web-icon { display: inline-block; flex: 0 0 auto; width: var(--web-icon-size, 20px); height: var(--web-icon-size, 20px); background-color: currentColor; -webkit-mask: var(--web-icon-url) center / contain no-repeat; mask: var(--web-icon-url) center / contain no-repeat; }
+-.web-tab { display: grid; place-items: center; gap: 3px; min-width: 0; border-radius: 18px; color: var(--app-text-muted); font-size: 11px; font-weight: 900; }
+-.web-tab__icon { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 999px; color: inherit; line-height: 1; }
++.web-tab { display: grid; place-items: center; gap: 3px; min-width: 0; border-radius: 18px; color: var(--app-text-muted); font-size: 11px; font-weight: 900; transition: background 160ms ease, color 160ms ease, border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease; }
++.web-tab:focus-visible { outline: 3px solid color-mix(in srgb, var(--instruction-border) 68%, transparent); outline-offset: 3px; }
++.web-tab__icon { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 999px; color: inherit; line-height: 1; transition: background 160ms ease, color 160ms ease, transform 160ms ease; }
+ .web-tab--active { background: var(--app-surface); color: var(--app-text); box-shadow: var(--app-control-shadow); }
+ 
+ .web-scroll-top-button { position: fixed; z-index: 70; right: max(18px, calc((100vw - var(--app-shell-width)) / 2 + 18px)); bottom: calc(var(--app-tab-height) + env(safe-area-inset-bottom) + 18px); display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid color-mix(in srgb, var(--app-border-strong) 78%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--app-surface) 94%, transparent); color: var(--app-text); padding: 0; font-size: 22px; font-weight: 950; line-height: 1; box-shadow: var(--app-control-shadow); opacity: 0; pointer-events: none; transform: translateY(10px) scale(0.96); transition: opacity 160ms ease, transform 160ms ease; backdrop-filter: blur(18px); }
+@@ -1797,14 +1799,30 @@ html[data-theme="dark"] .trade-poster-card.has-fallback h2 {
+   .web-desktop-nav__link:hover { color: var(--app-text); background: color-mix(in srgb, var(--app-surface) 72%, transparent); }
+   .web-desktop-nav__link.is-active { border-color: var(--app-border); background: var(--app-surface); color: var(--app-text); box-shadow: var(--app-control-shadow); }
+   .web-scroll-area { position: relative; z-index: 1; height: auto; overflow: visible; max-width: var(--web-content-width); margin: 0 auto; padding: 28px 32px 72px; scrollbar-width: auto; }
+-  .web-app-shell--normal-dock .web-scroll-area { padding-bottom: 132px; }
++  .web-app-shell--normal-dock .web-scroll-area { padding-bottom: calc(var(--app-dock-height) + 64px + env(safe-area-inset-bottom)); }
++  .web-app-shell--normal-dock .web-top-header { min-height: 78px; }
++  .web-app-shell--normal-dock .web-top-header--root { justify-content: flex-start; }
++  .web-app-shell--normal-dock .web-top-header--local-only { box-shadow: 0 10px 34px rgba(15, 23, 42, 0.06); }
+   .web-bottom-tabs { display: none; }
+-  .web-bottom-tabs--dock { position: fixed; z-index: 100; bottom: calc(20px + env(safe-area-inset-bottom)); left: 50%; width: min(430px, calc(100vw - 40px)); min-height: 68px; display: grid; gap: 8px; padding: 8px; transform: translateX(-50%); border: 1px solid color-mix(in srgb, var(--app-border-strong) 78%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--app-bg) 88%, transparent); box-shadow: 0 18px 55px rgba(15, 23, 42, 0.20), var(--app-control-shadow); backdrop-filter: blur(22px); }
++  .web-bottom-tabs--dock { position: fixed; isolation: isolate; z-index: 100; bottom: calc(20px + env(safe-area-inset-bottom)); left: 50%; width: min(430px, calc(100vw - 40px)); min-height: var(--app-dock-height); display: grid; gap: 8px; padding: 8px; transform: translateX(-50%); border: 1px solid color-mix(in srgb, var(--app-border-strong) 78%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--app-bg) 88%, transparent); box-shadow: 0 18px 55px rgba(15, 23, 42, 0.20), var(--app-control-shadow); backdrop-filter: blur(22px); }
++  .web-bottom-tabs--dock::before { content: ""; position: absolute; inset: -18px -28px -22px; z-index: -1; border-radius: 999px; background: radial-gradient(circle at 50% 100%, color-mix(in srgb, var(--app-text) 12%, transparent), transparent 68%); pointer-events: none; }
+   .web-bottom-tabs--dock .web-tab { min-height: 52px; border: 1px solid transparent; border-radius: 999px; padding: 0 14px; font-size: 12px; }
+-  .web-bottom-tabs--dock .web-tab:hover { color: var(--app-text); background: color-mix(in srgb, var(--app-surface) 70%, transparent); }
++  .web-bottom-tabs--dock .web-tab:hover { color: var(--app-text); background: color-mix(in srgb, var(--app-surface) 70%, transparent); transform: translateY(-1px); }
+   .web-bottom-tabs--dock .web-tab--active { border-color: color-mix(in srgb, var(--app-border-strong) 78%, transparent); background: var(--app-surface); }
++  .web-bottom-tabs--dock .web-tab--active .web-tab__icon { background: color-mix(in srgb, var(--instruction-bg) 62%, transparent); color: color-mix(in srgb, var(--instruction-text) 86%, var(--app-text)); }
+   .web-bottom-tabs--dock .web-tab__icon { width: 26px; height: 24px; }
+   .web-scroll-top-button { display: none; }
++  @media (max-width: 980px) {
++    .web-bottom-tabs--dock { bottom: calc(14px + env(safe-area-inset-bottom)); width: min(390px, calc(100vw - 28px)); }
++    .web-app-shell--normal-dock .web-scroll-area { padding-bottom: calc(var(--app-dock-height) + 54px + env(safe-area-inset-bottom)); }
++  }
++
++  @media (max-height: 620px) {
++    .web-bottom-tabs--dock { bottom: calc(10px + env(safe-area-inset-bottom)); min-height: 58px; padding: 6px; }
++    .web-bottom-tabs--dock .web-tab { min-height: 46px; }
++    .web-app-shell--normal-dock .web-scroll-area { padding-bottom: calc(var(--app-dock-height) + 42px + env(safe-area-inset-bottom)); }
++  }
++
+   .mobile-page:not(.trade-feed-page), .wallet-page, .trade-detail-page { max-width: 760px; margin-right: auto; margin-left: auto; }
+   .support-mobile-page { max-width: min(1120px, 100%); margin-right: auto; margin-left: auto; grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.1fr); align-items: start; }
+   .support-mobile-page > .notice-box { grid-column: 1 / -1; }
+@@ -2005,6 +2023,37 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+   }
+ }
+ 
++@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
++  .web-top-header,
++  .web-bottom-tabs {
++    background: var(--app-bg);
++  }
++
++  .web-bottom-tabs--dock {
++    background: var(--app-bg);
++  }
++}
++
++@media (prefers-reduced-motion: reduce) {
++  .web-tab,
++  .web-tab__icon,
++  .web-top-header {
++    transition: none;
++  }
++
++  .web-bottom-tabs--dock .web-tab:hover {
++    transform: none;
++  }
++}
++
++@media print {
++  .web-top-header,
++  .web-bottom-tabs,
++  .web-scroll-top-button {
++    display: none !important;
++  }
++}
++
+ @keyframes web-skeleton-shimmer {
+   0% { background-position: 110% 0; }
+   100% { background-position: -110% 0; }
+diff --git a/apps/web/src/components/WebBottomTabs.tsx b/apps/web/src/components/WebBottomTabs.tsx
+index dae246a..763ed5b 100644
+--- a/apps/web/src/components/WebBottomTabs.tsx
++++ b/apps/web/src/components/WebBottomTabs.tsx
+@@ -15,16 +15,24 @@ export function WebBottomTabs() {
+   const usePlansMeTradeNav = betaFeatures.mainNavPlansMeTrade;
+   const tabs = getWebTabs(usePlansMeTradeNav);
+   const className = usePlansMeTradeNav ? 'web-bottom-tabs web-bottom-tabs--dock' : 'web-bottom-tabs';
++  const navMode = usePlansMeTradeNav ? 'plans-me-trade' : 'classic';
+ 
+   return (
+-    <nav className={className} aria-label={t('navigation.primary')} style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
++    <nav className={className} data-nav-mode={navMode} aria-label={t('navigation.primary')} style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
+       {tabs.map((tab) => {
+         const active = tab.match(pathname);
+         const publicTradeTab = tab.key === 'trades' || tab.key === 'trade';
+         const shouldGate = !publicTradeTab && (!auth.hydrated || !auth.isAuthenticated);
+         const href = shouldGate ? `/auth?next=${encodeURIComponent(tab.href)}` : tab.href;
+         return (
+-          <Link key={tab.key} href={href} className={active ? 'web-tab web-tab--active' : 'web-tab'}>
++          <Link
++            key={tab.key}
++            href={href}
++            className={active ? 'web-tab web-tab--active' : 'web-tab'}
++            aria-current={active ? 'page' : undefined}
++            data-tab-key={tab.key}
++            title={t(tab.labelKey)}
++          >
+             <WebIcon name={tab.icon} size={23} decorative className="web-tab__icon" />
+             <span>{t(tab.labelKey)}</span>
+           </Link>
+diff --git a/apps/web/src/components/WebMobileShell.tsx b/apps/web/src/components/WebMobileShell.tsx
+index 4ceb683..058d6aa 100644
+--- a/apps/web/src/components/WebMobileShell.tsx
++++ b/apps/web/src/components/WebMobileShell.tsx
+@@ -69,7 +69,7 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
+ 
+   return (
+     <main className="web-app-viewport">
+-      <section className={shellClassName} aria-label={t('common.messages.webAppLabel')}>
++      <section className={shellClassName} data-nav-mode={betaFeatures.mainNavPlansMeTrade ? 'plans-me-trade' : 'classic'} aria-label={t('common.messages.webAppLabel')}>
+         <WebTopHeader hiddenOnMobile={hideTopHeader} />
+         <div ref={scrollAreaRef} className="web-scroll-area">
+           {auth.user?.trustTier === 'restricted' ? (
+diff --git a/apps/web/src/components/WebTopHeader.tsx b/apps/web/src/components/WebTopHeader.tsx
+index f2f8b63..77ca331 100644
+--- a/apps/web/src/components/WebTopHeader.tsx
++++ b/apps/web/src/components/WebTopHeader.tsx
+@@ -24,7 +24,13 @@ function WebDesktopNav({ pathname, authenticated, tabs }: { pathname: string; au
+         const publicTradeTab = tab.key === 'trades' || tab.key === 'trade';
+         const href = !authenticated && !publicTradeTab ? `/auth?next=${encodeURIComponent(tab.href)}` : tab.href;
+         return (
+-          <Link key={tab.key} href={href} className={active ? 'web-desktop-nav__link is-active' : 'web-desktop-nav__link'}>
++          <Link
++            key={tab.key}
++            href={href}
++            className={active ? 'web-desktop-nav__link is-active' : 'web-desktop-nav__link'}
++            aria-current={active ? 'page' : undefined}
++            title={t(tab.labelKey)}
++          >
+             <WebIcon name={tab.icon} size={17} decorative />
+             <span>{t(tab.labelKey)}</span>
+           </Link>

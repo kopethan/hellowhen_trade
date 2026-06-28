@@ -1,3 +1,5 @@
+import { getNormalAppNavItem, normalAppNavItems, type NormalAppNavItemId } from '@hellowhen/shared';
+
 export type RootTabKey = 'trades' | 'needs' | 'offers' | 'account' | 'plans' | 'me' | 'trade';
 
 export type WebTab = {
@@ -40,29 +42,19 @@ export const webTabs: WebTab[] = [
 ];
 
 
-export const plansMeTradeWebTabs: WebTab[] = [
-  {
-    key: 'plans',
-    labelKey: 'navigation.tabs.plans',
-    href: '/plans',
-    icon: 'plan',
-    match: (pathname) => pathname.startsWith('/plans'),
-  },
-  {
-    key: 'me',
-    labelKey: 'navigation.tabs.me',
-    href: '/account',
-    icon: 'profile',
-    match: (pathname) => pathname.startsWith('/account') || pathname.startsWith('/legal'),
-  },
-  {
-    key: 'trade',
-    labelKey: 'navigation.tabs.trade',
-    href: '/trades',
-    icon: 'trade',
-    match: (pathname) => pathname === '/' || pathname.startsWith('/trades') || pathname.startsWith('/users') || pathname.startsWith('/needs') || pathname.startsWith('/offers'),
-  },
-];
+const plansMeTradeMatchById: Record<NormalAppNavItemId, WebTab['match']> = {
+  plans: (pathname) => pathname.startsWith('/plans'),
+  me: (pathname) => pathname.startsWith('/account') || pathname.startsWith('/legal'),
+  trade: (pathname) => pathname === '/' || pathname.startsWith('/trades') || pathname.startsWith('/users') || pathname.startsWith('/needs') || pathname.startsWith('/offers'),
+};
+
+export const plansMeTradeWebTabs: WebTab[] = normalAppNavItems.map((item) => ({
+  key: item.id,
+  labelKey: item.labelKey,
+  href: item.webHref,
+  icon: item.icon,
+  match: plansMeTradeMatchById[item.id],
+}));
 
 export function getWebTabs(usePlansMeTradeNav = false) {
   return usePlansMeTradeNav ? plansMeTradeWebTabs : webTabs;
@@ -113,7 +105,7 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; titleKey: strin
 export function getRouteHeader(pathname: string, options?: { plansMeTradeNav?: boolean }) {
   const route = routeTitles.find((candidate) => candidate.match(pathname)) ?? { titleKey: 'navigation.routes.hellowhen', root: true };
   if (!options?.plansMeTradeNav) return route;
-  if (pathname === '/account') return { ...route, titleKey: 'navigation.routes.me' };
-  if (pathname === '/trades') return { ...route, titleKey: 'navigation.routes.trade' };
+  if (pathname === '/account') return { ...route, titleKey: getNormalAppNavItem('me').routeTitleKey };
+  if (pathname === '/trades') return { ...route, titleKey: getNormalAppNavItem('trade').routeTitleKey };
   return route;
 }

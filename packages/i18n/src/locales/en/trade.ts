@@ -718,7 +718,7 @@ export const trade = {
     close: 'Close Trade menu',
     badge: 'Trade menu',
     title: 'Trade menu',
-    body: 'Jump between trades, needs, offers, proposals, and create actions without adding more main navigation tabs.',
+    body: 'Jump between your trades, proposals, needs, offers, and starter ideas without adding more main navigation tabs.',
     groups: {
       trade: 'Trade',
       needs: 'Needs',
@@ -732,6 +732,7 @@ export const trade = {
       myTrades: { title: 'My trades', body: 'Manage trades you created.' },
       involvedTrades: { title: 'Involved trades', body: 'Follow trades where you sent or accepted proposals.' },
       proposals: { title: 'Proposals', body: 'Open your proposal/deal activity.' },
+      starterIdeas: { title: 'Starter ideas', body: 'Open creative starter ideas you can turn into trades.' },
       myNeeds: { title: 'My needs', body: 'Manage reusable needs.' },
       createNeed: { title: 'Create need', body: 'Create a reusable need for future trades.' },
       myOffers: { title: 'My offers', body: 'Manage reusable offers.' },

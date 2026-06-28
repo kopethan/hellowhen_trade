@@ -58,6 +58,8 @@ import { AppScreen } from '../components/AppScreen';
 import { AppText } from '../components/AppText';
 import { useTranslation } from '../providers/MobileI18nProvider';
 import type { LegalPolicyKey } from '@hellowhen/i18n';
+import { DEFAULT_NORMAL_APP_NAV_MOBILE_TAB_NAME, getNormalAppNavItemByMobileTabName, normalAppNavItems, type NormalAppNavItemId } from '@hellowhen/shared';
+import type { ThemeTokens } from '@hellowhen/theme';
 
 type InventoryCreateReturnTarget = 'createTrade' | 'createTradeFull' | 'tradeProposal' | 'proposalDetail';
 type InventoryCreateParams = { returnTo?: InventoryCreateReturnTarget; tradeId?: string; tradeTitle?: string; proposalId?: string; proposalNeedId?: string; proposalOfferId?: string; initialTemplateKey?: string; initialIdeaKey?: FeedTradeIdeaKey | null; initialPostType?: TradePostType | null; initialNeedSelection?: TradeCreateSideSelection | null; initialOfferSelection?: TradeCreateSideSelection | null; initialExpiryDays?: number | null } | undefined;
@@ -115,7 +117,8 @@ export type RootStackParamList = {
   Login: undefined;
 };
 
-type MainTabParamList = { Trades: undefined; Needs: undefined; Offers: undefined; Account: undefined; PlanTab: undefined; MeTab: undefined; TradeTab: undefined };
+type LegacyMainTabName = 'Trades' | 'Needs' | 'Offers' | 'Account';
+type MainTabParamList = Record<LegacyMainTabName | typeof normalAppNavItems[number]['mobileTabName'], undefined>;
 
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -207,12 +210,38 @@ function MeHomeScreen() {
 }
 
 function getTabIconName(routeName: keyof MainTabParamList): MobileIconName {
-  if (routeName === 'Trades' || routeName === 'TradeTab') return 'trade';
+  const normalNavItem = getNormalAppNavItemByMobileTabName(routeName);
+  if (normalNavItem) return normalNavItem.icon;
+  if (routeName === 'Trades') return 'trade';
   if (routeName === 'Needs') return 'need';
   if (routeName === 'Offers') return 'offer';
-  if (routeName === 'PlanTab') return 'plan';
   return 'profile';
 }
+
+function getTabBadge(count: number) {
+  return count > 0 ? Math.min(count, 99) : undefined;
+}
+
+function getNormalTabActiveTintColor(routeName: keyof MainTabParamList, theme: ThemeTokens) {
+  const normalNavItem = getNormalAppNavItemByMobileTabName(routeName);
+  if (normalNavItem?.id === 'plans') return theme.semantic.plan.bg;
+  if (normalNavItem?.id === 'trade') return theme.semantic.trade.bg;
+  return theme.color.text;
+}
+
+function getNormalTabPillBackgroundColor(routeName: keyof MainTabParamList, theme: ThemeTokens) {
+  const normalNavItem = getNormalAppNavItemByMobileTabName(routeName);
+  if (normalNavItem?.id === 'plans') return theme.semantic.plan.softBg;
+  if (normalNavItem?.id === 'trade') return theme.semantic.trade.softBg;
+  if (normalNavItem?.id === 'me') return theme.color.subtleSurface;
+  return 'transparent';
+}
+
+const normalMobileTabScreenById: Record<NormalAppNavItemId, React.ComponentType<any>> = {
+  plans: ProtectedPlansScreen,
+  me: MeHomeScreen,
+  trade: TradeDeckFeedScreen,
+};
 
 function TradeTabs() {
   const insets = useSafeAreaInsets();
@@ -237,33 +266,58 @@ function TradeTabs() {
 
   return (
     <Tabs.Navigator
-      initialRouteName={usePlansMeTradeNav ? 'MeTab' : 'Trades'}
+      initialRouteName={usePlansMeTradeNav ? DEFAULT_NORMAL_APP_NAV_MOBILE_TAB_NAME : 'Trades'}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: true,
-        tabBarIcon: ({ color, size }) => (
-          <MobileIcon name={getTabIconName(route.name)} size={Math.max(size, 22)} color={color} />
-        ),
-        tabBarIconStyle: { marginTop: 6 },
-        tabBarLabelStyle: { fontWeight: '900', fontSize: 12, paddingBottom: 6 },
-        tabBarItemStyle: { paddingTop: 7 },
-        tabBarStyle: { height: 66 + bottomInset, paddingBottom: bottomInset, borderTopColor: theme.color.border, backgroundColor: theme.color.surface },
-        tabBarActiveTintColor: theme.semantic.proposal.bg,
+        tabBarIcon: ({ color, size, focused }) => {
+          const useNormalPill = usePlansMeTradeNav && Boolean(getNormalAppNavItemByMobileTabName(route.name));
+          const icon = <MobileIcon name={getTabIconName(route.name)} size={Math.max(size, useNormalPill ? 21 : 22)} color={color} />;
+          if (!useNormalPill) return icon;
+          return (
+            <View style={[styles.normalTabIconPill, focused && { backgroundColor: getNormalTabPillBackgroundColor(route.name, theme) }]}>
+              {icon}
+            </View>
+          );
+        },
+        tabBarIconStyle: usePlansMeTradeNav ? styles.normalTabIcon : styles.legacyTabIcon,
+        tabBarLabelStyle: usePlansMeTradeNav ? styles.normalTabLabel : styles.legacyTabLabel,
+        tabBarItemStyle: usePlansMeTradeNav ? styles.normalTabItem : styles.legacyTabItem,
+        tabBarStyle: [
+          styles.tabBar,
+          usePlansMeTradeNav ? styles.normalAppTabBar : styles.legacyTabBar,
+          {
+            height: (usePlansMeTradeNav ? 70 : 66) + bottomInset,
+            paddingBottom: bottomInset || (usePlansMeTradeNav ? 8 : 0),
+            borderTopColor: theme.color.border,
+            backgroundColor: theme.color.surface,
+          },
+        ],
+        tabBarActiveTintColor: usePlansMeTradeNav ? getNormalTabActiveTintColor(route.name, theme) : theme.semantic.proposal.bg,
         tabBarInactiveTintColor: theme.color.muted,
+        tabBarBadgeStyle: styles.tabBadge,
       })}
     >
       {usePlansMeTradeNav ? (
         <>
-          <Tabs.Screen name="PlanTab" component={ProtectedPlansScreen} options={{ tabBarLabel: t('navigation.tabs.plans') }} />
-          <Tabs.Screen name="MeTab" component={MeHomeScreen} options={{ tabBarLabel: t('navigation.tabs.me'), tabBarBadge: notificationUnreadCount > 0 ? Math.min(notificationUnreadCount, 99) : undefined }} />
-          <Tabs.Screen name="TradeTab" component={TradeDeckFeedScreen} options={{ tabBarLabel: t('navigation.tabs.trade') }} />
+          {normalAppNavItems.map((item) => (
+            <Tabs.Screen
+              key={item.id}
+              name={item.mobileTabName}
+              component={normalMobileTabScreenById[item.id]}
+              options={{
+                tabBarLabel: t(item.labelKey),
+                tabBarBadge: item.id === 'me' ? getTabBadge(notificationUnreadCount) : undefined,
+              }}
+            />
+          ))}
         </>
       ) : (
         <>
           <Tabs.Screen name="Trades" component={TradeDeckFeedScreen} options={{ tabBarLabel: t('navigation.tabs.trades') }} />
           <Tabs.Screen name="Needs" component={ProtectedMyNeedsScreen} options={{ tabBarLabel: t('navigation.tabs.needs') }} />
           <Tabs.Screen name="Offers" component={ProtectedMyOffersScreen} options={{ tabBarLabel: t('navigation.tabs.offers') }} />
-          <Tabs.Screen name="Account" component={ProtectedAccountScreen} options={{ tabBarLabel: t('navigation.tabs.account'), tabBarBadge: notificationUnreadCount > 0 ? Math.min(notificationUnreadCount, 99) : undefined }} />
+          <Tabs.Screen name="Account" component={ProtectedAccountScreen} options={{ tabBarLabel: t('navigation.tabs.account'), tabBarBadge: getTabBadge(notificationUnreadCount) }} />
         </>
       )}
     </Tabs.Navigator>
@@ -336,6 +390,54 @@ export function RootNavigator() {
 
 
 const styles = StyleSheet.create({
+  tabBar: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    elevation: 0,
+    shadowOpacity: 0,
+  },
+  normalAppTabBar: {
+    paddingTop: 8,
+  },
+  legacyTabBar: {
+    paddingTop: 0,
+  },
+  normalTabItem: {
+    paddingTop: 2,
+  },
+  legacyTabItem: {
+    paddingTop: 7,
+  },
+  normalTabIcon: {
+    marginTop: 1,
+  },
+  legacyTabIcon: {
+    marginTop: 6,
+  },
+  normalTabIconPill: {
+    minWidth: 42,
+    minHeight: 28,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  normalTabLabel: {
+    fontWeight: '900',
+    fontSize: 12,
+    lineHeight: 15,
+    paddingBottom: 7,
+  },
+  legacyTabLabel: {
+    fontWeight: '900',
+    fontSize: 12,
+    paddingBottom: 6,
+  },
+  tabBadge: {
+    fontWeight: '900',
+    fontSize: 10,
+    minWidth: 18,
+    minHeight: 18,
+    lineHeight: 14,
+  },
   authRequiredShell: { flex: 1, justifyContent: 'center', paddingVertical: 36 },
   authRequiredCard: { alignItems: 'center', gap: 12, paddingVertical: 28 },
   authRequiredTitle: { fontSize: 26, lineHeight: 31, fontWeight: '900', letterSpacing: -0.5, textAlign: 'center' },

@@ -24,7 +24,13 @@ function WebDesktopNav({ pathname, authenticated, tabs }: { pathname: string; au
         const publicTradeTab = tab.key === 'trades' || tab.key === 'trade';
         const href = !authenticated && !publicTradeTab ? `/auth?next=${encodeURIComponent(tab.href)}` : tab.href;
         return (
-          <Link key={tab.key} href={href} className={active ? 'web-desktop-nav__link is-active' : 'web-desktop-nav__link'}>
+          <Link
+            key={tab.key}
+            href={href}
+            className={active ? 'web-desktop-nav__link is-active' : 'web-desktop-nav__link'}
+            aria-current={active ? 'page' : undefined}
+            title={t(tab.labelKey)}
+          >
             <WebIcon name={tab.icon} size={17} decorative />
             <span>{t(tab.labelKey)}</span>
           </Link>
@@ -44,22 +50,23 @@ export function WebTopHeader({ hiddenOnMobile = false }: { hiddenOnMobile?: bool
   const authenticated = auth.hydrated && auth.isAuthenticated;
 
   const hiddenClassName = hiddenOnMobile ? ' web-top-header--mobile-hidden' : '';
+  const headerClassName = usePlansMeTradeNav ? ' web-top-header--local-only' : '';
 
   if (header.root) {
     return (
-      <header className={`web-top-header web-top-header--root${hiddenClassName}`}>
+      <header className={`web-top-header web-top-header--root${headerClassName}${hiddenClassName}`}>
         <WebBetaHeaderBadge />
         <div>
           <p className="web-kicker">{t('navigation.brand')}</p>
           <h1>{t(header.titleKey)}</h1>
         </div>
-        <WebDesktopNav pathname={pathname} authenticated={authenticated} tabs={tabs} />
+        {!usePlansMeTradeNav ? <WebDesktopNav pathname={pathname} authenticated={authenticated} tabs={tabs} /> : null}
       </header>
     );
   }
 
   return (
-    <header className={`web-top-header web-top-header--nested${hiddenClassName}`}>
+    <header className={`web-top-header web-top-header--nested${headerClassName}${hiddenClassName}`}>
       <WebBetaHeaderBadge />
       <div className="web-nested-title-row">
         <Link href={header.backHref ?? '/trades'} className="web-back-button" aria-label={t('navigation.goBack')}>
@@ -67,7 +74,7 @@ export function WebTopHeader({ hiddenOnMobile = false }: { hiddenOnMobile?: bool
         </Link>
         <h1>{t(header.titleKey)}</h1>
       </div>
-      <WebDesktopNav pathname={pathname} authenticated={authenticated} tabs={tabs} />
+      {!usePlansMeTradeNav ? <WebDesktopNav pathname={pathname} authenticated={authenticated} tabs={tabs} /> : null}
     </header>
   );
 }
