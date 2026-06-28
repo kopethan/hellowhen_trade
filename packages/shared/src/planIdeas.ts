@@ -1,3 +1,5 @@
+import { buildFeedItemsWithStarterIdeas, buildStarterIdeaPlacement } from './feedIdeaPlacement.js';
+
 export const starterPlanIdeaKeys = [
   'coffeeBookstoreWalk',
   'startupCafeMeetup',
@@ -5,6 +7,10 @@ export const starterPlanIdeaKeys = [
   'sunsetPhotoWalk',
   'coworkingFocusSprint',
   'onlineProjectPlanning',
+  'founderFeedbackWalk',
+  'creativeMarketRoute',
+  'remotePitchPractice',
+  'portfolioReviewLoop',
 ] as const;
 
 export type StarterPlanIdeaKey = (typeof starterPlanIdeaKeys)[number];
@@ -116,6 +122,63 @@ export const starterPlanIdeas: Record<StarterPlanIdeaKey, StarterPlanIdea> = {
       { title: 'Next-step check-in', mode: 'remote', onlineLabel: 'Short follow-up message or call', time: '19:15' },
     ],
   },
+
+  founderFeedbackWalk: {
+    id: 'founderFeedbackWalk',
+    pack: 'Startup',
+    title: 'Founder feedback walk',
+    description: 'A simple public meetup idea for founders or makers to trade honest feedback while walking between calm stops.',
+    category: 'Startup feedback',
+    tags: ['startup', 'feedback', 'walk'],
+    visualKey: 'startup',
+    stops: [
+      { title: 'Meeting point', mode: 'local', location: 'A public square, café entrance, or easy meeting place', time: '11:00' },
+      { title: 'Pitch walk', mode: 'local', location: 'A calm public walking route for explaining ideas', time: '11:20' },
+      { title: 'Notes stop', mode: 'local', location: 'A bench or café table to write next steps', time: '12:00' },
+    ],
+  },
+  creativeMarketRoute: {
+    id: 'creativeMarketRoute',
+    pack: 'Creative',
+    title: 'Creative market route',
+    description: 'A visual Plan idea for people who want to discover a market, take simple photos, and collect inspiration together.',
+    category: 'Creative discovery',
+    tags: ['market', 'creative', 'photos'],
+    visualKey: 'photo',
+    stops: [
+      { title: 'Market entrance', mode: 'local', location: 'A public market, flea market, or creative street area', time: '10:00' },
+      { title: 'Photo/inspiration stop', mode: 'local', location: 'Public stalls, windows, or visual details nearby', time: '10:45' },
+      { title: 'Coffee recap', mode: 'local', location: 'A nearby café or public table', time: '11:30' },
+    ],
+  },
+  remotePitchPractice: {
+    id: 'remotePitchPractice',
+    pack: 'Online',
+    title: 'Remote pitch practice',
+    description: 'A remote Plan idea for testing how clearly a project, offer, or profile sounds before sharing it publicly.',
+    category: 'Remote practice',
+    tags: ['online', 'pitch', 'feedback'],
+    visualKey: 'online',
+    stops: [
+      { title: 'Quick intro call', mode: 'remote', onlineLabel: 'Video call or voice room', time: '18:30' },
+      { title: 'Feedback notes', mode: 'remote', onlineLabel: 'Shared document, chat, or notes app', time: '18:55' },
+      { title: 'Rewrite check', mode: 'remote', onlineLabel: 'Follow-up message with the improved version', time: '19:20' },
+    ],
+  },
+  portfolioReviewLoop: {
+    id: 'portfolioReviewLoop',
+    pack: 'Focus',
+    title: 'Portfolio review loop',
+    description: 'A focused Plan idea for reviewing a portfolio, profile, or project page and turning feedback into small next steps.',
+    category: 'Portfolio feedback',
+    tags: ['portfolio', 'profile', 'review'],
+    visualKey: 'focus',
+    stops: [
+      { title: 'Review table', mode: 'local', location: 'Library, café, or public working table', time: '15:00' },
+      { title: 'Feedback pass', mode: 'local', location: 'Same place or a quiet public table nearby', time: '15:35' },
+      { title: 'Action list', mode: 'local', location: 'Same area for writing next changes', time: '16:05' },
+    ],
+  },
 };
 
 export function parseStarterPlanIdeaKey(value: string | null | undefined): StarterPlanIdeaKey | null {
@@ -199,22 +262,20 @@ export function selectStarterPlanIdeaKeys({
 }
 
 export function buildPlanFeedItems(realPlanCount: number, ideaKeys: readonly StarterPlanIdeaKey[]): PlanFeedItem[] {
-  const items: PlanFeedItem[] = [];
-  let nextIdeaIndex = 0;
-  for (let planIndex = 0; planIndex < realPlanCount; planIndex += 1) {
-    items.push({ type: 'plan', planIndex });
-    if (realPlanCount > 3 && realPlanCount < STARTER_PLAN_IDEA_HIDE_AFTER_REAL_PLAN_COUNT && (planIndex + 1) % STARTER_PLAN_IDEA_INSERT_EVERY === 0 && nextIdeaIndex < ideaKeys.length) {
-      const ideaKey = ideaKeys[nextIdeaIndex];
-      if (ideaKey) items.push({ type: 'idea', ideaKey });
-      nextIdeaIndex += 1;
-    }
-  }
-  while (nextIdeaIndex < ideaKeys.length) {
-    const ideaKey = ideaKeys[nextIdeaIndex];
-    if (ideaKey) items.push({ type: 'idea', ideaKey });
-    nextIdeaIndex += 1;
-  }
-  return items;
+  const placement = buildStarterIdeaPlacement({
+    realItemCount: realPlanCount,
+    ideaKeys,
+    visibleLimit: starterPlanIdeaFeedLimit(realPlanCount),
+    sparseFeedThreshold: STARTER_PLAN_IDEA_INSERT_EVERY,
+    denseFeedThreshold: STARTER_PLAN_IDEA_HIDE_AFTER_REAL_PLAN_COUNT,
+    insertAfterEveryRealItems: STARTER_PLAN_IDEA_INSERT_EVERY,
+  });
+
+  return buildFeedItemsWithStarterIdeas(
+    realPlanCount,
+    placement,
+    (planIndex): PlanFeedPlanItem => ({ type: 'plan', planIndex }),
+  ) as PlanFeedItem[];
 }
 
 export function mergeRecentStarterPlanIdeaIds(existing: readonly string[], seen: readonly StarterPlanIdeaKey[], limit = 20) {

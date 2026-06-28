@@ -26,6 +26,7 @@ type PlanPreviewDeckProps = {
   className?: string;
   onOpen?: () => void;
   actionLabel?: string;
+  badgeLabel?: string;
 };
 
 type PlanDtoPreviewDeckProps = {
@@ -33,6 +34,7 @@ type PlanDtoPreviewDeckProps = {
   className?: string;
   onOpen?: () => void;
   actionLabel?: string;
+  badgeLabel?: string;
 };
 
 function shortLocation(value?: string | null) {
@@ -65,7 +67,7 @@ function visiblePlaceLocation(place: PreviewPlace) {
   return shortLocation(place.location) || (mode === 'remote' ? 'Online link or instructions' : 'Address or meeting point');
 }
 
-function planDeckItems({ title, places, actionLabel = 'Open' }: Omit<PlanPreviewDeckProps, 'className' | 'onOpen'>): SquareStackDeckItem[] {
+function planDeckItems({ title, places, actionLabel = 'Open', badgeLabel }: Omit<PlanPreviewDeckProps, 'className' | 'onOpen'>): SquareStackDeckItem[] {
   const visibleTitle = title.trim() || 'Untitled Plan';
   const fallbackPlace: PreviewPlace = { id: `${visibleTitle}-empty-place`, title: 'Place to be added', mode: 'local' as PlanPlaceMode };
   const visiblePlaces: PreviewPlace[] = places.length ? places : [fallbackPlace];
@@ -87,7 +89,7 @@ function planDeckItems({ title, places, actionLabel = 'Open' }: Omit<PlanPreview
           id={`${place.id}-plan-place`}
           imageUrl={imageSrc}
           imageAlt={placeTitle}
-          badge={timeLabel === 'Time not set' ? `PLACE · ${cardCountLabel(cardNumber, totalCards)}` : timeLabel}
+          badge={badgeLabel ?? (timeLabel === 'Time not set' ? `PLACE · ${cardCountLabel(cardNumber, totalCards)}` : timeLabel)}
           eyebrow={`Place ${index + 1}/${totalCards} · ${planPlaceModeLabel(mode)}`}
           title={visibleTitle}
           detailTitle={placeTitle}
@@ -100,8 +102,8 @@ function planDeckItems({ title, places, actionLabel = 'Open' }: Omit<PlanPreview
   });
 }
 
-export function PlanPreviewDeck({ title, description, rangeLabel, places, className, onOpen, actionLabel }: PlanPreviewDeckProps) {
-  const items = planDeckItems({ title, description, rangeLabel, places, actionLabel: actionLabel ?? (onOpen ? 'Open' : 'Preview') });
+export function PlanPreviewDeck({ title, description, rangeLabel, places, className, onOpen, actionLabel, badgeLabel }: PlanPreviewDeckProps) {
+  const items = planDeckItems({ title, description, rangeLabel, places, actionLabel: actionLabel ?? (onOpen ? 'Open' : 'Preview'), badgeLabel });
   const visibleTitle = title.trim() || 'Untitled Plan';
   const deckClassName = ['trade-stack-deck', 'plan-stack-deck', !onOpen ? 'trade-stack-deck--preview' : null, className].filter(Boolean).join(' ');
 
@@ -116,7 +118,7 @@ export function PlanPreviewDeck({ title, description, rangeLabel, places, classN
   );
 }
 
-export function PlanDtoPreviewDeck({ plan, className, onOpen, actionLabel }: PlanDtoPreviewDeckProps) {
+export function PlanDtoPreviewDeck({ plan, className, onOpen, actionLabel, badgeLabel }: PlanDtoPreviewDeckProps) {
   const places = (plan.places ?? []).map((place) => ({
     id: place.id,
     mode: place.mode ?? 'local',
@@ -136,6 +138,7 @@ export function PlanDtoPreviewDeck({ plan, className, onOpen, actionLabel }: Pla
       className={className}
       onOpen={onOpen}
       actionLabel={actionLabel}
+      badgeLabel={badgeLabel}
     />
   );
 }

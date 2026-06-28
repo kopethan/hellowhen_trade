@@ -43,14 +43,11 @@ function PlanIdeaCard({ ideaKey, onOpen }: { ideaKey: StarterPlanIdeaKey; onOpen
   }
   return (
     <article className="plan-deck-link plan-idea-card" aria-label={`Open Plan idea ${idea.title}`}>
-      <div className="plan-idea-card__label">
-        <span className="semantic-badge instruction">Plan idea</span>
-        <span className="semantic-badge plan">{idea.pack}</span>
-      </div>
       <PlanPreviewDeck
         title={idea.title}
         description={idea.description}
         rangeLabel="Starter Plan idea"
+        badgeLabel={`Plan idea · ${idea.pack}`}
         places={idea.stops.map((stop, index) => ({
           id: `${idea.id}-${index}`,
           mode: stop.mode,
@@ -120,6 +117,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [recentStarterIdeaIds, setRecentStarterIdeaIds] = useState<string[]>([]);
   const [anonymousStarterKey, setAnonymousStarterKey] = useState('anonymous');
+  const [starterRefreshKey, setStarterRefreshKey] = useState('stable-plan-ideas');
   const searchParams = useSearchParams();
   const searchParamKey = searchParams.toString();
   const activeFilters = useMemo(() => planFiltersFromSearchParams(searchParams), [searchParamKey, searchParams]);
@@ -136,6 +134,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
   useEffect(() => {
     setRecentStarterIdeaIds(readRecentPlanIdeaIds());
     setAnonymousStarterKey(readAnonymousPlanIdeaKey());
+    setStarterRefreshKey(`plan-refresh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
   }, []);
 
   useEffect(() => {
@@ -186,10 +185,10 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
     realPlanCount: sortedPlans.length,
     hasActiveSearchOrFilters: activeView !== 'feed' || hasActiveSearchOrFilters,
     userKey: auth.user?.id ?? anonymousStarterKey,
-    refreshKey: 'plans-feed',
+    refreshKey: starterRefreshKey,
     dayKey: 'stable-plan-ideas',
     recentIdeaIds: recentStarterIdeaIds,
-  }), [activeView, anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, recentStarterIdeaIds, sortedPlans.length]);
+  }), [activeView, anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, recentStarterIdeaIds, sortedPlans.length, starterRefreshKey]);
   const feedItems = useMemo(() => buildPlanFeedItems(sortedPlans.length, starterIdeaKeys), [sortedPlans.length, starterIdeaKeys]);
 
   function markStarterIdeaSeen(ideaKey: StarterPlanIdeaKey) {

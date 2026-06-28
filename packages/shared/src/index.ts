@@ -14,6 +14,7 @@ export * from './inventoryCategories.js';
 export * from './inventoryTranslations.js';
 
 export * from './tradeDisplay.js';
+export * from './feedIdeaPlacement.js';
 export * from './appNavigation.js';
 export * from './plans.js';
 export * from './planIdeas.js';

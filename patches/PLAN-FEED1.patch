@@ -1,0 +1,191 @@
+diff --git a/apps/web/src/features/plans/PlansListClient.tsx b/apps/web/src/features/plans/PlansListClient.tsx
+index c04916e..2da2cec 100644
+--- a/apps/web/src/features/plans/PlansListClient.tsx
++++ b/apps/web/src/features/plans/PlansListClient.tsx
+@@ -120,6 +120,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   const [menuOpen, setMenuOpen] = useState(false);
+   const [recentStarterIdeaIds, setRecentStarterIdeaIds] = useState<string[]>([]);
+   const [anonymousStarterKey, setAnonymousStarterKey] = useState('anonymous');
++  const [starterRefreshKey, setStarterRefreshKey] = useState('stable-plan-ideas');
+   const searchParams = useSearchParams();
+   const searchParamKey = searchParams.toString();
+   const activeFilters = useMemo(() => planFiltersFromSearchParams(searchParams), [searchParamKey, searchParams]);
+@@ -136,6 +137,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   useEffect(() => {
+     setRecentStarterIdeaIds(readRecentPlanIdeaIds());
+     setAnonymousStarterKey(readAnonymousPlanIdeaKey());
++    setStarterRefreshKey(`plan-refresh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+   }, []);
+ 
+   useEffect(() => {
+@@ -186,10 +188,10 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+     realPlanCount: sortedPlans.length,
+     hasActiveSearchOrFilters: activeView !== 'feed' || hasActiveSearchOrFilters,
+     userKey: auth.user?.id ?? anonymousStarterKey,
+-    refreshKey: 'plans-feed',
++    refreshKey: starterRefreshKey,
+     dayKey: 'stable-plan-ideas',
+     recentIdeaIds: recentStarterIdeaIds,
+-  }), [activeView, anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, recentStarterIdeaIds, sortedPlans.length]);
++  }), [activeView, anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, recentStarterIdeaIds, sortedPlans.length, starterRefreshKey]);
+   const feedItems = useMemo(() => buildPlanFeedItems(sortedPlans.length, starterIdeaKeys), [sortedPlans.length, starterIdeaKeys]);
+ 
+   function markStarterIdeaSeen(ideaKey: StarterPlanIdeaKey) {
+diff --git a/packages/shared/src/planIdeas.js b/packages/shared/src/planIdeas.js
+index a36f34d..bae5838 100644
+--- a/packages/shared/src/planIdeas.js
++++ b/packages/shared/src/planIdeas.js
+@@ -5,6 +5,10 @@ export const starterPlanIdeaKeys = [
+   'sunsetPhotoWalk',
+   'coworkingFocusSprint',
+   'onlineProjectPlanning',
++  'founderFeedbackWalk',
++  'creativeMarketRoute',
++  'remotePitchPractice',
++  'portfolioReviewLoop',
+ ];
+ 
+ export const starterPlanIdeas = {
+@@ -92,6 +96,63 @@ export const starterPlanIdeas = {
+       { title: 'Next-step check-in', mode: 'remote', onlineLabel: 'Short follow-up message or call', time: '19:15' },
+     ],
+   },
++
++  founderFeedbackWalk: {
++    id: 'founderFeedbackWalk',
++    pack: 'Startup',
++    title: 'Founder feedback walk',
++    description: 'A simple public meetup idea for founders or makers to trade honest feedback while walking between calm stops.',
++    category: 'Startup feedback',
++    tags: ['startup', 'feedback', 'walk'],
++    visualKey: 'startup',
++    stops: [
++      { title: 'Meeting point', mode: 'local', location: 'A public square, café entrance, or easy meeting place', time: '11:00' },
++      { title: 'Pitch walk', mode: 'local', location: 'A calm public walking route for explaining ideas', time: '11:20' },
++      { title: 'Notes stop', mode: 'local', location: 'A bench or café table to write next steps', time: '12:00' },
++    ],
++  },
++  creativeMarketRoute: {
++    id: 'creativeMarketRoute',
++    pack: 'Creative',
++    title: 'Creative market route',
++    description: 'A visual Plan idea for people who want to discover a market, take simple photos, and collect inspiration together.',
++    category: 'Creative discovery',
++    tags: ['market', 'creative', 'photos'],
++    visualKey: 'photo',
++    stops: [
++      { title: 'Market entrance', mode: 'local', location: 'A public market, flea market, or creative street area', time: '10:00' },
++      { title: 'Photo/inspiration stop', mode: 'local', location: 'Public stalls, windows, or visual details nearby', time: '10:45' },
++      { title: 'Coffee recap', mode: 'local', location: 'A nearby café or public table', time: '11:30' },
++    ],
++  },
++  remotePitchPractice: {
++    id: 'remotePitchPractice',
++    pack: 'Online',
++    title: 'Remote pitch practice',
++    description: 'A remote Plan idea for testing how clearly a project, offer, or profile sounds before sharing it publicly.',
++    category: 'Remote practice',
++    tags: ['online', 'pitch', 'feedback'],
++    visualKey: 'online',
++    stops: [
++      { title: 'Quick intro call', mode: 'remote', onlineLabel: 'Video call or voice room', time: '18:30' },
++      { title: 'Feedback notes', mode: 'remote', onlineLabel: 'Shared document, chat, or notes app', time: '18:55' },
++      { title: 'Rewrite check', mode: 'remote', onlineLabel: 'Follow-up message with the improved version', time: '19:20' },
++    ],
++  },
++  portfolioReviewLoop: {
++    id: 'portfolioReviewLoop',
++    pack: 'Focus',
++    title: 'Portfolio review loop',
++    description: 'A focused Plan idea for reviewing a portfolio, profile, or project page and turning feedback into small next steps.',
++    category: 'Portfolio feedback',
++    tags: ['portfolio', 'profile', 'review'],
++    visualKey: 'focus',
++    stops: [
++      { title: 'Review table', mode: 'local', location: 'Library, café, or public working table', time: '15:00' },
++      { title: 'Feedback pass', mode: 'local', location: 'Same place or a quiet public table nearby', time: '15:35' },
++      { title: 'Action list', mode: 'local', location: 'Same area for writing next changes', time: '16:05' },
++    ],
++  },
+ };
+ 
+ export function parseStarterPlanIdeaKey(value) {
+diff --git a/packages/shared/src/planIdeas.ts b/packages/shared/src/planIdeas.ts
+index 907a026..fc1dca6 100644
+--- a/packages/shared/src/planIdeas.ts
++++ b/packages/shared/src/planIdeas.ts
+@@ -5,6 +5,10 @@ export const starterPlanIdeaKeys = [
+   'sunsetPhotoWalk',
+   'coworkingFocusSprint',
+   'onlineProjectPlanning',
++  'founderFeedbackWalk',
++  'creativeMarketRoute',
++  'remotePitchPractice',
++  'portfolioReviewLoop',
+ ] as const;
+ 
+ export type StarterPlanIdeaKey = (typeof starterPlanIdeaKeys)[number];
+@@ -116,6 +120,63 @@ export const starterPlanIdeas: Record<StarterPlanIdeaKey, StarterPlanIdea> = {
+       { title: 'Next-step check-in', mode: 'remote', onlineLabel: 'Short follow-up message or call', time: '19:15' },
+     ],
+   },
++
++  founderFeedbackWalk: {
++    id: 'founderFeedbackWalk',
++    pack: 'Startup',
++    title: 'Founder feedback walk',
++    description: 'A simple public meetup idea for founders or makers to trade honest feedback while walking between calm stops.',
++    category: 'Startup feedback',
++    tags: ['startup', 'feedback', 'walk'],
++    visualKey: 'startup',
++    stops: [
++      { title: 'Meeting point', mode: 'local', location: 'A public square, café entrance, or easy meeting place', time: '11:00' },
++      { title: 'Pitch walk', mode: 'local', location: 'A calm public walking route for explaining ideas', time: '11:20' },
++      { title: 'Notes stop', mode: 'local', location: 'A bench or café table to write next steps', time: '12:00' },
++    ],
++  },
++  creativeMarketRoute: {
++    id: 'creativeMarketRoute',
++    pack: 'Creative',
++    title: 'Creative market route',
++    description: 'A visual Plan idea for people who want to discover a market, take simple photos, and collect inspiration together.',
++    category: 'Creative discovery',
++    tags: ['market', 'creative', 'photos'],
++    visualKey: 'photo',
++    stops: [
++      { title: 'Market entrance', mode: 'local', location: 'A public market, flea market, or creative street area', time: '10:00' },
++      { title: 'Photo/inspiration stop', mode: 'local', location: 'Public stalls, windows, or visual details nearby', time: '10:45' },
++      { title: 'Coffee recap', mode: 'local', location: 'A nearby café or public table', time: '11:30' },
++    ],
++  },
++  remotePitchPractice: {
++    id: 'remotePitchPractice',
++    pack: 'Online',
++    title: 'Remote pitch practice',
++    description: 'A remote Plan idea for testing how clearly a project, offer, or profile sounds before sharing it publicly.',
++    category: 'Remote practice',
++    tags: ['online', 'pitch', 'feedback'],
++    visualKey: 'online',
++    stops: [
++      { title: 'Quick intro call', mode: 'remote', onlineLabel: 'Video call or voice room', time: '18:30' },
++      { title: 'Feedback notes', mode: 'remote', onlineLabel: 'Shared document, chat, or notes app', time: '18:55' },
++      { title: 'Rewrite check', mode: 'remote', onlineLabel: 'Follow-up message with the improved version', time: '19:20' },
++    ],
++  },
++  portfolioReviewLoop: {
++    id: 'portfolioReviewLoop',
++    pack: 'Focus',
++    title: 'Portfolio review loop',
++    description: 'A focused Plan idea for reviewing a portfolio, profile, or project page and turning feedback into small next steps.',
++    category: 'Portfolio feedback',
++    tags: ['portfolio', 'profile', 'review'],
++    visualKey: 'focus',
++    stops: [
++      { title: 'Review table', mode: 'local', location: 'Library, café, or public working table', time: '15:00' },
++      { title: 'Feedback pass', mode: 'local', location: 'Same place or a quiet public table nearby', time: '15:35' },
++      { title: 'Action list', mode: 'local', location: 'Same area for writing next changes', time: '16:05' },
++    ],
++  },
+ };
+ 
+ export function parseStarterPlanIdeaKey(value: string | null | undefined): StarterPlanIdeaKey | null {

@@ -1,0 +1,408 @@
+diff --git a/apps/mobile/src/features/trade/tradeFeedIdeas.ts b/apps/mobile/src/features/trade/tradeFeedIdeas.ts
+index d80b9da..f0947af 100644
+--- a/apps/mobile/src/features/trade/tradeFeedIdeas.ts
++++ b/apps/mobile/src/features/trade/tradeFeedIdeas.ts
+@@ -1,3 +1,5 @@
++import { buildStarterIdeaPlacement, createEmptyStarterIdeaPlacement, getInlineStarterIdeaKey, type StarterIdeaPlacement } from '@hellowhen/shared';
++
+ export const feedTradeIdeaKeys = [
+   'appTestingPhotos',
+   'coldDmTranslation',
+@@ -262,15 +264,9 @@ export type FeedStarterIdeaGrowthSignals = {
+   monthlyRealTradeCount?: number | null;
+ };
+ 
+-export type FeedStarterIdeaPlacement = {
+-  inlineIdeaKeysByAfterIndex: Partial<Record<number, FeedTradeIdeaKey>>;
+-  appendedIdeaKeys: FeedTradeIdeaKey[];
+-};
++export type FeedStarterIdeaPlacement = StarterIdeaPlacement<FeedTradeIdeaKey>;
+ 
+-export const emptyFeedStarterIdeaPlacement: FeedStarterIdeaPlacement = {
+-  inlineIdeaKeysByAfterIndex: {},
+-  appendedIdeaKeys: [],
+-};
++export const emptyFeedStarterIdeaPlacement: FeedStarterIdeaPlacement = createEmptyStarterIdeaPlacement<FeedTradeIdeaKey>();
+ 
+ function hashFeedIdeaValue(value: string) {
+   let hash = 2166136261;
+@@ -289,19 +285,6 @@ function normalizeGrowthCount(value: number | null | undefined) {
+   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : null;
+ }
+ 
+-function getUniqueFeedIdeaKeys(keys: readonly FeedTradeIdeaKey[]) {
+-  const seen = new Set<FeedTradeIdeaKey>();
+-  const uniqueKeys: FeedTradeIdeaKey[] = [];
+-
+-  for (const key of keys) {
+-    if (seen.has(key)) continue;
+-    seen.add(key);
+-    uniqueKeys.push(key);
+-  }
+-
+-  return uniqueKeys;
+-}
+-
+ export function getFeedStarterIdeaVisibleLimit(tradeCount: number, growthSignals: FeedStarterIdeaGrowthSignals = {}) {
+   if (tradeCount >= feedTradeIdeaPlacement.denseFeedThreshold) return 0;
+ 
+@@ -356,35 +339,18 @@ export function getRandomizedFeedIdeaKeys(seed: string, maxCount = feedTradeIdea
+ }
+ 
+ export function getFeedStarterIdeaPlacement(tradeCount: number, ideaKeys: readonly FeedTradeIdeaKey[], growthSignals: FeedStarterIdeaGrowthSignals = {}): FeedStarterIdeaPlacement {
+-  const visibleLimit = getFeedStarterIdeaVisibleLimit(tradeCount, growthSignals);
+-  const visibleIdeaKeys = getUniqueFeedIdeaKeys(ideaKeys).slice(0, visibleLimit);
+-  if (!visibleIdeaKeys.length) {
+-    return emptyFeedStarterIdeaPlacement;
+-  }
+-
+-  if (tradeCount < feedTradeIdeaPlacement.sparseFeedThreshold) {
+-    return {
+-      inlineIdeaKeysByAfterIndex: {},
+-      appendedIdeaKeys: [...visibleIdeaKeys],
+-    };
+-  }
+-
+-  const inlineIdeaKeysByAfterIndex: Partial<Record<number, FeedTradeIdeaKey>> = {};
+-  const inlineIdeaCount = Math.min(Math.floor(tradeCount / feedTradeIdeaPlacement.insertAfterEveryRealTrades), visibleIdeaKeys.length);
+-
+-  for (let ideaIndex = 0; ideaIndex < inlineIdeaCount; ideaIndex += 1) {
+-    const afterIndex = ((ideaIndex + 1) * feedTradeIdeaPlacement.insertAfterEveryRealTrades) - 1;
+-    inlineIdeaKeysByAfterIndex[afterIndex] = visibleIdeaKeys[ideaIndex];
+-  }
+-
+-  return {
+-    inlineIdeaKeysByAfterIndex,
+-    appendedIdeaKeys: visibleIdeaKeys.slice(inlineIdeaCount),
+-  };
++  return buildStarterIdeaPlacement({
++    realItemCount: tradeCount,
++    ideaKeys,
++    visibleLimit: getFeedStarterIdeaVisibleLimit(tradeCount, growthSignals),
++    sparseFeedThreshold: feedTradeIdeaPlacement.sparseFeedThreshold,
++    denseFeedThreshold: feedTradeIdeaPlacement.denseFeedThreshold,
++    insertAfterEveryRealItems: feedTradeIdeaPlacement.insertAfterEveryRealTrades,
++  });
+ }
+ 
+ export function getInlineFeedIdeaKey(index: number, placement: FeedStarterIdeaPlacement): FeedTradeIdeaKey | null {
+-  return placement.inlineIdeaKeysByAfterIndex[index] ?? null;
++  return getInlineStarterIdeaKey(index, placement);
+ }
+ 
+ export function parseFeedTradeIdeaKey(value?: string | null): FeedTradeIdeaKey | null {
+diff --git a/apps/web/src/features/trade/tradeFeedIdeas.ts b/apps/web/src/features/trade/tradeFeedIdeas.ts
+index d80b9da..f0947af 100644
+--- a/apps/web/src/features/trade/tradeFeedIdeas.ts
++++ b/apps/web/src/features/trade/tradeFeedIdeas.ts
+@@ -1,3 +1,5 @@
++import { buildStarterIdeaPlacement, createEmptyStarterIdeaPlacement, getInlineStarterIdeaKey, type StarterIdeaPlacement } from '@hellowhen/shared';
++
+ export const feedTradeIdeaKeys = [
+   'appTestingPhotos',
+   'coldDmTranslation',
+@@ -262,15 +264,9 @@ export type FeedStarterIdeaGrowthSignals = {
+   monthlyRealTradeCount?: number | null;
+ };
+ 
+-export type FeedStarterIdeaPlacement = {
+-  inlineIdeaKeysByAfterIndex: Partial<Record<number, FeedTradeIdeaKey>>;
+-  appendedIdeaKeys: FeedTradeIdeaKey[];
+-};
++export type FeedStarterIdeaPlacement = StarterIdeaPlacement<FeedTradeIdeaKey>;
+ 
+-export const emptyFeedStarterIdeaPlacement: FeedStarterIdeaPlacement = {
+-  inlineIdeaKeysByAfterIndex: {},
+-  appendedIdeaKeys: [],
+-};
++export const emptyFeedStarterIdeaPlacement: FeedStarterIdeaPlacement = createEmptyStarterIdeaPlacement<FeedTradeIdeaKey>();
+ 
+ function hashFeedIdeaValue(value: string) {
+   let hash = 2166136261;
+@@ -289,19 +285,6 @@ function normalizeGrowthCount(value: number | null | undefined) {
+   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : null;
+ }
+ 
+-function getUniqueFeedIdeaKeys(keys: readonly FeedTradeIdeaKey[]) {
+-  const seen = new Set<FeedTradeIdeaKey>();
+-  const uniqueKeys: FeedTradeIdeaKey[] = [];
+-
+-  for (const key of keys) {
+-    if (seen.has(key)) continue;
+-    seen.add(key);
+-    uniqueKeys.push(key);
+-  }
+-
+-  return uniqueKeys;
+-}
+-
+ export function getFeedStarterIdeaVisibleLimit(tradeCount: number, growthSignals: FeedStarterIdeaGrowthSignals = {}) {
+   if (tradeCount >= feedTradeIdeaPlacement.denseFeedThreshold) return 0;
+ 
+@@ -356,35 +339,18 @@ export function getRandomizedFeedIdeaKeys(seed: string, maxCount = feedTradeIdea
+ }
+ 
+ export function getFeedStarterIdeaPlacement(tradeCount: number, ideaKeys: readonly FeedTradeIdeaKey[], growthSignals: FeedStarterIdeaGrowthSignals = {}): FeedStarterIdeaPlacement {
+-  const visibleLimit = getFeedStarterIdeaVisibleLimit(tradeCount, growthSignals);
+-  const visibleIdeaKeys = getUniqueFeedIdeaKeys(ideaKeys).slice(0, visibleLimit);
+-  if (!visibleIdeaKeys.length) {
+-    return emptyFeedStarterIdeaPlacement;
+-  }
+-
+-  if (tradeCount < feedTradeIdeaPlacement.sparseFeedThreshold) {
+-    return {
+-      inlineIdeaKeysByAfterIndex: {},
+-      appendedIdeaKeys: [...visibleIdeaKeys],
+-    };
+-  }
+-
+-  const inlineIdeaKeysByAfterIndex: Partial<Record<number, FeedTradeIdeaKey>> = {};
+-  const inlineIdeaCount = Math.min(Math.floor(tradeCount / feedTradeIdeaPlacement.insertAfterEveryRealTrades), visibleIdeaKeys.length);
+-
+-  for (let ideaIndex = 0; ideaIndex < inlineIdeaCount; ideaIndex += 1) {
+-    const afterIndex = ((ideaIndex + 1) * feedTradeIdeaPlacement.insertAfterEveryRealTrades) - 1;
+-    inlineIdeaKeysByAfterIndex[afterIndex] = visibleIdeaKeys[ideaIndex];
+-  }
+-
+-  return {
+-    inlineIdeaKeysByAfterIndex,
+-    appendedIdeaKeys: visibleIdeaKeys.slice(inlineIdeaCount),
+-  };
++  return buildStarterIdeaPlacement({
++    realItemCount: tradeCount,
++    ideaKeys,
++    visibleLimit: getFeedStarterIdeaVisibleLimit(tradeCount, growthSignals),
++    sparseFeedThreshold: feedTradeIdeaPlacement.sparseFeedThreshold,
++    denseFeedThreshold: feedTradeIdeaPlacement.denseFeedThreshold,
++    insertAfterEveryRealItems: feedTradeIdeaPlacement.insertAfterEveryRealTrades,
++  });
+ }
+ 
+ export function getInlineFeedIdeaKey(index: number, placement: FeedStarterIdeaPlacement): FeedTradeIdeaKey | null {
+-  return placement.inlineIdeaKeysByAfterIndex[index] ?? null;
++  return getInlineStarterIdeaKey(index, placement);
+ }
+ 
+ export function parseFeedTradeIdeaKey(value?: string | null): FeedTradeIdeaKey | null {
+diff --git a/packages/shared/src/feedIdeaPlacement.js b/packages/shared/src/feedIdeaPlacement.js
+new file mode 100644
+index 0000000..bcd4523
+--- /dev/null
++++ b/packages/shared/src/feedIdeaPlacement.js
+@@ -0,0 +1,2 @@
++// Runtime shim for Metro/Turbopack when TypeScript source imports use .js specifiers.
++export * from './feedIdeaPlacement.ts';
+diff --git a/packages/shared/src/feedIdeaPlacement.ts b/packages/shared/src/feedIdeaPlacement.ts
+new file mode 100644
+index 0000000..383d7a5
+--- /dev/null
++++ b/packages/shared/src/feedIdeaPlacement.ts
+@@ -0,0 +1,102 @@
++/**
++ * Shared placement helper for starter idea templates.
++ *
++ * Starter ideas are inspiration templates, not fake user activity. Keep this helper
++ * deterministic so server-rendered feeds and hydrated clients agree on the initial
++ * layout.
++ */
++export type StarterIdeaPlacement<Key extends string> = {
++  inlineIdeaKeysByAfterIndex: Partial<Record<number, Key>>;
++  appendedIdeaKeys: Key[];
++};
++
++export type StarterIdeaPlacementOptions = {
++  realItemCount: number;
++  ideaKeys: readonly string[];
++  visibleLimit: number;
++  sparseFeedThreshold?: number;
++  denseFeedThreshold?: number;
++  insertAfterEveryRealItems?: number;
++};
++
++export function createEmptyStarterIdeaPlacement<Key extends string>(): StarterIdeaPlacement<Key> {
++  return {
++    inlineIdeaKeysByAfterIndex: {},
++    appendedIdeaKeys: [],
++  };
++}
++
++export function getUniqueStarterIdeaKeys<Key extends string>(keys: readonly Key[]) {
++  const seen = new Set<Key>();
++  const uniqueKeys: Key[] = [];
++
++  for (const key of keys) {
++    if (seen.has(key)) continue;
++    seen.add(key);
++    uniqueKeys.push(key);
++  }
++
++  return uniqueKeys;
++}
++
++export function buildStarterIdeaPlacement<Key extends string>({
++  realItemCount,
++  ideaKeys,
++  visibleLimit,
++  sparseFeedThreshold = 4,
++  denseFeedThreshold = 40,
++  insertAfterEveryRealItems = 4,
++}: StarterIdeaPlacementOptions & { ideaKeys: readonly Key[] }): StarterIdeaPlacement<Key> {
++  if (realItemCount >= denseFeedThreshold || visibleLimit <= 0 || insertAfterEveryRealItems <= 0) {
++    return createEmptyStarterIdeaPlacement<Key>();
++  }
++
++  const visibleIdeaKeys = getUniqueStarterIdeaKeys(ideaKeys).slice(0, Math.max(0, visibleLimit));
++  if (!visibleIdeaKeys.length) return createEmptyStarterIdeaPlacement<Key>();
++
++  if (realItemCount < sparseFeedThreshold) {
++    return {
++      inlineIdeaKeysByAfterIndex: {},
++      appendedIdeaKeys: [...visibleIdeaKeys],
++    };
++  }
++
++  const inlineIdeaKeysByAfterIndex: Partial<Record<number, Key>> = {};
++  const inlineIdeaCount = Math.min(Math.floor(realItemCount / insertAfterEveryRealItems), visibleIdeaKeys.length);
++
++  for (let ideaIndex = 0; ideaIndex < inlineIdeaCount; ideaIndex += 1) {
++    const afterIndex = ((ideaIndex + 1) * insertAfterEveryRealItems) - 1;
++    inlineIdeaKeysByAfterIndex[afterIndex] = visibleIdeaKeys[ideaIndex];
++  }
++
++  return {
++    inlineIdeaKeysByAfterIndex,
++    appendedIdeaKeys: visibleIdeaKeys.slice(inlineIdeaCount),
++  };
++}
++
++export function getInlineStarterIdeaKey<Key extends string>(index: number, placement: StarterIdeaPlacement<Key>): Key | null {
++  return placement.inlineIdeaKeysByAfterIndex[index] ?? null;
++}
++
++export type FeedItemWithStarterIdeas<RealItem extends object, IdeaKey extends string> = RealItem | { type: 'idea'; ideaKey: IdeaKey };
++
++export function buildFeedItemsWithStarterIdeas<RealItem extends object, IdeaKey extends string>(
++  realItemCount: number,
++  placement: StarterIdeaPlacement<IdeaKey>,
++  createRealItem: (index: number) => RealItem,
++): Array<FeedItemWithStarterIdeas<RealItem, IdeaKey>> {
++  const items: Array<FeedItemWithStarterIdeas<RealItem, IdeaKey>> = [];
++
++  for (let realItemIndex = 0; realItemIndex < realItemCount; realItemIndex += 1) {
++    items.push(createRealItem(realItemIndex));
++    const inlineIdeaKey = getInlineStarterIdeaKey(realItemIndex, placement);
++    if (inlineIdeaKey) items.push({ type: 'idea', ideaKey: inlineIdeaKey });
++  }
++
++  for (const ideaKey of placement.appendedIdeaKeys) {
++    items.push({ type: 'idea', ideaKey });
++  }
++
++  return items;
++}
+diff --git a/packages/shared/src/index.ts b/packages/shared/src/index.ts
+index 3d08c3e..1519eaa 100644
+--- a/packages/shared/src/index.ts
++++ b/packages/shared/src/index.ts
+@@ -14,6 +14,7 @@ export * from './inventoryCategories.js';
+ export * from './inventoryTranslations.js';
+ 
+ export * from './tradeDisplay.js';
++export * from './feedIdeaPlacement.js';
+ export * from './appNavigation.js';
+ export * from './plans.js';
+ export * from './planIdeas.js';
+diff --git a/packages/shared/src/planIdeas.js b/packages/shared/src/planIdeas.js
+index a36f34d..f871b5c 100644
+--- a/packages/shared/src/planIdeas.js
++++ b/packages/shared/src/planIdeas.js
+@@ -1,3 +1,5 @@
++import { buildFeedItemsWithStarterIdeas, buildStarterIdeaPlacement } from './feedIdeaPlacement.js';
++
+ export const starterPlanIdeaKeys = [
+   'coffeeBookstoreWalk',
+   'startupCafeMeetup',
+@@ -162,22 +164,20 @@ export function selectStarterPlanIdeaKeys({
+ }
+ 
+ export function buildPlanFeedItems(realPlanCount, ideaKeys) {
+-  const items = [];
+-  let nextIdeaIndex = 0;
+-  for (let planIndex = 0; planIndex < realPlanCount; planIndex += 1) {
+-    items.push({ type: 'plan', planIndex });
+-    if (realPlanCount > 3 && realPlanCount < STARTER_PLAN_IDEA_HIDE_AFTER_REAL_PLAN_COUNT && (planIndex + 1) % STARTER_PLAN_IDEA_INSERT_EVERY === 0 && nextIdeaIndex < ideaKeys.length) {
+-      const ideaKey = ideaKeys[nextIdeaIndex];
+-      if (ideaKey) items.push({ type: 'idea', ideaKey });
+-      nextIdeaIndex += 1;
+-    }
+-  }
+-  while (nextIdeaIndex < ideaKeys.length) {
+-    const ideaKey = ideaKeys[nextIdeaIndex];
+-    if (ideaKey) items.push({ type: 'idea', ideaKey });
+-    nextIdeaIndex += 1;
+-  }
+-  return items;
++  const placement = buildStarterIdeaPlacement({
++    realItemCount: realPlanCount,
++    ideaKeys,
++    visibleLimit: starterPlanIdeaFeedLimit(realPlanCount),
++    sparseFeedThreshold: STARTER_PLAN_IDEA_INSERT_EVERY,
++    denseFeedThreshold: STARTER_PLAN_IDEA_HIDE_AFTER_REAL_PLAN_COUNT,
++    insertAfterEveryRealItems: STARTER_PLAN_IDEA_INSERT_EVERY,
++  });
++
++  return buildFeedItemsWithStarterIdeas(
++    realPlanCount,
++    placement,
++    (planIndex) => ({ type: 'plan', planIndex }),
++  );
+ }
+ 
+ export function mergeRecentStarterPlanIdeaIds(existing, seen, limit = 20) {
+diff --git a/packages/shared/src/planIdeas.ts b/packages/shared/src/planIdeas.ts
+index 907a026..069cc15 100644
+--- a/packages/shared/src/planIdeas.ts
++++ b/packages/shared/src/planIdeas.ts
+@@ -1,3 +1,5 @@
++import { buildFeedItemsWithStarterIdeas, buildStarterIdeaPlacement } from './feedIdeaPlacement.js';
++
+ export const starterPlanIdeaKeys = [
+   'coffeeBookstoreWalk',
+   'startupCafeMeetup',
+@@ -199,22 +201,20 @@ export function selectStarterPlanIdeaKeys({
+ }
+ 
+ export function buildPlanFeedItems(realPlanCount: number, ideaKeys: readonly StarterPlanIdeaKey[]): PlanFeedItem[] {
+-  const items: PlanFeedItem[] = [];
+-  let nextIdeaIndex = 0;
+-  for (let planIndex = 0; planIndex < realPlanCount; planIndex += 1) {
+-    items.push({ type: 'plan', planIndex });
+-    if (realPlanCount > 3 && realPlanCount < STARTER_PLAN_IDEA_HIDE_AFTER_REAL_PLAN_COUNT && (planIndex + 1) % STARTER_PLAN_IDEA_INSERT_EVERY === 0 && nextIdeaIndex < ideaKeys.length) {
+-      const ideaKey = ideaKeys[nextIdeaIndex];
+-      if (ideaKey) items.push({ type: 'idea', ideaKey });
+-      nextIdeaIndex += 1;
+-    }
+-  }
+-  while (nextIdeaIndex < ideaKeys.length) {
+-    const ideaKey = ideaKeys[nextIdeaIndex];
+-    if (ideaKey) items.push({ type: 'idea', ideaKey });
+-    nextIdeaIndex += 1;
+-  }
+-  return items;
++  const placement = buildStarterIdeaPlacement({
++    realItemCount: realPlanCount,
++    ideaKeys,
++    visibleLimit: starterPlanIdeaFeedLimit(realPlanCount),
++    sparseFeedThreshold: STARTER_PLAN_IDEA_INSERT_EVERY,
++    denseFeedThreshold: STARTER_PLAN_IDEA_HIDE_AFTER_REAL_PLAN_COUNT,
++    insertAfterEveryRealItems: STARTER_PLAN_IDEA_INSERT_EVERY,
++  });
++
++  return buildFeedItemsWithStarterIdeas(
++    realPlanCount,
++    placement,
++    (planIndex): PlanFeedPlanItem => ({ type: 'plan', planIndex }),
++  ) as PlanFeedItem[];
+ }
+ 
+ export function mergeRecentStarterPlanIdeaIds(existing: readonly string[], seen: readonly StarterPlanIdeaKey[], limit = 20) {

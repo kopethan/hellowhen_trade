@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Image, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import type { MediaAssetDto, PlanDto, PlanPlaceDto } from '@hellowhen/contracts';
+import type { SemanticColorName } from '@hellowhen/theme';
 import { AppText } from '../../../components/AppText';
 import { SemanticBadge } from '../../../components/SemanticUI';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
@@ -26,6 +27,9 @@ type PlanSquareDeckProps = {
   total?: number;
   onOpen?: () => void;
   style?: StyleProp<ViewStyle>;
+  topBadgeLabel?: string;
+  topBadgeTone?: SemanticColorName;
+  showModeBadge?: boolean;
 };
 
 function activeMedia(media: MediaAssetDto[] | undefined) {
@@ -102,7 +106,7 @@ function getPlaceDateLabel(place: PlanPlaceDto | undefined, planStartsAt: string
   return formatPlanPlaceDate(place?.startsAt ?? planStartsAt);
 }
 
-function PlanPlaceDeckCardView({ card, onOpen }: { card: PlanPlaceDeckCard; onOpen: () => void }) {
+function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'instruction', showModeBadge = true }: { card: PlanPlaceDeckCard; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
   const theme = useThemeTokens();
   const imageUrl = activeMediaUrl(card.media);
   const fallback = useMemo(() => fallbackModel(card.id), [card.id]);
@@ -113,6 +117,7 @@ function PlanPlaceDeckCardView({ card, onOpen }: { card: PlanPlaceDeckCard; onOp
   const placeTitle = place?.title ?? 'No places yet';
   const locationLabel = isEmpty ? '' : getPlaceLocationLabel(place);
   const timeLabel = isEmpty ? getPlanParticipantLabel(card.plan) : getPlaceDateLabel(place, card.plan.startsAt);
+  const primaryBadgeLabel = topBadgeLabel ?? `Place · ${cardCounter}`;
 
   return (
     <Pressable
@@ -158,8 +163,8 @@ function PlanPlaceDeckCardView({ card, onOpen }: { card: PlanPlaceDeckCard; onOp
       {imageUrl ? <View style={[styles.imageScrim, { backgroundColor: theme.color.background }]} /> : <View style={[styles.fallbackScrim, { backgroundColor: theme.color.background }]} />}
 
       <View style={styles.cardTopRow}>
-        <SemanticBadge label={`Place · ${cardCounter}`} tone="instruction" size="sm" />
-        {!isEmpty ? <SemanticBadge label={modeLabel} tone="muted" size="sm" /> : null}
+        <SemanticBadge label={primaryBadgeLabel} tone={topBadgeTone} size="sm" />
+        {showModeBadge && !isEmpty ? <SemanticBadge label={modeLabel} tone="muted" size="sm" /> : null}
       </View>
 
       <View style={styles.cardCopy}>
@@ -173,7 +178,7 @@ function PlanPlaceDeckCardView({ card, onOpen }: { card: PlanPlaceDeckCard; onOp
   );
 }
 
-export function PlanSquareDeck({ plan, onOpen, style }: PlanSquareDeckProps) {
+export function PlanSquareDeck({ plan, onOpen, style, topBadgeLabel, topBadgeTone, showModeBadge = true }: PlanSquareDeckProps) {
   const cards = useMemo(() => buildPlanPlaceDeckCards(plan), [plan]);
   const handleOpen = onOpen ?? (() => {});
 
@@ -181,7 +186,7 @@ export function PlanSquareDeck({ plan, onOpen, style }: PlanSquareDeckProps) {
     <View style={[styles.container, style]}>
       <ContinuousSquareStackDeck<PlanPlaceDeckCard>
         cards={cards}
-        renderCard={({ card }) => <PlanPlaceDeckCardView card={card} onOpen={handleOpen} />}
+        renderCard={({ card }) => <PlanPlaceDeckCardView card={card} onOpen={handleOpen} topBadgeLabel={topBadgeLabel} topBadgeTone={topBadgeTone} showModeBadge={showModeBadge} />}
         renderWindow="all"
         showDebugBadge={false}
         depthEffect="motionOnly"

@@ -1,3 +1,5 @@
+import { buildStarterIdeaPlacement, createEmptyStarterIdeaPlacement, getInlineStarterIdeaKey, type StarterIdeaPlacement } from '@hellowhen/shared';
+
 export const feedTradeIdeaKeys = [
   'appTestingPhotos',
   'coldDmTranslation',
@@ -262,15 +264,9 @@ export type FeedStarterIdeaGrowthSignals = {
   monthlyRealTradeCount?: number | null;
 };
 
-export type FeedStarterIdeaPlacement = {
-  inlineIdeaKeysByAfterIndex: Partial<Record<number, FeedTradeIdeaKey>>;
-  appendedIdeaKeys: FeedTradeIdeaKey[];
-};
+export type FeedStarterIdeaPlacement = StarterIdeaPlacement<FeedTradeIdeaKey>;
 
-export const emptyFeedStarterIdeaPlacement: FeedStarterIdeaPlacement = {
-  inlineIdeaKeysByAfterIndex: {},
-  appendedIdeaKeys: [],
-};
+export const emptyFeedStarterIdeaPlacement: FeedStarterIdeaPlacement = createEmptyStarterIdeaPlacement<FeedTradeIdeaKey>();
 
 function hashFeedIdeaValue(value: string) {
   let hash = 2166136261;
@@ -287,19 +283,6 @@ function shuffleFeedIdeaKeys(keys: readonly FeedTradeIdeaKey[], seed: string) {
 
 function normalizeGrowthCount(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : null;
-}
-
-function getUniqueFeedIdeaKeys(keys: readonly FeedTradeIdeaKey[]) {
-  const seen = new Set<FeedTradeIdeaKey>();
-  const uniqueKeys: FeedTradeIdeaKey[] = [];
-
-  for (const key of keys) {
-    if (seen.has(key)) continue;
-    seen.add(key);
-    uniqueKeys.push(key);
-  }
-
-  return uniqueKeys;
 }
 
 export function getFeedStarterIdeaVisibleLimit(tradeCount: number, growthSignals: FeedStarterIdeaGrowthSignals = {}) {
@@ -356,35 +339,18 @@ export function getRandomizedFeedIdeaKeys(seed: string, maxCount = feedTradeIdea
 }
 
 export function getFeedStarterIdeaPlacement(tradeCount: number, ideaKeys: readonly FeedTradeIdeaKey[], growthSignals: FeedStarterIdeaGrowthSignals = {}): FeedStarterIdeaPlacement {
-  const visibleLimit = getFeedStarterIdeaVisibleLimit(tradeCount, growthSignals);
-  const visibleIdeaKeys = getUniqueFeedIdeaKeys(ideaKeys).slice(0, visibleLimit);
-  if (!visibleIdeaKeys.length) {
-    return emptyFeedStarterIdeaPlacement;
-  }
-
-  if (tradeCount < feedTradeIdeaPlacement.sparseFeedThreshold) {
-    return {
-      inlineIdeaKeysByAfterIndex: {},
-      appendedIdeaKeys: [...visibleIdeaKeys],
-    };
-  }
-
-  const inlineIdeaKeysByAfterIndex: Partial<Record<number, FeedTradeIdeaKey>> = {};
-  const inlineIdeaCount = Math.min(Math.floor(tradeCount / feedTradeIdeaPlacement.insertAfterEveryRealTrades), visibleIdeaKeys.length);
-
-  for (let ideaIndex = 0; ideaIndex < inlineIdeaCount; ideaIndex += 1) {
-    const afterIndex = ((ideaIndex + 1) * feedTradeIdeaPlacement.insertAfterEveryRealTrades) - 1;
-    inlineIdeaKeysByAfterIndex[afterIndex] = visibleIdeaKeys[ideaIndex];
-  }
-
-  return {
-    inlineIdeaKeysByAfterIndex,
-    appendedIdeaKeys: visibleIdeaKeys.slice(inlineIdeaCount),
-  };
+  return buildStarterIdeaPlacement({
+    realItemCount: tradeCount,
+    ideaKeys,
+    visibleLimit: getFeedStarterIdeaVisibleLimit(tradeCount, growthSignals),
+    sparseFeedThreshold: feedTradeIdeaPlacement.sparseFeedThreshold,
+    denseFeedThreshold: feedTradeIdeaPlacement.denseFeedThreshold,
+    insertAfterEveryRealItems: feedTradeIdeaPlacement.insertAfterEveryRealTrades,
+  });
 }
 
 export function getInlineFeedIdeaKey(index: number, placement: FeedStarterIdeaPlacement): FeedTradeIdeaKey | null {
-  return placement.inlineIdeaKeysByAfterIndex[index] ?? null;
+  return getInlineStarterIdeaKey(index, placement);
 }
 
 export function parseFeedTradeIdeaKey(value?: string | null): FeedTradeIdeaKey | null {

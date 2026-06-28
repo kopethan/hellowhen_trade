@@ -978,16 +978,12 @@ function PlanIdeaDeckSection({ ideaKey, index, total, onPress }: { ideaKey: Star
     <View style={styles.deckSection}>
       <View style={styles.deckSectionHeader}>
         <View style={styles.deckSectionCopy}>
-          <View style={styles.rowTop}>
-            <SemanticBadge label="Plan idea" tone="instruction" size="sm" />
-            <SemanticBadge label={idea.pack} tone="plan" size="sm" />
-          </View>
           <AppText style={styles.deckSectionTitle} numberOfLines={1}>{idea.title}</AppText>
           <AppText style={[styles.deckSectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{idea.stops.length} starter stops · Create your version</AppText>
         </View>
         <SemanticBadge label={`${index + 1}/${total}`} tone="muted" size="sm" />
       </View>
-      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={onPress} />
+      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={onPress} topBadgeLabel={`Plan idea · ${idea.pack}`} topBadgeTone="plan" showModeBadge={false} />
     </View>
   );
 }
