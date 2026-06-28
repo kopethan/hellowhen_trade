@@ -9778,7 +9778,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
 }
 .plan-route-stop__content {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 15px;
   margin-top: 7px;
@@ -9798,8 +9798,10 @@ html[data-theme="dark"] .onboarding-guide-primary {
 }
 .plan-route-stop__media {
   overflow: hidden;
-  width: 96px;
-  height: 96px;
+  width: min(100%, 320px);
+  aspect-ratio: 16 / 10;
+  height: auto;
+  margin: 10px 0 9px;
   border-radius: 24px;
   border: 1px solid var(--app-border);
   background: var(--app-surface-soft);
@@ -9919,7 +9921,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
   .plan-detail-toolbar__actions .plans-internal-badge { display: none; }
   .plan-detail-hero-social h1 { max-width: 12ch; font-size: clamp(38px, 14vw, 58px); }
   .plan-route-stop__content { grid-template-columns: 1fr; }
-  .plan-route-stop__media { width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 22px; }
+  .plan-route-stop__media { width: 100%; aspect-ratio: 16 / 9; border-radius: 22px; }
   .plan-owner-row { display: grid; }
   .plan-participant-row--social { grid-template-columns: auto minmax(0, 1fr); }
   .plan-participant-row--social .button { grid-column: 1 / -1; }
@@ -11010,6 +11012,100 @@ html[data-theme="dark"] .web-app-page--me {
     margin-top: 0;
   }
 }
+/* ME-QUICK-FIX2: compact Me quick actions into readable launch rows instead of tall empty tiles. */
+.me-hub-section--quick .me-hub-quick-actions {
+  align-items: start;
+  gap: 12px;
+}
+
+.me-hub-section--quick .me-hub-quick-grid {
+  align-items: start;
+  gap: 12px;
+}
+
+.me-hub-section--quick .account-quick-action-card.me-hub-link-card,
+.me-hub-section--quick .account-quick-action-card--primary.me-hub-link-card,
+.me-hub-section--quick .account-quick-action-card--compact.me-hub-link-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-content: center;
+  align-items: center;
+  min-height: 92px;
+  border-radius: 24px;
+  padding: 14px 16px;
+}
+
+.me-hub-section--quick .account-quick-action-card--primary.me-hub-link-card {
+  min-height: 96px;
+}
+
+.me-hub-section--quick .account-quick-action-card.me-hub-link-card .mobile-link-card__icon,
+.me-hub-section--quick .account-quick-action-card--primary.me-hub-link-card .mobile-link-card__icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 16px;
+}
+
+.me-hub-section--quick .account-quick-action-card.me-hub-link-card .mobile-link-card__title-row,
+.me-hub-section--quick .account-quick-action-card--primary.me-hub-link-card .mobile-link-card__title-row {
+  margin-top: 0;
+}
+
+.me-hub-section--quick .account-quick-action-card--primary.me-hub-link-card .mobile-link-card__title-row strong {
+  font-size: 17px;
+}
+
+.me-hub-section--quick .account-quick-action-card.me-hub-link-card .me-hub-link-card__body-text,
+.me-hub-section--quick .account-quick-action-card--compact.me-hub-link-card .me-hub-link-card__body-text {
+  max-width: none;
+}
+
+.me-hub-section--quick .account-quick-action-card.me-hub-link-card .mobile-link-card__arrow {
+  align-self: center;
+  margin-top: 0;
+}
+
+@media (min-width: 760px) {
+  .me-hub-section--quick .me-hub-quick-actions {
+    grid-template-columns: minmax(250px, 0.78fr) minmax(0, 1.22fr);
+  }
+
+  .me-hub-section--quick .me-hub-quick-grid {
+    grid-template-columns: repeat(2, minmax(190px, 1fr));
+  }
+}
+
+@media (max-width: 1040px) and (min-width: 760px) {
+  .me-hub-section--quick .me-hub-quick-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .me-hub-section--quick .me-hub-quick-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .me-hub-section--quick .account-quick-action-card.me-hub-link-card,
+  .me-hub-section--quick .account-quick-action-card--primary.me-hub-link-card,
+  .me-hub-section--quick .account-quick-action-card--compact.me-hub-link-card {
+    min-height: 78px;
+    border-radius: 22px;
+    padding: 13px 14px;
+  }
+
+  .me-hub-section--quick .account-quick-action-card.me-hub-link-card .mobile-link-card__icon,
+  .me-hub-section--quick .account-quick-action-card--primary.me-hub-link-card .mobile-link-card__icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 15px;
+  }
+
+  .me-hub-section--quick .account-quick-action-card--compact.me-hub-link-card .mobile-link-card__arrow {
+    display: inline-flex;
+  }
+}
+
 
 /* TRADE-FILTER-POLISH1: Trade header action visibility polish */
 .feed-world-header .trade-filter-pill,
@@ -11092,5 +11188,111 @@ html[data-theme="dark"] .web-app-page--me {
     width: 44px;
     height: 44px;
     min-height: 44px;
+  }
+}
+
+/* ME-DESKTOP1: let the Me hub breathe on desktop like a personal control room. */
+@media (min-width: 1024px) {
+  .mobile-page.web-app-page--me,
+  .web-app-page--me {
+    --web-app-page-max: min(1180px, calc(100vw - 48px));
+    --web-app-page-toolbar-max: min(1180px, calc(100vw - 48px));
+    width: min(100%, var(--web-app-page-max));
+    max-width: var(--web-app-page-max);
+  }
+
+  .web-app-page--me {
+    padding-bottom: calc(var(--app-dock-height) + 76px + env(safe-area-inset-bottom));
+  }
+
+  .me-hub-page {
+    gap: 26px;
+  }
+
+  .me-hub-hero {
+    min-height: 168px;
+    padding: 32px;
+  }
+
+  .me-hub-overview {
+    padding: 12px;
+  }
+
+  .me-hub-stat-grid {
+    gap: 16px;
+  }
+
+  .me-hub-stat-card {
+    min-height: 108px;
+    padding: 17px;
+  }
+
+  .me-hub-action-zone {
+    display: grid;
+    grid-template-columns: minmax(0, 1.24fr) minmax(320px, 0.76fr);
+    grid-template-areas: "quick widgets";
+    align-items: stretch;
+    gap: 22px;
+  }
+
+  .me-hub-action-zone--single {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "quick";
+  }
+
+  .me-hub-action-zone .me-hub-section--quick {
+    grid-area: quick;
+    min-height: 100%;
+  }
+
+  .me-hub-action-zone .me-hub-widget-strip {
+    grid-area: widgets;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    gap: 12px;
+  }
+
+  .me-hub-action-zone .me-hub-widget-card {
+    min-height: 142px;
+    border-radius: 28px;
+    padding: 17px;
+  }
+
+  .me-hub-action-zone .me-hub-widget-card__body strong {
+    font-size: 18px;
+  }
+
+  .me-hub-action-zone .me-hub-widget-card__body small {
+    font-size: 12.5px;
+  }
+
+  .me-hub-section--quick .me-hub-quick-actions {
+    grid-template-columns: minmax(250px, 0.82fr) minmax(0, 1.18fr);
+    gap: 14px;
+  }
+
+  .me-hub-section--quick .me-hub-quick-grid {
+    grid-template-columns: repeat(2, minmax(185px, 1fr));
+  }
+
+  .me-hub-layout {
+    grid-template-columns: minmax(0, 1.04fr) minmax(360px, 0.96fr);
+    gap: 22px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .mobile-page.web-app-page--me,
+  .web-app-page--me {
+    --web-app-page-max: min(1240px, calc(100vw - 64px));
+    --web-app-page-toolbar-max: min(1240px, calc(100vw - 64px));
+  }
+
+  .me-hub-action-zone {
+    grid-template-columns: minmax(0, 1.32fr) minmax(340px, 0.68fr);
+  }
+
+  .me-hub-layout {
+    grid-template-columns: minmax(0, 1.08fr) minmax(380px, 0.92fr);
   }
 }

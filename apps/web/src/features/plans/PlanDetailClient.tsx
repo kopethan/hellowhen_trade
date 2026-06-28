@@ -146,14 +146,14 @@ function PlanPlaceCard({ place, index, planStartsAt, showReport }: { place: Plan
           <div className="plan-route-stop__copy">
             <h4>{place.title}</h4>
             {location ? <p className="meta">{location}</p> : null}
+            {displayMedia ? (
+              <div className="plan-route-stop__media">
+                <PlanPlaceImage media={displayMedia} />
+              </div>
+            ) : null}
             {description ? <p>{description}</p> : null}
             {showReport ? <ReportContentButton targetType="plan_place" targetId={place.id} /> : null}
           </div>
-          {displayMedia ? (
-            <div className="plan-route-stop__media">
-              <PlanPlaceImage media={displayMedia} />
-            </div>
-          ) : null}
         </div>
       </div>
     </article>

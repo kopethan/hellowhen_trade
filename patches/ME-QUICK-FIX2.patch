@@ -1,0 +1,105 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 7896d03..62a3499 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -11037,6 +11037,100 @@ html[data-theme="dark"] .web-app-page--me {
+     margin-top: 0;
+   }
+ }
++/* ME-QUICK-FIX2: compact Me quick actions into readable launch rows instead of tall empty tiles. */
++.me-hub-section--quick .me-hub-quick-actions {
++  align-items: start;
++  gap: 12px;
++}
++
++.me-hub-section--quick .me-hub-quick-grid {
++  align-items: start;
++  gap: 12px;
++}
++
++.me-hub-section--quick .account-quick-action-card.me-hub-link-card,
++.me-hub-section--quick .account-quick-action-card--primary.me-hub-link-card,
++.me-hub-section--quick .account-quick-action-card--compact.me-hub-link-card {
++  display: grid;
++  grid-template-columns: auto minmax(0, 1fr) auto;
++  align-content: center;
++  align-items: center;
++  min-height: 92px;
++  border-radius: 24px;
++  padding: 14px 16px;
++}
++
++.me-hub-section--quick .account-quick-action-card--primary.me-hub-link-card {
++  min-height: 96px;
++}
++
++.me-hub-section--quick .account-quick-action-card.me-hub-link-card .mobile-link-card__icon,
++.me-hub-section--quick .account-quick-action-card--primary.me-hub-link-card .mobile-link-card__icon {
++  width: 42px;
++  height: 42px;
++  border-radius: 16px;
++}
++
++.me-hub-section--quick .account-quick-action-card.me-hub-link-card .mobile-link-card__title-row,
++.me-hub-section--quick .account-quick-action-card--primary.me-hub-link-card .mobile-link-card__title-row {
++  margin-top: 0;
++}
++
++.me-hub-section--quick .account-quick-action-card--primary.me-hub-link-card .mobile-link-card__title-row strong {
++  font-size: 17px;
++}
++
++.me-hub-section--quick .account-quick-action-card.me-hub-link-card .me-hub-link-card__body-text,
++.me-hub-section--quick .account-quick-action-card--compact.me-hub-link-card .me-hub-link-card__body-text {
++  max-width: none;
++}
++
++.me-hub-section--quick .account-quick-action-card.me-hub-link-card .mobile-link-card__arrow {
++  align-self: center;
++  margin-top: 0;
++}
++
++@media (min-width: 760px) {
++  .me-hub-section--quick .me-hub-quick-actions {
++    grid-template-columns: minmax(250px, 0.78fr) minmax(0, 1.22fr);
++  }
++
++  .me-hub-section--quick .me-hub-quick-grid {
++    grid-template-columns: repeat(2, minmax(190px, 1fr));
++  }
++}
++
++@media (max-width: 1040px) and (min-width: 760px) {
++  .me-hub-section--quick .me-hub-quick-actions {
++    grid-template-columns: minmax(0, 1fr);
++  }
++
++  .me-hub-section--quick .me-hub-quick-grid {
++    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
++  }
++}
++
++@media (max-width: 560px) {
++  .me-hub-section--quick .account-quick-action-card.me-hub-link-card,
++  .me-hub-section--quick .account-quick-action-card--primary.me-hub-link-card,
++  .me-hub-section--quick .account-quick-action-card--compact.me-hub-link-card {
++    min-height: 78px;
++    border-radius: 22px;
++    padding: 13px 14px;
++  }
++
++  .me-hub-section--quick .account-quick-action-card.me-hub-link-card .mobile-link-card__icon,
++  .me-hub-section--quick .account-quick-action-card--primary.me-hub-link-card .mobile-link-card__icon {
++    width: 40px;
++    height: 40px;
++    border-radius: 15px;
++  }
++
++  .me-hub-section--quick .account-quick-action-card--compact.me-hub-link-card .mobile-link-card__arrow {
++    display: inline-flex;
++  }
++}
++
+ 
+ /* TRADE-FILTER-POLISH1: Trade header action visibility polish */
+ .feed-world-header .trade-filter-pill,

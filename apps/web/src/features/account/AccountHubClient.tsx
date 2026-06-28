@@ -197,13 +197,15 @@ export function AccountHubClient() {
       </section>
 
       {auth.isAuthenticated ? (
-        <>
-          <section className="me-hub-overview" aria-label={t('account.sections.activity')}>
-            <div className="me-hub-stat-grid">
-              {statItems.map((item) => <MeHubStatCard key={item.href + item.titleKey} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
-            </div>
-          </section>
+        <section className="me-hub-overview" aria-label={t('account.sections.activity')}>
+          <div className="me-hub-stat-grid">
+            {statItems.map((item) => <MeHubStatCard key={item.href + item.titleKey} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
+          </div>
+        </section>
+      ) : null}
 
+      <div className={auth.isAuthenticated ? 'me-hub-action-zone' : 'me-hub-action-zone me-hub-action-zone--single'}>
+        {auth.isAuthenticated ? (
           <section className="me-hub-widget-strip" aria-label={t('account.widgets.title')}>
             <MeHubWidgetCard
               badge={t('account.widgets.today.badge')}
@@ -237,28 +239,28 @@ export function AccountHubClient() {
               />
             ) : null}
           </section>
-        </>
-      ) : null}
+        ) : null}
 
-      <section className="account-hub-section me-hub-section me-hub-section--quick" aria-label={t('account.quickActions.title')}>
-        <div className="account-hub-section__header me-hub-section__header">
-          <div>
-            <span className="semantic-badge trade">{t('account.quickActions.title')}</span>
-            <h2>{t('account.quickActions.title')}</h2>
-          </div>
-          <p>{t('account.quickActions.body')}</p>
-        </div>
-        <div className="me-hub-quick-actions">
-          {primaryQuickAction ? (
-            <AccountHubLinkCard item={primaryQuickAction} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick quickVariant="primary" />
-          ) : null}
-          {secondaryQuickActions.length > 0 ? (
-            <div className="account-quick-action-grid me-hub-quick-grid">
-              {secondaryQuickActions.map((item) => <AccountHubLinkCard key={item.href} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick quickVariant="compact" />)}
+        <section className="account-hub-section me-hub-section me-hub-section--quick" aria-label={t('account.quickActions.title')}>
+          <div className="account-hub-section__header me-hub-section__header">
+            <div>
+              <span className="semantic-badge trade">{t('account.quickActions.title')}</span>
+              <h2>{t('account.quickActions.title')}</h2>
             </div>
-          ) : null}
-        </div>
-      </section>
+            <p>{t('account.quickActions.body')}</p>
+          </div>
+          <div className="me-hub-quick-actions">
+            {primaryQuickAction ? (
+              <AccountHubLinkCard item={primaryQuickAction} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick quickVariant="primary" />
+            ) : null}
+            {secondaryQuickActions.length > 0 ? (
+              <div className="account-quick-action-grid me-hub-quick-grid">
+                {secondaryQuickActions.map((item) => <AccountHubLinkCard key={item.href} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick quickVariant="compact" />)}
+              </div>
+            ) : null}
+          </div>
+        </section>
+      </div>
 
       <div className="me-hub-layout">
         <div className="me-hub-layout__primary">
