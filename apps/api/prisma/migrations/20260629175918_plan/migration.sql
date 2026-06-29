@@ -1,0 +1,5 @@
+-- RenameIndex
+ALTER INDEX "PlacePresenceVerification_planId_planPlaceId_status_verifiedAt_" RENAME TO "PlacePresenceVerification_planId_planPlaceId_status_verifie_idx";
+
+-- RenameIndex
+ALTER INDEX "PlacePresenceVerification_planPlaceId_userId_status_verifiedAt_" RENAME TO "PlacePresenceVerification_planPlaceId_userId_status_verifie_idx";
