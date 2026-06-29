@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle } from 'react-native';
+import * as Location from 'expo-location';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { DiscoveryLanguage, InventoryTranslationDto, ListPlansQuery, MediaAssetDto, PlaceDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
+import type { DiscoveryLanguage, GooglePlacePrediction, GoogleResolvedPlace, InventoryTranslationDto, ListPlansQuery, MediaAssetDto, PlaceDto, PlacePresenceVerificationResponse, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
 import { buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type NormalWorkspaceMenuItem, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
@@ -666,11 +667,43 @@ function sortedPlanPlaces(plan: PlanDto) {
   return [...(plan.places ?? [])].sort((first, second) => first.order - second.order);
 }
 
-function getPlanPlaceLocationLabel(place: PlanPlaceDto) {
+type PlanPlaceLocationDetails = {
+  kind: 'local' | 'remote';
+  label: string;
+  value: string;
+  actionLabel?: string;
+  href?: string;
+};
+
+function buildMapsSearchUrl(value: string) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value)}`;
+}
+
+function getPlanPlaceLocationDetails(place: PlanPlaceDto): PlanPlaceLocationDetails | null {
   if (place.mode === 'remote') {
-    return place.onlineLabel && place.onlineUrl ? place.onlineUrl : place.onlineLabel || place.onlineUrl || null;
+    const value = place.onlineUrl || place.onlineLabel || null;
+    if (!value) return null;
+    return {
+      kind: 'remote',
+      label: place.onlineLabel && place.onlineUrl ? place.onlineLabel : 'Online place',
+      value,
+      href: place.onlineUrl || undefined,
+      actionLabel: place.onlineUrl ? 'Open link' : undefined,
+    };
   }
-  return place.addressPublicText || place.sourcePlace?.areaLabel || null;
+  const value = place.addressPublicText || place.sourcePlace?.addressPublicText || place.sourcePlace?.areaLabel || null;
+  if (!value) return null;
+  return {
+    kind: 'local',
+    label: 'Offline address',
+    value,
+    href: buildMapsSearchUrl(value),
+    actionLabel: 'Open in Maps',
+  };
+}
+
+function getPlanPlaceLocationLabel(place: PlanPlaceDto) {
+  return getPlanPlaceLocationDetails(place)?.value ?? null;
 }
 
 function getPlanPlaceModeDisplay(place: PlanPlaceDto) {
@@ -685,7 +718,90 @@ function getPlanPlaceTimeLabel(place: PlanPlaceDto, planStartsAt: string) {
 
 function getPlanPlaceLocationPrefix(place: PlanPlaceDto) {
   if (place.mode === 'remote') return place.onlineLabel && place.onlineUrl ? place.onlineLabel : 'Online';
-  return 'Place';
+  return 'Address';
+}
+
+async function openPlanPlaceLocation(location: PlanPlaceLocationDetails) {
+  if (!location.href) return;
+  try {
+    await Linking.openURL(location.href);
+  } catch {
+    Alert.alert('Could not open location', 'Try copying the address and opening it in your maps app.');
+  }
+}
+
+type PlanPlacePresenceNotice = {
+  tone: 'success' | 'warning' | 'info';
+  title: string;
+  body: string;
+};
+
+function getPlanPlaceVerificationCoordinates(place: PlanPlaceDto) {
+  const latitude = typeof place.latitude === 'number' ? place.latitude : place.sourcePlace?.latitude;
+  const longitude = typeof place.longitude === 'number' ? place.longitude : place.sourcePlace?.longitude;
+  if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
+  return { latitude, longitude };
+}
+
+function isOfflinePlanPlace(place: PlanPlaceDto) {
+  return place.mode !== 'remote';
+}
+
+function formatPresenceDistance(value?: number | null) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '';
+  if (value < 1000) return `${Math.round(value)}m away`;
+  return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}km away`;
+}
+
+function presenceNoticeFromVerificationResponse(response: PlacePresenceVerificationResponse): PlanPlacePresenceNotice {
+  const distanceLabel = formatPresenceDistance(response.distanceMeters ?? response.verification.distanceMeters);
+  if (response.accepted) {
+    return {
+      tone: 'success',
+      title: response.alreadyVerified ? 'Already verified here' : 'Verified at this place',
+      body: distanceLabel ? `Your device location was accepted · ${distanceLabel}.` : 'Your device location was accepted for this offline place.',
+    };
+  }
+  if (response.verification.rejectionReason === 'gps_accuracy_too_low') {
+    return {
+      tone: 'warning',
+      title: 'GPS accuracy too low',
+      body: 'Move closer to the place, step outside if possible, and try again with a stronger location signal.',
+    };
+  }
+  if (response.verification.rejectionReason === 'too_far_from_place') {
+    return {
+      tone: 'warning',
+      title: 'Too far from this place',
+      body: distanceLabel ? `Your device seems ${distanceLabel}. Move closer and try again.` : 'Move closer to the selected offline place and try again.',
+    };
+  }
+  if (response.verification.rejectionReason === 'mock_location_detected') {
+    return {
+      tone: 'warning',
+      title: 'Mock location detected',
+      body: 'Turn off mock location tools and try again from your real device location.',
+    };
+  }
+  if (response.verification.rejectionReason === 'location_timestamp_stale' || response.verification.rejectionReason === 'location_timestamp_future') {
+    return {
+      tone: 'warning',
+      title: 'Location check expired',
+      body: 'Refresh your location and try again. We only accept fresh device location checks.',
+    };
+  }
+  if (response.verification.rejectionReason === 'suspicious_location_jump') {
+    return {
+      tone: 'warning',
+      title: 'Location jump looks unusual',
+      body: 'Wait a bit before verifying again. This protects offline trust stats from impossible travel patterns.',
+    };
+  }
+  return {
+    tone: 'warning',
+    title: 'Could not verify presence',
+    body: 'Try again when your device has a stronger location signal.',
+  };
 }
 
 function getPlanPlaceDescription(place: PlanPlaceDto) {
@@ -1326,12 +1442,33 @@ function ParticipantCompactRow({ participant }: { participant: PlanParticipantDt
   );
 }
 
-function PlanPlaceTimelineCard({ place, index, planStartsAt, showReport }: { place: PlanPlaceDto; index: number; planStartsAt: string; showReport: boolean }) {
+function PlanPlaceTimelineCard({
+  place,
+  index,
+  planStartsAt,
+  showReport,
+  canVerifyPresence,
+  isVerifyingPresence,
+  presenceNotice,
+  onVerifyPresence,
+}: {
+  place: PlanPlaceDto;
+  index: number;
+  planStartsAt: string;
+  showReport: boolean;
+  canVerifyPresence: boolean;
+  isVerifyingPresence: boolean;
+  presenceNotice?: PlanPlacePresenceNotice;
+  onVerifyPresence: (place: PlanPlaceDto) => void;
+}) {
   const theme = useThemeTokens();
   const mediaUrl = activeMediaUrl(getPlanPlaceMedia(place));
-  const locationLabel = getPlanPlaceLocationLabel(place);
+  const locationDetails = getPlanPlaceLocationDetails(place);
   const description = getPlanPlaceDescription(place);
   const sourceLabel = getPlanPlaceSourceLabel(place);
+  const hasVerificationCoordinates = Boolean(getPlanPlaceVerificationCoordinates(place));
+  const showPresenceVerification = isOfflinePlanPlace(place) && (canVerifyPresence || presenceNotice || hasVerificationCoordinates);
+  const verificationDisabled = isVerifyingPresence || !hasVerificationCoordinates;
 
   return (
     <View style={[styles.planRouteStop, { borderBottomColor: theme.color.border }]}>
@@ -1349,10 +1486,74 @@ function PlanPlaceTimelineCard({ place, index, planStartsAt, showReport }: { pla
           <View style={styles.planRouteContentRow}>
             <View style={styles.planRouteTextBlock}>
               <AppText style={styles.planRouteTitle}>{place.title}</AppText>
-              {locationLabel ? (
-                <AppText style={[styles.planRouteMeta, { color: theme.color.muted }]} numberOfLines={2}>
-                  {getPlanPlaceLocationPrefix(place)} · {locationLabel}
-                </AppText>
+              {locationDetails ? (
+                <View style={[
+                  styles.planRouteLocationCard,
+                  {
+                    backgroundColor: locationDetails.kind === 'local' ? theme.semantic.place.softBg : theme.semantic.plan.softBg,
+                    borderColor: locationDetails.kind === 'local' ? theme.semantic.place.border : theme.semantic.plan.border,
+                  },
+                ]}>
+                  <View style={[
+                    styles.planRouteLocationIcon,
+                    {
+                      backgroundColor: theme.color.surface,
+                      borderColor: locationDetails.kind === 'local' ? theme.semantic.place.border : theme.semantic.plan.border,
+                    },
+                  ]}>
+                    <MobileIcon name={locationDetails.kind === 'local' ? 'location-on' : 'plan'} color={locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text} size={16} />
+                  </View>
+                  <View style={styles.planRouteLocationCopy}>
+                    <AppText style={[styles.planRouteLocationLabel, { color: locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text }]}>{locationDetails.label}</AppText>
+                    <AppText style={styles.planRouteLocationValue} numberOfLines={2}>{locationDetails.value}</AppText>
+                  </View>
+                  {locationDetails.href && locationDetails.actionLabel ? (
+                    <Pressable
+                      accessibilityRole="link"
+                      accessibilityLabel={locationDetails.actionLabel}
+                      onPress={() => { void openPlanPlaceLocation(locationDetails); }}
+                      style={({ pressed }) => [styles.planRouteLocationAction, { backgroundColor: theme.color.surface }, pressed && styles.pressed]}
+                    >
+                      <AppText style={[styles.planRouteLocationActionText, { color: locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text }]}>{locationDetails.actionLabel}</AppText>
+                      <MobileIcon name="chevron-right" color={locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text} size={14} />
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
+              {showPresenceVerification ? (
+                <View style={[
+                  styles.planPresenceCard,
+                  {
+                    backgroundColor: presenceNotice?.tone === 'success' ? theme.semantic.success.softBg : presenceNotice?.tone === 'warning' ? theme.semantic.warning.softBg : theme.color.surface,
+                    borderColor: presenceNotice?.tone === 'success' ? theme.semantic.success.border : presenceNotice?.tone === 'warning' ? theme.semantic.warning.border : theme.color.border,
+                  },
+                ]}>
+                  <View style={styles.planPresenceHeaderRow}>
+                    <View style={styles.planPresenceCopy}>
+                      <AppText style={[styles.planPresenceTitle, { color: presenceNotice?.tone === 'success' ? theme.semantic.success.text : presenceNotice?.tone === 'warning' ? theme.semantic.warning.text : theme.color.text }]}>{presenceNotice?.title ?? 'Presence verification'}</AppText>
+                      <AppText style={[styles.planPresenceBody, { color: theme.color.muted }]}>
+                        {presenceNotice?.body ?? (hasVerificationCoordinates ? 'Use your device GPS when you reach this place.' : 'This place needs a Google-confirmed map position before GPS verification can work.')}
+                      </AppText>
+                    </View>
+                    {hasVerificationCoordinates ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Verify I am here"
+                        disabled={verificationDisabled}
+                        onPress={() => onVerifyPresence(place)}
+                        style={({ pressed }) => [
+                          styles.planPresenceButton,
+                          { backgroundColor: canVerifyPresence ? theme.semantic.place.bg : theme.color.surface, borderColor: canVerifyPresence ? theme.semantic.place.border : theme.color.border },
+                          (pressed || isVerifyingPresence) && styles.pressed,
+                          verificationDisabled && styles.disabled,
+                        ]}
+                      >
+                        {isVerifyingPresence ? <ActivityIndicator size="small" color={canVerifyPresence ? theme.color.background : theme.color.muted} /> : <MobileIcon name="location-on" size={15} color={canVerifyPresence ? theme.color.background : theme.color.muted} />}
+                        <AppText style={[styles.planPresenceButtonText, { color: canVerifyPresence ? theme.color.background : theme.color.muted }]}>{isVerifyingPresence ? 'Checking...' : 'Verify'}</AppText>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
               ) : null}
               {description ? <AppText style={[styles.planRouteDescription, { color: theme.color.muted }]} numberOfLines={3}>{description}</AppText> : null}
             </View>
@@ -1380,6 +1581,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [publicMessageCount, setPublicMessageCount] = useState(0);
+  const [verifyingPlaceId, setVerifyingPlaceId] = useState<string | null>(null);
+  const [presenceNotices, setPresenceNotices] = useState<Record<string, PlanPlacePresenceNotice>>({});
 
   const load = useCallback(async () => {
     if (!isPlansVisible()) { setLoading(false); return; }
@@ -1487,6 +1690,62 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
     );
   }
 
+  async function verifyPlanPlacePresence(place: PlanPlaceDto) {
+    if (!plan || verifyingPlaceId) return;
+    if (!auth.user) {
+      setPresenceNotices((current) => ({
+        ...current,
+        [place.id]: { tone: 'info', title: 'Log in to verify', body: 'Log in first, then use your device GPS when you reach this offline place.' },
+      }));
+      return;
+    }
+    if (!isOwner && !isJoined) {
+      setPresenceNotices((current) => ({
+        ...current,
+        [place.id]: { tone: 'info', title: 'Join this plan first', body: 'Presence verification is only available to the owner or joined participants.' },
+      }));
+      return;
+    }
+    if (!isOfflinePlanPlace(place)) return;
+    if (!getPlanPlaceVerificationCoordinates(place)) {
+      setPresenceNotices((current) => ({
+        ...current,
+        [place.id]: { tone: 'warning', title: 'Map position needed', body: 'This offline place needs a Google-confirmed map position before GPS verification can work.' },
+      }));
+      return;
+    }
+
+    setVerifyingPlaceId(place.id);
+    setActionError(null);
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') {
+        setPresenceNotices((current) => ({
+          ...current,
+          [place.id]: { tone: 'warning', title: 'Location permission needed', body: 'Allow location access only when you want to verify that you are at this place.' },
+        }));
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const response = await api.plans.verifyPlacePresence(plan.id, place.id, {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracyMeters: typeof position.coords.accuracy === 'number' ? position.coords.accuracy : undefined,
+        locationCapturedAt: new Date(position.timestamp).toISOString(),
+        isMockedLocation: (position as { mocked?: boolean }).mocked === true,
+        platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'unknown',
+      });
+      setPresenceNotices((current) => ({ ...current, [place.id]: presenceNoticeFromVerificationResponse(response) }));
+    } catch (caughtError) {
+      setPresenceNotices((current) => ({
+        ...current,
+        [place.id]: { tone: 'warning', title: 'Verification failed', body: getFriendlyApiErrorMessage(caughtError) },
+      }));
+    } finally {
+      setVerifyingPlaceId(null);
+    }
+  }
+
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
 
   const isOwner = Boolean(auth.user?.id && plan?.ownerId === auth.user.id);
@@ -1550,7 +1809,19 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
               <SemanticBadge label={`${places.length}`} tone="place" size="sm" />
             </View>
             {places.length === 0 ? <EmptyBlock title="No places yet" body="This Plan does not have places attached yet." /> : null}
-            {places.map((place, index) => <PlanPlaceTimelineCard key={place.id} place={place} index={index} planStartsAt={plan.startsAt} showReport={showReportActions} />)}
+            {places.map((place, index) => (
+              <PlanPlaceTimelineCard
+                key={place.id}
+                place={place}
+                index={index}
+                planStartsAt={plan.startsAt}
+                showReport={showReportActions}
+                canVerifyPresence={Boolean(auth.user && (isOwner || isJoined))}
+                isVerifyingPresence={verifyingPlaceId === place.id}
+                presenceNotice={presenceNotices[place.id]}
+                onVerifyPresence={(nextPlace) => { void verifyPlanPlacePresence(nextPlace); }}
+              />
+            ))}
           </View>
 
           <PlanSectionDivider />
@@ -1777,6 +2048,194 @@ function TextField({
   );
 }
 
+function makeGooglePlaceSessionToken() {
+  return `native-place-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function resolvedGooglePlaceAddress(place: GoogleResolvedPlace) {
+  return place.formattedAddress || place.name || '';
+}
+
+function googlePlaceStatusLabel(place: GoogleResolvedPlace) {
+  if (place.validationStatus === 'confirmed') return 'Google-confirmed address';
+  if (place.validationStatus === 'needs_review') return 'Google suggestion · review details';
+  return 'Google place selected';
+}
+
+function GooglePlacePicker({
+  value,
+  onChangeText,
+  disabled,
+  label = 'Address or place',
+  placeholder = 'Search a real address or place',
+  helperText = 'Choose a Google suggestion when possible. The selected address is saved as the public meeting address.',
+  languageCode,
+  country,
+  maxLength = 240,
+}: {
+  value: string;
+  onChangeText: (value: string) => void;
+  disabled?: boolean;
+  label?: string;
+  placeholder?: string;
+  helperText?: string;
+  languageCode?: string;
+  country?: string;
+  maxLength?: number;
+}) {
+  const theme = useThemeTokens();
+  const [query, setQuery] = useState(value);
+  const [predictions, setPredictions] = useState<GooglePlacePrediction[]>([]);
+  const [selectedPlace, setSelectedPlace] = useState<GoogleResolvedPlace | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [resolvingPlaceId, setResolvingPlaceId] = useState('');
+  const [notice, setNotice] = useState('');
+  const sessionTokenRef = useRef(makeGooglePlaceSessionToken());
+
+  useEffect(() => {
+    setQuery(value);
+    setSelectedPlace((current) => {
+      if (!current) return current;
+      const selectedLabel = resolvedGooglePlaceAddress(current);
+      return selectedLabel && selectedLabel === value ? current : null;
+    });
+  }, [value]);
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    const selectedLabel = selectedPlace ? resolvedGooglePlaceAddress(selectedPlace) : '';
+    if (disabled || trimmed.length < 2 || (selectedLabel && selectedLabel === trimmed)) {
+      setPredictions([]);
+      setSearching(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setSearching(true);
+    setNotice('');
+    const timeoutId = setTimeout(() => {
+      api.places.googleSearch({
+        q: trimmed,
+        languageCode,
+        country,
+        take: 5,
+        sessionToken: sessionTokenRef.current,
+      })
+        .then((response) => {
+          if (cancelled) return;
+          const nextPredictions = response.predictions ?? [];
+          setPredictions(nextPredictions);
+          if (!nextPredictions.length) setNotice('No confirmed suggestions yet. Try a more precise place name or address.');
+        })
+        .catch((caughtError) => {
+          if (cancelled) return;
+          setPredictions([]);
+          setNotice(getFriendlyApiErrorMessage(caughtError, 'Google address suggestions are unavailable. You can keep typing for now.'));
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
+    }, 360);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [country, disabled, languageCode, query, selectedPlace]);
+
+  function handleInputChange(nextValue: string) {
+    setQuery(nextValue);
+    setSelectedPlace(null);
+    setNotice('');
+    setPredictions([]);
+    onChangeText(nextValue);
+  }
+
+  async function selectPrediction(prediction: GooglePlacePrediction) {
+    if (disabled || resolvingPlaceId) return;
+    setResolvingPlaceId(prediction.placeId);
+    setNotice('');
+    try {
+      const response = await api.places.googleDetails({
+        placeId: prediction.placeId,
+        languageCode,
+        sessionToken: sessionTokenRef.current,
+      });
+      const place = response.place;
+      const nextAddress = resolvedGooglePlaceAddress(place) || prediction.description;
+      setSelectedPlace(place);
+      setPredictions([]);
+      setQuery(nextAddress);
+      onChangeText(nextAddress);
+      sessionTokenRef.current = makeGooglePlaceSessionToken();
+    } catch (caughtError) {
+      setNotice(getFriendlyApiErrorMessage(caughtError, 'Could not confirm this Google place. Try another suggestion.'));
+    } finally {
+      setResolvingPlaceId('');
+    }
+  }
+
+  return (
+    <View style={styles.googlePlacePicker}>
+      <FormLabel label={label}>
+        <TextInput
+          value={query}
+          onChangeText={handleInputChange}
+          placeholder={placeholder}
+          placeholderTextColor={theme.color.muted}
+          editable={!disabled}
+          maxLength={maxLength}
+          inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
+          returnKeyType="search"
+          style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
+        />
+      </FormLabel>
+      {helperText ? <AppText style={[styles.googlePlaceHelper, { color: theme.color.muted }]}>{helperText}</AppText> : null}
+      {selectedPlace ? (
+        <View style={[styles.googlePlaceSelectedCard, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
+          <View style={[styles.googlePlacePin, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }]}>
+            <MobileIcon name="location-on" color={theme.semantic.place.text} size={17} />
+          </View>
+          <View style={styles.googlePlaceSuggestionCopy}>
+            <SemanticBadge label={googlePlaceStatusLabel(selectedPlace)} tone="place" size="sm" />
+            <AppText style={styles.googlePlaceSuggestionTitle}>{selectedPlace.name || resolvedGooglePlaceAddress(selectedPlace)}</AppText>
+            {selectedPlace.name && selectedPlace.formattedAddress ? <AppText style={[styles.googlePlaceSuggestionBody, { color: theme.color.muted }]} numberOfLines={2}>{selectedPlace.formattedAddress}</AppText> : null}
+          </View>
+        </View>
+      ) : null}
+      {predictions.length ? (
+        <View style={[styles.googlePlaceSuggestions, { borderColor: theme.color.border }]}>
+          {predictions.map((prediction) => {
+            const resolving = resolvingPlaceId === prediction.placeId;
+            return (
+              <Pressable
+                key={prediction.placeId}
+                accessibilityRole="button"
+                disabled={disabled || Boolean(resolvingPlaceId)}
+                onPress={() => { void selectPrediction(prediction); }}
+                style={({ pressed }) => [styles.googlePlaceSuggestionRow, { borderBottomColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed, resolving && styles.disabled]}
+              >
+                <View style={[styles.googlePlacePin, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
+                  <MobileIcon name="location-on" color={theme.semantic.place.text} size={17} />
+                </View>
+                <View style={styles.googlePlaceSuggestionCopy}>
+                  <AppText style={styles.googlePlaceSuggestionTitle} numberOfLines={1}>{prediction.mainText || prediction.description}</AppText>
+                  {prediction.secondaryText ? <AppText style={[styles.googlePlaceSuggestionBody, { color: theme.color.muted }]} numberOfLines={2}>{prediction.secondaryText}</AppText> : null}
+                </View>
+                <View style={styles.googlePlaceSuggestionAction}>
+                  {resolving ? <ActivityIndicator size="small" /> : <AppText style={[styles.googlePlaceSuggestionActionText, { color: theme.semantic.place.text }]}>Select</AppText>}
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+      {searching ? <View style={styles.googlePlaceStatusRow}><ActivityIndicator size="small" /><AppText style={[styles.googlePlaceStatusText, { color: theme.color.muted }]}>Searching Google places...</AppText></View> : null}
+      {notice ? <AppText style={[styles.googlePlaceNotice, { color: theme.color.muted }]}>{notice}</AppText> : null}
+    </View>
+  );
+}
+
 function PillButton({ label, onPress, active, disabled }: { label: string; onPress: () => void; active?: boolean; disabled?: boolean }) {
   const theme = useThemeTokens();
   return (
@@ -1997,6 +2456,7 @@ export function PlanIdeaDetailScreen({ route, navigation }: PlanIdeaDetailProps)
 
 export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'CreatePlan'>) {
   const theme = useThemeTokens();
+  const { language } = useTranslation();
   const [places, setPlaces] = useState<SelectedPlanPlaceState[]>([]);
   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
   const [libraryPlaces, setLibraryPlaces] = useState<PlaceDto[]>([]);
@@ -2444,7 +2904,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                           <TextField label="Online URL" value={detailPlace.onlineUrl} onChangeText={(onlineUrl) => updateSelectedPlace(detailPlaceIndex, { onlineUrl })} placeholder="https://..." keyboardType="url" maxLength={500} />
                         </>
                       ) : (
-                        <TextField label="Address or meeting point" value={detailPlace.location} onChangeText={(location) => updateSelectedPlace(detailPlaceIndex, { location })} placeholder="Paris 11 or a public meeting point" maxLength={240} />
+                        <GooglePlacePicker label="Address or meeting point" value={detailPlace.location} onChangeText={(location) => updateSelectedPlace(detailPlaceIndex, { location })} placeholder="Search a real address or place" languageCode={language} />
                       )}
                     </>
                   )}
@@ -2657,7 +3117,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                   <TextField label="Online URL" value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
                 </>
               ) : (
-                <TextField label="Area / address" value={state.location} onChangeText={(location) => setState((current) => ({ ...current, location }))} placeholder="Paris 11 or a public spot" maxLength={240} />
+                <GooglePlacePicker label="Area / address" value={state.location} onChangeText={(location) => setState((current) => ({ ...current, location }))} placeholder="Search a real address or place" languageCode={language} />
               )}
               <TextField label="Description (optional)" value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder="Useful details for this Place." multiline maxLength={2000} />
               <View style={styles.placeTranslationBlock}>
@@ -2837,6 +3297,20 @@ const styles = StyleSheet.create({
   sourcePickerTabs: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, flexWrap: 'wrap' },
   sourcePickerFooter: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, alignItems: 'flex-start' },
   sourceListScroll: { maxHeight: 270 },
+  googlePlacePicker: { gap: 8 },
+  googlePlaceHelper: { fontSize: 12, lineHeight: 17, fontWeight: '700', marginTop: -4 },
+  googlePlaceSelectedCard: { borderRadius: 18, borderWidth: 1, padding: 11, flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  googlePlaceSuggestions: { borderRadius: 18, borderWidth: 1, overflow: 'hidden' },
+  googlePlaceSuggestionRow: { minHeight: 64, borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 11, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  googlePlacePin: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  googlePlaceSuggestionCopy: { flex: 1, minWidth: 0, gap: 4 },
+  googlePlaceSuggestionTitle: { fontSize: 14, lineHeight: 19, fontWeight: '900' },
+  googlePlaceSuggestionBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  googlePlaceSuggestionAction: { minWidth: 54, alignItems: 'flex-end', justifyContent: 'center' },
+  googlePlaceSuggestionActionText: { fontSize: 12, lineHeight: 17, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.4 },
+  googlePlaceStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  googlePlaceStatusText: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+  googlePlaceNotice: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
   deckFeedContent: { gap: 20, paddingTop: 2, paddingBottom: 34 },
   deckSection: { gap: 10 },
   deckSectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 2 },
@@ -2871,6 +3345,20 @@ const styles = StyleSheet.create({
   planRouteTextBlock: { flex: 1, minWidth: 0, gap: 5 },
   planRouteTitle: { fontSize: 19, lineHeight: 24, fontWeight: '900', letterSpacing: -0.25 },
   planRouteMeta: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  planRouteLocationCard: { marginTop: 4, borderRadius: 18, borderWidth: 1, padding: 10, gap: 9 },
+  planRouteLocationIcon: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  planRouteLocationCopy: { gap: 2 },
+  planRouteLocationLabel: { fontSize: 11, lineHeight: 15, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.45 },
+  planRouteLocationValue: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  planRouteLocationAction: { alignSelf: 'flex-start', minHeight: 32, borderRadius: 16, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  planRouteLocationActionText: { fontSize: 12, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.35 },
+  planPresenceCard: { marginTop: 4, borderRadius: 18, borderWidth: 1, padding: 11, gap: 9 },
+  planPresenceHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  planPresenceCopy: { flex: 1, minWidth: 0, gap: 3 },
+  planPresenceTitle: { fontSize: 13, lineHeight: 18, fontWeight: '900' },
+  planPresenceBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  planPresenceButton: { minHeight: 34, borderRadius: 17, borderWidth: 1, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
+  planPresenceButtonText: { fontSize: 12, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.35 },
   planRouteDescription: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
   planRouteImageWrap: { width: 64, height: 64, borderRadius: 19, overflow: 'hidden' },
   planRouteImage: { width: '100%', height: '100%' },

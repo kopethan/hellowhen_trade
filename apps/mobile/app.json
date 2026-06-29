@@ -21,7 +21,8 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Hellowhen lets you choose photos for your profile, needs, offers, trade references, reports, and support screenshots."
+        "NSPhotoLibraryUsageDescription": "Hellowhen lets you choose photos for your profile, needs, offers, trade references, reports, and support screenshots.",
+        "NSLocationWhenInUseUsageDescription": "Hellowhen uses your location only when you tap Verify I'm here on an offline Plan place."
       },
       "icon": "./assets/ios-icon.png"
     },
@@ -42,6 +43,12 @@
       }
     },
     "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Hellowhen uses your location only when you tap Verify I'm here on an offline Plan place."
+        }
+      ],
       [
         "expo-build-properties",
         {

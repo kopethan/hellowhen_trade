@@ -1,0 +1,375 @@
+diff --git a/apps/mobile/src/components/LowerImageAtmosphere.tsx b/apps/mobile/src/components/LowerImageAtmosphere.tsx
+new file mode 100644
+index 0000000..fa820d9
+--- /dev/null
++++ b/apps/mobile/src/components/LowerImageAtmosphere.tsx
+@@ -0,0 +1,127 @@
++import React from 'react';
++import { Image, StyleSheet, View } from 'react-native';
++
++type LowerImageAtmospherePreset = 'trade' | 'plan';
++
++type BlurBand = {
++  top: number;
++  height: number;
++  blur: number;
++  opacity: number;
++  tintOpacity: number;
++};
++
++type LowerImageAtmosphereProfile = {
++  bands: readonly BlurBand[];
++  tint: { dark: string; light: string };
++  lowerFeather: { dark: string; light: string; opacity: number };
++  middleWash: { dark: string; light: string; opacity: number };
++  bottomWash: { dark: string; light: string; opacity: number };
++};
++
++type LowerImageAtmosphereProps = {
++  imageUrl?: string | null;
++  isDark: boolean;
++  preset?: LowerImageAtmospherePreset;
++};
++
++const PROFILES: Record<LowerImageAtmospherePreset, LowerImageAtmosphereProfile> = {
++  trade: {
++    bands: [
++      { top: 50, height: 38, blur: 8, opacity: 0.03, tintOpacity: 0.012 },
++      { top: 60, height: 34, blur: 14, opacity: 0.065, tintOpacity: 0.025 },
++      { top: 70, height: 30, blur: 24, opacity: 0.11, tintOpacity: 0.05 },
++      { top: 80, height: 22, blur: 34, opacity: 0.16, tintOpacity: 0.085 },
++    ],
++    tint: { dark: 'rgba(3,6,10,0.28)', light: 'rgba(255,255,255,0.78)' },
++    lowerFeather: { dark: 'rgba(3,6,10,0.16)', light: 'rgba(255,255,255,0.38)', opacity: 0.16 },
++    middleWash: { dark: 'rgba(3,6,10,0.24)', light: 'rgba(255,255,255,0.52)', opacity: 0.2 },
++    bottomWash: { dark: 'rgba(3,6,10,0.38)', light: 'rgba(255,255,255,0.72)', opacity: 0.24 },
++  },
++  plan: {
++    bands: [
++      { top: 50, height: 38, blur: 8, opacity: 0.035, tintOpacity: 0.035 },
++      { top: 60, height: 34, blur: 14, opacity: 0.07, tintOpacity: 0.07 },
++      { top: 70, height: 30, blur: 24, opacity: 0.12, tintOpacity: 0.12 },
++      { top: 80, height: 22, blur: 34, opacity: 0.17, tintOpacity: 0.18 },
++    ],
++    tint: { dark: 'rgba(4,8,14,0.34)', light: 'rgba(255,255,255,0.84)' },
++    lowerFeather: { dark: 'rgba(4,8,14,0.18)', light: 'rgba(255,255,255,0.44)', opacity: 0.18 },
++    middleWash: { dark: 'rgba(4,8,14,0.26)', light: 'rgba(255,255,255,0.56)', opacity: 0.2 },
++    bottomWash: { dark: 'rgba(4,8,14,0.42)', light: 'rgba(255,255,255,0.72)', opacity: 0.24 },
++  },
++};
++
++function tone(value: { dark: string; light: string }, isDark: boolean) {
++  return isDark ? value.dark : value.light;
++}
++
++export function LowerImageAtmosphere({ imageUrl, isDark, preset = 'trade' }: LowerImageAtmosphereProps) {
++  const profile = PROFILES[preset];
++  const imageTint = tone(profile.tint, isDark);
++
++  return (
++    <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
++      {imageUrl ? profile.bands.map((band, index) => (
++        <React.Fragment key={`${preset}-lower-image-atmosphere-band-${index}`}>
++          <View
++            style={[
++              styles.blurBand,
++              {
++                top: `${band.top}%`,
++                height: `${band.height}%`,
++                opacity: band.opacity,
++              },
++            ]}
++          >
++            <Image source={{ uri: imageUrl }} resizeMode="cover" blurRadius={band.blur} style={StyleSheet.absoluteFillObject} />
++          </View>
++          <View
++            style={[
++              styles.blurBand,
++              {
++                top: `${band.top}%`,
++                height: `${band.height}%`,
++                backgroundColor: imageTint,
++                opacity: band.tintOpacity,
++              },
++            ]}
++          />
++        </React.Fragment>
++      )) : null}
++      <View style={[styles.lowerFeather, { backgroundColor: tone(profile.lowerFeather, isDark), opacity: profile.lowerFeather.opacity }]} />
++      <View style={[styles.middleWash, { backgroundColor: tone(profile.middleWash, isDark), opacity: profile.middleWash.opacity }]} />
++      <View style={[styles.bottomWash, { backgroundColor: tone(profile.bottomWash, isDark), opacity: profile.bottomWash.opacity }]} />
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  blurBand: {
++    position: 'absolute',
++    left: 0,
++    right: 0,
++    overflow: 'hidden',
++  },
++  lowerFeather: {
++    position: 'absolute',
++    left: 0,
++    right: 0,
++    top: '50%',
++    height: '32%',
++  },
++  middleWash: {
++    position: 'absolute',
++    left: 0,
++    right: 0,
++    top: '62%',
++    height: '30%',
++  },
++  bottomWash: {
++    position: 'absolute',
++    left: 0,
++    right: 0,
++    bottom: 0,
++    height: '34%',
++  },
++});
+diff --git a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+index 39fc88d..cdf5441 100644
+--- a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
++++ b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } fr
+ import type { MediaAssetDto, PlanDto, PlanPlaceDto } from '@hellowhen/contracts';
+ import type { SemanticColorName } from '@hellowhen/theme';
+ import { AppText } from '../../../components/AppText';
++import { LowerImageAtmosphere } from '../../../components/LowerImageAtmosphere';
+ import { SemanticBadge } from '../../../components/SemanticUI';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+ import { ContinuousSquareStackDeck, type SquareStackDeckCard } from '../../trade/deck';
+@@ -11,13 +12,6 @@ import { resolveMediaUrl } from '../../trade/mediaUrls';
+ const MOBILE_PLAN_DECK_AVAILABLE_HEIGHT = 404;
+ const MOBILE_PLAN_DECK_MAX_CARD_SIZE = 348;
+ const FALLBACK_ACCENTS = ['#7C3AED', '#A855F7', '#C084FC', '#F97316'];
+-const PLAN_TEXT_ZONE_BLUR_BANDS = [
+-  { top: 50, height: 38, blur: 8, opacity: 0.035, tintOpacity: 0.035 },
+-  { top: 60, height: 34, blur: 14, opacity: 0.07, tintOpacity: 0.07 },
+-  { top: 70, height: 30, blur: 24, opacity: 0.12, tintOpacity: 0.12 },
+-  { top: 80, height: 22, blur: 34, opacity: 0.17, tintOpacity: 0.18 },
+-] as const;
+-
+ type PlanPlaceDeckCard = SquareStackDeckCard & {
+   kind: 'place' | 'emptyPlace';
+   plan: PlanDto;
+@@ -112,48 +106,6 @@ function getPlaceDateLabel(place: PlanPlaceDto | undefined, planStartsAt: string
+   return formatPlanPlaceDate(place?.startsAt ?? planStartsAt);
+ }
+ 
+-function PlanLowerAtmosphere({ imageUrl, isDark }: { imageUrl: string; isDark: boolean }) {
+-  const imageTint = isDark ? 'rgba(4,8,14,0.34)' : 'rgba(255,255,255,0.84)';
+-  const upperFeather = isDark ? 'rgba(4,8,14,0.18)' : 'rgba(255,255,255,0.44)';
+-  const middleWash = isDark ? 'rgba(4,8,14,0.26)' : 'rgba(255,255,255,0.56)';
+-  const bottomWash = isDark ? 'rgba(4,8,14,0.42)' : 'rgba(255,255,255,0.72)';
+-
+-  return (
+-    <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
+-      {PLAN_TEXT_ZONE_BLUR_BANDS.map((band, index) => (
+-        <React.Fragment key={`plan-blur-band-${index}`}>
+-          <View
+-            style={[
+-              styles.blurBand,
+-              {
+-                top: `${band.top}%`,
+-                height: `${band.height}%`,
+-                opacity: band.opacity,
+-              },
+-            ]}
+-          >
+-            <Image source={{ uri: imageUrl }} resizeMode="cover" blurRadius={band.blur} style={StyleSheet.absoluteFillObject} />
+-          </View>
+-          <View
+-            style={[
+-              styles.blurBand,
+-              {
+-                top: `${band.top}%`,
+-                height: `${band.height}%`,
+-                backgroundColor: imageTint,
+-                opacity: band.tintOpacity,
+-              },
+-            ]}
+-          />
+-        </React.Fragment>
+-      ))}
+-      <View style={[styles.lowerFeather, { backgroundColor: upperFeather }]} />
+-      <View style={[styles.middleWash, { backgroundColor: middleWash }]} />
+-      <View style={[styles.bottomWash, { backgroundColor: bottomWash }]} />
+-    </View>
+-  );
+-}
+-
+ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'instruction', showModeBadge = true }: { card: PlanPlaceDeckCard; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
+   const theme = useThemeTokens();
+   const isDark = theme.mode === 'dark';
+@@ -210,7 +162,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+           />
+         </View>
+       )}
+-      {imageUrl ? <PlanLowerAtmosphere imageUrl={imageUrl} isDark={isDark} /> : <View style={[styles.fallbackScrim, { backgroundColor: theme.color.background }]} />}
++      {imageUrl ? <LowerImageAtmosphere imageUrl={imageUrl} isDark={isDark} preset="plan" /> : <View style={[styles.fallbackScrim, { backgroundColor: theme.color.background }]} />}
+ 
+       <View style={styles.cardTopRow}>
+         <SemanticBadge label={primaryBadgeLabel} tone={topBadgeTone} size="sm" />
+@@ -296,36 +248,6 @@ const styles = StyleSheet.create({
+     borderWidth: 3,
+     opacity: 0.9,
+   },
+-  blurBand: {
+-    position: 'absolute',
+-    left: 0,
+-    right: 0,
+-    overflow: 'hidden',
+-  },
+-  lowerFeather: {
+-    position: 'absolute',
+-    left: 0,
+-    right: 0,
+-    top: '50%',
+-    height: '32%',
+-    opacity: 0.18,
+-  },
+-  middleWash: {
+-    position: 'absolute',
+-    left: 0,
+-    right: 0,
+-    top: '62%',
+-    height: '30%',
+-    opacity: 0.2,
+-  },
+-  bottomWash: {
+-    position: 'absolute',
+-    left: 0,
+-    right: 0,
+-    bottom: 0,
+-    height: '34%',
+-    opacity: 0.24,
+-  },
+   fallbackScrim: {
+     ...StyleSheet.absoluteFillObject,
+     opacity: 0.04,
+diff --git a/apps/mobile/src/features/trade/components/TradePosterCard.tsx b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+index 4d1ece3..38ea768 100644
+--- a/apps/mobile/src/features/trade/components/TradePosterCard.tsx
++++ b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+@@ -2,6 +2,7 @@ import React, { memo, useEffect, useMemo, useState } from 'react';
+ import { Image, Pressable, StyleSheet, View } from 'react-native';
+ import { normalizePreviewCardTheme } from '@hellowhen/shared';
+ import { AppText } from '../../../components/AppText';
++import { LowerImageAtmosphere } from '../../../components/LowerImageAtmosphere';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+ 
+ export type TradePosterCardVariant = 'trade' | 'need' | 'offer';
+@@ -34,13 +35,6 @@ const THEME_FALLBACK_ACCENTS = {
+   amber: '#f59e0b',
+   rose: '#f43f5e',
+ } as const;
+-const TEXT_ZONE_BLUR_BANDS = [
+-  { top: 50, height: 38, blur: 8, opacity: 0.03, tintOpacity: 0.012 },
+-  { top: 60, height: 34, blur: 14, opacity: 0.065, tintOpacity: 0.025 },
+-  { top: 70, height: 30, blur: 24, opacity: 0.11, tintOpacity: 0.05 },
+-  { top: 80, height: 22, blur: 34, opacity: 0.16, tintOpacity: 0.085 },
+-] as const;
+-
+ function hashString(value: string) {
+   let hash = 0;
+   for (let index = 0; index < value.length; index += 1) {
+@@ -75,48 +69,6 @@ function normalizeChips(chips: string[] | undefined) {
+     .slice(0, 3);
+ }
+ 
+-function LowerAtmosphere({ imageUrl, isDark }: { imageUrl?: string | null; isDark: boolean }) {
+-  const imageTint = isDark ? 'rgba(3,6,10,0.28)' : 'rgba(255,255,255,0.78)';
+-  const lowerFeather = isDark ? 'rgba(3,6,10,0.16)' : 'rgba(255,255,255,0.38)';
+-  const middleWash = isDark ? 'rgba(3,6,10,0.24)' : 'rgba(255,255,255,0.52)';
+-  const bottomWash = isDark ? 'rgba(3,6,10,0.38)' : 'rgba(255,255,255,0.72)';
+-
+-  return (
+-    <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
+-      {imageUrl ? TEXT_ZONE_BLUR_BANDS.map((band, index) => (
+-        <React.Fragment key={`poster-blur-band-${index}`}>
+-          <View
+-            style={[
+-              styles.blurBand,
+-              {
+-                top: `${band.top}%`,
+-                height: `${band.height}%`,
+-                opacity: band.opacity,
+-              },
+-            ]}
+-          >
+-            <Image source={{ uri: imageUrl }} resizeMode="cover" blurRadius={band.blur} style={StyleSheet.absoluteFillObject} />
+-          </View>
+-          <View
+-            style={[
+-              styles.blurBand,
+-              {
+-                top: `${band.top}%`,
+-                height: `${band.height}%`,
+-                backgroundColor: imageTint,
+-                opacity: band.tintOpacity,
+-              },
+-            ]}
+-          />
+-        </React.Fragment>
+-      )) : null}
+-      <View style={[styles.lowerFeather, { backgroundColor: lowerFeather }]} />
+-      <View style={[styles.middleWash, { backgroundColor: middleWash }]} />
+-      <View style={[styles.bottomWash, { backgroundColor: bottomWash }]} />
+-    </View>
+-  );
+-}
+-
+ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, topMeta, footerLabel, identity, variant = 'trade', onPress, previewTheme, accessibilityLabel }: TradePosterCardProps) {
+   const theme = useThemeTokens();
+   const isDark = theme.mode === 'dark';
+@@ -180,7 +132,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
+         </View>
+       )}
+ 
+-      <LowerAtmosphere imageUrl={visibleImageUrl} isDark={isDark} />
++      <LowerImageAtmosphere imageUrl={visibleImageUrl} isDark={isDark} preset="trade" />
+ 
+       <View style={styles.contentLayer}>
+         <View style={styles.topBar}>
+@@ -288,36 +240,6 @@ const styles = StyleSheet.create({
+     borderRadius: 999,
+     opacity: 0.82,
+   },
+-  blurBand: {
+-    position: 'absolute',
+-    left: 0,
+-    right: 0,
+-    overflow: 'hidden',
+-  },
+-  lowerFeather: {
+-    position: 'absolute',
+-    left: 0,
+-    right: 0,
+-    top: '50%',
+-    height: '32%',
+-    opacity: 0.16,
+-  },
+-  middleWash: {
+-    position: 'absolute',
+-    left: 0,
+-    right: 0,
+-    top: '62%',
+-    height: '30%',
+-    opacity: 0.2,
+-  },
+-  bottomWash: {
+-    position: 'absolute',
+-    left: 0,
+-    right: 0,
+-    bottom: 0,
+-    height: '34%',
+-    opacity: 0.24,
+-  },
+   contentLayer: {
+     ...StyleSheet.absoluteFillObject,
+     justifyContent: 'space-between',

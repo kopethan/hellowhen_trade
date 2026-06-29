@@ -1,0 +1,315 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 62824b4..45d4b53 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1,6 +1,6 @@
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+ import AsyncStorage from '@react-native-async-storage/async-storage';
+-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle } from 'react-native';
++import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { DiscoveryLanguage, GooglePlacePrediction, GoogleResolvedPlace, InventoryTranslationDto, ListPlansQuery, MediaAssetDto, PlaceDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
+@@ -666,11 +666,43 @@ function sortedPlanPlaces(plan: PlanDto) {
+   return [...(plan.places ?? [])].sort((first, second) => first.order - second.order);
+ }
+ 
+-function getPlanPlaceLocationLabel(place: PlanPlaceDto) {
++type PlanPlaceLocationDetails = {
++  kind: 'local' | 'remote';
++  label: string;
++  value: string;
++  actionLabel?: string;
++  href?: string;
++};
++
++function buildMapsSearchUrl(value: string) {
++  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value)}`;
++}
++
++function getPlanPlaceLocationDetails(place: PlanPlaceDto): PlanPlaceLocationDetails | null {
+   if (place.mode === 'remote') {
+-    return place.onlineLabel && place.onlineUrl ? place.onlineUrl : place.onlineLabel || place.onlineUrl || null;
++    const value = place.onlineUrl || place.onlineLabel || null;
++    if (!value) return null;
++    return {
++      kind: 'remote',
++      label: place.onlineLabel && place.onlineUrl ? place.onlineLabel : 'Online place',
++      value,
++      href: place.onlineUrl || undefined,
++      actionLabel: place.onlineUrl ? 'Open link' : undefined,
++    };
+   }
+-  return place.addressPublicText || place.sourcePlace?.areaLabel || null;
++  const value = place.addressPublicText || place.sourcePlace?.addressPublicText || place.sourcePlace?.areaLabel || null;
++  if (!value) return null;
++  return {
++    kind: 'local',
++    label: 'Offline address',
++    value,
++    href: buildMapsSearchUrl(value),
++    actionLabel: 'Open in Maps',
++  };
++}
++
++function getPlanPlaceLocationLabel(place: PlanPlaceDto) {
++  return getPlanPlaceLocationDetails(place)?.value ?? null;
+ }
+ 
+ function getPlanPlaceModeDisplay(place: PlanPlaceDto) {
+@@ -685,7 +717,16 @@ function getPlanPlaceTimeLabel(place: PlanPlaceDto, planStartsAt: string) {
+ 
+ function getPlanPlaceLocationPrefix(place: PlanPlaceDto) {
+   if (place.mode === 'remote') return place.onlineLabel && place.onlineUrl ? place.onlineLabel : 'Online';
+-  return 'Place';
++  return 'Address';
++}
++
++async function openPlanPlaceLocation(location: PlanPlaceLocationDetails) {
++  if (!location.href) return;
++  try {
++    await Linking.openURL(location.href);
++  } catch {
++    Alert.alert('Could not open location', 'Try copying the address and opening it in your maps app.');
++  }
+ }
+ 
+ function getPlanPlaceDescription(place: PlanPlaceDto) {
+@@ -1329,7 +1370,7 @@ function ParticipantCompactRow({ participant }: { participant: PlanParticipantDt
+ function PlanPlaceTimelineCard({ place, index, planStartsAt, showReport }: { place: PlanPlaceDto; index: number; planStartsAt: string; showReport: boolean }) {
+   const theme = useThemeTokens();
+   const mediaUrl = activeMediaUrl(getPlanPlaceMedia(place));
+-  const locationLabel = getPlanPlaceLocationLabel(place);
++  const locationDetails = getPlanPlaceLocationDetails(place);
+   const description = getPlanPlaceDescription(place);
+   const sourceLabel = getPlanPlaceSourceLabel(place);
+ 
+@@ -1349,10 +1390,39 @@ function PlanPlaceTimelineCard({ place, index, planStartsAt, showReport }: { pla
+           <View style={styles.planRouteContentRow}>
+             <View style={styles.planRouteTextBlock}>
+               <AppText style={styles.planRouteTitle}>{place.title}</AppText>
+-              {locationLabel ? (
+-                <AppText style={[styles.planRouteMeta, { color: theme.color.muted }]} numberOfLines={2}>
+-                  {getPlanPlaceLocationPrefix(place)} · {locationLabel}
+-                </AppText>
++              {locationDetails ? (
++                <View style={[
++                  styles.planRouteLocationCard,
++                  {
++                    backgroundColor: locationDetails.kind === 'local' ? theme.semantic.place.softBg : theme.semantic.plan.softBg,
++                    borderColor: locationDetails.kind === 'local' ? theme.semantic.place.border : theme.semantic.plan.border,
++                  },
++                ]}>
++                  <View style={[
++                    styles.planRouteLocationIcon,
++                    {
++                      backgroundColor: theme.color.surface,
++                      borderColor: locationDetails.kind === 'local' ? theme.semantic.place.border : theme.semantic.plan.border,
++                    },
++                  ]}>
++                    <MobileIcon name={locationDetails.kind === 'local' ? 'location-on' : 'plan'} color={locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text} size={16} />
++                  </View>
++                  <View style={styles.planRouteLocationCopy}>
++                    <AppText style={[styles.planRouteLocationLabel, { color: locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text }]}>{locationDetails.label}</AppText>
++                    <AppText style={styles.planRouteLocationValue} numberOfLines={2}>{locationDetails.value}</AppText>
++                  </View>
++                  {locationDetails.href && locationDetails.actionLabel ? (
++                    <Pressable
++                      accessibilityRole="link"
++                      accessibilityLabel={locationDetails.actionLabel}
++                      onPress={() => { void openPlanPlaceLocation(locationDetails); }}
++                      style={({ pressed }) => [styles.planRouteLocationAction, { backgroundColor: theme.color.surface }, pressed && styles.pressed]}
++                    >
++                      <AppText style={[styles.planRouteLocationActionText, { color: locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text }]}>{locationDetails.actionLabel}</AppText>
++                      <MobileIcon name="chevron-right" color={locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text} size={14} />
++                    </Pressable>
++                  ) : null}
++                </View>
+               ) : null}
+               {description ? <AppText style={[styles.planRouteDescription, { color: theme.color.muted }]} numberOfLines={3}>{description}</AppText> : null}
+             </View>
+@@ -3074,6 +3144,13 @@ const styles = StyleSheet.create({
+   planRouteTextBlock: { flex: 1, minWidth: 0, gap: 5 },
+   planRouteTitle: { fontSize: 19, lineHeight: 24, fontWeight: '900', letterSpacing: -0.25 },
+   planRouteMeta: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
++  planRouteLocationCard: { marginTop: 4, borderRadius: 18, borderWidth: 1, padding: 10, gap: 9 },
++  planRouteLocationIcon: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  planRouteLocationCopy: { gap: 2 },
++  planRouteLocationLabel: { fontSize: 11, lineHeight: 15, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.45 },
++  planRouteLocationValue: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
++  planRouteLocationAction: { alignSelf: 'flex-start', minHeight: 32, borderRadius: 16, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 4 },
++  planRouteLocationActionText: { fontSize: 12, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.35 },
+   planRouteDescription: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
+   planRouteImageWrap: { width: 64, height: 64, borderRadius: 19, overflow: 'hidden' },
+   planRouteImage: { width: '100%', height: '100%' },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index d8949f4..75f6f3c 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -9796,6 +9796,82 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .plan-route-stop__copy p:last-child {
+   margin-bottom: 0;
+ }
++.plan-route-stop__location {
++  display: grid;
++  grid-template-columns: 34px minmax(0, 1fr) auto;
++  align-items: center;
++  gap: 10px;
++  margin: 10px 0 9px;
++  padding: 10px 11px;
++  border: 1px solid color-mix(in srgb, var(--place-text) 20%, var(--app-border));
++  border-radius: 18px;
++  background:
++    linear-gradient(135deg, color-mix(in srgb, var(--place-text) 10%, transparent), transparent 58%),
++    color-mix(in srgb, var(--place-text) 5%, var(--app-surface));
++}
++.plan-route-stop__location--remote {
++  border-color: color-mix(in srgb, var(--plan-text) 20%, var(--app-border));
++  background:
++    linear-gradient(135deg, color-mix(in srgb, var(--plan-text) 9%, transparent), transparent 58%),
++    color-mix(in srgb, var(--plan-text) 5%, var(--app-surface));
++}
++.plan-route-stop__location-icon {
++  display: grid;
++  place-items: center;
++  width: 34px;
++  height: 34px;
++  border-radius: 999px;
++  border: 1px solid color-mix(in srgb, var(--place-text) 24%, var(--app-border));
++  background: var(--app-surface);
++  color: var(--place-text);
++}
++.plan-route-stop__location--remote .plan-route-stop__location-icon {
++  border-color: color-mix(in srgb, var(--plan-text) 24%, var(--app-border));
++  color: var(--plan-text);
++}
++.plan-route-stop__location-copy {
++  display: grid;
++  min-width: 0;
++  gap: 2px;
++}
++.plan-route-stop__location-copy span {
++  color: var(--place-text);
++  font-size: 11px;
++  font-weight: 950;
++  letter-spacing: 0.055em;
++  text-transform: uppercase;
++}
++.plan-route-stop__location--remote .plan-route-stop__location-copy span {
++  color: var(--plan-text);
++}
++.plan-route-stop__location-copy p {
++  margin: 0;
++  color: var(--app-text);
++  font-size: 13px;
++  line-height: 1.35;
++  font-weight: 800;
++}
++.plan-route-stop__location-action {
++  display: inline-flex;
++  align-items: center;
++  gap: 5px;
++  min-height: 32px;
++  padding: 0 10px;
++  border-radius: 999px;
++  background: var(--app-surface);
++  color: var(--place-text);
++  font-size: 12px;
++  font-weight: 950;
++  text-decoration: none;
++  box-shadow: var(--app-control-shadow);
++  white-space: nowrap;
++}
++.plan-route-stop__location--remote .plan-route-stop__location-action {
++  color: var(--plan-text);
++}
++.plan-route-stop__location-action:hover {
++  transform: translateY(-1px);
++}
+ .plan-route-stop__media {
+   overflow: hidden;
+   width: min(100%, 320px);
+@@ -9921,6 +9997,8 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   .plan-detail-toolbar__actions .plans-internal-badge { display: none; }
+   .plan-detail-hero-social h1 { max-width: 12ch; font-size: clamp(38px, 14vw, 58px); }
+   .plan-route-stop__content { grid-template-columns: 1fr; }
++  .plan-route-stop__location { grid-template-columns: 32px minmax(0, 1fr); align-items: start; }
++  .plan-route-stop__location-action { grid-column: 2; justify-self: start; }
+   .plan-route-stop__media { width: 100%; aspect-ratio: 16 / 9; border-radius: 22px; }
+   .plan-owner-row { display: grid; }
+   .plan-participant-row--social { grid-template-columns: auto minmax(0, 1fr); }
+diff --git a/apps/web/src/features/plans/PlanDetailClient.tsx b/apps/web/src/features/plans/PlanDetailClient.tsx
+index 9e92a91..4db2303 100644
+--- a/apps/web/src/features/plans/PlanDetailClient.tsx
++++ b/apps/web/src/features/plans/PlanDetailClient.tsx
+@@ -106,14 +106,40 @@ function planPlaceDescription(place: PlanPlaceDto) {
+   return place.sourcePlace?.description?.trim() || '';
+ }
+ 
+-function planPlaceLocation(place: PlanPlaceDto) {
++function buildMapsSearchUrl(value: string) {
++  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value)}`;
++}
++
++type PlanPlaceLocationDisplay = {
++  kind: 'local' | 'remote';
++  label: string;
++  value: string;
++  href?: string;
++  actionLabel?: string;
++};
++
++function planPlaceLocation(place: PlanPlaceDto): PlanPlaceLocationDisplay | null {
+   if (place.mode === 'remote') {
+-    const label = place.onlineLabel && place.onlineUrl ? place.onlineLabel : 'Online';
+     const value = place.onlineUrl || place.onlineLabel || '';
+-    return value ? `${label} · ${value}` : '';
++    if (!value) return null;
++    return {
++      kind: 'remote',
++      label: place.onlineLabel && place.onlineUrl ? place.onlineLabel : 'Online place',
++      value,
++      href: place.onlineUrl || undefined,
++      actionLabel: place.onlineUrl ? 'Open link' : undefined,
++    };
+   }
+-  const value = place.addressPublicText || place.sourcePlace?.areaLabel || '';
+-  return value ? `Place · ${value}` : '';
++
++  const value = place.addressPublicText || place.sourcePlace?.addressPublicText || place.sourcePlace?.areaLabel || '';
++  if (!value) return null;
++  return {
++    kind: 'local',
++    label: 'Offline address',
++    value,
++    href: buildMapsSearchUrl(value),
++    actionLabel: 'Open in Maps',
++  };
+ }
+ 
+ function PlanDetailItem({ label, value }: { label: string; value: string }) {
+@@ -145,7 +171,23 @@ function PlanPlaceCard({ place, index, planStartsAt, showReport }: { place: Plan
+         <div className="plan-route-stop__content">
+           <div className="plan-route-stop__copy">
+             <h4>{place.title}</h4>
+-            {location ? <p className="meta">{location}</p> : null}
++            {location ? (
++              <div className={`plan-route-stop__location plan-route-stop__location--${location.kind}`}>
++                <span className="plan-route-stop__location-icon" aria-hidden="true">
++                  <WebIcon name={location.kind === 'local' ? 'location-on' : 'plan'} size={17} decorative />
++                </span>
++                <div className="plan-route-stop__location-copy">
++                  <span>{location.label}</span>
++                  <p>{location.value}</p>
++                </div>
++                {location.href && location.actionLabel ? (
++                  <a className="plan-route-stop__location-action" href={location.href} target="_blank" rel="noreferrer">
++                    {location.actionLabel}
++                    <WebIcon name="arrow-right" size={13} decorative />
++                  </a>
++                ) : null}
++              </div>
++            ) : null}
+             {displayMedia ? (
+               <div className="plan-route-stop__media">
+                 <PlanPlaceImage media={displayMedia} />

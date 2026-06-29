@@ -739,6 +739,27 @@ enum PlaceVisibility {
 }
 
 
+enum PlaceLocationSource {
+  manual
+  google_places
+}
+
+enum PlaceAddressValidationStatus {
+  confirmed
+  needs_review
+  unsupported
+}
+
+enum PlacePresenceVerificationSource {
+  device_gps
+}
+
+enum PlacePresenceVerificationStatus {
+  verified
+  rejected
+}
+
+
 enum ContentClassificationTargetType {
   need
   offer
@@ -930,6 +951,7 @@ model User {
   plans       Plan[] @relation("OwnedPlans")
   places      Place[] @relation("OwnedPlaces")
   planParticipants PlanParticipant[] @relation("PlanParticipants")
+  placePresenceVerifications PlacePresenceVerification[] @relation("PlacePresenceVerificationUser")
   decidedPlanParticipants PlanParticipant[] @relation("PlanParticipantDecisions")
   usageHeartbeats UsageHeartbeat[]
   apiRequestMetrics ApiRequestMetric[]
@@ -2662,6 +2684,14 @@ model Place {
   areaLabel                  String?
   addressPublicText          String?
   addressPrivateText         String?
+  googlePlaceId              String?
+  googlePlaceName            String?
+  formattedAddress           String?
+  googleMapsUri              String?
+  latitude                   Float?
+  longitude                  Float?
+  locationSource             PlaceLocationSource?
+  addressValidationStatus    PlaceAddressValidationStatus?
   onlineLabel                String?
   onlineUrl                  String?
   defaultDurationMinutes     Int?
@@ -2673,11 +2703,14 @@ model Place {
 
   owner      User?       @relation("OwnedPlaces", fields: [ownerId], references: [id], onDelete: Cascade)
   planPlaces PlanPlace[] @relation("PlanPlaceSource")
+  presenceVerifications PlacePresenceVerification[] @relation("PlacePresenceVerificationSourcePlace")
 
   @@index([ownerId, status, updatedAt])
   @@index([source, status, visibility])
   @@index([mode])
   @@index([category])
+  @@index([googlePlaceId])
+  @@index([latitude, longitude])
 }
 
 
@@ -2735,6 +2768,7 @@ model Plan {
   places       PlanPlace[]
   participants PlanParticipant[]
   publicMessages PlanPublicMessage[]
+  placePresenceVerifications PlacePresenceVerification[] @relation("PlacePresenceVerificationPlan")
 
   @@index([status, startsAt])
   @@index([ownerId, status, startsAt])
@@ -2752,6 +2786,14 @@ model PlanPlace {
   note               String?
   addressPublicText  String?
   addressPrivateText String?
+  googlePlaceId      String?
+  googlePlaceName    String?
+  formattedAddress   String?
+  googleMapsUri      String?
+  latitude           Float?
+  longitude          Float?
+  locationSource     PlaceLocationSource?
+  addressValidationStatus PlaceAddressValidationStatus?
   onlineLabel        String?
   onlineUrl          String?
   startsAt           DateTime?
@@ -2761,11 +2803,45 @@ model PlanPlace {
 
   plan        Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
   sourcePlace Place? @relation("PlanPlaceSource", fields: [placeId], references: [id], onDelete: SetNull)
+  presenceVerifications PlacePresenceVerification[] @relation("PlacePresenceVerificationPlanPlace")
 
   @@index([planId, order])
   @@index([placeId])
   @@index([mode])
   @@index([startsAt])
+  @@index([googlePlaceId])
+  @@index([latitude, longitude])
+}
+
+model PlacePresenceVerification {
+  id                String                          @id @default(cuid())
+  userId            String
+  planId            String
+  planPlaceId       String
+  sourcePlaceId     String?
+  source            PlacePresenceVerificationSource @default(device_gps)
+  status            PlacePresenceVerificationStatus
+  latitudeRounded   Float?
+  longitudeRounded  Float?
+  accuracyMeters    Float?
+  distanceMeters    Float?
+  maxDistanceMeters Float?
+  rejectionReason   String?
+  verifiedAt        DateTime?
+  createdAt         DateTime                        @default(now())
+
+  user        User      @relation("PlacePresenceVerificationUser", fields: [userId], references: [id], onDelete: Cascade)
+  plan        Plan      @relation("PlacePresenceVerificationPlan", fields: [planId], references: [id], onDelete: Cascade)
+  planPlace   PlanPlace @relation("PlacePresenceVerificationPlanPlace", fields: [planPlaceId], references: [id], onDelete: Cascade)
+  sourcePlace Place?    @relation("PlacePresenceVerificationSourcePlace", fields: [sourcePlaceId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status, verifiedAt])
+  @@index([userId, createdAt])
+  @@index([userId, status, createdAt])
+  @@index([planId, planPlaceId, status, verifiedAt])
+  @@index([planPlaceId, userId, status, verifiedAt])
+  @@index([sourcePlaceId, status, verifiedAt])
+  @@index([createdAt])
 }
 
 model PlanParticipant {

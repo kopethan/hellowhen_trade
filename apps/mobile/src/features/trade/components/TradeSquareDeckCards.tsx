@@ -106,8 +106,8 @@ function summaryTitle(trade: TradeDeckItem, t: TFunction) {
 }
 function exchangeEyebrow(trade: TradeDeckItem, t: TFunction) {
   const postType = tradePostType(trade);
-  if (postType === 'open_need') return t('trade.labels.othersCanProposeOffers');
-  if (postType === 'open_offer') return t('trade.labels.othersCanProposeNeeds');
+  if (postType === 'open_need') return t('trade.postTypes.openForOffers');
+  if (postType === 'open_offer') return t('trade.postTypes.openForNeeds');
   if (cashPromiseSide(trade)) return t('trade.cashPromise.notProcessed');
   if (moneySide(trade) === 'need') return t('trade.labels.moneyOfferExchange');
   if (moneySide(trade) === 'offer') return t('trade.labels.needMoneyExchange');

@@ -62,6 +62,13 @@ export function getWebTabs(usePlansMeTradeNav = false) {
 
 export const utilityRoutePrefixes = ['/auth', '/admin', '/reset-password', '/credits', '/onboarding-guide'];
 
+
+export function isWebThreadRoute(pathname: string) {
+  return /^\/trades\/[^/]+\/discussion$/.test(pathname)
+    || /^\/trades\/[^/]+\/proposals(?:\/[^/]+)?$/.test(pathname)
+    || /^\/plans\/[^/]+\/discussion$/.test(pathname);
+}
+
 export function isUtilityRoute(pathname: string) {
   return utilityRoutePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }

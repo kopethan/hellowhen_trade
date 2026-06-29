@@ -1,6 +1,7 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { PlanPublicMessageDto, ReportTargetType } from '@hellowhen/contracts';
 import { formatLocalizedDate, formatLocalizedDateTime, type SupportedLanguage } from '@hellowhen/i18n';
@@ -61,6 +62,9 @@ function messageDisplayName(message: PlanPublicMessageItem, currentUserId: strin
 
 export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
   const theme = useThemeTokens();
+  const insets = useSafeAreaInsets();
+  const scrollRef = useRef<ScrollView>(null);
+  const composerInputRef = useRef<TextInput>(null);
   const auth = useAuth();
   const { t, language } = useTranslation();
   const [messages, setMessages] = useState<PlanPublicMessageItem[]>([]);
@@ -116,6 +120,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
       const result = await api.plans.sendPublicMessage(route.params.planId, { body }) as MessageResponse;
       setMessages((current) => [...current, result.message]);
       setDraft('');
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError, 'Could not send your comment.'));
     } finally {
@@ -250,7 +255,16 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
     },
   ];
 
+  function startReply(message: PlanPublicMessageItem) {
+    if (message.status === 'deleted') return;
+    const authorName = messageDisplayName(message, auth.user?.id);
+    const mention = `@${authorName} `;
+    setDraft((current) => current.trim().length ? `${current.trimEnd()}\n${mention}` : mention);
+    requestAnimationFrame(() => composerInputRef.current?.focus());
+  }
+
   const canSend = draft.trim().length > 0 && !sending;
+  const contextTitle = route.params.title || 'Plan';
 
   if (fullScreenMode?.type === 'guide') {
     return <PlanThreadGuideScreen onClose={() => setFullScreenMode(null)} />;
@@ -262,9 +276,18 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
 
   return (
     <AppFixedHeaderScreen header={<AppHeader title="Public discussion" onBack={() => navigation.goBack()} rightSlot={<ThreadMenuButton label="Discussion options" onPress={() => setThreadMenuVisible(true)} />} />}>
-      <KeyboardAvoidingView style={styles.shell} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 96 : 0}>
+      <KeyboardAvoidingView style={styles.shell} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}>
+        <PublicThreadContextStrip
+          label="Plan context"
+          title={contextTitle}
+          actionLabel="View Plan"
+          theme={theme}
+          onPress={openPlanDetail}
+        />
         <ScrollView
-          contentContainerStyle={styles.content}
+          ref={scrollRef}
+          style={styles.scroll}
+          contentContainerStyle={[styles.content, { paddingBottom: 18 + Math.max(10, insets.bottom + 8) }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
@@ -272,6 +295,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
         >
           {error ? <InfoNotice tone="danger" title="Discussion unavailable" body={error} /> : null}
           {notice ? <AppText style={[styles.feedbackText, { color: theme.color.muted }]}>{notice}</AppText> : null}
+          {groupedRows.length === 0 && loading ? <LoadingDiscussion theme={theme} label={t('common.states.loading')} /> : null}
           {groupedRows.length === 0 && !loading ? <EmptyDiscussion theme={theme} /> : null}
           {groupedRows.map((row) => row.type === 'date' ? (
             <View key={row.key} style={styles.dateSeparator}><View style={[styles.dateLine, { backgroundColor: theme.color.border }]} /><AppText style={[styles.dateText, { color: theme.color.muted }]}>{row.label}</AppText><View style={[styles.dateLine, { backgroundColor: theme.color.border }]} /></View>
@@ -290,28 +314,33 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
               onSaveEdit={() => { void saveEdit(row.message.id); }}
               onCancelAction={() => { setActionTarget(null); setEditDraft(''); }}
               onOwnActions={() => openOwnActions(row.message)}
+              onReply={() => startReply(row.message)}
               onReport={() => openReport(row.message)}
             />
           ))}
         </ScrollView>
         <KeyboardDoneAccessory />
-        <View style={[styles.composer, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Comment publicly on this Plan..."
-            placeholderTextColor={theme.color.muted}
-            multiline
-            textAlignVertical="top"
-            inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
-            returnKeyType="default"
-            blurOnSubmit={false}
-            style={[styles.composerInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
-          />
-          <Pressable accessibilityRole="button" disabled={!canSend} onPress={() => { void sendMessage(); }} style={({ pressed }) => [styles.sendButton, { backgroundColor: theme.color.text }, (!canSend) && styles.disabled, pressed && canSend && styles.pressed]}>
-            <MobileIcon name="proposal" size={18} color={theme.color.background} />
-            <AppText style={[styles.sendText, { color: theme.color.background }]}>{sending ? t('common.states.sending') : t('common.actions.send')}</AppText>
-          </Pressable>
+        <View style={[styles.composer, { backgroundColor: theme.color.background, borderColor: theme.color.border, paddingBottom: Math.max(10, insets.bottom + 8) }]}>
+          <View style={styles.composerInner}>
+            <TextInput
+              ref={composerInputRef}
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Comment publicly on this Plan..."
+              placeholderTextColor={theme.color.muted}
+              multiline
+              editable={!sending}
+              textAlignVertical="top"
+              inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
+              returnKeyType="default"
+              blurOnSubmit={false}
+              style={[styles.composerInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
+            />
+            <Pressable accessibilityRole="button" disabled={!canSend} onPress={() => { void sendMessage(); }} style={({ pressed }) => [styles.sendButton, { backgroundColor: theme.color.text }, (!canSend) && styles.disabled, pressed && canSend && styles.pressed]}>
+              <MobileIcon name="proposal" size={18} color={theme.color.background} />
+              <AppText style={[styles.sendText, { color: theme.color.background }]}>{sending ? t('common.states.sending') : t('common.actions.send')}</AppText>
+            </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
       <AppActionSheet
@@ -392,6 +421,30 @@ function PlanThreadReportScreen({ mode, onClose }: { mode: Extract<FullScreenMod
   );
 }
 
+function PublicThreadContextStrip({ label, title, actionLabel, theme, onPress }: { label: string; title: string; actionLabel: string; theme: ThemeTokens; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={`${actionLabel}: ${title}`} onPress={onPress} style={({ pressed }) => [styles.contextStrip, { borderColor: theme.color.border }, pressed && styles.pressed]}>
+      <View style={[styles.contextIcon, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+        <MobileIcon name="plan" size={18} color={theme.color.text} decorative />
+      </View>
+      <View style={styles.contextCopy}>
+        <AppText style={[styles.contextLabel, { color: theme.color.muted }]}>{label}</AppText>
+        <AppText style={styles.contextTitle} numberOfLines={1}>{title}</AppText>
+      </View>
+      <AppText style={[styles.contextAction, { color: theme.color.muted }]}>{actionLabel}</AppText>
+    </Pressable>
+  );
+}
+
+function LoadingDiscussion({ theme, label }: { theme: ThemeTokens; label: string }) {
+  return (
+    <View style={styles.loadingBox}>
+      <ActivityIndicator color={theme.color.text} />
+      <AppText style={[styles.loadingText, { color: theme.color.muted }]}>{label}</AppText>
+    </View>
+  );
+}
+
 function EmptyDiscussion({ theme }: { theme: ThemeTokens }) {
   return (
     <View style={styles.emptyBox}>
@@ -401,7 +454,7 @@ function EmptyDiscussion({ theme }: { theme: ThemeTokens }) {
   );
 }
 
-function PlanPublicMessageRow({ message, currentUserId, actionTarget, editDraft, sending, theme, t, language, onChangeEdit, onSaveEdit, onCancelAction, onOwnActions, onReport }: { message: PlanPublicMessageItem; currentUserId?: string; actionTarget: MessageActionTarget; editDraft: string; sending: boolean; theme: ThemeTokens; t: TFunction; language: SupportedLanguage; onChangeEdit: (value: string) => void; onSaveEdit: () => void; onCancelAction: () => void; onOwnActions: () => void; onReport: () => void }) {
+function PlanPublicMessageRow({ message, currentUserId, actionTarget, editDraft, sending, theme, t, language, onChangeEdit, onSaveEdit, onCancelAction, onOwnActions, onReply, onReport }: { message: PlanPublicMessageItem; currentUserId?: string; actionTarget: MessageActionTarget; editDraft: string; sending: boolean; theme: ThemeTokens; t: TFunction; language: SupportedLanguage; onChangeEdit: (value: string) => void; onSaveEdit: () => void; onCancelAction: () => void; onOwnActions: () => void; onReply: () => void; onReport: () => void }) {
   const isOwn = message.authorId === currentUserId;
   const deleted = message.status === 'deleted' || Boolean(message.deletedAt);
   const actionMode = actionTarget?.mode ?? null;
@@ -427,8 +480,23 @@ function PlanPublicMessageRow({ message, currentUserId, actionTarget, editDraft,
         <>
           <AppText style={[deleted ? styles.deletedBody : styles.messageBody, { color: deleted ? theme.color.muted : theme.color.text }]}>{deleted ? 'Comment deleted.' : message.body}</AppText>
           {message.editedAt && !deleted ? <AppText style={[styles.traceText, { color: theme.color.muted }]}>Edited {timeLabel(message.editedAt, language)}</AppText> : null}
+          {!deleted ? (
+            <View style={styles.messageActionRow}>
+              <InlineCommentAction label={t('trade.proposals.reply')} theme={theme} onPress={onReply} />
+              <InlineCommentAction label={isOwn ? 'Comment actions' : 'Report comment'} tone={isOwn ? 'default' : 'danger'} theme={theme} onPress={isOwn ? onOwnActions : onReport} />
+            </View>
+          ) : null}
         </>
       )}
+    </Pressable>
+  );
+}
+
+function InlineCommentAction({ label, tone = 'default', theme, onPress }: { label: string; tone?: 'default' | 'danger'; theme: ThemeTokens; onPress: () => void }) {
+  const color = tone === 'danger' ? theme.semantic.danger.text : theme.color.muted;
+  return (
+    <Pressable accessibilityRole="button" hitSlop={8} onPress={onPress} style={({ pressed }) => [styles.inlineCommentAction, pressed && styles.pressed]}>
+      <AppText style={[styles.inlineCommentActionText, { color }]}>{label}</AppText>
     </Pressable>
   );
 }
@@ -441,10 +509,19 @@ function SmallAction({ label, tone, disabled, theme, onPress }: { label: string;
 }
 
 const styles = StyleSheet.create({
-  shell: { flex: 1 },
-  content: { paddingTop: 4, paddingBottom: 18, gap: 0 },
+  shell: { flex: 1, minHeight: 0 },
+  scroll: { flex: 1 },
+  content: { paddingTop: 8, gap: 0 },
   headerMenuButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  contextStrip: { marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING, paddingTop: 2, paddingBottom: 12, borderBottomWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  contextIcon: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  contextCopy: { flex: 1, minWidth: 0, gap: 2 },
+  contextLabel: { fontSize: 11, lineHeight: 14, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.55 },
+  contextTitle: { fontSize: 15, lineHeight: 20, fontWeight: '900', letterSpacing: -0.15 },
+  contextAction: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
   feedbackText: { marginBottom: 8, fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  loadingBox: { alignItems: 'center', justifyContent: 'center', paddingVertical: 34, gap: 10 },
+  loadingText: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
   infoContent: { paddingBottom: 28, gap: 16 },
   infoTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 },
   infoBody: { fontSize: 15, lineHeight: 22, fontWeight: '700' },
@@ -457,21 +534,25 @@ const styles = StyleSheet.create({
   dateSeparator: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING },
   dateLine: { flex: 1, height: 1 },
   dateText: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
-  messageRow: { borderBottomWidth: 1, paddingVertical: 13, gap: 8, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING },
+  messageRow: { borderBottomWidth: 1, paddingVertical: 14, gap: 8, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING },
   messageHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   messageIdentity: { flex: 1 },
   messageMenuButton: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
   messageBody: { fontSize: 16, lineHeight: 23, fontWeight: '600' },
   deletedBody: { fontSize: 15, lineHeight: 22, fontWeight: '800', fontStyle: 'italic' },
   traceText: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+  messageActionRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingTop: 2 },
+  inlineCommentAction: { minHeight: 28, justifyContent: 'center' },
+  inlineCommentActionText: { fontSize: 13, lineHeight: 17, fontWeight: '900' },
   editBox: { gap: 9 },
   editInput: { minHeight: 92, borderRadius: 16, borderWidth: 1, padding: 12, fontSize: 15, lineHeight: 21, fontWeight: '600' },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   smallAction: { minHeight: 38, borderRadius: 13, borderWidth: 1, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
   smallActionText: { fontSize: 13, fontWeight: '900' },
-  composer: { borderTopWidth: 1, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING, paddingTop: 10, paddingBottom: 10, gap: 8 },
-  composerInput: { minHeight: 48, maxHeight: 118, borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, lineHeight: 21, fontWeight: '700' },
-  sendButton: { minHeight: 46, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 14 },
+  composer: { borderTopWidth: 1, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING, paddingTop: 10 },
+  composerInner: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+  composerInput: { flex: 1, minHeight: 48, maxHeight: 118, borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, lineHeight: 21, fontWeight: '700' },
+  sendButton: { minHeight: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7, paddingHorizontal: 13 },
   sendText: { fontWeight: '900' },
   disabled: { opacity: 0.52 },
   pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },

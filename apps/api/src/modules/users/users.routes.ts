@@ -65,7 +65,29 @@ async function getPublicProfileResponse(userId: string, viewerId?: string) {
   const viewerState = viewerId ? await userBlockState(viewerId, userId) : undefined;
   if (viewerState?.isBlockingMe) return null;
 
-  const [completedTradesCount, activeTradesCount, openNeedsCount, openOffersCount, activeTrades, openNeeds, openOffers] = await Promise.all([
+  const publicTrustVerificationWhere = {
+    userId,
+    status: 'verified',
+    plan: {
+      status: { in: ['open', 'full', 'started'] },
+      ownerId: { not: userId },
+      owner: { trustTier: { not: 'restricted' } },
+    },
+    planPlace: { mode: 'local' },
+  } as any;
+
+  const [
+    completedTradesCount,
+    activeTradesCount,
+    openNeedsCount,
+    openOffersCount,
+    activeTrades,
+    openNeeds,
+    openOffers,
+    verifiedOfflineCheckInsCount,
+    verifiedOfflinePlaces,
+    verifiedOfflinePlans,
+  ] = await Promise.all([
     prisma.trade.count({ where: { status: 'completed', OR: [{ ownerId: userId }, { providerId: userId }] } }),
     prisma.trade.count({ where: { ...publicPostWhereBase(userId), postType: 'need_offer' } }),
     prisma.trade.count({ where: { ...publicPostWhereBase(userId), postType: 'open_need' } }),
@@ -73,6 +95,9 @@ async function getPublicProfileResponse(userId: string, viewerId?: string) {
     prisma.trade.findMany({ where: { ...publicPostWhereBase(userId), postType: 'need_offer' }, include: publicTradeSummaryInclude, orderBy: { createdAt: 'desc' }, take: 12 }),
     prisma.trade.findMany({ where: { ...publicPostWhereBase(userId), postType: 'open_need' }, include: publicTradeSummaryInclude, orderBy: { createdAt: 'desc' }, take: 12 }),
     prisma.trade.findMany({ where: { ...publicPostWhereBase(userId), postType: 'open_offer' }, include: publicTradeSummaryInclude, orderBy: { createdAt: 'desc' }, take: 12 }),
+    (prisma as any).placePresenceVerification.count({ where: publicTrustVerificationWhere }),
+    (prisma as any).placePresenceVerification.findMany({ where: publicTrustVerificationWhere, distinct: ['planPlaceId'], select: { planPlaceId: true } }),
+    (prisma as any).placePresenceVerification.findMany({ where: publicTrustVerificationWhere, distinct: ['planId'], select: { planId: true } }),
   ]);
 
   const publicMediaVisibility = viewerId ? 'trade_public' : 'public_anonymous';
@@ -98,6 +123,9 @@ async function getPublicProfileResponse(userId: string, viewerId?: string) {
       activeTradesCount,
       openNeedsCount,
       openOffersCount,
+      verifiedOfflinePlacesCount: verifiedOfflinePlaces.length,
+      verifiedOfflinePlansCount: verifiedOfflinePlans.length,
+      verifiedOfflineCheckInsCount,
     },
     sections: {
       activeTrades: viewerState?.isBlockedByMe ? [] : activeTradesWithMedia,

@@ -118,6 +118,16 @@ function StatTile({ label, value }: { label: string; value: number }) {
   );
 }
 
+function TrustSignalTile({ label, value }: { label: string; value: string | number }) {
+  const theme = useThemeTokens();
+  return (
+    <View style={[styles.trustTile, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+      <AppText style={styles.trustValue} numberOfLines={1}>{value}</AppText>
+      <AppText style={[styles.trustLabel, { color: theme.color.muted }]}>{label}</AppText>
+    </View>
+  );
+}
+
 function PostCard({ post, kind, onOpen }: { post: PublicProfileTradeSummary; kind: PostKind; onOpen: () => void }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
@@ -320,6 +330,23 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
               </View>
             </AppCard>
 
+            <View style={[styles.trustPanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+              <View style={styles.trustHeader}>
+                <View style={[styles.trustIcon, { backgroundColor: theme.semantic.success.softBg, borderColor: theme.semantic.success.border }]}>
+                  <MobileIcon name="verified" color={theme.semantic.success.text} size={18} />
+                </View>
+                <View style={styles.trustCopy}>
+                  <AppText style={styles.trustTitle}>{t('profile.trust.title')}</AppText>
+                  <AppText style={[styles.trustBody, { color: theme.color.muted }]}>{t('profile.trust.body')}</AppText>
+                </View>
+              </View>
+              <View style={styles.trustGrid}>
+                <TrustSignalTile label={t('profile.trust.memberSinceLabel')} value={memberSince ?? t('common.states.unknown')} />
+                <TrustSignalTile label={t('profile.trust.verifiedPlaces')} value={profile.stats.verifiedOfflinePlacesCount ?? 0} />
+                <TrustSignalTile label={t('profile.trust.verifiedPlans')} value={profile.stats.verifiedOfflinePlansCount ?? 0} />
+              </View>
+            </View>
+
             <View style={styles.statsGrid}>
               <StatTile label={t('profile.stats.completed')} value={profile.stats.completedTradesCount} />
               <StatTile label={t('profile.stats.activeTrades')} value={profile.stats.activeTradesCount} />
@@ -350,6 +377,16 @@ const styles = StyleSheet.create({
   profileActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
   profileAgendaButton: { alignSelf: 'flex-start' },
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  trustPanel: { borderWidth: 1, borderRadius: 24, padding: 14, gap: 13 },
+  trustHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
+  trustIcon: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  trustCopy: { flex: 1, minWidth: 0, gap: 3 },
+  trustTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900', letterSpacing: -0.2 },
+  trustBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  trustGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  trustTile: { width: '31%', flexGrow: 1, minHeight: 72, borderWidth: 1, borderRadius: 18, padding: 11, justifyContent: 'center' },
+  trustValue: { fontSize: 18, lineHeight: 22, fontWeight: '900', letterSpacing: -0.25 },
+  trustLabel: { marginTop: 2, fontSize: 10, lineHeight: 14, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.35 },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   statTile: { width: '48%', flexGrow: 1, minHeight: 88, borderWidth: 1, borderRadius: 22, padding: 14, justifyContent: 'center' },
   statValue: { fontSize: 25, lineHeight: 30, fontWeight: '900', letterSpacing: -0.4 },

@@ -1,0 +1,296 @@
+diff --git a/apps/mobile/app.json b/apps/mobile/app.json
+index fa6f3db..d264717 100644
+--- a/apps/mobile/app.json
++++ b/apps/mobile/app.json
+@@ -21,7 +21,8 @@
+         "usesNonExemptEncryption": false
+       },
+       "infoPlist": {
+-        "NSPhotoLibraryUsageDescription": "Hellowhen lets you choose photos for your profile, needs, offers, trade references, reports, and support screenshots."
++        "NSPhotoLibraryUsageDescription": "Hellowhen lets you choose photos for your profile, needs, offers, trade references, reports, and support screenshots.",
++        "NSLocationWhenInUseUsageDescription": "Hellowhen uses your location only when you tap Verify I'm here on an offline Plan place."
+       },
+       "icon": "./assets/ios-icon.png"
+     },
+@@ -42,6 +43,12 @@
+       }
+     },
+     "plugins": [
++      [
++        "expo-location",
++        {
++          "locationWhenInUsePermission": "Hellowhen uses your location only when you tap Verify I'm here on an offline Plan place."
++        }
++      ],
+       [
+         "expo-build-properties",
+         {
+diff --git a/apps/mobile/package.json b/apps/mobile/package.json
+index a18903e..da6a9a1 100644
+--- a/apps/mobile/package.json
++++ b/apps/mobile/package.json
+@@ -28,6 +28,7 @@
+     "expo-build-properties": "~0.12.5",
+     "expo-font": "~12.0.10",
+     "expo-image-picker": "~15.1.0",
++    "expo-location": "~17.0.1",
+     "expo-secure-store": "~13.0.2",
+     "expo-status-bar": "~1.12.1",
+     "react": "18.2.0",
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 45d4b53..c5453ea 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1,9 +1,10 @@
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+ import AsyncStorage from '@react-native-async-storage/async-storage';
++import * as Location from 'expo-location';
+ import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+-import type { DiscoveryLanguage, GooglePlacePrediction, GoogleResolvedPlace, InventoryTranslationDto, ListPlansQuery, MediaAssetDto, PlaceDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
++import type { DiscoveryLanguage, GooglePlacePrediction, GoogleResolvedPlace, InventoryTranslationDto, ListPlansQuery, MediaAssetDto, PlaceDto, PlacePresenceVerificationResponse, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
+ import { buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type NormalWorkspaceMenuItem, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+@@ -729,6 +730,59 @@ async function openPlanPlaceLocation(location: PlanPlaceLocationDetails) {
+   }
+ }
+ 
++type PlanPlacePresenceNotice = {
++  tone: 'success' | 'warning' | 'info';
++  title: string;
++  body: string;
++};
++
++function getPlanPlaceVerificationCoordinates(place: PlanPlaceDto) {
++  const latitude = typeof place.latitude === 'number' ? place.latitude : place.sourcePlace?.latitude;
++  const longitude = typeof place.longitude === 'number' ? place.longitude : place.sourcePlace?.longitude;
++  if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
++  return { latitude, longitude };
++}
++
++function isOfflinePlanPlace(place: PlanPlaceDto) {
++  return place.mode !== 'remote';
++}
++
++function formatPresenceDistance(value?: number | null) {
++  if (typeof value !== 'number' || !Number.isFinite(value)) return '';
++  if (value < 1000) return `${Math.round(value)}m away`;
++  return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}km away`;
++}
++
++function presenceNoticeFromVerificationResponse(response: PlacePresenceVerificationResponse): PlanPlacePresenceNotice {
++  const distanceLabel = formatPresenceDistance(response.distanceMeters ?? response.verification.distanceMeters);
++  if (response.accepted) {
++    return {
++      tone: 'success',
++      title: response.alreadyVerified ? 'Already verified here' : 'Verified at this place',
++      body: distanceLabel ? `Your device location was accepted · ${distanceLabel}.` : 'Your device location was accepted for this offline place.',
++    };
++  }
++  if (response.verification.rejectionReason === 'gps_accuracy_too_low') {
++    return {
++      tone: 'warning',
++      title: 'GPS accuracy too low',
++      body: 'Move closer to the place, step outside if possible, and try again with a stronger location signal.',
++    };
++  }
++  if (response.verification.rejectionReason === 'too_far_from_place') {
++    return {
++      tone: 'warning',
++      title: 'Too far from this place',
++      body: distanceLabel ? `Your device seems ${distanceLabel}. Move closer and try again.` : 'Move closer to the selected offline place and try again.',
++    };
++  }
++  return {
++    tone: 'warning',
++    title: 'Could not verify presence',
++    body: 'Try again when your device has a stronger location signal.',
++  };
++}
++
+ function getPlanPlaceDescription(place: PlanPlaceDto) {
+   return place.sourcePlace?.description?.trim() || '';
+ }
+@@ -1367,12 +1421,33 @@ function ParticipantCompactRow({ participant }: { participant: PlanParticipantDt
+   );
+ }
+ 
+-function PlanPlaceTimelineCard({ place, index, planStartsAt, showReport }: { place: PlanPlaceDto; index: number; planStartsAt: string; showReport: boolean }) {
++function PlanPlaceTimelineCard({
++  place,
++  index,
++  planStartsAt,
++  showReport,
++  canVerifyPresence,
++  isVerifyingPresence,
++  presenceNotice,
++  onVerifyPresence,
++}: {
++  place: PlanPlaceDto;
++  index: number;
++  planStartsAt: string;
++  showReport: boolean;
++  canVerifyPresence: boolean;
++  isVerifyingPresence: boolean;
++  presenceNotice?: PlanPlacePresenceNotice;
++  onVerifyPresence: (place: PlanPlaceDto) => void;
++}) {
+   const theme = useThemeTokens();
+   const mediaUrl = activeMediaUrl(getPlanPlaceMedia(place));
+   const locationDetails = getPlanPlaceLocationDetails(place);
+   const description = getPlanPlaceDescription(place);
+   const sourceLabel = getPlanPlaceSourceLabel(place);
++  const hasVerificationCoordinates = Boolean(getPlanPlaceVerificationCoordinates(place));
++  const showPresenceVerification = isOfflinePlanPlace(place) && (canVerifyPresence || presenceNotice || hasVerificationCoordinates);
++  const verificationDisabled = isVerifyingPresence || !hasVerificationCoordinates;
+ 
+   return (
+     <View style={[styles.planRouteStop, { borderBottomColor: theme.color.border }]}>
+@@ -1424,6 +1499,41 @@ function PlanPlaceTimelineCard({ place, index, planStartsAt, showReport }: { pla
+                   ) : null}
+                 </View>
+               ) : null}
++              {showPresenceVerification ? (
++                <View style={[
++                  styles.planPresenceCard,
++                  {
++                    backgroundColor: presenceNotice?.tone === 'success' ? theme.semantic.success.softBg : presenceNotice?.tone === 'warning' ? theme.semantic.warning.softBg : theme.color.surface,
++                    borderColor: presenceNotice?.tone === 'success' ? theme.semantic.success.border : presenceNotice?.tone === 'warning' ? theme.semantic.warning.border : theme.color.border,
++                  },
++                ]}>
++                  <View style={styles.planPresenceHeaderRow}>
++                    <View style={styles.planPresenceCopy}>
++                      <AppText style={[styles.planPresenceTitle, { color: presenceNotice?.tone === 'success' ? theme.semantic.success.text : presenceNotice?.tone === 'warning' ? theme.semantic.warning.text : theme.color.text }]}>{presenceNotice?.title ?? 'Presence verification'}</AppText>
++                      <AppText style={[styles.planPresenceBody, { color: theme.color.muted }]}>
++                        {presenceNotice?.body ?? (hasVerificationCoordinates ? 'Use your device GPS when you reach this place.' : 'This place needs a Google-confirmed map position before GPS verification can work.')}
++                      </AppText>
++                    </View>
++                    {hasVerificationCoordinates ? (
++                      <Pressable
++                        accessibilityRole="button"
++                        accessibilityLabel="Verify I am here"
++                        disabled={verificationDisabled}
++                        onPress={() => onVerifyPresence(place)}
++                        style={({ pressed }) => [
++                          styles.planPresenceButton,
++                          { backgroundColor: canVerifyPresence ? theme.semantic.place.bg : theme.color.surface, borderColor: canVerifyPresence ? theme.semantic.place.border : theme.color.border },
++                          (pressed || isVerifyingPresence) && styles.pressed,
++                          verificationDisabled && styles.disabled,
++                        ]}
++                      >
++                        {isVerifyingPresence ? <ActivityIndicator size="small" color={canVerifyPresence ? theme.color.background : theme.color.muted} /> : <MobileIcon name="location-on" size={15} color={canVerifyPresence ? theme.color.background : theme.color.muted} />}
++                        <AppText style={[styles.planPresenceButtonText, { color: canVerifyPresence ? theme.color.background : theme.color.muted }]}>{isVerifyingPresence ? 'Checking...' : 'Verify'}</AppText>
++                      </Pressable>
++                    ) : null}
++                  </View>
++                </View>
++              ) : null}
+               {description ? <AppText style={[styles.planRouteDescription, { color: theme.color.muted }]} numberOfLines={3}>{description}</AppText> : null}
+             </View>
+             {mediaUrl ? (
+@@ -1450,6 +1560,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   const [actionMessage, setActionMessage] = useState<string | null>(null);
+   const [actionError, setActionError] = useState<string | null>(null);
+   const [publicMessageCount, setPublicMessageCount] = useState(0);
++  const [verifyingPlaceId, setVerifyingPlaceId] = useState<string | null>(null);
++  const [presenceNotices, setPresenceNotices] = useState<Record<string, PlanPlacePresenceNotice>>({});
+ 
+   const load = useCallback(async () => {
+     if (!isPlansVisible()) { setLoading(false); return; }
+@@ -1557,6 +1669,59 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+     );
+   }
+ 
++  async function verifyPlanPlacePresence(place: PlanPlaceDto) {
++    if (!plan || verifyingPlaceId) return;
++    if (!auth.user) {
++      setPresenceNotices((current) => ({
++        ...current,
++        [place.id]: { tone: 'info', title: 'Log in to verify', body: 'Log in first, then use your device GPS when you reach this offline place.' },
++      }));
++      return;
++    }
++    if (!isOwner && !isJoined) {
++      setPresenceNotices((current) => ({
++        ...current,
++        [place.id]: { tone: 'info', title: 'Join this plan first', body: 'Presence verification is only available to the owner or joined participants.' },
++      }));
++      return;
++    }
++    if (!isOfflinePlanPlace(place)) return;
++    if (!getPlanPlaceVerificationCoordinates(place)) {
++      setPresenceNotices((current) => ({
++        ...current,
++        [place.id]: { tone: 'warning', title: 'Map position needed', body: 'This offline place needs a Google-confirmed map position before GPS verification can work.' },
++      }));
++      return;
++    }
++
++    setVerifyingPlaceId(place.id);
++    setActionError(null);
++    try {
++      const permission = await Location.requestForegroundPermissionsAsync();
++      if (permission.status !== 'granted') {
++        setPresenceNotices((current) => ({
++          ...current,
++          [place.id]: { tone: 'warning', title: 'Location permission needed', body: 'Allow location access only when you want to verify that you are at this place.' },
++        }));
++        return;
++      }
++      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
++      const response = await api.plans.verifyPlacePresence(plan.id, place.id, {
++        latitude: position.coords.latitude,
++        longitude: position.coords.longitude,
++        accuracyMeters: typeof position.coords.accuracy === 'number' ? position.coords.accuracy : undefined,
++      });
++      setPresenceNotices((current) => ({ ...current, [place.id]: presenceNoticeFromVerificationResponse(response) }));
++    } catch (caughtError) {
++      setPresenceNotices((current) => ({
++        ...current,
++        [place.id]: { tone: 'warning', title: 'Verification failed', body: getFriendlyApiErrorMessage(caughtError) },
++      }));
++    } finally {
++      setVerifyingPlaceId(null);
++    }
++  }
++
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+ 
+   const isOwner = Boolean(auth.user?.id && plan?.ownerId === auth.user.id);
+@@ -1620,7 +1785,19 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+               <SemanticBadge label={`${places.length}`} tone="place" size="sm" />
+             </View>
+             {places.length === 0 ? <EmptyBlock title="No places yet" body="This Plan does not have places attached yet." /> : null}
+-            {places.map((place, index) => <PlanPlaceTimelineCard key={place.id} place={place} index={index} planStartsAt={plan.startsAt} showReport={showReportActions} />)}
++            {places.map((place, index) => (
++              <PlanPlaceTimelineCard
++                key={place.id}
++                place={place}
++                index={index}
++                planStartsAt={plan.startsAt}
++                showReport={showReportActions}
++                canVerifyPresence={Boolean(auth.user && (isOwner || isJoined))}
++                isVerifyingPresence={verifyingPlaceId === place.id}
++                presenceNotice={presenceNotices[place.id]}
++                onVerifyPresence={(nextPlace) => { void verifyPlanPlacePresence(nextPlace); }}
++              />
++            ))}
+           </View>
+ 
+           <PlanSectionDivider />
+@@ -3151,6 +3328,13 @@ const styles = StyleSheet.create({
+   planRouteLocationValue: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+   planRouteLocationAction: { alignSelf: 'flex-start', minHeight: 32, borderRadius: 16, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 4 },
+   planRouteLocationActionText: { fontSize: 12, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.35 },
++  planPresenceCard: { marginTop: 4, borderRadius: 18, borderWidth: 1, padding: 11, gap: 9 },
++  planPresenceHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
++  planPresenceCopy: { flex: 1, minWidth: 0, gap: 3 },
++  planPresenceTitle: { fontSize: 13, lineHeight: 18, fontWeight: '900' },
++  planPresenceBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
++  planPresenceButton: { minHeight: 34, borderRadius: 17, borderWidth: 1, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
++  planPresenceButtonText: { fontSize: 12, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.35 },
+   planRouteDescription: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
+   planRouteImageWrap: { width: 64, height: 64, borderRadius: 19, overflow: 'hidden' },
+   planRouteImage: { width: '100%', height: '100%' },

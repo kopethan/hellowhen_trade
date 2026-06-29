@@ -10,6 +10,7 @@ import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { GooglePlacePicker } from './GooglePlacePicker';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
 import { PlanPreviewDeck } from './PlanPreviewDeck';
 import { buildPlanSchedule, toDateInputValue } from './planSchedule';
@@ -988,10 +989,14 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                         </label>
                       </div>
                     ) : (
-                      <label>
-                        <span>Address or meeting point</span>
-                        <input value={detailPlace.location} onChange={(event) => updatePlace(detailPlaceIndex, { location: event.target.value })} maxLength={240} placeholder="Search or enter an address" />
-                      </label>
+                      <GooglePlacePicker
+                        value={detailPlace.location}
+                        onValueChange={(location) => updatePlace(detailPlaceIndex, { location })}
+                        disabled={saving || detailPlace.uploading}
+                        label="Search address or place"
+                        placeholder="Café, park, address, station..."
+                        helperText="Choose a Google suggestion when possible. The confirmed public address text will be saved into this Plan stop."
+                      />
                     )}
                   </>
                 ) : (

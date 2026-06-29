@@ -1,0 +1,181 @@
+diff --git a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+index 85c55cb..39fc88d 100644
+--- a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
++++ b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+@@ -11,6 +11,12 @@ import { resolveMediaUrl } from '../../trade/mediaUrls';
+ const MOBILE_PLAN_DECK_AVAILABLE_HEIGHT = 404;
+ const MOBILE_PLAN_DECK_MAX_CARD_SIZE = 348;
+ const FALLBACK_ACCENTS = ['#7C3AED', '#A855F7', '#C084FC', '#F97316'];
++const PLAN_TEXT_ZONE_BLUR_BANDS = [
++  { top: 50, height: 38, blur: 8, opacity: 0.035, tintOpacity: 0.035 },
++  { top: 60, height: 34, blur: 14, opacity: 0.07, tintOpacity: 0.07 },
++  { top: 70, height: 30, blur: 24, opacity: 0.12, tintOpacity: 0.12 },
++  { top: 80, height: 22, blur: 34, opacity: 0.17, tintOpacity: 0.18 },
++] as const;
+ 
+ type PlanPlaceDeckCard = SquareStackDeckCard & {
+   kind: 'place' | 'emptyPlace';
+@@ -106,8 +112,51 @@ function getPlaceDateLabel(place: PlanPlaceDto | undefined, planStartsAt: string
+   return formatPlanPlaceDate(place?.startsAt ?? planStartsAt);
+ }
+ 
++function PlanLowerAtmosphere({ imageUrl, isDark }: { imageUrl: string; isDark: boolean }) {
++  const imageTint = isDark ? 'rgba(4,8,14,0.34)' : 'rgba(255,255,255,0.84)';
++  const upperFeather = isDark ? 'rgba(4,8,14,0.18)' : 'rgba(255,255,255,0.44)';
++  const middleWash = isDark ? 'rgba(4,8,14,0.26)' : 'rgba(255,255,255,0.56)';
++  const bottomWash = isDark ? 'rgba(4,8,14,0.42)' : 'rgba(255,255,255,0.72)';
++
++  return (
++    <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
++      {PLAN_TEXT_ZONE_BLUR_BANDS.map((band, index) => (
++        <React.Fragment key={`plan-blur-band-${index}`}>
++          <View
++            style={[
++              styles.blurBand,
++              {
++                top: `${band.top}%`,
++                height: `${band.height}%`,
++                opacity: band.opacity,
++              },
++            ]}
++          >
++            <Image source={{ uri: imageUrl }} resizeMode="cover" blurRadius={band.blur} style={StyleSheet.absoluteFillObject} />
++          </View>
++          <View
++            style={[
++              styles.blurBand,
++              {
++                top: `${band.top}%`,
++                height: `${band.height}%`,
++                backgroundColor: imageTint,
++                opacity: band.tintOpacity,
++              },
++            ]}
++          />
++        </React.Fragment>
++      ))}
++      <View style={[styles.lowerFeather, { backgroundColor: upperFeather }]} />
++      <View style={[styles.middleWash, { backgroundColor: middleWash }]} />
++      <View style={[styles.bottomWash, { backgroundColor: bottomWash }]} />
++    </View>
++  );
++}
++
+ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'instruction', showModeBadge = true }: { card: PlanPlaceDeckCard; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
+   const theme = useThemeTokens();
++  const isDark = theme.mode === 'dark';
+   const imageUrl = activeMediaUrl(card.media);
+   const fallback = useMemo(() => fallbackModel(card.id), [card.id]);
+   const place = card.place;
+@@ -118,6 +167,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+   const locationLabel = isEmpty ? '' : getPlaceLocationLabel(place);
+   const timeLabel = isEmpty ? getPlanParticipantLabel(card.plan) : getPlaceDateLabel(place, card.plan.startsAt);
+   const primaryBadgeLabel = topBadgeLabel ?? `Place · ${cardCounter}`;
++  const overlayTextShadow = isDark ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.48)';
+ 
+   return (
+     <Pressable
+@@ -160,7 +210,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+           />
+         </View>
+       )}
+-      {imageUrl ? <View style={[styles.imageScrim, { backgroundColor: theme.color.background }]} /> : <View style={[styles.fallbackScrim, { backgroundColor: theme.color.background }]} />}
++      {imageUrl ? <PlanLowerAtmosphere imageUrl={imageUrl} isDark={isDark} /> : <View style={[styles.fallbackScrim, { backgroundColor: theme.color.background }]} />}
+ 
+       <View style={styles.cardTopRow}>
+         <SemanticBadge label={primaryBadgeLabel} tone={topBadgeTone} size="sm" />
+@@ -168,11 +218,11 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+       </View>
+ 
+       <View style={styles.cardCopy}>
+-        <AppText style={[styles.planTitle, { color: theme.color.muted }]} numberOfLines={1}>{card.plan.title}</AppText>
+-        <AppText style={[styles.placeTitle, { color: theme.color.text }]} numberOfLines={2}>{placeTitle}</AppText>
+-        {isEmpty ? <AppText style={[styles.emptyHint, { color: theme.color.muted }]} numberOfLines={2}>Add a first stop to turn this Plan into route cards.</AppText> : null}
+-        {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: theme.color.muted }]} numberOfLines={1}>{locationLabel}</AppText> : null}
+-        <AppText style={[styles.placeTimeText, { color: theme.color.muted }]} numberOfLines={1}>{timeLabel}</AppText>
++        <AppText style={[styles.planTitle, { color: theme.color.muted, textShadowColor: overlayTextShadow }]} numberOfLines={1}>{card.plan.title}</AppText>
++        <AppText style={[styles.placeTitle, { color: theme.color.text, textShadowColor: overlayTextShadow }]} numberOfLines={2}>{placeTitle}</AppText>
++        {isEmpty ? <AppText style={[styles.emptyHint, { color: theme.color.muted, textShadowColor: overlayTextShadow }]} numberOfLines={2}>Add a first stop to turn this Plan into route cards.</AppText> : null}
++        {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: theme.color.muted, textShadowColor: overlayTextShadow }]} numberOfLines={1}>{locationLabel}</AppText> : null}
++        <AppText style={[styles.placeTimeText, { color: theme.color.muted, textShadowColor: overlayTextShadow }]} numberOfLines={1}>{timeLabel}</AppText>
+       </View>
+     </Pressable>
+   );
+@@ -246,9 +296,35 @@ const styles = StyleSheet.create({
+     borderWidth: 3,
+     opacity: 0.9,
+   },
+-  imageScrim: {
+-    ...StyleSheet.absoluteFillObject,
+-    opacity: 0.62,
++  blurBand: {
++    position: 'absolute',
++    left: 0,
++    right: 0,
++    overflow: 'hidden',
++  },
++  lowerFeather: {
++    position: 'absolute',
++    left: 0,
++    right: 0,
++    top: '50%',
++    height: '32%',
++    opacity: 0.18,
++  },
++  middleWash: {
++    position: 'absolute',
++    left: 0,
++    right: 0,
++    top: '62%',
++    height: '30%',
++    opacity: 0.2,
++  },
++  bottomWash: {
++    position: 'absolute',
++    left: 0,
++    right: 0,
++    bottom: 0,
++    height: '34%',
++    opacity: 0.24,
+   },
+   fallbackScrim: {
+     ...StyleSheet.absoluteFillObject,
+@@ -270,28 +346,38 @@ const styles = StyleSheet.create({
+     fontWeight: '900',
+     textTransform: 'uppercase',
+     letterSpacing: 0.9,
++    textShadowOffset: { width: 0, height: 1 },
++    textShadowRadius: 7,
+   },
+   placeTitle: {
+     fontSize: 31,
+     lineHeight: 35,
+     fontWeight: '900',
+     letterSpacing: -1,
++    textShadowOffset: { width: 0, height: 1 },
++    textShadowRadius: 8,
+   },
+   emptyHint: {
+     fontSize: 14,
+     lineHeight: 19,
+     fontWeight: '800',
++    textShadowOffset: { width: 0, height: 1 },
++    textShadowRadius: 7,
+   },
+   placeMetaText: {
+     marginTop: 6,
+     fontSize: 13,
+     lineHeight: 18,
+     fontWeight: '800',
++    textShadowOffset: { width: 0, height: 1 },
++    textShadowRadius: 7,
+   },
+   placeTimeText: {
+     fontSize: 13,
+     lineHeight: 18,
+     fontWeight: '900',
++    textShadowOffset: { width: 0, height: 1 },
++    textShadowRadius: 7,
+   },
+   pressed: {
+     opacity: 0.76,

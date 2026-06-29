@@ -1,0 +1,179 @@
+diff --git a/apps/mobile/src/components/LowerImageAtmosphere.tsx b/apps/mobile/src/components/LowerImageAtmosphere.tsx
+index 8082602..80a295d 100644
+--- a/apps/mobile/src/components/LowerImageAtmosphere.tsx
++++ b/apps/mobile/src/components/LowerImageAtmosphere.tsx
+@@ -13,12 +13,17 @@ type BlurBand = {
+   tintOpacity: number;
+ };
+ 
++type WashBand = {
++  top: number;
++  height: number;
++  opacity: number;
++  tone: ToneValue;
++};
++
+ type LowerImageAtmosphereProfile = {
+   bands: readonly BlurBand[];
+   tint: ToneValue;
+-  lowerFeather: ToneValue & { opacity: number };
+-  middleWash: ToneValue & { opacity: number };
+-  bottomWash: ToneValue & { opacity: number };
++  washes: readonly WashBand[];
+ };
+ 
+ type LowerImageAtmosphereProps = {
+@@ -28,37 +33,39 @@ type LowerImageAtmosphereProps = {
+ };
+ 
+ const POSTER_ATMOSPHERE_BAND_GEOMETRY = [
+-  { top: 52, height: 38, blur: 8 },
+-  { top: 62, height: 34, blur: 16 },
+-  { top: 72, height: 30, blur: 26 },
+-  { top: 82, height: 22, blur: 38 },
++  { top: 58, height: 34, blur: 8 },
++  { top: 66, height: 30, blur: 16 },
++  { top: 74, height: 26, blur: 28 },
++  { top: 84, height: 20, blur: 42 },
+ ] as const;
+ 
+-const POSTER_ATMOSPHERE_LAYOUT = {
+-  lowerFeather: { top: '50%', height: '32%' },
+-  middleWash: { top: '62%', height: '30%' },
+-  bottomWash: { height: '34%' },
+-} as const;
++const POSTER_ATMOSPHERE_WASH_GEOMETRY = [
++  { top: 60, height: 18 },
++  { top: 68, height: 18 },
++  { top: 76, height: 18 },
++  { top: 84, height: 18 },
++] as const;
+ 
+-const POSTER_ATMOSPHERE_PROFILES: Record<LowerImageAtmospherePreset, Omit<LowerImageAtmosphereProfile, 'bands'> & {
++const POSTER_ATMOSPHERE_PROFILES: Record<LowerImageAtmospherePreset, {
+   bandOpacity: readonly number[];
+   bandTintOpacity: readonly number[];
++  tint: ToneValue;
++  washOpacity: readonly number[];
++  washTone: ToneValue;
+ }> = {
+   trade: {
+-    bandOpacity: [0.025, 0.07, 0.13, 0.2],
+-    bandTintOpacity: [0.012, 0.045, 0.085, 0.13],
+-    tint: { dark: 'rgba(2,10,9,0.44)', light: 'rgba(2,28,22,0.54)' },
+-    lowerFeather: { dark: 'rgba(2,10,9,0.2)', light: 'rgba(2,28,22,0.22)', opacity: 0.12 },
+-    middleWash: { dark: 'rgba(2,10,9,0.38)', light: 'rgba(3,36,30,0.42)', opacity: 0.26 },
+-    bottomWash: { dark: 'rgba(1,5,6,0.78)', light: 'rgba(1,18,15,0.86)', opacity: 0.58 },
++    bandOpacity: [0.012, 0.04, 0.085, 0.14],
++    bandTintOpacity: [0.006, 0.026, 0.055, 0.085],
++    tint: { dark: 'rgba(2,10,9,0.32)', light: 'rgba(2,28,22,0.36)' },
++    washOpacity: [0.035, 0.08, 0.16, 0.34],
++    washTone: { dark: 'rgba(1,7,7,0.78)', light: 'rgba(1,20,17,0.78)' },
+   },
+   plan: {
+-    bandOpacity: [0.025, 0.065, 0.12, 0.19],
+-    bandTintOpacity: [0.012, 0.04, 0.08, 0.13],
+-    tint: { dark: 'rgba(8,6,18,0.42)', light: 'rgba(12,19,28,0.54)' },
+-    lowerFeather: { dark: 'rgba(8,6,18,0.2)', light: 'rgba(12,19,28,0.22)', opacity: 0.12 },
+-    middleWash: { dark: 'rgba(8,6,18,0.34)', light: 'rgba(15,23,34,0.4)', opacity: 0.24 },
+-    bottomWash: { dark: 'rgba(3,3,8,0.76)', light: 'rgba(4,8,15,0.84)', opacity: 0.56 },
++    bandOpacity: [0.012, 0.038, 0.08, 0.135],
++    bandTintOpacity: [0.006, 0.024, 0.052, 0.085],
++    tint: { dark: 'rgba(8,6,18,0.3)', light: 'rgba(12,19,28,0.34)' },
++    washOpacity: [0.032, 0.074, 0.15, 0.32],
++    washTone: { dark: 'rgba(3,3,8,0.76)', light: 'rgba(4,8,15,0.76)' },
+   },
+ };
+ 
+@@ -68,15 +75,20 @@ const PROFILES: Record<LowerImageAtmospherePreset, LowerImageAtmosphereProfile>
+ };
+ 
+ function createProfile(preset: LowerImageAtmospherePreset): LowerImageAtmosphereProfile {
+-  const { bandOpacity, bandTintOpacity, ...profile } = POSTER_ATMOSPHERE_PROFILES[preset];
++  const { bandOpacity, bandTintOpacity, washOpacity, washTone, tint } = POSTER_ATMOSPHERE_PROFILES[preset];
+ 
+   return {
+-    ...profile,
++    tint,
+     bands: POSTER_ATMOSPHERE_BAND_GEOMETRY.map((band, index) => ({
+       ...band,
+       opacity: bandOpacity[index] ?? 0,
+       tintOpacity: bandTintOpacity[index] ?? 0,
+     })),
++    washes: POSTER_ATMOSPHERE_WASH_GEOMETRY.map((wash, index) => ({
++      ...wash,
++      opacity: washOpacity[index] ?? 0,
++      tone: washTone,
++    })),
+   };
+ }
+ 
+@@ -85,12 +97,14 @@ function tone(value: ToneValue, isDark: boolean) {
+ }
+ 
+ export function LowerImageAtmosphere({ imageUrl, isDark, preset = 'trade' }: LowerImageAtmosphereProps) {
++  if (!imageUrl) return null;
++
+   const profile = PROFILES[preset];
+   const imageTint = tone(profile.tint, isDark);
+ 
+   return (
+     <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
+-      {imageUrl ? profile.bands.map((band, index) => (
++      {profile.bands.map((band, index) => (
+         <React.Fragment key={`${preset}-lower-image-atmosphere-band-${index}`}>
+           <View
+             style={[
+@@ -116,10 +130,21 @@ export function LowerImageAtmosphere({ imageUrl, isDark, preset = 'trade' }: Low
+             ]}
+           />
+         </React.Fragment>
+-      )) : null}
+-      <View style={[styles.lowerFeather, { backgroundColor: tone(profile.lowerFeather, isDark), opacity: profile.lowerFeather.opacity }]} />
+-      <View style={[styles.middleWash, { backgroundColor: tone(profile.middleWash, isDark), opacity: profile.middleWash.opacity }]} />
+-      <View style={[styles.bottomWash, { backgroundColor: tone(profile.bottomWash, isDark), opacity: profile.bottomWash.opacity }]} />
++      ))}
++      {profile.washes.map((wash, index) => (
++        <View
++          key={`${preset}-lower-image-atmosphere-wash-${index}`}
++          style={[
++            styles.washBand,
++            {
++              top: `${wash.top}%`,
++              height: `${wash.height}%`,
++              backgroundColor: tone(wash.tone, isDark),
++              opacity: wash.opacity,
++            },
++          ]}
++        />
++      ))}
+     </View>
+   );
+ }
+@@ -131,25 +156,9 @@ const styles = StyleSheet.create({
+     right: 0,
+     overflow: 'hidden',
+   },
+-  lowerFeather: {
+-    position: 'absolute',
+-    left: 0,
+-    right: 0,
+-    top: POSTER_ATMOSPHERE_LAYOUT.lowerFeather.top,
+-    height: POSTER_ATMOSPHERE_LAYOUT.lowerFeather.height,
+-  },
+-  middleWash: {
+-    position: 'absolute',
+-    left: 0,
+-    right: 0,
+-    top: POSTER_ATMOSPHERE_LAYOUT.middleWash.top,
+-    height: POSTER_ATMOSPHERE_LAYOUT.middleWash.height,
+-  },
+-  bottomWash: {
++  washBand: {
+     position: 'absolute',
+     left: 0,
+     right: 0,
+-    bottom: 0,
+-    height: POSTER_ATMOSPHERE_LAYOUT.bottomWash.height,
+   },
+ });

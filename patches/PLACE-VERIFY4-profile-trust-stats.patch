@@ -1,0 +1,245 @@
+diff --git a/apps/api/src/modules/users/users.routes.ts b/apps/api/src/modules/users/users.routes.ts
+index ba20f5e..b4ab083 100644
+--- a/apps/api/src/modules/users/users.routes.ts
++++ b/apps/api/src/modules/users/users.routes.ts
+@@ -65,7 +65,18 @@ async function getPublicProfileResponse(userId: string, viewerId?: string) {
+   const viewerState = viewerId ? await userBlockState(viewerId, userId) : undefined;
+   if (viewerState?.isBlockingMe) return null;
+ 
+-  const [completedTradesCount, activeTradesCount, openNeedsCount, openOffersCount, activeTrades, openNeeds, openOffers] = await Promise.all([
++  const [
++    completedTradesCount,
++    activeTradesCount,
++    openNeedsCount,
++    openOffersCount,
++    activeTrades,
++    openNeeds,
++    openOffers,
++    verifiedOfflineCheckInsCount,
++    verifiedOfflinePlaces,
++    verifiedOfflinePlans,
++  ] = await Promise.all([
+     prisma.trade.count({ where: { status: 'completed', OR: [{ ownerId: userId }, { providerId: userId }] } }),
+     prisma.trade.count({ where: { ...publicPostWhereBase(userId), postType: 'need_offer' } }),
+     prisma.trade.count({ where: { ...publicPostWhereBase(userId), postType: 'open_need' } }),
+@@ -73,6 +84,9 @@ async function getPublicProfileResponse(userId: string, viewerId?: string) {
+     prisma.trade.findMany({ where: { ...publicPostWhereBase(userId), postType: 'need_offer' }, include: publicTradeSummaryInclude, orderBy: { createdAt: 'desc' }, take: 12 }),
+     prisma.trade.findMany({ where: { ...publicPostWhereBase(userId), postType: 'open_need' }, include: publicTradeSummaryInclude, orderBy: { createdAt: 'desc' }, take: 12 }),
+     prisma.trade.findMany({ where: { ...publicPostWhereBase(userId), postType: 'open_offer' }, include: publicTradeSummaryInclude, orderBy: { createdAt: 'desc' }, take: 12 }),
++    (prisma as any).placePresenceVerification.count({ where: { userId, status: 'verified' } }),
++    (prisma as any).placePresenceVerification.findMany({ where: { userId, status: 'verified' }, distinct: ['planPlaceId'], select: { planPlaceId: true } }),
++    (prisma as any).placePresenceVerification.findMany({ where: { userId, status: 'verified' }, distinct: ['planId'], select: { planId: true } }),
+   ]);
+ 
+   const publicMediaVisibility = viewerId ? 'trade_public' : 'public_anonymous';
+@@ -98,6 +112,9 @@ async function getPublicProfileResponse(userId: string, viewerId?: string) {
+       activeTradesCount,
+       openNeedsCount,
+       openOffersCount,
++      verifiedOfflinePlacesCount: verifiedOfflinePlaces.length,
++      verifiedOfflinePlansCount: verifiedOfflinePlans.length,
++      verifiedOfflineCheckInsCount,
+     },
+     sections: {
+       activeTrades: viewerState?.isBlockedByMe ? [] : activeTradesWithMedia,
+diff --git a/apps/mobile/src/features/users/PublicUserProfileScreen.tsx b/apps/mobile/src/features/users/PublicUserProfileScreen.tsx
+index 64d0408..748659f 100644
+--- a/apps/mobile/src/features/users/PublicUserProfileScreen.tsx
++++ b/apps/mobile/src/features/users/PublicUserProfileScreen.tsx
+@@ -118,6 +118,16 @@ function StatTile({ label, value }: { label: string; value: number }) {
+   );
+ }
+ 
++function TrustSignalTile({ label, value }: { label: string; value: string | number }) {
++  const theme = useThemeTokens();
++  return (
++    <View style={[styles.trustTile, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
++      <AppText style={styles.trustValue} numberOfLines={1}>{value}</AppText>
++      <AppText style={[styles.trustLabel, { color: theme.color.muted }]}>{label}</AppText>
++    </View>
++  );
++}
++
+ function PostCard({ post, kind, onOpen }: { post: PublicProfileTradeSummary; kind: PostKind; onOpen: () => void }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+@@ -320,6 +330,23 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
+               </View>
+             </AppCard>
+ 
++            <View style={[styles.trustPanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++              <View style={styles.trustHeader}>
++                <View style={[styles.trustIcon, { backgroundColor: theme.semantic.success.softBg, borderColor: theme.semantic.success.border }]}>
++                  <MobileIcon name="verified" color={theme.semantic.success.text} size={18} />
++                </View>
++                <View style={styles.trustCopy}>
++                  <AppText style={styles.trustTitle}>{t('profile.trust.title')}</AppText>
++                  <AppText style={[styles.trustBody, { color: theme.color.muted }]}>{t('profile.trust.body')}</AppText>
++                </View>
++              </View>
++              <View style={styles.trustGrid}>
++                <TrustSignalTile label={t('profile.trust.memberSinceLabel')} value={memberSince ?? t('common.states.unknown')} />
++                <TrustSignalTile label={t('profile.trust.verifiedPlaces')} value={profile.stats.verifiedOfflinePlacesCount ?? 0} />
++                <TrustSignalTile label={t('profile.trust.verifiedPlans')} value={profile.stats.verifiedOfflinePlansCount ?? 0} />
++              </View>
++            </View>
++
+             <View style={styles.statsGrid}>
+               <StatTile label={t('profile.stats.completed')} value={profile.stats.completedTradesCount} />
+               <StatTile label={t('profile.stats.activeTrades')} value={profile.stats.activeTradesCount} />
+@@ -350,6 +377,16 @@ const styles = StyleSheet.create({
+   profileActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
+   profileAgendaButton: { alignSelf: 'flex-start' },
+   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
++  trustPanel: { borderWidth: 1, borderRadius: 24, padding: 14, gap: 13 },
++  trustHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
++  trustIcon: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  trustCopy: { flex: 1, minWidth: 0, gap: 3 },
++  trustTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900', letterSpacing: -0.2 },
++  trustBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
++  trustGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
++  trustTile: { width: '31%', flexGrow: 1, minHeight: 72, borderWidth: 1, borderRadius: 18, padding: 11, justifyContent: 'center' },
++  trustValue: { fontSize: 18, lineHeight: 22, fontWeight: '900', letterSpacing: -0.25 },
++  trustLabel: { marginTop: 2, fontSize: 10, lineHeight: 14, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.35 },
+   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+   statTile: { width: '48%', flexGrow: 1, minHeight: 88, borderWidth: 1, borderRadius: 22, padding: 14, justifyContent: 'center' },
+   statValue: { fontSize: 25, lineHeight: 30, fontWeight: '900', letterSpacing: -0.4 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 75f6f3c..e97639d 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2804,6 +2804,16 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ .public-profile-avatar span { font-size: 36px; font-weight: 950; letter-spacing: -0.08em; }
+ .public-profile-meta-row { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; color: var(--app-text-muted); font-size: 13px; font-weight: 850; }
+ .public-profile-meta-row span { display: inline-flex; align-items: center; min-height: 28px; border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent); border-radius: 999px; background: var(--app-surface-soft); padding: 0 10px; }
++
++.public-profile-trust-panel { display: grid; gap: 14px; border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent); border-radius: 26px; background: linear-gradient(145deg, color-mix(in srgb, var(--app-surface) 94%, var(--proposal-bg) 6%), var(--app-surface)); padding: 16px; box-shadow: var(--app-card-shadow); }
++.public-profile-trust-panel__header { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; }
++.public-profile-trust-panel__icon { display: inline-grid; place-items: center; width: 36px; height: 36px; border: 1px solid color-mix(in srgb, var(--success-border) 44%, var(--app-border)); border-radius: 999px; background: color-mix(in srgb, var(--success-bg) 74%, transparent); color: var(--success-text); }
++.public-profile-trust-panel h3 { margin: 0; color: var(--app-text); font-size: 18px; letter-spacing: -0.03em; }
++.public-profile-trust-panel p { margin: 3px 0 0; color: var(--app-text-muted); font-size: 13px; line-height: 1.42; font-weight: 760; }
++.public-profile-trust-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
++.public-profile-trust-grid div { display: grid; gap: 3px; min-width: 0; border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent); border-radius: 20px; background: color-mix(in srgb, var(--app-surface-soft) 80%, transparent); padding: 12px 10px; }
++.public-profile-trust-grid strong { overflow: hidden; color: var(--app-text); font-size: 18px; line-height: 1.08; letter-spacing: -0.035em; text-overflow: ellipsis; white-space: nowrap; }
++.public-profile-trust-grid span { color: var(--app-text-muted); font-size: 10px; font-weight: 950; letter-spacing: 0.04em; line-height: 1.18; text-transform: uppercase; }
+ .public-profile-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+ .public-profile-stats div { display: grid; gap: 3px; min-width: 0; border: 1px solid color-mix(in srgb, var(--app-border) 86%, transparent); border-radius: 22px; background: var(--app-surface); padding: 13px 9px; text-align: center; box-shadow: var(--app-card-shadow); }
+ .public-profile-stats strong { color: var(--app-text); font-size: 22px; line-height: 1; letter-spacing: -0.04em; }
+@@ -2833,6 +2843,7 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ @media (max-width: 420px) {
+   .public-profile-hero { grid-template-columns: 1fr; }
+   .public-profile-hero .user-avatar--lg { width: 82px; height: 82px; }
++  .public-profile-trust-grid { grid-template-columns: 1fr; }
+   .public-profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+   .public-profile-post-card { grid-template-columns: 78px minmax(0, 1fr); }
+   .public-profile-post-card__image { width: 78px; min-height: 112px; }
+diff --git a/apps/web/src/features/users/PublicUserProfileClient.tsx b/apps/web/src/features/users/PublicUserProfileClient.tsx
+index 7469624..ba99939 100644
+--- a/apps/web/src/features/users/PublicUserProfileClient.tsx
++++ b/apps/web/src/features/users/PublicUserProfileClient.tsx
+@@ -308,6 +308,30 @@ export function PublicUserProfileClient({ userId, username }: { userId?: string;
+         </div>
+       </section>
+ 
++      <section className="public-profile-trust-panel" aria-label={t('profile.trust.title')}>
++        <div className="public-profile-trust-panel__header">
++          <span className="public-profile-trust-panel__icon" aria-hidden="true"><WebIcon name="verified" size={18} decorative /></span>
++          <div>
++            <h3>{t('profile.trust.title')}</h3>
++            <p>{t('profile.trust.body')}</p>
++          </div>
++        </div>
++        <div className="public-profile-trust-grid">
++          <div>
++            <strong>{memberSince}</strong>
++            <span>{t('profile.trust.memberSinceLabel')}</span>
++          </div>
++          <div>
++            <strong>{profile.stats.verifiedOfflinePlacesCount ?? 0}</strong>
++            <span>{t('profile.trust.verifiedPlaces')}</span>
++          </div>
++          <div>
++            <strong>{profile.stats.verifiedOfflinePlansCount ?? 0}</strong>
++            <span>{t('profile.trust.verifiedPlans')}</span>
++          </div>
++        </div>
++      </section>
++
+       <section className="public-profile-stats" aria-label={t('profile.statsLabel')}>
+         {stats.map((item) => (
+           <div key={item.label}>
+diff --git a/packages/contracts/src/users.ts b/packages/contracts/src/users.ts
+index bf8a146..4fd9bc2 100644
+--- a/packages/contracts/src/users.ts
++++ b/packages/contracts/src/users.ts
+@@ -101,6 +101,9 @@ export const publicProfileStatsSchema = z.object({
+   activeTradesCount: z.number().int().nonnegative(),
+   openNeedsCount: z.number().int().nonnegative(),
+   openOffersCount: z.number().int().nonnegative(),
++  verifiedOfflinePlacesCount: z.number().int().nonnegative().optional().default(0),
++  verifiedOfflinePlansCount: z.number().int().nonnegative().optional().default(0),
++  verifiedOfflineCheckInsCount: z.number().int().nonnegative().optional().default(0),
+ });
+ 
+ export const publicProfileSectionsSchema = z.object({
+diff --git a/packages/i18n/src/locales/en/profile.ts b/packages/i18n/src/locales/en/profile.ts
+index cb0b2e1..b5a75c0 100644
+--- a/packages/i18n/src/locales/en/profile.ts
++++ b/packages/i18n/src/locales/en/profile.ts
+@@ -18,6 +18,15 @@ export const profile = {
+     openNeeds: 'Open needs',
+     openOffers: 'Open offers',
+   },
++  trust: {
++    title: 'Trust signals',
++    body: 'Public, aggregate signals only. Exact visits and live location are never shown.',
++    memberSinceLabel: 'Member since',
++    memberSince: 'Member since {{date}}',
++    verifiedPlaces: 'Verified offline places',
++    verifiedPlans: 'Verified plan visits',
++    checkIns: 'Presence confirmations',
++  },
+   loading: {
+     badge: 'Loading',
+     title: 'Loading profile...',
+diff --git a/packages/i18n/src/locales/es/profile.ts b/packages/i18n/src/locales/es/profile.ts
+index 46a97be..fbb9ec8 100644
+--- a/packages/i18n/src/locales/es/profile.ts
++++ b/packages/i18n/src/locales/es/profile.ts
+@@ -24,6 +24,16 @@ export const profile = {
+     openNeeds: 'Necesidades abiertas',
+     openOffers: 'Ofertas abiertas',
+   },
++  trust: {
++    ...enProfile.trust,
++    title: 'Señales de confianza',
++    body: 'Solo señales públicas y agregadas. Las visitas exactas y la ubicación en vivo nunca se muestran.',
++    memberSinceLabel: 'Miembro desde',
++    memberSince: 'Miembro desde {{date}}',
++    verifiedPlaces: 'Lugares offline verificados',
++    verifiedPlans: 'Visitas de planes verificadas',
++    checkIns: 'Confirmaciones de presencia',
++  },
+   loading: {
+     ...enProfile.loading,
+     badge: 'Cargando',
+diff --git a/packages/i18n/src/locales/fr/profile.ts b/packages/i18n/src/locales/fr/profile.ts
+index f8a95fe..858c2e4 100644
+--- a/packages/i18n/src/locales/fr/profile.ts
++++ b/packages/i18n/src/locales/fr/profile.ts
+@@ -18,6 +18,15 @@ export const profile = {
+     openNeeds: 'Besoins ouverts',
+     openOffers: 'Offres ouvertes',
+   },
++  trust: {
++    title: 'Signaux de confiance',
++    body: 'Uniquement des signaux publics et agrégés. Les visites exactes et la position en direct ne sont jamais affichées.',
++    memberSinceLabel: 'Membre depuis',
++    memberSince: 'Membre depuis {{date}}',
++    verifiedPlaces: 'Lieux hors ligne vérifiés',
++    verifiedPlans: 'Visites de plans vérifiées',
++    checkIns: 'Confirmations de présence',
++  },
+   loading: {
+     badge: 'Chargement',
+     title: 'Chargement du profil…',

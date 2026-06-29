@@ -24,6 +24,16 @@ export const profile = {
     openNeeds: 'Necesidades abiertas',
     openOffers: 'Ofertas abiertas',
   },
+  trust: {
+    ...enProfile.trust,
+    title: 'Señales de confianza',
+    body: 'Solo señales públicas y agregadas. Las visitas exactas y la ubicación en vivo nunca se muestran.',
+    memberSinceLabel: 'Miembro desde',
+    memberSince: 'Miembro desde {{date}}',
+    verifiedPlaces: 'Lugares offline verificados',
+    verifiedPlans: 'Visitas de planes verificadas',
+    checkIns: 'Confirmaciones de presencia',
+  },
   loading: {
     ...enProfile.loading,
     badge: 'Cargando',

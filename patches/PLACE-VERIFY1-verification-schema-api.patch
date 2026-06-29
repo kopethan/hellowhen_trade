@@ -1,0 +1,743 @@
+diff --git a/.env.example b/.env.example
+index c3c19e5..31a56c8 100644
+--- a/.env.example
++++ b/.env.example
+@@ -449,3 +449,9 @@ GOOGLE_PLACES_DEFAULT_LANGUAGE=en
+ # Optional comma-separated ISO country codes, e.g. FR or FR,BE,CH.
+ GOOGLE_PLACES_COUNTRY_CODES=FR
+ GOOGLE_PLACES_REQUEST_TIMEOUT_MS=4500
++
++# Offline place presence verification. Keep disabled until mobile UI and privacy copy are ready.
++PLACE_PRESENCE_VERIFICATION_ENABLED=false
++PLACE_PRESENCE_MAX_DISTANCE_METERS=100
++PLACE_PRESENCE_MAX_ACCURACY_METERS=75
++PLACE_PRESENCE_VERIFICATION_COOLDOWN_HOURS=24
+diff --git a/apps/api/prisma/migrations/20260629123000_place_presence_verification/migration.sql b/apps/api/prisma/migrations/20260629123000_place_presence_verification/migration.sql
+new file mode 100644
+index 0000000..ba2ccd5
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260629123000_place_presence_verification/migration.sql
+@@ -0,0 +1,91 @@
++-- CreateEnum
++CREATE TYPE "PlaceLocationSource" AS ENUM ('manual', 'google_places');
++
++-- CreateEnum
++CREATE TYPE "PlaceAddressValidationStatus" AS ENUM ('confirmed', 'needs_review', 'unsupported');
++
++-- CreateEnum
++CREATE TYPE "PlacePresenceVerificationSource" AS ENUM ('device_gps');
++
++-- CreateEnum
++CREATE TYPE "PlacePresenceVerificationStatus" AS ENUM ('verified', 'rejected');
++
++-- AlterTable
++ALTER TABLE "Place" ADD COLUMN "googlePlaceId" TEXT,
++ADD COLUMN "googlePlaceName" TEXT,
++ADD COLUMN "formattedAddress" TEXT,
++ADD COLUMN "googleMapsUri" TEXT,
++ADD COLUMN "latitude" DOUBLE PRECISION,
++ADD COLUMN "longitude" DOUBLE PRECISION,
++ADD COLUMN "locationSource" "PlaceLocationSource",
++ADD COLUMN "addressValidationStatus" "PlaceAddressValidationStatus";
++
++-- AlterTable
++ALTER TABLE "PlanPlace" ADD COLUMN "googlePlaceId" TEXT,
++ADD COLUMN "googlePlaceName" TEXT,
++ADD COLUMN "formattedAddress" TEXT,
++ADD COLUMN "googleMapsUri" TEXT,
++ADD COLUMN "latitude" DOUBLE PRECISION,
++ADD COLUMN "longitude" DOUBLE PRECISION,
++ADD COLUMN "locationSource" "PlaceLocationSource",
++ADD COLUMN "addressValidationStatus" "PlaceAddressValidationStatus";
++
++-- CreateTable
++CREATE TABLE "PlacePresenceVerification" (
++    "id" TEXT NOT NULL,
++    "userId" TEXT NOT NULL,
++    "planId" TEXT NOT NULL,
++    "planPlaceId" TEXT NOT NULL,
++    "sourcePlaceId" TEXT,
++    "source" "PlacePresenceVerificationSource" NOT NULL DEFAULT 'device_gps',
++    "status" "PlacePresenceVerificationStatus" NOT NULL,
++    "latitudeRounded" DOUBLE PRECISION,
++    "longitudeRounded" DOUBLE PRECISION,
++    "accuracyMeters" DOUBLE PRECISION,
++    "distanceMeters" DOUBLE PRECISION,
++    "maxDistanceMeters" DOUBLE PRECISION,
++    "rejectionReason" TEXT,
++    "verifiedAt" TIMESTAMP(3),
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++
++    CONSTRAINT "PlacePresenceVerification_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateIndex
++CREATE INDEX "Place_googlePlaceId_idx" ON "Place"("googlePlaceId");
++
++-- CreateIndex
++CREATE INDEX "Place_latitude_longitude_idx" ON "Place"("latitude", "longitude");
++
++-- CreateIndex
++CREATE INDEX "PlanPlace_googlePlaceId_idx" ON "PlanPlace"("googlePlaceId");
++
++-- CreateIndex
++CREATE INDEX "PlanPlace_latitude_longitude_idx" ON "PlanPlace"("latitude", "longitude");
++
++-- CreateIndex
++CREATE INDEX "PlacePresenceVerification_userId_status_verifiedAt_idx" ON "PlacePresenceVerification"("userId", "status", "verifiedAt");
++
++-- CreateIndex
++CREATE INDEX "PlacePresenceVerification_planId_planPlaceId_status_verifiedAt_idx" ON "PlacePresenceVerification"("planId", "planPlaceId", "status", "verifiedAt");
++
++-- CreateIndex
++CREATE INDEX "PlacePresenceVerification_planPlaceId_userId_status_verifiedAt_idx" ON "PlacePresenceVerification"("planPlaceId", "userId", "status", "verifiedAt");
++
++-- CreateIndex
++CREATE INDEX "PlacePresenceVerification_sourcePlaceId_status_verifiedAt_idx" ON "PlacePresenceVerification"("sourcePlaceId", "status", "verifiedAt");
++
++-- CreateIndex
++CREATE INDEX "PlacePresenceVerification_createdAt_idx" ON "PlacePresenceVerification"("createdAt");
++
++-- AddForeignKey
++ALTER TABLE "PlacePresenceVerification" ADD CONSTRAINT "PlacePresenceVerification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "PlacePresenceVerification" ADD CONSTRAINT "PlacePresenceVerification_planId_fkey" FOREIGN KEY ("planId") REFERENCES "Plan"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "PlacePresenceVerification" ADD CONSTRAINT "PlacePresenceVerification_planPlaceId_fkey" FOREIGN KEY ("planPlaceId") REFERENCES "PlanPlace"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "PlacePresenceVerification" ADD CONSTRAINT "PlacePresenceVerification_sourcePlaceId_fkey" FOREIGN KEY ("sourcePlaceId") REFERENCES "Place"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 92b1a45..f614ea5 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -739,6 +739,27 @@ enum PlaceVisibility {
+ }
+ 
+ 
++enum PlaceLocationSource {
++  manual
++  google_places
++}
++
++enum PlaceAddressValidationStatus {
++  confirmed
++  needs_review
++  unsupported
++}
++
++enum PlacePresenceVerificationSource {
++  device_gps
++}
++
++enum PlacePresenceVerificationStatus {
++  verified
++  rejected
++}
++
++
+ enum ContentClassificationTargetType {
+   need
+   offer
+@@ -930,6 +951,7 @@ model User {
+   plans       Plan[] @relation("OwnedPlans")
+   places      Place[] @relation("OwnedPlaces")
+   planParticipants PlanParticipant[] @relation("PlanParticipants")
++  placePresenceVerifications PlacePresenceVerification[] @relation("PlacePresenceVerificationUser")
+   decidedPlanParticipants PlanParticipant[] @relation("PlanParticipantDecisions")
+   usageHeartbeats UsageHeartbeat[]
+   apiRequestMetrics ApiRequestMetric[]
+@@ -2662,6 +2684,14 @@ model Place {
+   areaLabel                  String?
+   addressPublicText          String?
+   addressPrivateText         String?
++  googlePlaceId              String?
++  googlePlaceName            String?
++  formattedAddress           String?
++  googleMapsUri              String?
++  latitude                   Float?
++  longitude                  Float?
++  locationSource             PlaceLocationSource?
++  addressValidationStatus    PlaceAddressValidationStatus?
+   onlineLabel                String?
+   onlineUrl                  String?
+   defaultDurationMinutes     Int?
+@@ -2673,11 +2703,14 @@ model Place {
+ 
+   owner      User?       @relation("OwnedPlaces", fields: [ownerId], references: [id], onDelete: Cascade)
+   planPlaces PlanPlace[] @relation("PlanPlaceSource")
++  presenceVerifications PlacePresenceVerification[] @relation("PlacePresenceVerificationSourcePlace")
+ 
+   @@index([ownerId, status, updatedAt])
+   @@index([source, status, visibility])
+   @@index([mode])
+   @@index([category])
++  @@index([googlePlaceId])
++  @@index([latitude, longitude])
+ }
+ 
+ 
+@@ -2735,6 +2768,7 @@ model Plan {
+   places       PlanPlace[]
+   participants PlanParticipant[]
+   publicMessages PlanPublicMessage[]
++  placePresenceVerifications PlacePresenceVerification[] @relation("PlacePresenceVerificationPlan")
+ 
+   @@index([status, startsAt])
+   @@index([ownerId, status, startsAt])
+@@ -2752,6 +2786,14 @@ model PlanPlace {
+   note               String?
+   addressPublicText  String?
+   addressPrivateText String?
++  googlePlaceId      String?
++  googlePlaceName    String?
++  formattedAddress   String?
++  googleMapsUri      String?
++  latitude           Float?
++  longitude          Float?
++  locationSource     PlaceLocationSource?
++  addressValidationStatus PlaceAddressValidationStatus?
+   onlineLabel        String?
+   onlineUrl          String?
+   startsAt           DateTime?
+@@ -2761,11 +2803,43 @@ model PlanPlace {
+ 
+   plan        Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+   sourcePlace Place? @relation("PlanPlaceSource", fields: [placeId], references: [id], onDelete: SetNull)
++  presenceVerifications PlacePresenceVerification[] @relation("PlacePresenceVerificationPlanPlace")
+ 
+   @@index([planId, order])
+   @@index([placeId])
+   @@index([mode])
+   @@index([startsAt])
++  @@index([googlePlaceId])
++  @@index([latitude, longitude])
++}
++
++model PlacePresenceVerification {
++  id                String                          @id @default(cuid())
++  userId            String
++  planId            String
++  planPlaceId       String
++  sourcePlaceId     String?
++  source            PlacePresenceVerificationSource @default(device_gps)
++  status            PlacePresenceVerificationStatus
++  latitudeRounded   Float?
++  longitudeRounded  Float?
++  accuracyMeters    Float?
++  distanceMeters    Float?
++  maxDistanceMeters Float?
++  rejectionReason   String?
++  verifiedAt        DateTime?
++  createdAt         DateTime                        @default(now())
++
++  user        User      @relation("PlacePresenceVerificationUser", fields: [userId], references: [id], onDelete: Cascade)
++  plan        Plan      @relation("PlacePresenceVerificationPlan", fields: [planId], references: [id], onDelete: Cascade)
++  planPlace   PlanPlace @relation("PlacePresenceVerificationPlanPlace", fields: [planPlaceId], references: [id], onDelete: Cascade)
++  sourcePlace Place?    @relation("PlacePresenceVerificationSourcePlace", fields: [sourcePlaceId], references: [id], onDelete: SetNull)
++
++  @@index([userId, status, verifiedAt])
++  @@index([planId, planPlaceId, status, verifiedAt])
++  @@index([planPlaceId, userId, status, verifiedAt])
++  @@index([sourcePlaceId, status, verifiedAt])
++  @@index([createdAt])
+ }
+ 
+ model PlanParticipant {
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 5045fb4..5088eef 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -143,6 +143,10 @@ export const env = {
+   googlePlacesDefaultLanguage: process.env.GOOGLE_PLACES_DEFAULT_LANGUAGE ?? 'en',
+   googlePlacesCountryCodes: parseCsv(process.env.GOOGLE_PLACES_COUNTRY_CODES).map((value) => value.toUpperCase()).filter((value) => /^[A-Z]{2}$/.test(value)),
+   googlePlacesRequestTimeoutMs: boundedInt(process.env.GOOGLE_PLACES_REQUEST_TIMEOUT_MS, 4500, 1000, 15000),
++  placePresenceVerificationEnabled: enabled(process.env.PLACE_PRESENCE_VERIFICATION_ENABLED),
++  placePresenceMaxDistanceMeters: boundedInt(process.env.PLACE_PRESENCE_MAX_DISTANCE_METERS, 100, 10, 1000),
++  placePresenceMaxAccuracyMeters: boundedInt(process.env.PLACE_PRESENCE_MAX_ACCURACY_METERS, 75, 5, 1000),
++  placePresenceVerificationCooldownHours: boundedInt(process.env.PLACE_PRESENCE_VERIFICATION_COOLDOWN_HOURS, 24, 0, 24 * 30),
+   resendApiKey: process.env.RESEND_API_KEY ?? '',
+   emailFrom: process.env.EMAIL_FROM ?? 'Hellowhen <support@mail.hellowhen.com>',
+   passwordResetTtlMinutes: Number(process.env.PASSWORD_RESET_TTL_MINUTES ?? 45),
+diff --git a/apps/api/src/modules/places/places.routes.ts b/apps/api/src/modules/places/places.routes.ts
+index 69f57d6..515890f 100644
+--- a/apps/api/src/modules/places/places.routes.ts
++++ b/apps/api/src/modules/places/places.routes.ts
+@@ -45,6 +45,8 @@ function placeSearchWhere(input: ReturnType<typeof listPlacesQuerySchema.parse>)
+         { title: { contains: input.q, mode: 'insensitive' as const } },
+         { description: { contains: input.q, mode: 'insensitive' as const } },
+         { areaLabel: { contains: input.q, mode: 'insensitive' as const } },
++        { addressPublicText: { contains: input.q, mode: 'insensitive' as const } },
++        { formattedAddress: { contains: input.q, mode: 'insensitive' as const } },
+       ],
+     } : {}),
+     ...(input.mode ? { mode: input.mode as any } : {}),
+@@ -131,6 +133,14 @@ function createPlaceData(ownerId: string, input: ReturnType<typeof createPlaceRe
+     areaLabel: input.areaLabel ?? null,
+     addressPublicText: input.addressPublicText ?? null,
+     addressPrivateText: input.addressPrivateText ?? null,
++    googlePlaceId: input.googlePlaceId ?? null,
++    googlePlaceName: input.googlePlaceName ?? null,
++    formattedAddress: input.formattedAddress ?? input.addressPublicText ?? null,
++    googleMapsUri: input.googleMapsUri ?? null,
++    latitude: input.latitude ?? null,
++    longitude: input.longitude ?? null,
++    locationSource: input.locationSource ?? (input.googlePlaceId ? 'google_places' : null),
++    addressValidationStatus: input.addressValidationStatus ?? (input.googlePlaceId ? 'confirmed' : null),
+     onlineLabel: input.onlineLabel ?? null,
+     onlineUrl: input.onlineUrl ?? null,
+     defaultDurationMinutes: input.defaultDurationMinutes ?? null,
+@@ -151,6 +161,14 @@ function updatePlaceData(input: ReturnType<typeof updatePlaceRequestSchema.parse
+     ...(input.areaLabel !== undefined ? { areaLabel: input.areaLabel ?? null } : {}),
+     ...(input.addressPublicText !== undefined ? { addressPublicText: input.addressPublicText ?? null } : {}),
+     ...(input.addressPrivateText !== undefined ? { addressPrivateText: input.addressPrivateText ?? null } : {}),
++    ...(input.googlePlaceId !== undefined ? { googlePlaceId: input.googlePlaceId ?? null } : {}),
++    ...(input.googlePlaceName !== undefined ? { googlePlaceName: input.googlePlaceName ?? null } : {}),
++    ...(input.formattedAddress !== undefined || input.addressPublicText !== undefined ? { formattedAddress: input.formattedAddress ?? input.addressPublicText ?? null } : {}),
++    ...(input.googleMapsUri !== undefined ? { googleMapsUri: input.googleMapsUri ?? null } : {}),
++    ...(input.latitude !== undefined ? { latitude: input.latitude ?? null } : {}),
++    ...(input.longitude !== undefined ? { longitude: input.longitude ?? null } : {}),
++    ...(input.locationSource !== undefined || input.googlePlaceId !== undefined ? { locationSource: input.locationSource ?? (input.googlePlaceId ? 'google_places' : null) } : {}),
++    ...(input.addressValidationStatus !== undefined || input.googlePlaceId !== undefined ? { addressValidationStatus: input.addressValidationStatus ?? (input.googlePlaceId ? 'confirmed' : null) } : {}),
+     ...(input.onlineLabel !== undefined ? { onlineLabel: input.onlineLabel ?? null } : {}),
+     ...(input.onlineUrl !== undefined ? { onlineUrl: input.onlineUrl ?? null } : {}),
+     ...(input.defaultDurationMinutes !== undefined ? { defaultDurationMinutes: input.defaultDurationMinutes ?? null } : {}),
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+index 6649f04..bac008f 100644
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -3,6 +3,7 @@ import {
+   PLAN_PLACE_MEDIA_LIMITS,
+   createPlanJoinRequestSchema,
+   createPlanPlaceRequestSchema,
++  createPlacePresenceVerificationRequestSchema,
+   createPlanPublicMessageRequestSchema,
+   createPlanRequestSchema,
+   listPlanPublicMessagesQuerySchema,
+@@ -14,8 +15,10 @@ import {
+   updatePlanRequestSchema,
+ } from '@hellowhen/contracts';
+ import { buildGeneratedPlanDisplay } from '@hellowhen/shared';
++import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
++import { createRateLimiter } from '../../middleware/rateLimit.js';
+ import { optionalAuth, requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { attachUploadedMediaToEntity, withMedia } from '../media/media.helpers.js';
+ import { stripAnonymousPublicProfileMedia } from '../users/publicUser.js';
+@@ -25,6 +28,13 @@ import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } f
+ 
+ export const plansRoutes = Router();
+ 
++const placePresenceVerificationRateLimit = createRateLimiter({
++  keyPrefix: 'place-presence-verification',
++  windowMs: 60_000,
++  max: 20,
++  message: 'Too many place verification attempts. Please wait and try again.',
++});
++
+ const publicPlanStatuses = ['open', 'full', 'started', 'cancelled'] as const;
+ const writablePlanDiscussionStatuses = ['open', 'full', 'started'] as const;
+ const userSummarySelect = {
+@@ -236,6 +246,88 @@ function canWritePlanPublicDiscussion(plan: { status: string }) {
+   return writablePlanDiscussionStatuses.includes(plan.status as any);
+ }
+ 
++
++const verificationPlanStatuses = ['open', 'full', 'started'] as const;
++const EARTH_RADIUS_METERS = 6_371_000;
++
++function degreesToRadians(value: number) {
++  return value * Math.PI / 180;
++}
++
++function distanceMetersBetween(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
++  const lat1 = degreesToRadians(a.latitude);
++  const lat2 = degreesToRadians(b.latitude);
++  const deltaLat = degreesToRadians(b.latitude - a.latitude);
++  const deltaLng = degreesToRadians(b.longitude - a.longitude);
++  const h = Math.sin(deltaLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
++  return 2 * EARTH_RADIUS_METERS * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
++}
++
++function roundCoordinate(value: number) {
++  return Math.round(value * 10_000) / 10_000;
++}
++
++function verificationCooldownStart() {
++  if (!env.placePresenceVerificationCooldownHours) return null;
++  return new Date(Date.now() - env.placePresenceVerificationCooldownHours * 60 * 60 * 1000);
++}
++
++function verificationResponse(verification: any, accepted: boolean, alreadyVerified = false) {
++  return {
++    verification,
++    accepted,
++    alreadyVerified,
++    distanceMeters: verification.distanceMeters ?? null,
++    maxDistanceMeters: verification.maxDistanceMeters ?? env.placePresenceMaxDistanceMeters,
++  };
++}
++
++async function loadPlanPlaceForPresenceVerification(planId: string, planPlaceId: string, userId: string) {
++  const plan = await prisma.plan.findUnique({
++    where: { id: planId },
++    select: {
++      id: true,
++      ownerId: true,
++      status: true,
++      owner: { select: { trustTier: true } },
++      places: {
++        where: { id: planPlaceId },
++        take: 1,
++        select: {
++          id: true,
++          placeId: true,
++          mode: true,
++          title: true,
++          latitude: true,
++          longitude: true,
++          sourcePlace: { select: { id: true, latitude: true, longitude: true } },
++        },
++      },
++      participants: { where: { userId }, select: { userId: true, status: true } },
++    },
++  });
++
++  if (!plan || plan.owner?.trustTier === 'restricted') return null;
++  if (!verificationPlanStatuses.includes(plan.status as any)) return null;
++  if (plan.ownerId !== userId && await usersHaveBlockBetween(userId, plan.ownerId)) return null;
++
++  const place = plan.places[0];
++  if (!place) return { error: 'place_not_found' as const };
++
++  const participant = plan.participants[0];
++  const canVerify = plan.ownerId === userId || participant?.status === 'accepted';
++  if (!canVerify) return { error: 'not_plan_participant' as const };
++
++  return { plan, place };
++}
++
++function placeCoordinatesForVerification(place: { latitude: number | null; longitude: number | null; sourcePlace?: { latitude: number | null; longitude: number | null } | null }) {
++  const latitude = typeof place.latitude === 'number' ? place.latitude : place.sourcePlace?.latitude;
++  const longitude = typeof place.longitude === 'number' ? place.longitude : place.sourcePlace?.longitude;
++  if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
++  return { latitude, longitude };
++}
++
+ function isCancelOnlyPlanUpdate(input: ReturnType<typeof updatePlanRequestSchema.parse>) {
+   const keys = Object.keys(input);
+   return keys.length === 1 && input.status === 'cancelled';
+@@ -364,6 +456,14 @@ function planPlaceSnapshotData(planId: string, input: ReturnType<typeof createPl
+     note: input.note ?? null,
+     addressPublicText: input.addressPublicText ?? reusablePlace?.addressPublicText ?? null,
+     addressPrivateText: input.addressPrivateText ?? reusablePlace?.addressPrivateText ?? null,
++    googlePlaceId: input.googlePlaceId ?? reusablePlace?.googlePlaceId ?? null,
++    googlePlaceName: input.googlePlaceName ?? reusablePlace?.googlePlaceName ?? null,
++    formattedAddress: input.formattedAddress ?? reusablePlace?.formattedAddress ?? input.addressPublicText ?? reusablePlace?.formattedAddress ?? reusablePlace?.addressPublicText ?? null,
++    googleMapsUri: input.googleMapsUri ?? reusablePlace?.googleMapsUri ?? null,
++    latitude: input.latitude ?? reusablePlace?.latitude ?? null,
++    longitude: input.longitude ?? reusablePlace?.longitude ?? null,
++    locationSource: input.locationSource ?? reusablePlace?.locationSource ?? (input.googlePlaceId || reusablePlace?.googlePlaceId ? 'google_places' : null),
++    addressValidationStatus: input.addressValidationStatus ?? reusablePlace?.addressValidationStatus ?? (input.googlePlaceId || reusablePlace?.googlePlaceId ? 'confirmed' : null),
+     onlineLabel: input.onlineLabel ?? reusablePlace?.onlineLabel ?? null,
+     onlineUrl: input.onlineUrl ?? reusablePlace?.onlineUrl ?? null,
+     startsAt: input.startsAt ? new Date(input.startsAt) : null,
+@@ -395,6 +495,14 @@ async function placeUpdateData(ownerId: string, input: ReturnType<typeof updateP
+     ...(input.note !== undefined ? { note: input.note ?? null } : {}),
+     ...(input.addressPublicText !== undefined || reusablePlace ? { addressPublicText: input.addressPublicText ?? snapshot?.addressPublicText ?? null } : {}),
+     ...(input.addressPrivateText !== undefined || reusablePlace ? { addressPrivateText: input.addressPrivateText ?? snapshot?.addressPrivateText ?? null } : {}),
++    ...(input.googlePlaceId !== undefined || reusablePlace ? { googlePlaceId: input.googlePlaceId ?? snapshot?.googlePlaceId ?? null } : {}),
++    ...(input.googlePlaceName !== undefined || reusablePlace ? { googlePlaceName: input.googlePlaceName ?? snapshot?.googlePlaceName ?? null } : {}),
++    ...(input.formattedAddress !== undefined || input.addressPublicText !== undefined || reusablePlace ? { formattedAddress: input.formattedAddress ?? input.addressPublicText ?? snapshot?.formattedAddress ?? null } : {}),
++    ...(input.googleMapsUri !== undefined || reusablePlace ? { googleMapsUri: input.googleMapsUri ?? snapshot?.googleMapsUri ?? null } : {}),
++    ...(input.latitude !== undefined || reusablePlace ? { latitude: input.latitude ?? snapshot?.latitude ?? null } : {}),
++    ...(input.longitude !== undefined || reusablePlace ? { longitude: input.longitude ?? snapshot?.longitude ?? null } : {}),
++    ...(input.locationSource !== undefined || input.googlePlaceId !== undefined || reusablePlace ? { locationSource: input.locationSource ?? snapshot?.locationSource ?? (input.googlePlaceId ? 'google_places' : null) } : {}),
++    ...(input.addressValidationStatus !== undefined || input.googlePlaceId !== undefined || reusablePlace ? { addressValidationStatus: input.addressValidationStatus ?? snapshot?.addressValidationStatus ?? (input.googlePlaceId ? 'confirmed' : null) } : {}),
+     ...(input.onlineLabel !== undefined || reusablePlace ? { onlineLabel: input.onlineLabel ?? snapshot?.onlineLabel ?? null } : {}),
+     ...(input.onlineUrl !== undefined || reusablePlace ? { onlineUrl: input.onlineUrl ?? snapshot?.onlineUrl ?? null } : {}),
+     ...(input.startsAt !== undefined ? { startsAt: input.startsAt ? new Date(input.startsAt) : null } : {}),
+@@ -587,6 +695,98 @@ plansRoutes.patch('/:planId/places/:placeId', requireAuth, requireActiveAccount,
+   res.json({ plan: await decoratePlan(updated, req.user!.id) });
+ }));
+ 
++
++plansRoutes.post('/:planId/places/:placeId/verify-presence', requireAuth, requireActiveAccount, placePresenceVerificationRateLimit, asyncRoute(async (req, res) => {
++  if (!env.placePresenceVerificationEnabled) {
++    return res.status(503).json({ error: 'place_presence_verification_disabled', message: 'Place presence verification is not enabled yet.' });
++  }
++
++  const input = createPlacePresenceVerificationRequestSchema.parse(req.body ?? {});
++  const planId = req.params.planId;
++  const planPlaceId = req.params.placeId;
++  if (!planId || !planPlaceId) return res.status(400).json({ error: 'missing_plan_place' });
++
++  const loaded = await loadPlanPlaceForPresenceVerification(planId, planPlaceId, req.user!.id);
++  if (!loaded) return res.status(404).json({ error: 'not_found' });
++  if ('error' in loaded) {
++    if (loaded.error === 'not_plan_participant') return res.status(403).json({ error: loaded.error, message: 'Join this plan before verifying your presence at its offline places.' });
++    return res.status(404).json({ error: loaded.error });
++  }
++
++  const { plan, place } = loaded;
++  if (place.mode !== 'local') {
++    return res.status(409).json({ error: 'not_offline_place', message: 'Only offline places can be verified with device location.' });
++  }
++
++  const target = placeCoordinatesForVerification(place);
++  if (!target) {
++    return res.status(409).json({ error: 'place_location_missing', message: 'This place does not have a verified location yet.' });
++  }
++
++  const cooldownStart = verificationCooldownStart();
++  if (cooldownStart) {
++    const existing = await (prisma as any).placePresenceVerification.findFirst({
++      where: {
++        userId: req.user!.id,
++        planPlaceId: place.id,
++        status: 'verified',
++        verifiedAt: { gte: cooldownStart },
++      },
++      orderBy: { verifiedAt: 'desc' },
++    });
++    if (existing) return res.json(verificationResponse(existing, true, true));
++  }
++
++  const distanceMeters = distanceMetersBetween(input, target);
++  const accuracyMeters = input.accuracyMeters ?? null;
++  const accuracyOk = accuracyMeters === null || accuracyMeters <= env.placePresenceMaxAccuracyMeters;
++  const distanceOk = distanceMeters <= env.placePresenceMaxDistanceMeters;
++  const accepted = accuracyOk && distanceOk;
++  const rejectionReason = accepted
++    ? null
++    : !accuracyOk
++      ? 'gps_accuracy_too_low'
++      : 'too_far_from_place';
++
++  const verification = await (prisma as any).placePresenceVerification.create({
++    data: {
++      userId: req.user!.id,
++      planId: plan.id,
++      planPlaceId: place.id,
++      sourcePlaceId: place.placeId ?? null,
++      source: 'device_gps',
++      status: accepted ? 'verified' : 'rejected',
++      latitudeRounded: roundCoordinate(input.latitude),
++      longitudeRounded: roundCoordinate(input.longitude),
++      accuracyMeters,
++      distanceMeters,
++      maxDistanceMeters: env.placePresenceMaxDistanceMeters,
++      rejectionReason,
++      verifiedAt: accepted ? new Date() : null,
++    },
++  });
++
++  return res.status(accepted ? 201 : 409).json(verificationResponse(verification, accepted));
++}));
++
++plansRoutes.get('/place-verifications/summary', requireAuth, asyncRoute(async (req, res) => {
++  const [totalVerifiedCheckIns, lastVerified, verifiedPlaces, verifiedPlans] = await Promise.all([
++    (prisma as any).placePresenceVerification.count({ where: { userId: req.user!.id, status: 'verified' } }),
++    (prisma as any).placePresenceVerification.findFirst({ where: { userId: req.user!.id, status: 'verified' }, orderBy: { verifiedAt: 'desc' }, select: { verifiedAt: true } }),
++    (prisma as any).placePresenceVerification.findMany({ where: { userId: req.user!.id, status: 'verified' }, distinct: ['planPlaceId'], select: { planPlaceId: true } }),
++    (prisma as any).placePresenceVerification.findMany({ where: { userId: req.user!.id, status: 'verified' }, distinct: ['planId'], select: { planId: true } }),
++  ]);
++
++  res.json({
++    summary: {
++      verifiedPlacesCount: verifiedPlaces.length,
++      verifiedPlansCount: verifiedPlans.length,
++      totalVerifiedCheckIns,
++      lastVerifiedAt: lastVerified?.verifiedAt?.toISOString?.() ?? null,
++    },
++  });
++}));
++
+ plansRoutes.post('/:planId/join', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+   const planId = req.params.planId;
+   if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index a2a56c3..c434d36 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, ListInventoryFoldersQuery, CreateInventoryFolderRequest, UpdateInventoryFolderRequest, AddInventoryFolderItemRequest, InventoryFoldersResponse, InventoryFolderResponse, InventoryFolderItemResponse, CreateSavedItemRequest, SavedItemStatusQuery, ListSavedItemsQuery, CreateSavedCollectionRequest, UpdateSavedCollectionRequest, AddSavedCollectionItemRequest, SavedItemsResponse, SavedItemResponse, SavedItemStatusResponse, SavedCollectionsResponse, SavedCollectionResponse, SavedCollectionItemResponse, ListAgendaItemsQuery, AgendaIcsExportQuery, CreateAgendaItemRequest, UpdateAgendaItemRequest, AgendaItemsResponse, AgendaItemResponse, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, CreateDealProblemReportRequest, AdminReportActionRequest, AdminPlaceActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlaceRequest, UpdatePlaceRequest, ListPlacesQuery, PlaceResponse, PlacesResponse, GooglePlaceSearchQuery, GooglePlaceSearchResponse, GooglePlaceDetailsQuery, GooglePlaceDetailsResponse, GoogleAddressValidationRequest, GoogleAddressValidationResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, CreatePlanPublicMessageRequest, UpdatePlanPublicMessageRequest, ListPlanPublicMessagesQuery, PlanPublicMessagesResponse, PlanPublicMessageResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery, PlusSubscriptionSnapshotResponse, AdminPlusGrantRequest, AdminPlusUsersResponse, AdminPlusGrantResponse, AdminPlusAiAssistUsageResponse, AiAssistRequest, AiAssistResponse, ListTradeSearchSuggestionsQuery, RecordTradeSearchKeywordRequest, TradeSearchSuggestionsResponse, TradeSearchKeywordResponse, CreateMembershipCheckoutSessionRequest, MembershipCheckoutSessionResponse, MembershipCustomerPortalSessionResponse, SyncAppleStoreKitPurchaseRequest, AppleStoreKitSyncResponse, GooglePlayPurchaseSyncRequest, GooglePlaySyncResponse } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, ListInventoryFoldersQuery, CreateInventoryFolderRequest, UpdateInventoryFolderRequest, AddInventoryFolderItemRequest, InventoryFoldersResponse, InventoryFolderResponse, InventoryFolderItemResponse, CreateSavedItemRequest, SavedItemStatusQuery, ListSavedItemsQuery, CreateSavedCollectionRequest, UpdateSavedCollectionRequest, AddSavedCollectionItemRequest, SavedItemsResponse, SavedItemResponse, SavedItemStatusResponse, SavedCollectionsResponse, SavedCollectionResponse, SavedCollectionItemResponse, ListAgendaItemsQuery, AgendaIcsExportQuery, CreateAgendaItemRequest, UpdateAgendaItemRequest, AgendaItemsResponse, AgendaItemResponse, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, CreateDealProblemReportRequest, AdminReportActionRequest, AdminPlaceActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlaceRequest, UpdatePlaceRequest, ListPlacesQuery, PlaceResponse, PlacesResponse, GooglePlaceSearchQuery, GooglePlaceSearchResponse, GooglePlaceDetailsQuery, GooglePlaceDetailsResponse, GoogleAddressValidationRequest, GoogleAddressValidationResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, CreatePlanPublicMessageRequest, UpdatePlanPublicMessageRequest, ListPlanPublicMessagesQuery, PlanPublicMessagesResponse, PlanPublicMessageResponse, CreatePlacePresenceVerificationRequest, PlacePresenceVerificationResponse, PlacePresenceVerificationSummaryResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery, PlusSubscriptionSnapshotResponse, AdminPlusGrantRequest, AdminPlusUsersResponse, AdminPlusGrantResponse, AdminPlusAiAssistUsageResponse, AiAssistRequest, AiAssistResponse, ListTradeSearchSuggestionsQuery, RecordTradeSearchKeywordRequest, TradeSearchSuggestionsResponse, TradeSearchKeywordResponse, CreateMembershipCheckoutSessionRequest, MembershipCheckoutSessionResponse, MembershipCustomerPortalSessionResponse, SyncAppleStoreKitPurchaseRequest, AppleStoreKitSyncResponse, GooglePlayPurchaseSyncRequest, GooglePlaySyncResponse } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, requestText, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -74,7 +74,7 @@ export function createApiClient(options: ApiClientOptions) {
+     saved: { list: (query?: ListSavedItemsQuery) => requestJson<SavedItemsResponse>(options, `/saved${buildQueryString(query as Record<string, unknown> | undefined)}`), create: (body: CreateSavedItemRequest) => requestJson<SavedItemResponse>(options, '/saved', { method: 'POST', body: JSON.stringify(body) }), remove: (savedItemId: string) => requestJson<void>(options, `/saved/${savedItemId}`, { method: 'DELETE' }), status: (query: SavedItemStatusQuery) => requestJson<SavedItemStatusResponse>(options, `/saved/status${buildQueryString(query as Record<string, unknown>)}`), collections: () => requestJson<SavedCollectionsResponse>(options, '/saved/collections'), createCollection: (body: CreateSavedCollectionRequest) => requestJson<SavedCollectionResponse>(options, '/saved/collections', { method: 'POST', body: JSON.stringify(body) }), updateCollection: (collectionId: string, body: UpdateSavedCollectionRequest) => requestJson<SavedCollectionResponse>(options, `/saved/collections/${collectionId}`, { method: 'PATCH', body: JSON.stringify(body) }), removeCollection: (collectionId: string) => requestJson<void>(options, `/saved/collections/${collectionId}`, { method: 'DELETE' }), addCollectionItem: (collectionId: string, body: AddSavedCollectionItemRequest) => requestJson<SavedCollectionItemResponse>(options, `/saved/collections/${collectionId}/items`, { method: 'POST', body: JSON.stringify(body) }), removeCollectionItem: (collectionId: string, savedItemId: string) => requestJson<void>(options, `/saved/collections/${collectionId}/items/${savedItemId}`, { method: 'DELETE' }) },
+     agenda: { list: (query?: ListAgendaItemsQuery) => requestJson<AgendaItemsResponse>(options, `/agenda${buildQueryString(query as Record<string, unknown> | undefined)}`), exportIcs: (query?: AgendaIcsExportQuery) => requestText(options, `/agenda/ics${buildQueryString(query as Record<string, unknown> | undefined)}`), exportItemIcs: (itemId: string) => requestText(options, `/agenda/${itemId}/ics`), create: (body: CreateAgendaItemRequest) => requestJson<AgendaItemResponse>(options, '/agenda', { method: 'POST', body: JSON.stringify(body) }), update: (itemId: string, body: UpdateAgendaItemRequest) => requestJson<AgendaItemResponse>(options, `/agenda/${itemId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (itemId: string) => requestJson<void>(options, `/agenda/${itemId}`, { method: 'DELETE' }) },
+     users: { publicProfile: (userId: string) => requestJson<PublicProfileResponse>(options, `/users/${userId}/public-profile`), publicProfileByUsername: (username: string) => requestJson<PublicProfileResponse>(options, `/users/by-username/${encodeURIComponent(username)}/public-profile`), blocked: () => requestJson<UserBlocksResponse>(options, '/users/blocked'), block: (userId: string, body?: CreateUserBlockRequest) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'POST', body: JSON.stringify(body ?? {}) }), unblock: (userId: string) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'DELETE' }) },
+-    plans: { feed: (query?: ListPlansQuery) => requestJson<PlansResponse>(options, `/plans/feed${buildQueryString(query as Record<string, unknown> | undefined)}`), mine: () => requestJson<PlansResponse>(options, '/plans/mine'), joined: () => requestJson<PlansResponse>(options, '/plans/joined'), get: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`), create: (body: CreatePlanRequest) => requestJson<PlanResponse>(options, '/plans', { method: 'POST', body: JSON.stringify(body) }), update: (planId: string, body: UpdatePlanRequest) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'PATCH', body: JSON.stringify(body) }), createPlace: (planId: string, body: CreatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places`, { method: 'POST', body: JSON.stringify(body) }), updatePlace: (planId: string, placeId: string, body: UpdatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places/${placeId}`, { method: 'PATCH', body: JSON.stringify(body) }), join: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join`, { method: 'POST', body: JSON.stringify(body ?? {}) }), leave: (planId: string) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/leave`, { method: 'POST' }), requestJoin: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests`, { method: 'POST', body: JSON.stringify(body ?? {}) }), joinRequests: (planId: string) => requestJson<PlanParticipantsResponse>(options, `/plans/${planId}/join-requests`), updateJoinRequest: (planId: string, participantId: string, body: UpdatePlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests/${participantId}`, { method: 'PATCH', body: JSON.stringify(body) }), updateMyJoinRequest: (planId: string, body: UpdateMyPlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/my-join-request`, { method: 'PATCH', body: JSON.stringify(body) }), publicMessages: (planId: string, query?: ListPlanPublicMessagesQuery) => requestJson<PlanPublicMessagesResponse>(options, `/plans/${planId}/public-messages${buildQueryString(query as Record<string, unknown> | undefined)}`), sendPublicMessage: (planId: string, body: CreatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages`, { method: 'POST', body: JSON.stringify(body) }), updatePublicMessage: (planId: string, messageId: string, body: UpdatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePublicMessage: (planId: string, messageId: string) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'DELETE' }) },
++    plans: { feed: (query?: ListPlansQuery) => requestJson<PlansResponse>(options, `/plans/feed${buildQueryString(query as Record<string, unknown> | undefined)}`), mine: () => requestJson<PlansResponse>(options, '/plans/mine'), joined: () => requestJson<PlansResponse>(options, '/plans/joined'), get: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`), create: (body: CreatePlanRequest) => requestJson<PlanResponse>(options, '/plans', { method: 'POST', body: JSON.stringify(body) }), update: (planId: string, body: UpdatePlanRequest) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'PATCH', body: JSON.stringify(body) }), createPlace: (planId: string, body: CreatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places`, { method: 'POST', body: JSON.stringify(body) }), updatePlace: (planId: string, placeId: string, body: UpdatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places/${placeId}`, { method: 'PATCH', body: JSON.stringify(body) }), join: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join`, { method: 'POST', body: JSON.stringify(body ?? {}) }), leave: (planId: string) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/leave`, { method: 'POST' }), requestJoin: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests`, { method: 'POST', body: JSON.stringify(body ?? {}) }), joinRequests: (planId: string) => requestJson<PlanParticipantsResponse>(options, `/plans/${planId}/join-requests`), updateJoinRequest: (planId: string, participantId: string, body: UpdatePlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests/${participantId}`, { method: 'PATCH', body: JSON.stringify(body) }), updateMyJoinRequest: (planId: string, body: UpdateMyPlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/my-join-request`, { method: 'PATCH', body: JSON.stringify(body) }), publicMessages: (planId: string, query?: ListPlanPublicMessagesQuery) => requestJson<PlanPublicMessagesResponse>(options, `/plans/${planId}/public-messages${buildQueryString(query as Record<string, unknown> | undefined)}`), sendPublicMessage: (planId: string, body: CreatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages`, { method: 'POST', body: JSON.stringify(body) }), updatePublicMessage: (planId: string, messageId: string, body: UpdatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePublicMessage: (planId: string, messageId: string) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'DELETE' }), verifyPlacePresence: (planId: string, planPlaceId: string, body: CreatePlacePresenceVerificationRequest) => requestJson<PlacePresenceVerificationResponse>(options, `/plans/${planId}/places/${planPlaceId}/verify-presence`, { method: 'POST', body: JSON.stringify(body) }), placeVerificationSummary: () => requestJson<PlacePresenceVerificationSummaryResponse>(options, '/plans/place-verifications/summary') },
+     reports: { create: (body: CreateReportRequest) => requestJson(options, '/reports', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/reports/mine') },
+     usage: { heartbeat: (body: UsageHeartbeatRequest) => requestJson<void>(options, '/usage/heartbeat', { method: 'POST', body: JSON.stringify(body) }) },
+ 
+diff --git a/packages/contracts/src/plans.ts b/packages/contracts/src/plans.ts
+index be7c25f..f5bec8b 100644
+--- a/packages/contracts/src/plans.ts
++++ b/packages/contracts/src/plans.ts
+@@ -12,6 +12,11 @@ export const placeStatusSchema = z.enum(['draft', 'active', 'archived', 'hidden'
+ export const placeVisibilitySchema = z.enum(['private', 'public', 'library']);
+ export const planPlaceSourceSchema = z.enum(['custom', 'my_place', 'hellowhen_library']);
+ 
++export const placeLocationSourceSchema = z.enum(['manual', 'google_places']);
++export const placeAddressValidationStatusSchema = z.enum(['confirmed', 'needs_review', 'unsupported']);
++export const placePresenceVerificationSourceSchema = z.enum(['device_gps']);
++export const placePresenceVerificationStatusSchema = z.enum(['verified', 'rejected']);
++
+ export const googlePlaceValidationStatusSchema = z.enum(['confirmed', 'needs_review', 'unsupported']);
+ export const googlePlaceAddressComponentSchema = z.object({
+   longText: z.string().nullable().optional(),
+@@ -95,6 +100,14 @@ const reusablePlaceInputBaseSchema = z.object({
+   areaLabel: z.string().trim().min(1).max(160).optional(),
+   addressPublicText: z.string().trim().min(1).max(240).optional(),
+   addressPrivateText: z.string().trim().min(1).max(240).optional(),
++  googlePlaceId: z.string().trim().min(3).max(240).optional(),
++  googlePlaceName: z.string().trim().min(1).max(160).optional(),
++  formattedAddress: z.string().trim().min(1).max(300).optional(),
++  googleMapsUri: z.string().trim().url().max(500).optional(),
++  latitude: z.number().min(-90).max(90).optional(),
++  longitude: z.number().min(-180).max(180).optional(),
++  locationSource: placeLocationSourceSchema.optional(),
++  addressValidationStatus: placeAddressValidationStatusSchema.optional(),
+   onlineLabel: z.string().trim().min(1).max(120).optional(),
+   onlineUrl: z.string().trim().url().max(500).optional(),
+   defaultDurationMinutes: z.number().int().min(5).max(24 * 60).optional(),
+@@ -132,6 +145,14 @@ const planPlaceInputBaseSchema = z.object({
+   note: z.string().trim().min(1).max(1000).optional(),
+   addressPublicText: z.string().trim().min(1).max(240).optional(),
+   addressPrivateText: z.string().trim().min(1).max(240).optional(),
++  googlePlaceId: z.string().trim().min(3).max(240).optional(),
++  googlePlaceName: z.string().trim().min(1).max(160).optional(),
++  formattedAddress: z.string().trim().min(1).max(300).optional(),
++  googleMapsUri: z.string().trim().url().max(500).optional(),
++  latitude: z.number().min(-90).max(90).optional(),
++  longitude: z.number().min(-180).max(180).optional(),
++  locationSource: placeLocationSourceSchema.optional(),
++  addressValidationStatus: placeAddressValidationStatusSchema.optional(),
+   onlineLabel: z.string().trim().min(1).max(120).optional(),
+   onlineUrl: z.string().trim().url().max(500).optional(),
+   startsAt: z.string().datetime().optional(),
+@@ -273,6 +294,12 @@ export const listPlanPublicMessagesQuerySchema = z.object({
+   before: z.string().datetime().optional(),
+ });
+ 
++export const createPlacePresenceVerificationRequestSchema = z.object({
++  latitude: z.number().min(-90).max(90),
++  longitude: z.number().min(-180).max(180),
++  accuracyMeters: z.number().positive().max(10_000).optional(),
++});
++
+ const publicUserSummarySchema = z.object({
+   id: z.string(),
+   profile: z.object({
+@@ -299,6 +326,14 @@ export const placeSchema = z.object({
+   areaLabel: z.string().nullable().optional(),
+   addressPublicText: z.string().nullable().optional(),
+   addressPrivateText: z.string().nullable().optional(),
++  googlePlaceId: z.string().nullable().optional(),
++  googlePlaceName: z.string().nullable().optional(),
++  formattedAddress: z.string().nullable().optional(),
++  googleMapsUri: z.string().nullable().optional(),
++  latitude: z.number().nullable().optional(),
++  longitude: z.number().nullable().optional(),
++  locationSource: placeLocationSourceSchema.nullable().optional(),
++  addressValidationStatus: placeAddressValidationStatusSchema.nullable().optional(),
+   onlineLabel: z.string().nullable().optional(),
+   onlineUrl: z.string().nullable().optional(),
+   defaultDurationMinutes: z.number().int().nullable().optional(),
+@@ -323,6 +358,14 @@ export const planPlaceSchema = z.object({
+   note: z.string().nullable().optional(),
+   addressPublicText: z.string().nullable().optional(),
+   addressPrivateText: z.string().nullable().optional(),
++  googlePlaceId: z.string().nullable().optional(),
++  googlePlaceName: z.string().nullable().optional(),
++  formattedAddress: z.string().nullable().optional(),
++  googleMapsUri: z.string().nullable().optional(),
++  latitude: z.number().nullable().optional(),
++  longitude: z.number().nullable().optional(),
++  locationSource: placeLocationSourceSchema.nullable().optional(),
++  addressValidationStatus: placeAddressValidationStatusSchema.nullable().optional(),
+   onlineLabel: z.string().nullable().optional(),
+   onlineUrl: z.string().nullable().optional(),
+   startsAt: z.string().nullable().optional(),
+@@ -362,6 +405,41 @@ export const planPublicMessageSchema = z.object({
+   author: publicUserSummarySchema.optional(),
+ }).passthrough();
+ 
++export const placePresenceVerificationSchema = z.object({
++  id: z.string(),
++  userId: z.string(),
++  planId: z.string(),
++  planPlaceId: z.string(),
++  sourcePlaceId: z.string().nullable().optional(),
++  source: placePresenceVerificationSourceSchema,
++  status: placePresenceVerificationStatusSchema,
++  latitudeRounded: z.number().nullable().optional(),
++  longitudeRounded: z.number().nullable().optional(),
++  accuracyMeters: z.number().nullable().optional(),
++  distanceMeters: z.number().nullable().optional(),
++  maxDistanceMeters: z.number().nullable().optional(),
++  rejectionReason: z.string().nullable().optional(),
++  verifiedAt: z.string().nullable().optional(),
++  createdAt: z.string(),
++}).passthrough();
++
++export const placePresenceVerificationResponseSchema = z.object({
++  verification: placePresenceVerificationSchema,
++  accepted: z.boolean(),
++  alreadyVerified: z.boolean().optional(),
++  distanceMeters: z.number().nullable().optional(),
++  maxDistanceMeters: z.number().optional(),
++});
++
++export const placePresenceVerificationSummaryResponseSchema = z.object({
++  summary: z.object({
++    verifiedPlacesCount: z.number().int().nonnegative(),
++    verifiedPlansCount: z.number().int().nonnegative(),
++    totalVerifiedCheckIns: z.number().int().nonnegative(),
++    lastVerifiedAt: z.string().nullable().optional(),
++  }),
++});
++
+ export const planPublicMessagesResponseSchema = z.object({ messages: z.array(planPublicMessageSchema) });
+ export const planPublicMessageResponseSchema = z.object({ message: planPublicMessageSchema });
+ 
+@@ -407,6 +485,10 @@ export type PlaceSource = z.infer<typeof placeSourceSchema>;
+ export type PlaceStatus = z.infer<typeof placeStatusSchema>;
+ export type PlaceVisibility = z.infer<typeof placeVisibilitySchema>;
+ export type PlanPlaceSource = z.infer<typeof planPlaceSourceSchema>;
++export type PlaceLocationSource = z.infer<typeof placeLocationSourceSchema>;
++export type PlaceAddressValidationStatus = z.infer<typeof placeAddressValidationStatusSchema>;
++export type PlacePresenceVerificationSource = z.infer<typeof placePresenceVerificationSourceSchema>;
++export type PlacePresenceVerificationStatus = z.infer<typeof placePresenceVerificationStatusSchema>;
+ export type GooglePlaceValidationStatus = z.infer<typeof googlePlaceValidationStatusSchema>;
+ export type GooglePlacePrediction = z.infer<typeof googlePlacePredictionSchema>;
+ export type GoogleResolvedPlace = z.infer<typeof googleResolvedPlaceSchema>;
+@@ -439,12 +521,14 @@ export type UpdateMyPlanParticipantRequest = z.infer<typeof updateMyPlanParticip
+ export type CreatePlanPublicMessageRequest = z.infer<typeof createPlanPublicMessageRequestSchema>;
+ export type UpdatePlanPublicMessageRequest = z.infer<typeof updatePlanPublicMessageRequestSchema>;
+ export type ListPlanPublicMessagesQuery = z.infer<typeof listPlanPublicMessagesQuerySchema>;
++export type CreatePlacePresenceVerificationRequest = z.infer<typeof createPlacePresenceVerificationRequestSchema>;
+ export type PlaceDto = z.infer<typeof placeSchema>;
+ export type PlanDto = z.infer<typeof planSchema>;
+ export type PlanPlaceDto = z.infer<typeof planPlaceSchema>;
+ export type PlanParticipantDto = z.infer<typeof planParticipantSchema>;
+ export type PlanPublicMessageStatus = z.infer<typeof planPublicMessageStatusSchema>;
+ export type PlanPublicMessageDto = z.infer<typeof planPublicMessageSchema>;
++export type PlacePresenceVerificationDto = z.infer<typeof placePresenceVerificationSchema>;
+ export type PlaceResponse = z.infer<typeof placeResponseSchema>;
+ export type PlacesResponse = z.infer<typeof placesResponseSchema>;
+ export type PlanResponse = z.infer<typeof planResponseSchema>;
+@@ -453,3 +537,5 @@ export type PlanParticipantResponse = z.infer<typeof planParticipantResponseSche
+ export type PlanParticipantsResponse = z.infer<typeof planParticipantsResponseSchema>;
+ export type PlanPublicMessagesResponse = z.infer<typeof planPublicMessagesResponseSchema>;
+ export type PlanPublicMessageResponse = z.infer<typeof planPublicMessageResponseSchema>;
++export type PlacePresenceVerificationResponse = z.infer<typeof placePresenceVerificationResponseSchema>;
++export type PlacePresenceVerificationSummaryResponse = z.infer<typeof placePresenceVerificationSummaryResponseSchema>;

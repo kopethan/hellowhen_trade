@@ -10,6 +10,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { mediaSrc, normalizeMediaUpload } from '../inventory/inventoryPresentation';
+import { GooglePlacePicker } from './GooglePlacePicker';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
 
 type PlaceCreateClientProps = {
@@ -389,10 +390,15 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
                     </label>
                   </div>
                 ) : (
-                  <label>
-                    <span>Area / address</span>
-                    <input value={state.location} onChange={(event) => setState((current) => ({ ...current, location: event.target.value }))} maxLength={240} placeholder="Paris 11 or a public spot" />
-                  </label>
+                  <GooglePlacePicker
+                    value={state.location}
+                    onValueChange={(location) => setState((current) => ({ ...current, location }))}
+                    disabled={saving || uploading}
+                    label="Search address or place"
+                    placeholder="Café, park, address, station..."
+                    helperText="Choose a Google suggestion when possible. Hellowhen will save the confirmed public address text for this Place."
+                    languageCode={state.defaultLanguage}
+                  />
                 )}
                 <label className="place-description-field">
                   <span>Description <small>Optional</small></span>

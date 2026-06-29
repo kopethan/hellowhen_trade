@@ -3,6 +3,7 @@ import {
   PLAN_PLACE_MEDIA_LIMITS,
   createPlanJoinRequestSchema,
   createPlanPlaceRequestSchema,
+  createPlacePresenceVerificationRequestSchema,
   createPlanPublicMessageRequestSchema,
   createPlanRequestSchema,
   listPlanPublicMessagesQuerySchema,
@@ -14,8 +15,10 @@ import {
   updatePlanRequestSchema,
 } from '@hellowhen/contracts';
 import { buildGeneratedPlanDisplay } from '@hellowhen/shared';
+import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
+import { createRateLimiter } from '../../middleware/rateLimit.js';
 import { optionalAuth, requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { attachUploadedMediaToEntity, withMedia } from '../media/media.helpers.js';
 import { stripAnonymousPublicProfileMedia } from '../users/publicUser.js';
@@ -24,6 +27,13 @@ import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
 import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
 
 export const plansRoutes = Router();
+
+const placePresenceVerificationRateLimit = createRateLimiter({
+  keyPrefix: 'place-presence-verification',
+  windowMs: 60_000,
+  max: 20,
+  message: 'Too many place verification attempts. Please wait and try again.',
+});
 
 const publicPlanStatuses = ['open', 'full', 'started', 'cancelled'] as const;
 const writablePlanDiscussionStatuses = ['open', 'full', 'started'] as const;
@@ -236,6 +246,189 @@ function canWritePlanPublicDiscussion(plan: { status: string }) {
   return writablePlanDiscussionStatuses.includes(plan.status as any);
 }
 
+
+const verificationPlanStatuses = ['open', 'full', 'started'] as const;
+const EARTH_RADIUS_METERS = 6_371_000;
+const PLACE_PRESENCE_ATTEMPT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const MIN_SECONDS_FOR_TRAVEL_SPEED_CHECK = 60;
+
+function degreesToRadians(value: number) {
+  return value * Math.PI / 180;
+}
+
+function distanceMetersBetween(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
+  const lat1 = degreesToRadians(a.latitude);
+  const lat2 = degreesToRadians(b.latitude);
+  const deltaLat = degreesToRadians(b.latitude - a.latitude);
+  const deltaLng = degreesToRadians(b.longitude - a.longitude);
+  const h = Math.sin(deltaLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
+  return 2 * EARTH_RADIUS_METERS * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function roundCoordinate(value: number) {
+  return Math.round(value * 10_000) / 10_000;
+}
+
+function verificationCooldownStart() {
+  if (!env.placePresenceVerificationCooldownHours) return null;
+  return new Date(Date.now() - env.placePresenceVerificationCooldownHours * 60 * 60 * 1000);
+}
+
+function verificationResponse(verification: any, accepted: boolean, alreadyVerified = false) {
+  return {
+    verification,
+    accepted,
+    alreadyVerified,
+    distanceMeters: verification.distanceMeters ?? null,
+    maxDistanceMeters: verification.maxDistanceMeters ?? env.placePresenceMaxDistanceMeters,
+  };
+}
+
+function parseLocationCapturedAt(value?: string | null) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+}
+
+function locationTimestampRejectionReason(capturedAt: Date | null, now = new Date()) {
+  if (!capturedAt) return null;
+  const ageSeconds = (now.getTime() - capturedAt.getTime()) / 1000;
+  if (env.placePresenceMaxLocationAgeSeconds && ageSeconds > env.placePresenceMaxLocationAgeSeconds) return 'location_timestamp_stale';
+  if (env.placePresenceMaxFutureLocationSeconds && ageSeconds < -env.placePresenceMaxFutureLocationSeconds) return 'location_timestamp_future';
+  return null;
+}
+
+function attemptWindowStart(now = new Date()) {
+  return new Date(now.getTime() - PLACE_PRESENCE_ATTEMPT_WINDOW_MS);
+}
+
+async function enforcePresenceAttemptLimits(userId: string, now = new Date()) {
+  const windowStart = attemptWindowStart(now);
+  const [lastAttempt, dailyAttempts, dailyRejectedAttempts] = await Promise.all([
+    (prisma as any).placePresenceVerification.findFirst({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    }),
+    (prisma as any).placePresenceVerification.count({ where: { userId, createdAt: { gte: windowStart } } }),
+    (prisma as any).placePresenceVerification.count({ where: { userId, status: 'rejected', createdAt: { gte: windowStart } } }),
+  ]);
+
+  if (env.placePresenceMinSecondsBetweenAttempts && lastAttempt?.createdAt) {
+    const elapsedSeconds = (now.getTime() - new Date(lastAttempt.createdAt).getTime()) / 1000;
+    if (elapsedSeconds < env.placePresenceMinSecondsBetweenAttempts) {
+      return { error: 'place_presence_attempt_cooldown' as const, retryAfterSeconds: Math.max(1, Math.ceil(env.placePresenceMinSecondsBetweenAttempts - elapsedSeconds)) };
+    }
+  }
+
+  if (dailyAttempts >= env.placePresenceMaxDailyAttempts) {
+    return { error: 'place_presence_daily_limit' as const };
+  }
+
+  if (dailyRejectedAttempts >= env.placePresenceMaxDailyRejectedAttempts) {
+    return { error: 'place_presence_rejected_daily_limit' as const };
+  }
+
+  return null;
+}
+
+async function suspiciousTravelRejectionReason(userId: string, input: { latitude: number; longitude: number }, now = new Date()) {
+  if (!env.placePresenceMaxTravelSpeedKph) return null;
+  const lastVerified = await (prisma as any).placePresenceVerification.findFirst({
+    where: {
+      userId,
+      status: 'verified',
+      latitudeRounded: { not: null },
+      longitudeRounded: { not: null },
+    },
+    orderBy: { verifiedAt: 'desc' },
+    select: { latitudeRounded: true, longitudeRounded: true, verifiedAt: true, createdAt: true },
+  });
+  if (typeof lastVerified?.latitudeRounded !== 'number' || typeof lastVerified?.longitudeRounded !== 'number') return null;
+
+  const previousTime = new Date(lastVerified.verifiedAt ?? lastVerified.createdAt);
+  const elapsedSeconds = Math.max(0, (now.getTime() - previousTime.getTime()) / 1000);
+  if (elapsedSeconds < MIN_SECONDS_FOR_TRAVEL_SPEED_CHECK) return null;
+
+  const distanceKm = distanceMetersBetween(input, { latitude: lastVerified.latitudeRounded, longitude: lastVerified.longitudeRounded }) / 1000;
+  const speedKph = distanceKm / (elapsedSeconds / 3600);
+  return speedKph > env.placePresenceMaxTravelSpeedKph ? 'suspicious_location_jump' : null;
+}
+
+async function createPlacePresenceVerificationRecord(params: {
+  userId: string;
+  plan: { id: string };
+  place: { id: string; placeId: string | null };
+  input: { latitude: number; longitude: number; accuracyMeters?: number };
+  accepted: boolean;
+  distanceMeters: number | null;
+  rejectionReason: string | null;
+}) {
+  return (prisma as any).placePresenceVerification.create({
+    data: {
+      userId: params.userId,
+      planId: params.plan.id,
+      planPlaceId: params.place.id,
+      sourcePlaceId: params.place.placeId ?? null,
+      source: 'device_gps',
+      status: params.accepted ? 'verified' : 'rejected',
+      latitudeRounded: roundCoordinate(params.input.latitude),
+      longitudeRounded: roundCoordinate(params.input.longitude),
+      accuracyMeters: params.input.accuracyMeters ?? null,
+      distanceMeters: params.distanceMeters,
+      maxDistanceMeters: env.placePresenceMaxDistanceMeters,
+      rejectionReason: params.rejectionReason,
+      verifiedAt: params.accepted ? new Date() : null,
+    },
+  });
+}
+
+async function loadPlanPlaceForPresenceVerification(planId: string, planPlaceId: string, userId: string) {
+  const plan = await prisma.plan.findUnique({
+    where: { id: planId },
+    select: {
+      id: true,
+      ownerId: true,
+      status: true,
+      owner: { select: { trustTier: true } },
+      places: {
+        where: { id: planPlaceId },
+        take: 1,
+        select: {
+          id: true,
+          placeId: true,
+          mode: true,
+          title: true,
+          latitude: true,
+          longitude: true,
+          sourcePlace: { select: { id: true, latitude: true, longitude: true } },
+        },
+      },
+      participants: { where: { userId }, select: { userId: true, status: true } },
+    },
+  });
+
+  if (!plan || plan.owner?.trustTier === 'restricted') return null;
+  if (!verificationPlanStatuses.includes(plan.status as any)) return null;
+  if (plan.ownerId !== userId && await usersHaveBlockBetween(userId, plan.ownerId)) return null;
+
+  const place = plan.places[0];
+  if (!place) return { error: 'place_not_found' as const };
+
+  const participant = plan.participants[0];
+  const canVerify = plan.ownerId === userId || participant?.status === 'accepted';
+  if (!canVerify) return { error: 'not_plan_participant' as const };
+
+  return { plan, place };
+}
+
+function placeCoordinatesForVerification(place: { latitude: number | null; longitude: number | null; sourcePlace?: { latitude: number | null; longitude: number | null } | null }) {
+  const latitude = typeof place.latitude === 'number' ? place.latitude : place.sourcePlace?.latitude;
+  const longitude = typeof place.longitude === 'number' ? place.longitude : place.sourcePlace?.longitude;
+  if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
+  return { latitude, longitude };
+}
+
 function isCancelOnlyPlanUpdate(input: ReturnType<typeof updatePlanRequestSchema.parse>) {
   const keys = Object.keys(input);
   return keys.length === 1 && input.status === 'cancelled';
@@ -364,6 +557,14 @@ function planPlaceSnapshotData(planId: string, input: ReturnType<typeof createPl
     note: input.note ?? null,
     addressPublicText: input.addressPublicText ?? reusablePlace?.addressPublicText ?? null,
     addressPrivateText: input.addressPrivateText ?? reusablePlace?.addressPrivateText ?? null,
+    googlePlaceId: input.googlePlaceId ?? reusablePlace?.googlePlaceId ?? null,
+    googlePlaceName: input.googlePlaceName ?? reusablePlace?.googlePlaceName ?? null,
+    formattedAddress: input.formattedAddress ?? reusablePlace?.formattedAddress ?? input.addressPublicText ?? reusablePlace?.formattedAddress ?? reusablePlace?.addressPublicText ?? null,
+    googleMapsUri: input.googleMapsUri ?? reusablePlace?.googleMapsUri ?? null,
+    latitude: input.latitude ?? reusablePlace?.latitude ?? null,
+    longitude: input.longitude ?? reusablePlace?.longitude ?? null,
+    locationSource: input.locationSource ?? reusablePlace?.locationSource ?? (input.googlePlaceId || reusablePlace?.googlePlaceId ? 'google_places' : null),
+    addressValidationStatus: input.addressValidationStatus ?? reusablePlace?.addressValidationStatus ?? (input.googlePlaceId || reusablePlace?.googlePlaceId ? 'confirmed' : null),
     onlineLabel: input.onlineLabel ?? reusablePlace?.onlineLabel ?? null,
     onlineUrl: input.onlineUrl ?? reusablePlace?.onlineUrl ?? null,
     startsAt: input.startsAt ? new Date(input.startsAt) : null,
@@ -395,6 +596,14 @@ async function placeUpdateData(ownerId: string, input: ReturnType<typeof updateP
     ...(input.note !== undefined ? { note: input.note ?? null } : {}),
     ...(input.addressPublicText !== undefined || reusablePlace ? { addressPublicText: input.addressPublicText ?? snapshot?.addressPublicText ?? null } : {}),
     ...(input.addressPrivateText !== undefined || reusablePlace ? { addressPrivateText: input.addressPrivateText ?? snapshot?.addressPrivateText ?? null } : {}),
+    ...(input.googlePlaceId !== undefined || reusablePlace ? { googlePlaceId: input.googlePlaceId ?? snapshot?.googlePlaceId ?? null } : {}),
+    ...(input.googlePlaceName !== undefined || reusablePlace ? { googlePlaceName: input.googlePlaceName ?? snapshot?.googlePlaceName ?? null } : {}),
+    ...(input.formattedAddress !== undefined || input.addressPublicText !== undefined || reusablePlace ? { formattedAddress: input.formattedAddress ?? input.addressPublicText ?? snapshot?.formattedAddress ?? null } : {}),
+    ...(input.googleMapsUri !== undefined || reusablePlace ? { googleMapsUri: input.googleMapsUri ?? snapshot?.googleMapsUri ?? null } : {}),
+    ...(input.latitude !== undefined || reusablePlace ? { latitude: input.latitude ?? snapshot?.latitude ?? null } : {}),
+    ...(input.longitude !== undefined || reusablePlace ? { longitude: input.longitude ?? snapshot?.longitude ?? null } : {}),
+    ...(input.locationSource !== undefined || input.googlePlaceId !== undefined || reusablePlace ? { locationSource: input.locationSource ?? snapshot?.locationSource ?? (input.googlePlaceId ? 'google_places' : null) } : {}),
+    ...(input.addressValidationStatus !== undefined || input.googlePlaceId !== undefined || reusablePlace ? { addressValidationStatus: input.addressValidationStatus ?? snapshot?.addressValidationStatus ?? (input.googlePlaceId ? 'confirmed' : null) } : {}),
     ...(input.onlineLabel !== undefined || reusablePlace ? { onlineLabel: input.onlineLabel ?? snapshot?.onlineLabel ?? null } : {}),
     ...(input.onlineUrl !== undefined || reusablePlace ? { onlineUrl: input.onlineUrl ?? snapshot?.onlineUrl ?? null } : {}),
     ...(input.startsAt !== undefined ? { startsAt: input.startsAt ? new Date(input.startsAt) : null } : {}),
@@ -585,6 +794,108 @@ plansRoutes.patch('/:planId/places/:placeId', requireAuth, requireActiveAccount,
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan_place' as any, place.id, { maxImages: PLAN_PLACE_MEDIA_LIMITS.plus });
   const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
   res.json({ plan: await decoratePlan(updated, req.user!.id) });
+}));
+
+
+plansRoutes.post('/:planId/places/:placeId/verify-presence', requireAuth, requireActiveAccount, placePresenceVerificationRateLimit, asyncRoute(async (req, res) => {
+  if (!env.placePresenceVerificationEnabled) {
+    return res.status(503).json({ error: 'place_presence_verification_disabled', message: 'Place presence verification is not enabled yet.' });
+  }
+
+  const input = createPlacePresenceVerificationRequestSchema.parse(req.body ?? {});
+  const planId = req.params.planId;
+  const planPlaceId = req.params.placeId;
+  if (!planId || !planPlaceId) return res.status(400).json({ error: 'missing_plan_place' });
+
+  const loaded = await loadPlanPlaceForPresenceVerification(planId, planPlaceId, req.user!.id);
+  if (!loaded) return res.status(404).json({ error: 'not_found' });
+  if ('error' in loaded) {
+    if (loaded.error === 'not_plan_participant') return res.status(403).json({ error: loaded.error, message: 'Join this plan before verifying your presence at its offline places.' });
+    return res.status(404).json({ error: loaded.error });
+  }
+
+  const { plan, place } = loaded;
+  if (place.mode !== 'local') {
+    return res.status(409).json({ error: 'not_offline_place', message: 'Only offline places can be verified with device location.' });
+  }
+
+  const target = placeCoordinatesForVerification(place);
+  if (!target) {
+    return res.status(409).json({ error: 'place_location_missing', message: 'This place does not have a verified location yet.' });
+  }
+
+  const cooldownStart = verificationCooldownStart();
+  if (cooldownStart) {
+    const existing = await (prisma as any).placePresenceVerification.findFirst({
+      where: {
+        userId: req.user!.id,
+        planPlaceId: place.id,
+        status: 'verified',
+        verifiedAt: { gte: cooldownStart },
+      },
+      orderBy: { verifiedAt: 'desc' },
+    });
+    if (existing) return res.json(verificationResponse(existing, true, true));
+  }
+
+  const now = new Date();
+  const attemptLimit = await enforcePresenceAttemptLimits(req.user!.id, now);
+  if (attemptLimit) {
+    const retryAfterSeconds = 'retryAfterSeconds' in attemptLimit ? attemptLimit.retryAfterSeconds : undefined;
+    if (retryAfterSeconds) res.setHeader('Retry-After', String(retryAfterSeconds));
+    return res.status(429).json({
+      error: attemptLimit.error,
+      message: attemptLimit.error === 'place_presence_attempt_cooldown'
+        ? 'Wait a moment before trying another place verification.'
+        : 'Too many place verification attempts today. Please try again later.',
+      retryAfterSeconds,
+    });
+  }
+
+  const capturedAt = parseLocationCapturedAt(input.locationCapturedAt);
+  const timestampRejectionReason = locationTimestampRejectionReason(capturedAt, now);
+  const deviceTrustRejectionReason = env.placePresenceRejectMockedLocation && input.isMockedLocation ? 'mock_location_detected' : null;
+  const travelRejectionReason = await suspiciousTravelRejectionReason(req.user!.id, input, capturedAt ?? now);
+  const distanceMeters = distanceMetersBetween(input, target);
+  const accuracyMeters = input.accuracyMeters ?? null;
+  const accuracyOk = accuracyMeters === null || accuracyMeters <= env.placePresenceMaxAccuracyMeters;
+  const distanceOk = distanceMeters <= env.placePresenceMaxDistanceMeters;
+  const rejectionReason = deviceTrustRejectionReason
+    ?? timestampRejectionReason
+    ?? travelRejectionReason
+    ?? (!accuracyOk ? 'gps_accuracy_too_low' : null)
+    ?? (!distanceOk ? 'too_far_from_place' : null);
+  const accepted = !rejectionReason;
+
+  const verification = await createPlacePresenceVerificationRecord({
+    userId: req.user!.id,
+    plan,
+    place,
+    input,
+    accepted,
+    distanceMeters,
+    rejectionReason,
+  });
+
+  return res.status(accepted ? 201 : 409).json(verificationResponse(verification, accepted));
+}));
+
+plansRoutes.get('/place-verifications/summary', requireAuth, asyncRoute(async (req, res) => {
+  const [totalVerifiedCheckIns, lastVerified, verifiedPlaces, verifiedPlans] = await Promise.all([
+    (prisma as any).placePresenceVerification.count({ where: { userId: req.user!.id, status: 'verified' } }),
+    (prisma as any).placePresenceVerification.findFirst({ where: { userId: req.user!.id, status: 'verified' }, orderBy: { verifiedAt: 'desc' }, select: { verifiedAt: true } }),
+    (prisma as any).placePresenceVerification.findMany({ where: { userId: req.user!.id, status: 'verified' }, distinct: ['planPlaceId'], select: { planPlaceId: true } }),
+    (prisma as any).placePresenceVerification.findMany({ where: { userId: req.user!.id, status: 'verified' }, distinct: ['planId'], select: { planId: true } }),
+  ]);
+
+  res.json({
+    summary: {
+      verifiedPlacesCount: verifiedPlaces.length,
+      verifiedPlansCount: verifiedPlans.length,
+      totalVerifiedCheckIns,
+      lastVerifiedAt: lastVerified?.verifiedAt?.toISOString?.() ?? null,
+    },
+  });
 }));
 
 plansRoutes.post('/:planId/join', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {

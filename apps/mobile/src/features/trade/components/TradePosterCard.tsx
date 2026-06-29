@@ -2,6 +2,7 @@ import React, { memo, useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { normalizePreviewCardTheme } from '@hellowhen/shared';
 import { AppText } from '../../../components/AppText';
+import { LowerImageAtmosphere } from '../../../components/LowerImageAtmosphere';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 
 export type TradePosterCardVariant = 'trade' | 'need' | 'offer';
@@ -34,13 +35,6 @@ const THEME_FALLBACK_ACCENTS = {
   amber: '#f59e0b',
   rose: '#f43f5e',
 } as const;
-const TEXT_ZONE_BLUR_BANDS = [
-  { top: 45, height: 40, blur: 6, opacity: 0.04, tintOpacity: 0 },
-  { top: 56, height: 36, blur: 12, opacity: 0.08, tintOpacity: 0.012 },
-  { top: 66, height: 32, blur: 20, opacity: 0.13, tintOpacity: 0.03 },
-  { top: 76, height: 25, blur: 30, opacity: 0.2, tintOpacity: 0.06 },
-] as const;
-
 function hashString(value: string) {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1) {
@@ -75,44 +69,6 @@ function normalizeChips(chips: string[] | undefined) {
     .slice(0, 3);
 }
 
-function LowerAtmosphere({ imageUrl, isDark }: { imageUrl?: string | null; isDark: boolean }) {
-  const imageTint = isDark ? 'rgba(8,10,12,0.16)' : 'rgba(255,255,255,0.12)';
-  const bottomFeather = isDark ? 'rgba(3,5,8,0.18)' : 'rgba(255,255,255,0.12)';
-
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
-      {imageUrl ? TEXT_ZONE_BLUR_BANDS.map((band, index) => (
-        <React.Fragment key={`poster-blur-band-${index}`}>
-          <View
-            style={[
-              styles.blurBand,
-              {
-                top: `${band.top}%`,
-                height: `${band.height}%`,
-                opacity: band.opacity,
-              },
-            ]}
-          >
-            <Image source={{ uri: imageUrl }} resizeMode="cover" blurRadius={band.blur} style={StyleSheet.absoluteFillObject} />
-          </View>
-          <View
-            style={[
-              styles.blurBand,
-              {
-                top: `${band.top}%`,
-                height: `${band.height}%`,
-                backgroundColor: imageTint,
-                opacity: band.tintOpacity,
-              },
-            ]}
-          />
-        </React.Fragment>
-      )) : null}
-      <View style={[styles.bottomWash, { backgroundColor: bottomFeather }]} />
-    </View>
-  );
-}
-
 function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, topMeta, footerLabel, identity, variant = 'trade', onPress, previewTheme, accessibilityLabel }: TradePosterCardProps) {
   const theme = useThemeTokens();
   const isDark = theme.mode === 'dark';
@@ -129,24 +85,26 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
   }, [imageUrl]);
 
   const mediaSurface = isDark ? '#0c1116' : '#dfe6dc';
-  const titleColor = isDark ? '#FFFFFF' : '#101010';
-  const bodyColor = isDark ? 'rgba(255,255,255,0.86)' : 'rgba(15,20,28,0.86)';
-  const eyebrowColor = isDark ? 'rgba(255,255,255,0.92)' : 'rgba(12,18,28,0.84)';
-  const overlayTextShadow = isDark ? 'rgba(0,0,0,0.50)' : 'rgba(255,255,255,0.38)';
-  const pillBg = isDark ? 'rgba(10,16,24,0.36)' : 'rgba(255,255,255,0.84)';
-  const pillBorder = isDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.07)';
+  const hasPosterImage = Boolean(visibleImageUrl);
+  const titleColor = hasPosterImage ? '#FFFFFF' : isDark ? '#FFFFFF' : '#101010';
+  const bodyColor = hasPosterImage ? 'rgba(255,255,255,0.9)' : isDark ? 'rgba(255,255,255,0.86)' : 'rgba(15,20,28,0.86)';
+  const eyebrowColor = hasPosterImage ? 'rgba(255,255,255,0.94)' : isDark ? 'rgba(255,255,255,0.92)' : 'rgba(12,18,28,0.84)';
+  const overlayTextShadow = hasPosterImage ? 'rgba(0,0,0,0.62)' : isDark ? 'rgba(0,0,0,0.50)' : 'rgba(255,255,255,0.38)';
+  const pillBg = hasPosterImage ? 'rgba(13,18,24,0.72)' : isDark ? 'rgba(10,16,24,0.36)' : 'rgba(255,255,255,0.84)';
+  const pillBorder = hasPosterImage ? 'rgba(255,255,255,0.2)' : isDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.07)';
+  const cardBorder = hasPosterImage ? 'rgba(255,255,255,0.42)' : 'rgba(15,23,42,0.08)';
   const statusColor = status?.tone === 'none'
-    ? (isDark ? 'rgba(255,255,255,0.58)' : 'rgba(15,23,42,0.58)')
+    ? (hasPosterImage ? 'rgba(255,255,255,0.9)' : isDark ? 'rgba(255,255,255,0.58)' : 'rgba(15,23,42,0.58)')
     : status?.tone === 'expired'
-      ? '#ef4444'
+      ? (hasPosterImage ? '#FECACA' : '#ef4444')
       : status?.tone === 'normal'
-        ? '#ef4444'
+        ? (hasPosterImage ? 'rgba(255,255,255,0.9)' : '#ef4444')
         : status?.tone === 'soon'
-          ? '#dc2626'
-          : '#b91c1c';
+          ? (hasPosterImage ? '#FDE68A' : '#dc2626')
+          : (hasPosterImage ? '#FCD34D' : '#b91c1c');
 
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: controlledAccent && !visibleImageUrl ? `${controlledAccent}24` : mediaSurface }, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: controlledAccent && !visibleImageUrl ? `${controlledAccent}24` : mediaSurface, borderColor: cardBorder }, pressed && styles.pressed]}>
       {visibleImageUrl ? (
         <Image source={{ uri: visibleImageUrl }} resizeMode="cover" onError={() => setImageFailed(true)} style={StyleSheet.absoluteFillObject} />
       ) : (
@@ -176,7 +134,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
         </View>
       )}
 
-      <LowerAtmosphere imageUrl={visibleImageUrl} isDark={isDark} />
+      <LowerImageAtmosphere imageUrl={visibleImageUrl} isDark={isDark} preset="trade" />
 
       <View style={styles.contentLayer}>
         <View style={styles.topBar}>
@@ -262,6 +220,7 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   fallbackMedia: {
     overflow: 'hidden',
@@ -283,20 +242,6 @@ const styles = StyleSheet.create({
     marginTop: -26,
     borderRadius: 999,
     opacity: 0.82,
-  },
-  blurBand: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    overflow: 'hidden',
-  },
-  bottomWash: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: '17%',
-    opacity: 0.1,
   },
   contentLayer: {
     ...StyleSheet.absoluteFillObject,
@@ -344,10 +289,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.25,
   },
   badgeText: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 10.5,
+    lineHeight: 13,
     fontWeight: '900',
-    letterSpacing: 0.25,
+    letterSpacing: 0.75,
+    textTransform: 'uppercase',
   },
   copyBlock: {
     alignSelf: 'stretch',
@@ -358,26 +304,26 @@ const styles = StyleSheet.create({
   eyebrow: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: '800',
+    fontWeight: '900',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.75,
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 7,
+    textShadowRadius: 8,
   },
   title: {
     fontSize: 20,
     lineHeight: 24,
     fontWeight: '900',
     letterSpacing: -0.45,
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 8,
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 9,
   },
   subtitle: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: '700',
+    fontWeight: '800',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 7,
+    textShadowRadius: 8,
   },
   statusText: {
     alignSelf: 'flex-start',

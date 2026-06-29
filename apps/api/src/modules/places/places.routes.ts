@@ -16,6 +16,7 @@ import { syncInventoryTranslations, withInventoryTranslations, withOneInventoryT
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
 import { loadMembershipAccessStateForUser } from '../subscriptions/membershipEntitlements.js';
 import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
+import { googlePlacesRoutes } from './googlePlaces.routes.js';
 
 export const placesRoutes = Router();
 
@@ -44,6 +45,8 @@ function placeSearchWhere(input: ReturnType<typeof listPlacesQuerySchema.parse>)
         { title: { contains: input.q, mode: 'insensitive' as const } },
         { description: { contains: input.q, mode: 'insensitive' as const } },
         { areaLabel: { contains: input.q, mode: 'insensitive' as const } },
+        { addressPublicText: { contains: input.q, mode: 'insensitive' as const } },
+        { formattedAddress: { contains: input.q, mode: 'insensitive' as const } },
       ],
     } : {}),
     ...(input.mode ? { mode: input.mode as any } : {}),
@@ -130,6 +133,14 @@ function createPlaceData(ownerId: string, input: ReturnType<typeof createPlaceRe
     areaLabel: input.areaLabel ?? null,
     addressPublicText: input.addressPublicText ?? null,
     addressPrivateText: input.addressPrivateText ?? null,
+    googlePlaceId: input.googlePlaceId ?? null,
+    googlePlaceName: input.googlePlaceName ?? null,
+    formattedAddress: input.formattedAddress ?? input.addressPublicText ?? null,
+    googleMapsUri: input.googleMapsUri ?? null,
+    latitude: input.latitude ?? null,
+    longitude: input.longitude ?? null,
+    locationSource: input.locationSource ?? (input.googlePlaceId ? 'google_places' : null),
+    addressValidationStatus: input.addressValidationStatus ?? (input.googlePlaceId ? 'confirmed' : null),
     onlineLabel: input.onlineLabel ?? null,
     onlineUrl: input.onlineUrl ?? null,
     defaultDurationMinutes: input.defaultDurationMinutes ?? null,
@@ -150,6 +161,14 @@ function updatePlaceData(input: ReturnType<typeof updatePlaceRequestSchema.parse
     ...(input.areaLabel !== undefined ? { areaLabel: input.areaLabel ?? null } : {}),
     ...(input.addressPublicText !== undefined ? { addressPublicText: input.addressPublicText ?? null } : {}),
     ...(input.addressPrivateText !== undefined ? { addressPrivateText: input.addressPrivateText ?? null } : {}),
+    ...(input.googlePlaceId !== undefined ? { googlePlaceId: input.googlePlaceId ?? null } : {}),
+    ...(input.googlePlaceName !== undefined ? { googlePlaceName: input.googlePlaceName ?? null } : {}),
+    ...(input.formattedAddress !== undefined || input.addressPublicText !== undefined ? { formattedAddress: input.formattedAddress ?? input.addressPublicText ?? null } : {}),
+    ...(input.googleMapsUri !== undefined ? { googleMapsUri: input.googleMapsUri ?? null } : {}),
+    ...(input.latitude !== undefined ? { latitude: input.latitude ?? null } : {}),
+    ...(input.longitude !== undefined ? { longitude: input.longitude ?? null } : {}),
+    ...(input.locationSource !== undefined || input.googlePlaceId !== undefined ? { locationSource: input.locationSource ?? (input.googlePlaceId ? 'google_places' : null) } : {}),
+    ...(input.addressValidationStatus !== undefined || input.googlePlaceId !== undefined ? { addressValidationStatus: input.addressValidationStatus ?? (input.googlePlaceId ? 'confirmed' : null) } : {}),
     ...(input.onlineLabel !== undefined ? { onlineLabel: input.onlineLabel ?? null } : {}),
     ...(input.onlineUrl !== undefined ? { onlineUrl: input.onlineUrl ?? null } : {}),
     ...(input.defaultDurationMinutes !== undefined ? { defaultDurationMinutes: input.defaultDurationMinutes ?? null } : {}),
@@ -211,6 +230,8 @@ async function decoratePlace(place: any, viewerId?: string | null, visibility: M
   const [decorated] = await decoratePlaces([withTranslations], viewerId, visibility, actorRole);
   return decorated;
 }
+
+placesRoutes.use('/google', googlePlacesRoutes);
 
 async function loadVisiblePlace(placeId: string, viewerId?: string | null) {
   const place = await prisma.place.findFirst({

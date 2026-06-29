@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } fr
 import type { MediaAssetDto, PlanDto, PlanPlaceDto } from '@hellowhen/contracts';
 import type { SemanticColorName } from '@hellowhen/theme';
 import { AppText } from '../../../components/AppText';
+import { LowerImageAtmosphere } from '../../../components/LowerImageAtmosphere';
 import { SemanticBadge } from '../../../components/SemanticUI';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { ContinuousSquareStackDeck, type SquareStackDeckCard } from '../../trade/deck';
@@ -11,7 +12,6 @@ import { resolveMediaUrl } from '../../trade/mediaUrls';
 const MOBILE_PLAN_DECK_AVAILABLE_HEIGHT = 404;
 const MOBILE_PLAN_DECK_MAX_CARD_SIZE = 348;
 const FALLBACK_ACCENTS = ['#7C3AED', '#A855F7', '#C084FC', '#F97316'];
-
 type PlanPlaceDeckCard = SquareStackDeckCard & {
   kind: 'place' | 'emptyPlace';
   plan: PlanDto;
@@ -108,6 +108,7 @@ function getPlaceDateLabel(place: PlanPlaceDto | undefined, planStartsAt: string
 
 function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'instruction', showModeBadge = true }: { card: PlanPlaceDeckCard; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
   const theme = useThemeTokens();
+  const isDark = theme.mode === 'dark';
   const imageUrl = activeMediaUrl(card.media);
   const fallback = useMemo(() => fallbackModel(card.id), [card.id]);
   const place = card.place;
@@ -118,6 +119,14 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
   const locationLabel = isEmpty ? '' : getPlaceLocationLabel(place);
   const timeLabel = isEmpty ? getPlanParticipantLabel(card.plan) : getPlaceDateLabel(place, card.plan.startsAt);
   const primaryBadgeLabel = topBadgeLabel ?? `Place · ${cardCounter}`;
+  const hasPosterImage = Boolean(imageUrl);
+  const posterTextShadow = hasPosterImage ? 'rgba(0,0,0,0.64)' : isDark ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.48)';
+  const posterTitleColor = hasPosterImage ? '#FFFFFF' : theme.color.text;
+  const posterMutedColor = hasPosterImage ? 'rgba(255,255,255,0.9)' : theme.color.muted;
+  const posterSubtleColor = hasPosterImage ? 'rgba(255,255,255,0.82)' : theme.color.muted;
+  const posterPillBg = hasPosterImage ? 'rgba(13,18,24,0.72)' : undefined;
+  const posterPillBorder = hasPosterImage ? 'rgba(255,255,255,0.2)' : undefined;
+  const posterPillText = hasPosterImage ? 'rgba(255,255,255,0.94)' : undefined;
 
   return (
     <Pressable
@@ -126,7 +135,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
       onPress={onOpen}
       style={({ pressed }) => [
         styles.card,
-        { backgroundColor: imageUrl ? theme.color.surface : theme.semantic.place.softBg, borderColor: imageUrl ? theme.color.border : theme.semantic.place.border },
+        { backgroundColor: imageUrl ? '#0B1016' : theme.semantic.place.softBg, borderColor: imageUrl ? 'rgba(255,255,255,0.42)' : theme.semantic.place.border },
         pressed && styles.pressed,
       ]}
     >
@@ -160,19 +169,31 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
           />
         </View>
       )}
-      {imageUrl ? <View style={[styles.imageScrim, { backgroundColor: theme.color.background }]} /> : <View style={[styles.fallbackScrim, { backgroundColor: theme.color.background }]} />}
+      {imageUrl ? <LowerImageAtmosphere imageUrl={imageUrl} isDark={isDark} preset="plan" /> : <View style={[styles.fallbackScrim, { backgroundColor: theme.color.background }]} />}
 
       <View style={styles.cardTopRow}>
-        <SemanticBadge label={primaryBadgeLabel} tone={topBadgeTone} size="sm" />
-        {showModeBadge && !isEmpty ? <SemanticBadge label={modeLabel} tone="muted" size="sm" /> : null}
+        {hasPosterImage ? (
+          <View style={[styles.posterPill, { backgroundColor: posterPillBg, borderColor: posterPillBorder }]}>
+            <AppText style={[styles.posterPillText, { color: posterPillText }]} numberOfLines={1}>{primaryBadgeLabel}</AppText>
+          </View>
+        ) : (
+          <SemanticBadge label={primaryBadgeLabel} tone={topBadgeTone} size="sm" />
+        )}
+        {showModeBadge && !isEmpty ? (hasPosterImage ? (
+          <View style={[styles.posterPill, styles.posterModePill, { backgroundColor: posterPillBg, borderColor: posterPillBorder }]}>
+            <AppText style={[styles.posterPillText, { color: posterPillText }]} numberOfLines={1}>{modeLabel}</AppText>
+          </View>
+        ) : (
+          <SemanticBadge label={modeLabel} tone="muted" size="sm" />
+        )) : null}
       </View>
 
       <View style={styles.cardCopy}>
-        <AppText style={[styles.planTitle, { color: theme.color.muted }]} numberOfLines={1}>{card.plan.title}</AppText>
-        <AppText style={[styles.placeTitle, { color: theme.color.text }]} numberOfLines={2}>{placeTitle}</AppText>
-        {isEmpty ? <AppText style={[styles.emptyHint, { color: theme.color.muted }]} numberOfLines={2}>Add a first stop to turn this Plan into route cards.</AppText> : null}
-        {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: theme.color.muted }]} numberOfLines={1}>{locationLabel}</AppText> : null}
-        <AppText style={[styles.placeTimeText, { color: theme.color.muted }]} numberOfLines={1}>{timeLabel}</AppText>
+        <AppText style={[styles.planTitle, { color: posterSubtleColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{card.plan.title}</AppText>
+        <AppText style={[styles.placeTitle, { color: posterTitleColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{placeTitle}</AppText>
+        {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>Add a first stop to turn this Plan into route cards.</AppText> : null}
+        {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{locationLabel}</AppText> : null}
+        <AppText style={[styles.placeTimeText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{timeLabel}</AppText>
       </View>
     </Pressable>
   );
@@ -246,10 +267,6 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     opacity: 0.9,
   },
-  imageScrim: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.62,
-  },
   fallbackScrim: {
     ...StyleSheet.absoluteFillObject,
     opacity: 0.04,
@@ -261,6 +278,26 @@ const styles = StyleSheet.create({
     gap: 8,
     flexWrap: 'wrap',
   },
+  posterPill: {
+    minHeight: 28,
+    maxWidth: '60%',
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  posterModePill: {
+    maxWidth: '46%',
+  },
+  posterPillText: {
+    fontSize: 10.5,
+    lineHeight: 13,
+    fontWeight: '900',
+    letterSpacing: 0.75,
+    textTransform: 'uppercase',
+  },
   cardCopy: {
     gap: 6,
     paddingTop: 128,
@@ -270,28 +307,38 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textTransform: 'uppercase',
     letterSpacing: 0.9,
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 8,
   },
   placeTitle: {
     fontSize: 31,
     lineHeight: 35,
     fontWeight: '900',
     letterSpacing: -1,
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 10,
   },
   emptyHint: {
     fontSize: 14,
     lineHeight: 19,
     fontWeight: '800',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 8,
   },
   placeMetaText: {
     marginTop: 6,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '800',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 8,
   },
   placeTimeText: {
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '900',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 7,
   },
   pressed: {
     opacity: 0.76,

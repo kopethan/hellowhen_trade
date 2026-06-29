@@ -131,26 +131,28 @@ function OpenResponseSection({ trade, i18n }: { trade: TradeDto; i18n?: TradeI18
 function TradeThreadSplitSection({ trade, i18n }: { trade: TradeDto; i18n: TradeI18n }) {
   const t = i18n.t ?? ((key: string) => key);
   return (
-    <section className="trade-social-section trade-thread-split-section" aria-labelledby="trade-conversations-title">
-      <div className="trade-section-heading trade-thread-section-heading">
+    <section className="trade-social-section trade-thread-split-section trade-thread-split-section--clean" aria-labelledby="trade-conversations-title">
+      <div className="trade-section-heading trade-thread-section-heading trade-thread-section-heading--clean">
         <div>
-          <h2 id="trade-conversations-title" className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {t('trade.threadSplit.eyebrow')}</h2>
+          <h2 id="trade-conversations-title">{t('trade.threadSplit.eyebrow')}</h2>
         </div>
       </div>
-      <div className="trade-thread-action-grid trade-thread-action-grid--simple">
-        <Link href={`/trades/${trade.id}/discussion`} className="trade-thread-action-card trade-thread-action-card--public">
-          <span className="trade-thread-action-card__icon"><WebIcon name="proposal" size={20} decorative /></span>
+      <div className="trade-thread-action-grid trade-thread-action-grid--simple trade-thread-action-grid--clean">
+        <Link href={`/trades/${trade.id}/discussion`} className="trade-thread-action-card trade-thread-action-card--public" aria-label={`${t('common.actions.open')} ${t('trade.publicDiscussion.title')}`}>
+          <span className="trade-thread-action-card__icon trade-thread-action-card__icon--public"><WebIcon name="activity" size={20} decorative /></span>
           <span className="trade-thread-action-card__body">
             <strong>{t('trade.publicDiscussion.title')}</strong>
+            <small>{t('trade.threadSplit.publicBody')}</small>
           </span>
-          <span className="trade-thread-action-card__cta">{t('common.actions.open')}</span>
+          <span className="trade-thread-action-card__cta">{t('common.actions.open')}<WebIcon name="arrow-right" size={14} decorative /></span>
         </Link>
-        <Link href={`/trades/${trade.id}/proposals`} className="trade-thread-action-card trade-thread-action-card--private">
-          <span className="trade-thread-action-card__icon"><WebIcon name="proposal" size={20} decorative /></span>
+        <Link href={`/trades/${trade.id}/proposals`} className="trade-thread-action-card trade-thread-action-card--private" aria-label={`${t('common.actions.open')} ${t('trade.threadSplit.privateTitle')}`}>
+          <span className="trade-thread-action-card__icon trade-thread-action-card__icon--private"><WebIcon name="proposal" size={20} decorative /></span>
           <span className="trade-thread-action-card__body">
             <strong>{t('trade.threadSplit.privateTitle')}</strong>
+            <small>{t('trade.threadSplit.privateApplicantBody')}</small>
           </span>
-          <span className="trade-thread-action-card__cta">{t('common.actions.open')}</span>
+          <span className="trade-thread-action-card__cta">{t('common.actions.open')}<WebIcon name="arrow-right" size={14} decorative /></span>
         </Link>
       </div>
     </section>

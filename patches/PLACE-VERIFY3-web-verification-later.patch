@@ -1,0 +1,333 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 75f6f3c..01f6acf 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -9872,6 +9872,75 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .plan-route-stop__location-action:hover {
+   transform: translateY(-1px);
+ }
++.plan-route-stop__presence {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) auto;
++  align-items: center;
++  gap: 12px;
++  margin: 10px 0 9px;
++  padding: 11px 12px;
++  border: 1px solid var(--app-border);
++  border-radius: 18px;
++  background: var(--app-surface);
++}
++.plan-route-stop__presence--success {
++  border-color: color-mix(in srgb, #22c55e 26%, var(--app-border));
++  background: color-mix(in srgb, #22c55e 8%, var(--app-surface));
++}
++.plan-route-stop__presence--warning {
++  border-color: color-mix(in srgb, var(--warning-text) 30%, var(--app-border));
++  background: color-mix(in srgb, var(--warning-text) 8%, var(--app-surface));
++}
++.plan-route-stop__presence-copy {
++  display: grid;
++  min-width: 0;
++  gap: 3px;
++}
++.plan-route-stop__presence-copy strong {
++  color: var(--app-text);
++  font-size: 13px;
++  line-height: 17px;
++  font-weight: 950;
++}
++.plan-route-stop__presence-copy p {
++  margin: 0;
++  color: var(--app-text-muted);
++  font-size: 12px;
++  line-height: 16px;
++  font-weight: 800;
++}
++.plan-route-stop__presence--success .plan-route-stop__presence-copy strong {
++  color: #15803d;
++}
++.plan-route-stop__presence--warning .plan-route-stop__presence-copy strong {
++  color: var(--warning-text);
++}
++.plan-route-stop__presence-button {
++  display: inline-flex;
++  align-items: center;
++  justify-content: center;
++  gap: 6px;
++  min-height: 34px;
++  border: 1px solid var(--place-border);
++  border-radius: 999px;
++  background: var(--place-bg);
++  color: var(--place-text);
++  padding: 0 12px;
++  font: inherit;
++  font-size: 12px;
++  font-weight: 950;
++  cursor: pointer;
++  box-shadow: var(--app-control-shadow);
++  white-space: nowrap;
++}
++.plan-route-stop__presence-button:hover:not(:disabled) {
++  transform: translateY(-1px);
++}
++.plan-route-stop__presence-button:disabled {
++  cursor: not-allowed;
++  opacity: 0.55;
++  transform: none;
++}
+ .plan-route-stop__media {
+   overflow: hidden;
+   width: min(100%, 320px);
+@@ -9999,6 +10068,8 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   .plan-route-stop__content { grid-template-columns: 1fr; }
+   .plan-route-stop__location { grid-template-columns: 32px minmax(0, 1fr); align-items: start; }
+   .plan-route-stop__location-action { grid-column: 2; justify-self: start; }
++  .plan-route-stop__presence { grid-template-columns: 1fr; align-items: stretch; }
++  .plan-route-stop__presence-button { width: 100%; min-height: 40px; }
+   .plan-route-stop__media { width: 100%; aspect-ratio: 16 / 9; border-radius: 22px; }
+   .plan-owner-row { display: grid; }
+   .plan-participant-row--social { grid-template-columns: auto minmax(0, 1fr); }
+diff --git a/apps/web/src/features/plans/PlanDetailClient.tsx b/apps/web/src/features/plans/PlanDetailClient.tsx
+index 4db2303..efe12bd 100644
+--- a/apps/web/src/features/plans/PlanDetailClient.tsx
++++ b/apps/web/src/features/plans/PlanDetailClient.tsx
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import Link from 'next/link';
+-import type { MediaAssetDto, PlanDto, PlanJoinApprovalMode, PlanParticipantDto, PlanPlaceDto, PlanStatus } from '@hellowhen/contracts';
++import type { MediaAssetDto, PlacePresenceVerificationResponse, PlanDto, PlanJoinApprovalMode, PlanParticipantDto, PlanPlaceDto, PlanStatus } from '@hellowhen/contracts';
+ import { useEffect, useMemo, useState } from 'react';
+ import { ReportContentButton } from '../../components/ReportContentButton';
+ import { WebIcon } from '../../components/WebIcon';
+@@ -142,6 +142,82 @@ function planPlaceLocation(place: PlanPlaceDto): PlanPlaceLocationDisplay | null
+   };
+ }
+ 
++type PlanPlacePresenceNotice = {
++  tone: 'success' | 'warning' | 'info';
++  title: string;
++  body: string;
++};
++
++function isOfflinePlanPlace(place: PlanPlaceDto) {
++  return place.mode !== 'remote';
++}
++
++function planPlaceVerificationCoordinates(place: PlanPlaceDto) {
++  const latitude = typeof place.latitude === 'number' ? place.latitude : place.sourcePlace?.latitude;
++  const longitude = typeof place.longitude === 'number' ? place.longitude : place.sourcePlace?.longitude;
++  if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
++  return { latitude, longitude };
++}
++
++function formatPresenceDistance(value?: number | null) {
++  if (typeof value !== 'number' || !Number.isFinite(value)) return '';
++  if (value < 1000) return `${Math.round(value)}m away`;
++  return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}km away`;
++}
++
++function presenceNoticeFromVerificationResponse(response: PlacePresenceVerificationResponse): PlanPlacePresenceNotice {
++  const distanceLabel = formatPresenceDistance(response.distanceMeters ?? response.verification.distanceMeters);
++  if (response.accepted) {
++    return {
++      tone: 'success',
++      title: response.alreadyVerified ? 'Already verified here' : 'Verified at this place',
++      body: distanceLabel ? `Your browser location was accepted · ${distanceLabel}.` : 'Your browser location was accepted for this offline place.',
++    };
++  }
++  if (response.verification.rejectionReason === 'gps_accuracy_too_low') {
++    return {
++      tone: 'warning',
++      title: 'Location accuracy too low',
++      body: 'Move closer to the place, step outside if possible, and try again with a stronger location signal.',
++    };
++  }
++  if (response.verification.rejectionReason === 'too_far_from_place') {
++    return {
++      tone: 'warning',
++      title: 'Too far from this place',
++      body: distanceLabel ? `Your device seems ${distanceLabel}. Move closer and try again.` : 'Move closer to the selected offline place and try again.',
++    };
++  }
++  return {
++    tone: 'warning',
++    title: 'Could not verify presence',
++    body: 'Try again when this device has a stronger location signal.',
++  };
++}
++
++function getBrowserLocationErrorMessage(cause: unknown) {
++  const geolocationError = cause && typeof cause === 'object' && 'code' in cause ? cause as { code?: number } : null;
++  if (geolocationError?.code === 1) return 'Allow location access only when you want to verify that you are at this place.';
++  if (geolocationError?.code === 2) return 'This device could not provide a usable location. Try again with a stronger signal.';
++  if (geolocationError?.code === 3) return 'Location check timed out. Move closer, wait a moment, and try again.';
++  return 'This browser could not confirm your location. Try again from a phone or another device.';
++}
++
++function getCurrentBrowserPosition(): Promise<GeolocationPosition> {
++  return new Promise((resolve, reject) => {
++    if (typeof navigator === 'undefined' || !navigator.geolocation) {
++      reject(new Error('geolocation_unavailable'));
++      return;
++    }
++
++    navigator.geolocation.getCurrentPosition(resolve, reject, {
++      enableHighAccuracy: true,
++      maximumAge: 0,
++      timeout: 15_000,
++    });
++  });
++}
++
+ function PlanDetailItem({ label, value }: { label: string; value: string }) {
+   return (
+     <div className="plan-detail-list-item">
+@@ -151,13 +227,34 @@ function PlanDetailItem({ label, value }: { label: string; value: string }) {
+   );
+ }
+ 
+-function PlanPlaceCard({ place, index, planStartsAt, showReport }: { place: PlanPlaceDto; index: number; planStartsAt: string; showReport: boolean }) {
++function PlanPlaceCard({
++  place,
++  index,
++  planStartsAt,
++  showReport,
++  canVerifyPresence,
++  isVerifyingPresence,
++  presenceNotice,
++  onVerifyPresence,
++}: {
++  place: PlanPlaceDto;
++  index: number;
++  planStartsAt: string;
++  showReport: boolean;
++  canVerifyPresence: boolean;
++  isVerifyingPresence: boolean;
++  presenceNotice?: PlanPlacePresenceNotice;
++  onVerifyPresence: (place: PlanPlaceDto) => void;
++}) {
+   const media = place.media?.[0] ?? null;
+   const sourceMedia = place.sourcePlace?.media?.[0] ?? null;
+   const displayMedia = media ?? sourceMedia ?? null;
+   const placeTime = planPlaceTimeRange(place, planStartsAt);
+   const description = planPlaceDescription(place);
+   const location = planPlaceLocation(place);
++  const hasVerificationCoordinates = Boolean(planPlaceVerificationCoordinates(place));
++  const showPresenceVerification = isOfflinePlanPlace(place) && (canVerifyPresence || presenceNotice || hasVerificationCoordinates);
++  const verificationDisabled = isVerifyingPresence || !hasVerificationCoordinates;
+ 
+   return (
+     <article className="plan-route-stop">
+@@ -188,6 +285,25 @@ function PlanPlaceCard({ place, index, planStartsAt, showReport }: { place: Plan
+                 ) : null}
+               </div>
+             ) : null}
++            {showPresenceVerification ? (
++              <div className={`plan-route-stop__presence plan-route-stop__presence--${presenceNotice?.tone ?? 'info'}`}>
++                <div className="plan-route-stop__presence-copy">
++                  <strong>{presenceNotice?.title ?? 'Presence verification'}</strong>
++                  <p>{presenceNotice?.body ?? (hasVerificationCoordinates ? 'Use this device location when you reach this place. Mobile web usually works best.' : 'This place needs a Google-confirmed map position before browser location verification can work.')}</p>
++                </div>
++                {hasVerificationCoordinates ? (
++                  <button
++                    type="button"
++                    className="plan-route-stop__presence-button"
++                    disabled={verificationDisabled}
++                    onClick={() => onVerifyPresence(place)}
++                  >
++                    <WebIcon name="location-on" size={14} decorative />
++                    <span>{isVerifyingPresence ? 'Checking...' : 'Verify here'}</span>
++                  </button>
++                ) : null}
++              </div>
++            ) : null}
+             {displayMedia ? (
+               <div className="plan-route-stop__media">
+                 <PlanPlaceImage media={displayMedia} />
+@@ -217,11 +333,14 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+   const [action, setAction] = useState<ActionState>({ loading: false, message: '', error: '' });
+   const [shareNotice, setShareNotice] = useState('');
+   const [shareLoading, setShareLoading] = useState(false);
++  const [verifyingPlaceId, setVerifyingPlaceId] = useState<string | null>(null);
++  const [presenceNotices, setPresenceNotices] = useState<Record<string, PlanPlacePresenceNotice>>({});
+ 
+   const isOwner = Boolean(auth.user?.id && plan?.ownerId === auth.user.id);
+   const currentParticipantStatus = plan?.myParticipantStatus ?? null;
+   const canJoin = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner && plan.status === 'open' && canJoinFromParticipantStatus(currentParticipantStatus));
+   const canLeave = Boolean(!isOwner && currentParticipantStatus === 'accepted');
++  const canVerifyPresence = Boolean(auth.hydrated && auth.isAuthenticated && plan && (isOwner || currentParticipantStatus === 'accepted'));
+   const canCancelPlan = Boolean(isOwner && plan && plan.status !== 'cancelled');
+   const participantCopy = !isOwner ? participantStateCopy(currentParticipantStatus) : '';
+   const showReportActions = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner);
+@@ -345,6 +464,51 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+     }
+   }
+ 
++  async function verifyPlanPlacePresence(place: PlanPlaceDto) {
++    if (!plan || verifyingPlaceId) return;
++    if (!auth.isAuthenticated) {
++      setPresenceNotices((current) => ({
++        ...current,
++        [place.id]: { tone: 'info', title: 'Log in to verify', body: 'Log in first, then use this device location when you reach this offline place.' },
++      }));
++      return;
++    }
++    if (!isOwner && currentParticipantStatus !== 'accepted') {
++      setPresenceNotices((current) => ({
++        ...current,
++        [place.id]: { tone: 'info', title: 'Join this Plan first', body: 'Presence verification is only available to the owner or joined participants.' },
++      }));
++      return;
++    }
++    if (!isOfflinePlanPlace(place)) return;
++    if (!planPlaceVerificationCoordinates(place)) {
++      setPresenceNotices((current) => ({
++        ...current,
++        [place.id]: { tone: 'warning', title: 'Map position needed', body: 'This offline place needs a Google-confirmed map position before browser location verification can work.' },
++      }));
++      return;
++    }
++
++    setVerifyingPlaceId(place.id);
++    setAction((current) => ({ ...current, error: '' }));
++    try {
++      const position = await getCurrentBrowserPosition();
++      const response = await api.plans.verifyPlacePresence(plan.id, place.id, {
++        latitude: position.coords.latitude,
++        longitude: position.coords.longitude,
++        accuracyMeters: typeof position.coords.accuracy === 'number' ? position.coords.accuracy : undefined,
++      });
++      setPresenceNotices((current) => ({ ...current, [place.id]: presenceNoticeFromVerificationResponse(response) }));
++    } catch (caughtError) {
++      setPresenceNotices((current) => ({
++        ...current,
++        [place.id]: { tone: 'warning', title: 'Verification failed', body: getBrowserLocationErrorMessage(caughtError) },
++      }));
++    } finally {
++      setVerifyingPlaceId(null);
++    }
++  }
++
+   return (
+     <PlansFeatureGate plansEnabled={plansEnabled}>
+       <main className="plan-detail-page plan-detail-page--web">
+@@ -406,7 +570,17 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+               </div>
+               <div className="plan-route-list">
+                 {places.map((place, index) => (
+-                  <PlanPlaceCard key={place.id} place={place} index={index} planStartsAt={plan.startsAt} showReport={showReportActions} />
++                  <PlanPlaceCard
++                    key={place.id}
++                    place={place}
++                    index={index}
++                    planStartsAt={plan.startsAt}
++                    showReport={showReportActions}
++                    canVerifyPresence={canVerifyPresence}
++                    isVerifyingPresence={verifyingPlaceId === place.id}
++                    presenceNotice={presenceNotices[place.id]}
++                    onVerifyPresence={(nextPlace) => { void verifyPlanPlacePresence(nextPlace); }}
++                  />
+                 ))}
+                 {places.length === 0 ? <p className="meta">No places added yet.</p> : null}
+               </div>

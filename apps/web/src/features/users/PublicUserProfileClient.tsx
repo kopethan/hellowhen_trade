@@ -308,6 +308,30 @@ export function PublicUserProfileClient({ userId, username }: { userId?: string;
         </div>
       </section>
 
+      <section className="public-profile-trust-panel" aria-label={t('profile.trust.title')}>
+        <div className="public-profile-trust-panel__header">
+          <span className="public-profile-trust-panel__icon" aria-hidden="true"><WebIcon name="verified" size={18} decorative /></span>
+          <div>
+            <h3>{t('profile.trust.title')}</h3>
+            <p>{t('profile.trust.body')}</p>
+          </div>
+        </div>
+        <div className="public-profile-trust-grid">
+          <div>
+            <strong>{memberSince}</strong>
+            <span>{t('profile.trust.memberSinceLabel')}</span>
+          </div>
+          <div>
+            <strong>{profile.stats.verifiedOfflinePlacesCount ?? 0}</strong>
+            <span>{t('profile.trust.verifiedPlaces')}</span>
+          </div>
+          <div>
+            <strong>{profile.stats.verifiedOfflinePlansCount ?? 0}</strong>
+            <span>{t('profile.trust.verifiedPlans')}</span>
+          </div>
+        </div>
+      </section>
+
       <section className="public-profile-stats" aria-label={t('profile.statsLabel')}>
         {stats.map((item) => (
           <div key={item.label}>

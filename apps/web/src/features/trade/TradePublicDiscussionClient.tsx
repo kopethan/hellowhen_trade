@@ -1,64 +1,44 @@
 'use client';
 
-import Link from 'next/link';
 import type { FormEvent } from 'react';
-import type { TradePublicMessageDto } from '@hellowhen/contracts';
+import type { TradeDto, TradePublicMessageDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ReportContentButton } from '../../components/ReportContentButton';
-import { WebIcon } from '../../components/WebIcon';
 import { WebOptionPickerCard, WebOptionPickerDangerCard, WebOptionPickerPanel } from '../../components/WebOptionPicker';
 import { api } from '../../lib/api';
-import { formatWebDate, formatWebDateTime } from '../../lib/webFormat';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
-import { UserIdentityLink } from '../users/UserIdentityLink';
-
-const PUBLIC_DISCUSSION_REFRESH_INTERVAL_MS = 8000;
-const PUBLIC_DISCUSSION_COMPOSER_MAX_HEIGHT_PX = 144;
-
-type PublicDiscussionView = 'messages' | 'menu' | 'guide' | 'report-thread' | 'report-message';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object');
-}
+import {
+  PUBLIC_DISCUSSION_REFRESH_INTERVAL_MS,
+  PublicDiscussionComposer,
+  PublicDiscussionContextStrip,
+  PublicDiscussionDeleteConfirm,
+  PublicDiscussionGuideCard,
+  PublicDiscussionHeader,
+  PublicDiscussionLoadingShell,
+  PublicDiscussionMessageList,
+  PublicDiscussionSignedOutShell,
+  getPublicDiscussionMessageMention,
+  groupPublicDiscussionMessages,
+  isRecord,
+  mergePublicDiscussionMessages,
+  normalizePublicDiscussionMessage,
+  normalizePublicDiscussionMessages,
+  resizePublicDiscussionComposer,
+  type PublicDiscussionNotice,
+  type PublicDiscussionView,
+} from '../publicDiscussion/PublicDiscussionThreadPieces';
+import { getExchangeLabel, getTradeHeadline, getTradeTimingBadge } from './tradePresentation';
 
 function isPublicMessage(value: unknown): value is TradePublicMessageDto {
   return isRecord(value) && typeof value.id === 'string' && typeof value.tradeId === 'string' && typeof value.authorId === 'string' && typeof value.body === 'string';
 }
 
-function normalizeMessages(value: unknown): TradePublicMessageDto[] {
-  if (Array.isArray(value)) return value.filter(isPublicMessage);
-  if (isRecord(value) && Array.isArray(value.messages)) return value.messages.filter(isPublicMessage);
-  if (isRecord(value) && Array.isArray(value.items)) return value.items.filter(isPublicMessage);
-  return [];
-}
-
-function normalizeMessage(value: unknown): TradePublicMessageDto | null {
-  if (isPublicMessage(value)) return value;
-  if (isRecord(value) && isPublicMessage(value.message)) return value.message;
+function normalizeTrade(value: unknown): TradeDto | null {
+  if (isRecord(value) && typeof value.id === 'string') return value as TradeDto;
+  if (isRecord(value) && isRecord(value.trade) && typeof value.trade.id === 'string') return value.trade as TradeDto;
   return null;
-}
-
-function mergeMessages(current: TradePublicMessageDto[], next: TradePublicMessageDto[]) {
-  const byId = new Map(current.map((message) => [message.id, message]));
-  for (const message of next) byId.set(message.id, { ...byId.get(message.id), ...message });
-  return Array.from(byId.values()).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-}
-
-
-function resizePublicDiscussionComposer(textarea: HTMLTextAreaElement | null) {
-  if (!textarea) return;
-  textarea.style.height = 'auto';
-  const nextHeight = Math.min(textarea.scrollHeight, PUBLIC_DISCUSSION_COMPOSER_MAX_HEIGHT_PX);
-  textarea.style.height = `${nextHeight}px`;
-  textarea.style.overflowY = textarea.scrollHeight > PUBLIC_DISCUSSION_COMPOSER_MAX_HEIGHT_PX ? 'auto' : 'hidden';
-}
-
-function messageDateKey(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toISOString().slice(0, 10);
 }
 
 export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
@@ -68,6 +48,7 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
   const [reportMessageId, setReportMessageId] = useState<string | null>(null);
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<TradePublicMessageDto | null>(null);
   const [messages, setMessages] = useState<TradePublicMessageDto[]>([]);
+  const [trade, setTrade] = useState<TradeDto | null>(null);
   const [body, setBody] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingBody, setEditingBody] = useState('');
@@ -75,19 +56,18 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'warning' | 'danger'; body: string } | null>(null);
+  const [notice, setNotice] = useState<PublicDiscussionNotice | null>(null);
 
   const canWrite = auth.isAuthenticated && auth.user?.trustTier !== 'restricted';
   const trimmedBody = body.trim();
   const trimmedEditingBody = editingBody.trim();
+  const composerReady = trimmedBody.length > 0;
+  const composerDisabled = sending || !composerReady;
+  const tradeHeadline = trade ? getTradeHeadline(trade, { t, language }) : t('trade.publicDiscussion.tradeContext');
+  const tradeContextLabel = trade ? getExchangeLabel(trade, { t, language }) : t('trade.publicDiscussion.tradeContext');
+  const tradeTimingLabel = trade ? getTradeTimingBadge(trade, { t, language }) : '';
 
-  const groupedMessages = useMemo(() => {
-    return messages.map((message, index) => {
-      const previous = messages[index - 1];
-      const showDate = !previous || messageDateKey(previous.createdAt) !== messageDateKey(message.createdAt);
-      return { message, showDate };
-    });
-  }, [messages]);
+  const groupedMessages = useMemo(() => groupPublicDiscussionMessages(messages), [messages]);
 
   useEffect(() => {
     resizePublicDiscussionComposer(composerTextareaRef.current);
@@ -101,7 +81,7 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
     if (!options?.quiet) setLoading(true);
     try {
       const response = await api.trades.publicMessages(tradeId, { take: 80 });
-      const nextMessages = normalizeMessages(response);
+      const nextMessages = normalizePublicDiscussionMessages(response, isPublicMessage);
       // Replace the visible list on refresh so messages hidden by moderation disappear locally.
       setMessages(nextMessages);
       if (!options?.quiet) setNotice(null);
@@ -112,9 +92,24 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
     }
   }
 
+  async function loadTradeContext() {
+    if (!auth.isAuthenticated) {
+      setTrade(null);
+      return;
+    }
+    try {
+      const response = await api.trades.get(tradeId);
+      setTrade(normalizeTrade(response));
+    } catch {
+      // The discussion can still work if the mini trade strip cannot be loaded.
+      setTrade(null);
+    }
+  }
+
   useEffect(() => {
     if (!auth.hydrated) return;
     void loadMessages();
+    void loadTradeContext();
   }, [auth.hydrated, auth.isAuthenticated, tradeId]);
 
   useEffect(() => {
@@ -124,6 +119,7 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
     }, PUBLIC_DISCUSSION_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(intervalId);
   }, [auth.isAuthenticated, tradeId]);
+
   async function submitMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canWrite || trimmedBody.length < 1) return;
@@ -131,9 +127,10 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
     setNotice(null);
     try {
       const response = await api.trades.sendPublicMessage(tradeId, { body: trimmedBody });
-      const message = normalizeMessage(response);
-      if (message) setMessages((current) => mergeMessages(current, [message]));
+      const message = normalizePublicDiscussionMessage(response, isPublicMessage);
+      if (message) setMessages((current) => mergePublicDiscussionMessages(current, [message]));
       setBody('');
+      window.requestAnimationFrame(() => resizePublicDiscussionComposer(composerTextareaRef.current));
     } catch (cause) {
       setNotice({ tone: 'danger', body: getFriendlyApiErrorMessage(cause, t('trade.publicDiscussion.couldNotSend')) });
     } finally {
@@ -148,6 +145,11 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
     setNotice(null);
   }
 
+  function cancelEdit() {
+    setEditingId(null);
+    setEditingBody('');
+  }
+
   async function saveEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editingId || trimmedEditingBody.length < 1) return;
@@ -155,10 +157,9 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
     setNotice(null);
     try {
       const response = await api.trades.updatePublicMessage(tradeId, editingId, { body: trimmedEditingBody });
-      const message = normalizeMessage(response);
-      if (message) setMessages((current) => mergeMessages(current, [message]));
-      setEditingId(null);
-      setEditingBody('');
+      const message = normalizePublicDiscussionMessage(response, isPublicMessage);
+      if (message) setMessages((current) => mergePublicDiscussionMessages(current, [message]));
+      cancelEdit();
     } catch (cause) {
       setNotice({ tone: 'danger', body: getFriendlyApiErrorMessage(cause, t('trade.publicDiscussion.couldNotUpdate')) });
     } finally {
@@ -171,8 +172,8 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
     setNotice(null);
     try {
       const response = await api.trades.deletePublicMessage(tradeId, message.id);
-      const nextMessage = normalizeMessage(response);
-      if (nextMessage) setMessages((current) => mergeMessages(current, [nextMessage]));
+      const nextMessage = normalizePublicDiscussionMessage(response, isPublicMessage);
+      if (nextMessage) setMessages((current) => mergePublicDiscussionMessages(current, [nextMessage]));
       setOpenMenuId(null);
       setDeleteConfirmTarget(null);
     } catch (cause) {
@@ -199,49 +200,44 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
     setOpenMenuId(null);
   }
 
-  function openThreadMenu() {
-    setView('menu');
+  function focusComposerWithReply(message: TradePublicMessageDto) {
+    const mention = getPublicDiscussionMessageMention(message);
+    if (mention) {
+      setBody((current) => {
+        const value = current.trim();
+        if (!value) return `${mention} `;
+        if (value.includes(mention)) return `${value} `;
+        return `${value} ${mention} `;
+      });
+    }
+    window.requestAnimationFrame(() => {
+      composerTextareaRef.current?.focus();
+      resizePublicDiscussionComposer(composerTextareaRef.current);
+    });
   }
 
   if (!auth.hydrated || loading) {
-    return (
-      <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only" aria-busy="true">
-        <section className="web-thread-header web-thread-header--loading">
-          <span className="semantic-badge instruction">{t('common.states.loading')}</span>
-          <h2>{t('trade.publicDiscussion.title')}</h2>
-        </section>
-        <section className="web-thread-loading-list" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </section>
-      </article>
-    );
+    return <PublicDiscussionLoadingShell label={t('common.states.loading')} title={t('trade.publicDiscussion.title')} />;
   }
 
   if (!auth.isAuthenticated) {
     return (
-      <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
-        <section className="web-thread-header">
-          <Link href={`/trades/${tradeId}`} className="web-thread-header__back" aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></Link>
-          <h2>{t('trade.publicDiscussion.title')}</h2>
-        </section>
-        <section className="public-discussion-section public-discussion-section--empty">
-          <h3>{t('trade.publicDiscussion.signedOutTitle')}</h3>
-          <p>{t('trade.publicDiscussion.signedOutBody')}</p>
-          <Link href={`/auth?next=${encodeURIComponent(`/trades/${tradeId}/discussion`)}`} className="button primary full">{t('report.loginAction')}</Link>
-        </section>
-      </article>
+      <PublicDiscussionSignedOutShell
+        backHref={`/trades/${tradeId}`}
+        backLabel={t('common.actions.back')}
+        title={t('trade.publicDiscussion.title')}
+        heading={t('trade.publicDiscussion.signedOutTitle')}
+        body={t('trade.publicDiscussion.signedOutBody')}
+        actionHref={`/auth?next=${encodeURIComponent(`/trades/${tradeId}/discussion`)}`}
+        actionLabel={t('report.loginAction')}
+      />
     );
   }
 
   if (view === 'menu') {
     return (
       <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only public-discussion-page--menu">
-        <section className="web-thread-header">
-          <button type="button" className="web-thread-header__back" onClick={closeSubpage} aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></button>
-          <h2>{t('trade.publicDiscussion.menuTitle')}</h2>
-        </section>
+        <PublicDiscussionHeader backLabel={t('common.actions.back')} title={t('trade.publicDiscussion.menuTitle')} onBack={closeSubpage} />
         <WebOptionPickerPanel className="web-thread-options-picker">
           <WebOptionPickerCard
             href={`/trades/${tradeId}`}
@@ -269,28 +265,13 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
   if (view === 'guide') {
     return (
       <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
-        <section className="web-thread-header">
-          <button type="button" className="web-thread-header__back" onClick={() => setView('menu')} aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></button>
-          <h2>{t('trade.publicDiscussion.guideTitle')}</h2>
-        </section>
+        <PublicDiscussionHeader backLabel={t('common.actions.back')} title={t('trade.publicDiscussion.guideTitle')} onBack={() => setView('menu')} />
         <section className="web-thread-info-page web-thread-guide-page">
           <ul className="web-thread-guide-list web-thread-guide-list--cards">
-            <li>
-              <span className="web-thread-guide-card__icon" aria-hidden="true"><WebIcon name="help" size={20} decorative /></span>
-              <p>{t('trade.publicDiscussion.guideBody')}</p>
-            </li>
-            <li>
-              <span className="web-thread-guide-card__icon" aria-hidden="true"><WebIcon name="trade" size={20} decorative /></span>
-              <p>{t('trade.publicDiscussion.guidePublic')}</p>
-            </li>
-            <li>
-              <span className="web-thread-guide-card__icon" aria-hidden="true"><WebIcon name="proposal" size={20} decorative /></span>
-              <p>{t('trade.publicDiscussion.guidePrivate')}</p>
-            </li>
-            <li className="web-thread-guide-card--warning">
-              <span className="web-thread-guide-card__icon" aria-hidden="true"><WebIcon name="warning" size={20} decorative /></span>
-              <p>{t('trade.publicDiscussion.guideSafety')}</p>
-            </li>
+            <PublicDiscussionGuideCard iconName="help">{t('trade.publicDiscussion.guideBody')}</PublicDiscussionGuideCard>
+            <PublicDiscussionGuideCard iconName="trade">{t('trade.publicDiscussion.guidePublic')}</PublicDiscussionGuideCard>
+            <PublicDiscussionGuideCard iconName="proposal">{t('trade.publicDiscussion.guidePrivate')}</PublicDiscussionGuideCard>
+            <PublicDiscussionGuideCard iconName="warning" warning>{t('trade.publicDiscussion.guideSafety')}</PublicDiscussionGuideCard>
           </ul>
         </section>
       </article>
@@ -300,10 +281,7 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
   if (view === 'report-thread') {
     return (
       <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
-        <section className="web-thread-header">
-          <button type="button" className="web-thread-header__back" onClick={() => setView('menu')} aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></button>
-          <h2>{t('trade.publicDiscussion.reportThread')}</h2>
-        </section>
+        <PublicDiscussionHeader backLabel={t('common.actions.back')} title={t('trade.publicDiscussion.reportThread')} onBack={() => setView('menu')} />
         <section className="web-thread-info-page">
           <ReportContentButton targetType="trade" targetId={tradeId} labelKey="trade.publicDiscussion.reportThread" helperKey="report.helper.trade" initialOpen />
         </section>
@@ -314,10 +292,7 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
   if (view === 'report-message' && reportMessageId) {
     return (
       <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
-        <section className="web-thread-header">
-          <button type="button" className="web-thread-header__back" onClick={closeSubpage} aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></button>
-          <h2>{t('trade.publicDiscussion.reportMessage')}</h2>
-        </section>
+        <PublicDiscussionHeader backLabel={t('common.actions.back')} title={t('trade.publicDiscussion.reportMessage')} onBack={closeSubpage} />
         <section className="web-thread-info-page">
           <ReportContentButton targetType="public_message" targetId={reportMessageId} labelKey="trade.publicDiscussion.reportMessage" helperKey="report.helper.publicMessage" initialOpen />
         </section>
@@ -326,112 +301,93 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
   }
 
   return (
-    <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only public-discussion-page--flat">
-      <section className="web-thread-header">
-        <Link href={`/trades/${tradeId}`} className="web-thread-header__back" aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></Link>
-        <h2>{t('trade.publicDiscussion.title')}</h2>
-        <button type="button" className="web-thread-header__menu" onClick={openThreadMenu} aria-label={t('trade.publicDiscussion.menuTitle')}>
-          <WebIcon name="more" size={22} decorative />
-        </button>
-      </section>
+    <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only public-discussion-page--thread-shell">
+      <PublicDiscussionHeader
+        backHref={`/trades/${tradeId}`}
+        backLabel={t('common.actions.back')}
+        title={t('trade.publicDiscussion.title')}
+        menuLabel={t('trade.publicDiscussion.menuTitle')}
+        onMenu={() => setView('menu')}
+      />
+
+      <PublicDiscussionContextStrip
+        href={`/trades/${tradeId}`}
+        ariaLabel={t('trade.publicDiscussion.viewTrade')}
+        eyebrow={tradeContextLabel}
+        title={tradeHeadline}
+        meta={`${tradeTimingLabel ? `${tradeTimingLabel} · ` : ''}${t('trade.publicDiscussion.messageCount', { count: messages.length })}`}
+      />
 
       {deleteConfirmTarget ? (
-        <div className="proposal-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-public-message-title">
-          <div className="proposal-confirm-modal__panel">
-            <span className="semantic-badge danger"><WebIcon name="warning" size={14} decorative /> {t('trade.publicDiscussion.deleteMessage')}</span>
-            <h2 id="delete-public-message-title">{t('trade.publicDiscussion.deleteMessage')}</h2>
-            <p>{t('trade.publicDiscussion.deleteConfirm')}</p>
-            <div className="proposal-confirm-modal__actions">
-              <button type="button" className="secondary" onClick={() => setDeleteConfirmTarget(null)} disabled={sending}>{t('common.actions.cancel')}</button>
-              <button type="button" className="danger" onClick={() => void deleteMessage(deleteConfirmTarget)} disabled={sending}>{sending ? t('common.states.working') : t('trade.publicDiscussion.deleteMessage')}</button>
-            </div>
-          </div>
-        </div>
+        <PublicDiscussionDeleteConfirm
+          titleId="delete-public-message-title"
+          badge={t('trade.publicDiscussion.deleteMessage')}
+          title={t('trade.publicDiscussion.deleteMessage')}
+          body={t('trade.publicDiscussion.deleteConfirm')}
+          cancelLabel={t('common.actions.cancel')}
+          deleteLabel={t('trade.publicDiscussion.deleteMessage')}
+          workingLabel={t('common.states.working')}
+          sending={sending}
+          onCancel={() => setDeleteConfirmTarget(null)}
+          onDelete={() => void deleteMessage(deleteConfirmTarget)}
+        />
       ) : null}
 
       <section className="trade-social-section public-discussion-section public-discussion-section--messages-only">
         {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
         {messages.length ? (
-          <div className="public-message-list public-message-list--thread">
-            {groupedMessages.map(({ message, showDate }) => {
-              const ownMessage = message.authorId === auth.user?.id;
-              const deleted = message.status === 'deleted' || Boolean(message.deletedAt);
-              const menuOpen = openMenuId === message.id;
-              return (
-                <div key={message.id} className="public-message-group">
-                  {showDate ? <div className="public-message-date">{formatWebDate(message.createdAt, t('trade.publicDiscussion.unknownDate'), language)}</div> : null}
-                  <article className={ownMessage ? 'public-message public-message--own' : 'public-message'}>
-                    <header className="public-message__header">
-                      <UserIdentityLink
-                        user={message.author}
-                        userId={message.authorId}
-                        variant="compact"
-                        avatarSize="sm"
-                        statusText={ownMessage ? t('trade.labels.you') : undefined}
-                        showHandle={false}
-                      />
-                      <div className="public-message__meta">
-                        <time dateTime={message.createdAt}>{formatWebDateTime(message.createdAt, '—', language)}</time>
-                        {!deleted ? (
-                          <button type="button" className="public-message__menu-button" onClick={() => setOpenMenuId((current) => current === message.id ? null : message.id)} aria-expanded={menuOpen} aria-label={t('trade.publicDiscussion.messageActions')}><WebIcon name="more" size={19} decorative /></button>
-                        ) : null}
-                      </div>
-                    </header>
-
-                    {editingId === message.id ? (
-                      <form className="public-message-edit-form" onSubmit={saveEdit}>
-                        <textarea value={editingBody} onChange={(event) => setEditingBody(event.target.value)} rows={3} />
-                        <div className="trade-action-row">
-                          <button type="submit" disabled={sending || trimmedEditingBody.length < 1}>{t('common.actions.save')}</button>
-                          <button type="button" className="secondary" onClick={() => { setEditingId(null); setEditingBody(''); }}>{t('common.actions.cancel')}</button>
-                        </div>
-                      </form>
-                    ) : (
-                      <p className={deleted ? 'public-message__body public-message__body--deleted' : 'public-message__body'}>{deleted ? t('trade.publicDiscussion.messageDeleted') : message.body}</p>
-                    )}
-
-                    {!deleted && message.editedAt ? <p className="public-message__edited">{t('trade.publicDiscussion.edited', { date: formatWebDateTime(message.editedAt, '—', language) })}</p> : null}
-
-                    {menuOpen ? (
-                      <div className="public-message__menu">
-                        {ownMessage ? (
-                          <>
-                            <button type="button" className="button secondary" onClick={() => beginEdit(message)}>{t('common.actions.edit')}</button>
-                            <button type="button" className="button secondary danger-text" onClick={() => requestDeleteMessage(message)}>{t('trade.publicDiscussion.deleteMessage')}</button>
-                          </>
-                        ) : (
-                          <button type="button" className="button secondary danger-text" onClick={() => openReportMessage(message.id)}>
-                            <WebIcon name="report-flag" size={16} decorative /> {t('trade.publicDiscussion.reportMessage')}
-                          </button>
-                        )}
-                      </div>
-                    ) : null}
-                  </article>
-                </div>
-              );
-            })}
-          </div>
+          <PublicDiscussionMessageList
+            groupedMessages={groupedMessages}
+            currentUserId={auth.user?.id}
+            language={language}
+            canWrite={canWrite}
+            sending={sending}
+            editingId={editingId}
+            editingBody={editingBody}
+            trimmedEditingBody={trimmedEditingBody}
+            openMenuId={openMenuId}
+            labels={{
+              unknownDate: t('trade.publicDiscussion.unknownDate'),
+              you: t('trade.labels.you'),
+              messageActions: t('trade.publicDiscussion.messageActions'),
+              reply: t('trade.proposals.reply'),
+              reportMessage: t('trade.publicDiscussion.reportMessage'),
+              edited: (date) => t('trade.publicDiscussion.edited', { date }),
+              messageDeleted: t('trade.publicDiscussion.messageDeleted'),
+              save: t('common.actions.save'),
+              cancel: t('common.actions.cancel'),
+              edit: t('common.actions.edit'),
+              deleteMessage: t('trade.publicDiscussion.deleteMessage'),
+            }}
+            onSaveEdit={saveEdit}
+            onEditingBodyChange={setEditingBody}
+            onCancelEdit={cancelEdit}
+            onToggleMenu={(messageId) => setOpenMenuId((current) => current === messageId ? null : messageId)}
+            onBeginEdit={beginEdit}
+            onRequestDelete={requestDeleteMessage}
+            onReply={focusComposerWithReply}
+            onReport={openReportMessage}
+          />
         ) : (
           <p className="public-discussion-empty-text">{t('trade.publicDiscussion.emptyTitle')}</p>
         )}
       </section>
 
       {canWrite ? (
-        <form className="conversation-reply public-discussion-composer public-discussion-composer--messages-only" onSubmit={submitMessage}>
-          <label className="sr-only" htmlFor="public-discussion-message">{t('trade.publicDiscussion.placeholder')}</label>
-          <textarea
-            id="public-discussion-message"
-            ref={composerTextareaRef}
-            value={body}
-            onChange={(event) => {
-              setBody(event.target.value);
-              resizePublicDiscussionComposer(event.currentTarget);
-            }}
-            placeholder={t('trade.publicDiscussion.placeholder')}
-            rows={1}
-          />
-          <button type="submit" disabled={sending || trimmedBody.length < 1}>{sending ? t('common.states.sending') : t('common.actions.send')}</button>
-        </form>
+        <PublicDiscussionComposer
+          id="public-discussion-message"
+          ready={composerReady}
+          sending={sending}
+          disabled={composerDisabled}
+          value={body}
+          label={t('trade.publicDiscussion.placeholder')}
+          placeholder={t('trade.publicDiscussion.placeholder')}
+          sendLabel={t('common.actions.send')}
+          sendingLabel={t('common.states.sending')}
+          textareaRef={composerTextareaRef}
+          onSubmit={submitMessage}
+          onChange={setBody}
+        />
       ) : (
         <p className="notice-box warning public-discussion-bottom-notice">{t('trade.publicDiscussion.restricted')}</p>
       )}

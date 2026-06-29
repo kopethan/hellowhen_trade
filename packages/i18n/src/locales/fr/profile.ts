@@ -18,6 +18,15 @@ export const profile = {
     openNeeds: 'Besoins ouverts',
     openOffers: 'Offres ouvertes',
   },
+  trust: {
+    title: 'Signaux de confiance',
+    body: 'Uniquement des signaux publics et agrégés. Les visites exactes et la position en direct ne sont jamais affichées.',
+    memberSinceLabel: 'Membre depuis',
+    memberSince: 'Membre depuis {{date}}',
+    verifiedPlaces: 'Lieux hors ligne vérifiés',
+    verifiedPlans: 'Visites de plans vérifiées',
+    checkIns: 'Confirmations de présence',
+  },
   loading: {
     badge: 'Chargement',
     title: 'Chargement du profil…',

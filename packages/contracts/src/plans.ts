@@ -12,6 +12,63 @@ export const placeStatusSchema = z.enum(['draft', 'active', 'archived', 'hidden'
 export const placeVisibilitySchema = z.enum(['private', 'public', 'library']);
 export const planPlaceSourceSchema = z.enum(['custom', 'my_place', 'hellowhen_library']);
 
+export const placeLocationSourceSchema = z.enum(['manual', 'google_places']);
+export const placeAddressValidationStatusSchema = z.enum(['confirmed', 'needs_review', 'unsupported']);
+export const placePresenceVerificationSourceSchema = z.enum(['device_gps']);
+export const placePresenceVerificationStatusSchema = z.enum(['verified', 'rejected']);
+
+export const googlePlaceValidationStatusSchema = z.enum(['confirmed', 'needs_review', 'unsupported']);
+export const googlePlaceAddressComponentSchema = z.object({
+  longText: z.string().nullable().optional(),
+  shortText: z.string().nullable().optional(),
+  types: z.array(z.string()).optional(),
+  languageCode: z.string().nullable().optional(),
+}).passthrough();
+export const googlePlaceViewportSchema = z.object({
+  low: z.object({ latitude: z.number(), longitude: z.number() }).optional(),
+  high: z.object({ latitude: z.number(), longitude: z.number() }).optional(),
+}).passthrough();
+export const googlePlacePredictionSchema = z.object({
+  placeId: z.string(),
+  description: z.string(),
+  mainText: z.string(),
+  secondaryText: z.string().nullable().optional(),
+  types: z.array(z.string()).optional(),
+});
+export const googleResolvedPlaceSchema = z.object({
+  source: z.literal('google_places'),
+  placeId: z.string(),
+  name: z.string().nullable().optional(),
+  formattedAddress: z.string().nullable().optional(),
+  latitude: z.number().nullable().optional(),
+  longitude: z.number().nullable().optional(),
+  googleMapsUri: z.string().nullable().optional(),
+  types: z.array(z.string()).optional(),
+  addressComponents: z.array(googlePlaceAddressComponentSchema).optional(),
+  viewport: googlePlaceViewportSchema.nullable().optional(),
+  validationStatus: googlePlaceValidationStatusSchema,
+}).passthrough();
+export const googlePlaceSearchQuerySchema = z.object({
+  q: z.string().trim().min(2).max(160),
+  languageCode: z.string().trim().min(2).max(12).optional(),
+  sessionToken: z.string().trim().min(8).max(120).optional(),
+  country: z.string().trim().min(2).max(2).optional(),
+  take: z.coerce.number().int().min(1).max(8).optional(),
+});
+export const googlePlaceDetailsQuerySchema = z.object({
+  placeId: z.string().trim().min(3).max(240),
+  languageCode: z.string().trim().min(2).max(12).optional(),
+  sessionToken: z.string().trim().min(8).max(120).optional(),
+});
+export const googleAddressValidationRequestSchema = z.object({
+  address: z.string().trim().min(3).max(300),
+  regionCode: z.string().trim().min(2).max(2).optional(),
+  languageCode: z.string().trim().min(2).max(12).optional(),
+});
+export const googlePlaceSearchResponseSchema = z.object({ predictions: z.array(googlePlacePredictionSchema) });
+export const googlePlaceDetailsResponseSchema = z.object({ place: googleResolvedPlaceSchema });
+export const googleAddressValidationResponseSchema = z.object({ place: googleResolvedPlaceSchema.nullable(), validationStatus: googlePlaceValidationStatusSchema });
+
 export const PLAN_PLACE_MEDIA_LIMITS = {
   free: 1,
   plus: 5,
@@ -43,6 +100,14 @@ const reusablePlaceInputBaseSchema = z.object({
   areaLabel: z.string().trim().min(1).max(160).optional(),
   addressPublicText: z.string().trim().min(1).max(240).optional(),
   addressPrivateText: z.string().trim().min(1).max(240).optional(),
+  googlePlaceId: z.string().trim().min(3).max(240).optional(),
+  googlePlaceName: z.string().trim().min(1).max(160).optional(),
+  formattedAddress: z.string().trim().min(1).max(300).optional(),
+  googleMapsUri: z.string().trim().url().max(500).optional(),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
+  locationSource: placeLocationSourceSchema.optional(),
+  addressValidationStatus: placeAddressValidationStatusSchema.optional(),
   onlineLabel: z.string().trim().min(1).max(120).optional(),
   onlineUrl: z.string().trim().url().max(500).optional(),
   defaultDurationMinutes: z.number().int().min(5).max(24 * 60).optional(),
@@ -80,6 +145,14 @@ const planPlaceInputBaseSchema = z.object({
   note: z.string().trim().min(1).max(1000).optional(),
   addressPublicText: z.string().trim().min(1).max(240).optional(),
   addressPrivateText: z.string().trim().min(1).max(240).optional(),
+  googlePlaceId: z.string().trim().min(3).max(240).optional(),
+  googlePlaceName: z.string().trim().min(1).max(160).optional(),
+  formattedAddress: z.string().trim().min(1).max(300).optional(),
+  googleMapsUri: z.string().trim().url().max(500).optional(),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
+  locationSource: placeLocationSourceSchema.optional(),
+  addressValidationStatus: placeAddressValidationStatusSchema.optional(),
   onlineLabel: z.string().trim().min(1).max(120).optional(),
   onlineUrl: z.string().trim().url().max(500).optional(),
   startsAt: z.string().datetime().optional(),
@@ -221,6 +294,15 @@ export const listPlanPublicMessagesQuerySchema = z.object({
   before: z.string().datetime().optional(),
 });
 
+export const createPlacePresenceVerificationRequestSchema = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  accuracyMeters: z.number().positive().max(10_000).optional(),
+  locationCapturedAt: z.string().datetime().optional(),
+  isMockedLocation: z.boolean().optional(),
+  platform: z.enum(['web', 'mobile_web', 'ios', 'android', 'unknown']).optional(),
+});
+
 const publicUserSummarySchema = z.object({
   id: z.string(),
   profile: z.object({
@@ -247,6 +329,14 @@ export const placeSchema = z.object({
   areaLabel: z.string().nullable().optional(),
   addressPublicText: z.string().nullable().optional(),
   addressPrivateText: z.string().nullable().optional(),
+  googlePlaceId: z.string().nullable().optional(),
+  googlePlaceName: z.string().nullable().optional(),
+  formattedAddress: z.string().nullable().optional(),
+  googleMapsUri: z.string().nullable().optional(),
+  latitude: z.number().nullable().optional(),
+  longitude: z.number().nullable().optional(),
+  locationSource: placeLocationSourceSchema.nullable().optional(),
+  addressValidationStatus: placeAddressValidationStatusSchema.nullable().optional(),
   onlineLabel: z.string().nullable().optional(),
   onlineUrl: z.string().nullable().optional(),
   defaultDurationMinutes: z.number().int().nullable().optional(),
@@ -271,6 +361,14 @@ export const planPlaceSchema = z.object({
   note: z.string().nullable().optional(),
   addressPublicText: z.string().nullable().optional(),
   addressPrivateText: z.string().nullable().optional(),
+  googlePlaceId: z.string().nullable().optional(),
+  googlePlaceName: z.string().nullable().optional(),
+  formattedAddress: z.string().nullable().optional(),
+  googleMapsUri: z.string().nullable().optional(),
+  latitude: z.number().nullable().optional(),
+  longitude: z.number().nullable().optional(),
+  locationSource: placeLocationSourceSchema.nullable().optional(),
+  addressValidationStatus: placeAddressValidationStatusSchema.nullable().optional(),
   onlineLabel: z.string().nullable().optional(),
   onlineUrl: z.string().nullable().optional(),
   startsAt: z.string().nullable().optional(),
@@ -309,6 +407,41 @@ export const planPublicMessageSchema = z.object({
   hiddenAt: z.string().nullable().optional(),
   author: publicUserSummarySchema.optional(),
 }).passthrough();
+
+export const placePresenceVerificationSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  planId: z.string(),
+  planPlaceId: z.string(),
+  sourcePlaceId: z.string().nullable().optional(),
+  source: placePresenceVerificationSourceSchema,
+  status: placePresenceVerificationStatusSchema,
+  latitudeRounded: z.number().nullable().optional(),
+  longitudeRounded: z.number().nullable().optional(),
+  accuracyMeters: z.number().nullable().optional(),
+  distanceMeters: z.number().nullable().optional(),
+  maxDistanceMeters: z.number().nullable().optional(),
+  rejectionReason: z.string().nullable().optional(),
+  verifiedAt: z.string().nullable().optional(),
+  createdAt: z.string(),
+}).passthrough();
+
+export const placePresenceVerificationResponseSchema = z.object({
+  verification: placePresenceVerificationSchema,
+  accepted: z.boolean(),
+  alreadyVerified: z.boolean().optional(),
+  distanceMeters: z.number().nullable().optional(),
+  maxDistanceMeters: z.number().optional(),
+});
+
+export const placePresenceVerificationSummaryResponseSchema = z.object({
+  summary: z.object({
+    verifiedPlacesCount: z.number().int().nonnegative(),
+    verifiedPlansCount: z.number().int().nonnegative(),
+    totalVerifiedCheckIns: z.number().int().nonnegative(),
+    lastVerifiedAt: z.string().nullable().optional(),
+  }),
+});
 
 export const planPublicMessagesResponseSchema = z.object({ messages: z.array(planPublicMessageSchema) });
 export const planPublicMessageResponseSchema = z.object({ message: planPublicMessageSchema });
@@ -355,6 +488,19 @@ export type PlaceSource = z.infer<typeof placeSourceSchema>;
 export type PlaceStatus = z.infer<typeof placeStatusSchema>;
 export type PlaceVisibility = z.infer<typeof placeVisibilitySchema>;
 export type PlanPlaceSource = z.infer<typeof planPlaceSourceSchema>;
+export type PlaceLocationSource = z.infer<typeof placeLocationSourceSchema>;
+export type PlaceAddressValidationStatus = z.infer<typeof placeAddressValidationStatusSchema>;
+export type PlacePresenceVerificationSource = z.infer<typeof placePresenceVerificationSourceSchema>;
+export type PlacePresenceVerificationStatus = z.infer<typeof placePresenceVerificationStatusSchema>;
+export type GooglePlaceValidationStatus = z.infer<typeof googlePlaceValidationStatusSchema>;
+export type GooglePlacePrediction = z.infer<typeof googlePlacePredictionSchema>;
+export type GoogleResolvedPlace = z.infer<typeof googleResolvedPlaceSchema>;
+export type GooglePlaceSearchQuery = z.infer<typeof googlePlaceSearchQuerySchema>;
+export type GooglePlaceDetailsQuery = z.infer<typeof googlePlaceDetailsQuerySchema>;
+export type GoogleAddressValidationRequest = z.infer<typeof googleAddressValidationRequestSchema>;
+export type GooglePlaceSearchResponse = z.infer<typeof googlePlaceSearchResponseSchema>;
+export type GooglePlaceDetailsResponse = z.infer<typeof googlePlaceDetailsResponseSchema>;
+export type GoogleAddressValidationResponse = z.infer<typeof googleAddressValidationResponseSchema>;
 export type CreatePlaceRequest = z.infer<typeof createPlaceRequestSchema>;
 export type UpdatePlaceRequest = z.infer<typeof updatePlaceRequestSchema>;
 export type ListPlacesQuery = z.infer<typeof listPlacesQuerySchema>;
@@ -378,12 +524,14 @@ export type UpdateMyPlanParticipantRequest = z.infer<typeof updateMyPlanParticip
 export type CreatePlanPublicMessageRequest = z.infer<typeof createPlanPublicMessageRequestSchema>;
 export type UpdatePlanPublicMessageRequest = z.infer<typeof updatePlanPublicMessageRequestSchema>;
 export type ListPlanPublicMessagesQuery = z.infer<typeof listPlanPublicMessagesQuerySchema>;
+export type CreatePlacePresenceVerificationRequest = z.infer<typeof createPlacePresenceVerificationRequestSchema>;
 export type PlaceDto = z.infer<typeof placeSchema>;
 export type PlanDto = z.infer<typeof planSchema>;
 export type PlanPlaceDto = z.infer<typeof planPlaceSchema>;
 export type PlanParticipantDto = z.infer<typeof planParticipantSchema>;
 export type PlanPublicMessageStatus = z.infer<typeof planPublicMessageStatusSchema>;
 export type PlanPublicMessageDto = z.infer<typeof planPublicMessageSchema>;
+export type PlacePresenceVerificationDto = z.infer<typeof placePresenceVerificationSchema>;
 export type PlaceResponse = z.infer<typeof placeResponseSchema>;
 export type PlacesResponse = z.infer<typeof placesResponseSchema>;
 export type PlanResponse = z.infer<typeof planResponseSchema>;
@@ -392,3 +540,5 @@ export type PlanParticipantResponse = z.infer<typeof planParticipantResponseSche
 export type PlanParticipantsResponse = z.infer<typeof planParticipantsResponseSchema>;
 export type PlanPublicMessagesResponse = z.infer<typeof planPublicMessagesResponseSchema>;
 export type PlanPublicMessageResponse = z.infer<typeof planPublicMessageResponseSchema>;
+export type PlacePresenceVerificationResponse = z.infer<typeof placePresenceVerificationResponseSchema>;
+export type PlacePresenceVerificationSummaryResponse = z.infer<typeof placePresenceVerificationSummaryResponseSchema>;
