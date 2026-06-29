@@ -1,0 +1,71 @@
+diff --git a/apps/mobile/src/components/LowerImageAtmosphere.tsx b/apps/mobile/src/components/LowerImageAtmosphere.tsx
+index 7b14428..8d256c3 100644
+--- a/apps/mobile/src/components/LowerImageAtmosphere.tsx
++++ b/apps/mobile/src/components/LowerImageAtmosphere.tsx
+@@ -32,28 +32,37 @@ type AtmospherePresetConfig = {
+   maxBlurRadius: number;
+   blurStrength: number;
+   tintStrength: number;
++  bottomGuardStart: number;
++  bottomGuardBlurStrength: number;
++  bottomGuardTintStrength: number;
+   tint: ToneValue;
+ };
+ 
+ const POSTER_ATMOSPHERE_PRESET_CONFIGS: Record<LowerImageAtmospherePreset, AtmospherePresetConfig> = {
+   trade: {
+     startPercent: 50,
+-    sliceCount: 16,
+-    sliceOverlap: 0.75,
++    sliceCount: 18,
++    sliceOverlap: 0.7,
+     minBlurRadius: 5,
+-    maxBlurRadius: 34,
+-    blurStrength: 0.58,
+-    tintStrength: 0.62,
++    maxBlurRadius: 36,
++    blurStrength: 0.52,
++    tintStrength: 0.5,
++    bottomGuardStart: 0.68,
++    bottomGuardBlurStrength: 0.08,
++    bottomGuardTintStrength: 0.2,
+     tint: { dark: 'rgba(1,7,7,0.5)', light: 'rgba(2,22,18,0.52)' },
+   },
+   plan: {
+-    startPercent: 49,
+-    sliceCount: 16,
+-    sliceOverlap: 0.75,
++    startPercent: 50,
++    sliceCount: 18,
++    sliceOverlap: 0.7,
+     minBlurRadius: 5,
+-    maxBlurRadius: 34,
+-    blurStrength: 0.56,
+-    tintStrength: 0.66,
++    maxBlurRadius: 36,
++    blurStrength: 0.5,
++    tintStrength: 0.54,
++    bottomGuardStart: 0.68,
++    bottomGuardBlurStrength: 0.08,
++    bottomGuardTintStrength: 0.22,
+     tint: { dark: 'rgba(4,4,12,0.5)', light: 'rgba(5,12,22,0.52)' },
+   },
+ };
+@@ -74,14 +83,15 @@ function createProfile(preset: LowerImageAtmospherePreset): LowerImageAtmosphere
+     slices: Array.from({ length: config.sliceCount }, (_, index) => {
+       const progress = (index + 1) / config.sliceCount;
+       const eased = smoothstep(progress);
++      const bottomGuard = smoothstep((progress - config.bottomGuardStart) / (1 - config.bottomGuardStart));
+       const blur = config.minBlurRadius + eased * (config.maxBlurRadius - config.minBlurRadius);
+ 
+       return {
+         top: safeStart + index * sliceHeight,
+         height: sliceHeight + config.sliceOverlap,
+         blur,
+-        imageOpacity: eased * config.blurStrength,
+-        tintOpacity: eased * config.tintStrength,
++        imageOpacity: clamp(eased * config.blurStrength + bottomGuard * config.bottomGuardBlurStrength, 0, 0.64),
++        tintOpacity: clamp(eased * config.tintStrength + bottomGuard * config.bottomGuardTintStrength, 0, 0.78),
+       };
+     }),
+   };

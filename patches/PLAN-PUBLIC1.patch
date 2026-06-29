@@ -1,0 +1,41 @@
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+index 0b88b4f..05d7449 100644
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -232,13 +232,13 @@ async function loadPlanForViewer(planId: string, viewerId?: string | null) {
+   return decoratePlan(plan, viewerId ?? null);
+ }
+ 
+-async function loadReadablePlanForDiscussion(planId: string, actorId: string) {
++async function loadReadablePlanForDiscussion(planId: string, actorId?: string | null) {
+   const plan = await prisma.plan.findUnique({
+     where: { id: planId },
+     select: { id: true, ownerId: true, status: true, owner: { select: { trustTier: true } } },
+   });
+   if (!plan || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') return null;
+-  if (plan.ownerId !== actorId && await usersHaveBlockBetween(actorId, plan.ownerId)) return null;
++  if (actorId && plan.ownerId !== actorId && await usersHaveBlockBetween(actorId, plan.ownerId)) return null;
+   return plan;
+ }
+ 
+@@ -967,9 +967,9 @@ plansRoutes.patch('/:planId/my-join-request', requireAuth, requireActiveAccount,
+   res.json({ participant: updated });
+ }));
+ 
+-plansRoutes.get('/:planId/public-messages', requireAuth, asyncRoute(async (req, res) => {
++plansRoutes.get('/:planId/public-messages', optionalAuth, asyncRoute(async (req, res) => {
+   const input = listPlanPublicMessagesQuerySchema.parse(req.query);
+-  const actorId = req.user!.id;
++  const actorId = req.user?.id ?? null;
+   const planId = req.params.planId;
+   if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
+   const plan = await loadReadablePlanForDiscussion(planId, actorId);
+@@ -987,7 +987,7 @@ plansRoutes.get('/:planId/public-messages', requireAuth, asyncRoute(async (req,
+     select: planPublicDiscussionMessageSelect(),
+   });
+ 
+-  return res.json({ messages: messages.reverse() });
++  return res.json(stripAnonymousPublicProfileMedia({ messages: messages.reverse() }, actorId));
+ }));
+ 
+ plansRoutes.post('/:planId/public-messages', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {

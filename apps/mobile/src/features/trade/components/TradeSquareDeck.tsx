@@ -24,7 +24,7 @@ export function TradeSquareDeck({ trade, index = 0, total = 1, onOpen, style }: 
       <ContinuousSquareStackDeck<TradeSquareDeckCard>
         cards={cards}
         renderCard={({ card, index: cardIndex, total: cardTotal }) => renderTradeSquareDeckCard(card, cardIndex, cardTotal, handleOpen)}
-        renderWindow="all"
+        renderWindow="visible"
         showDebugBadge={false}
         depthEffect="motionOnly"
         availableHeight={MOBILE_TRADE_DECK_AVAILABLE_HEIGHT}

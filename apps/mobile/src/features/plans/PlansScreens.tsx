@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DiscoveryLanguage, GooglePlacePrediction, GoogleResolvedPlace, InventoryTranslationDto, ListPlansQuery, MediaAssetDto, PlaceDto, PlacePresenceVerificationResponse, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
@@ -33,6 +33,8 @@ type PlanIdeaDetailProps = NativeStackScreenProps<RootStackParamList, 'PlanIdeaD
 type SimpleScreenProps<RouteName extends keyof RootStackParamList> = NativeStackScreenProps<RootStackParamList, RouteName>;
 type PlanListScope = 'feed' | 'mine' | 'joined';
 type PlaceListScope = 'mine' | 'library';
+type PlanFeedListItem = ReturnType<typeof buildPlanFeedItems>[number];
+type PlanRowListItem = { type: 'plan'; key: string; plan: PlanDto };
 
 type PlanFilterOption = { label: string; value: string; body?: string };
 type PlanFilterGroup = { title: string; body: string; options: PlanFilterOption[] };
@@ -1011,6 +1013,7 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
     recentIdeaIds: recentStarterIdeaIds,
   }), [anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, isDeckFeed, plans.length, recentStarterIdeaIds.join('|'), starterRefreshKey]);
   const feedItems = useMemo(() => buildPlanFeedItems(plans.length, starterIdeas), [plans.length, starterIdeas.join('|')]);
+  const rowItems = useMemo<PlanRowListItem[]>(() => plans.map((plan) => ({ type: 'plan', key: plan.id, plan })), [plans]);
 
   const markStarterIdeaSeen = useCallback((ideaKey: StarterPlanIdeaKey) => {
     setRecentStarterIdeaIds((current) => {
@@ -1020,6 +1023,23 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
     });
     navigation.navigate('PlanIdeaDetail', { ideaId: ideaKey });
   }, [navigation]);
+
+  const renderDeckFeedItem = useCallback(({ item, index }: { item: PlanFeedListItem; index: number }) => {
+    if (item.type === 'idea') {
+      return <PlanIdeaDeckSection ideaKey={item.ideaKey} index={index} total={feedItems.length} onPressIdea={markStarterIdeaSeen} />;
+    }
+    const plan = plans[item.planIndex];
+    if (!plan) return null;
+    return <PlanDeckSection plan={plan} index={index} total={feedItems.length} navigation={navigation} />;
+  }, [feedItems.length, markStarterIdeaSeen, navigation, plans]);
+
+  const renderPlanRow = useCallback(({ item }: { item: PlanRowListItem }) => (
+    <PlanRow plan={item.plan} onPress={() => navigation.navigate('PlanDetail', { planId: item.plan.id, title: item.plan.title })} />
+  ), [navigation]);
+
+  const filterHeader = scope === 'feed' && hasActiveSearchOrFilters ? (
+    <InfoNotice tone="info" title={`${activePlanFilterCount(activeFilters, activeSearchQuery)} active Plan filter${activePlanFilterCount(activeFilters, activeSearchQuery) === 1 ? '' : 's'}`} body={activeFilterSummary || 'Filtered Plan results'} />
+  ) : null;
 
   if (loading) {
     return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Plans...</AppText></View>;
@@ -1038,40 +1058,44 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
     return <EmptyBlock title="No Plans yet" body={body} actionLabel={scope === 'mine' ? 'Create plan' : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlan') : undefined} />;
   }
 
-  return (
-    <ScrollView
-      contentContainerStyle={isDeckFeed ? styles.deckFeedContent : styles.listContent}
+
+
+  return isDeckFeed ? (
+    <FlatList
+      data={feedItems}
+      keyExtractor={(item, index) => item.type === 'idea' ? `idea-${item.ideaKey}` : `plan-${plans[item.planIndex]?.id ?? item.planIndex}-${index}`}
+      renderItem={renderDeckFeedItem}
+      contentContainerStyle={styles.deckFeedContent}
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
-    >
-      {scope === 'feed' && hasActiveSearchOrFilters ? (
-        <InfoNotice tone="info" title={`${activePlanFilterCount(activeFilters, activeSearchQuery)} active Plan filter${activePlanFilterCount(activeFilters, activeSearchQuery) === 1 ? '' : 's'}`} body={activeFilterSummary || 'Filtered Plan results'} />
-      ) : null}
-      {isDeckFeed ? feedItems.map((item, index) => {
-        if (item.type === 'idea') {
-          return (
-            <PlanIdeaDeckSection
-              key={`idea-${item.ideaKey}`}
-              ideaKey={item.ideaKey}
-              index={index}
-              total={feedItems.length}
-              onPress={() => markStarterIdeaSeen(item.ideaKey)}
-            />
-          );
-        }
-        const plan = plans[item.planIndex];
-        if (!plan) return null;
-        return <PlanDeckSection key={plan.id} plan={plan} index={index} total={feedItems.length} onPress={() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title })} />;
-      }) : plans.map((plan) => (
-        <PlanRow key={plan.id} plan={plan} onPress={() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title })} />
-      ))}
-    </ScrollView>
+      ListHeaderComponent={filterHeader}
+      removeClippedSubviews={Platform.OS === 'android'}
+      initialNumToRender={3}
+      maxToRenderPerBatch={3}
+      windowSize={5}
+      updateCellsBatchingPeriod={60}
+    />
+  ) : (
+    <FlatList
+      data={rowItems}
+      keyExtractor={(item) => item.key}
+      renderItem={renderPlanRow}
+      contentContainerStyle={styles.listContent}
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
+      ListHeaderComponent={filterHeader}
+      removeClippedSubviews={Platform.OS === 'android'}
+      initialNumToRender={8}
+      maxToRenderPerBatch={8}
+      windowSize={7}
+    />
   );
 }
 
 
-function PlanDeckSection({ plan, index, total, onPress }: { plan: PlanDto; index: number; total: number; onPress: () => void }) {
+const PlanDeckSection = React.memo(function PlanDeckSection({ plan, index, total, navigation }: { plan: PlanDto; index: number; total: number; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'> }) {
   const theme = useThemeTokens();
+  const handlePress = useCallback(() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title }), [navigation, plan.id, plan.title]);
   return (
     <View style={styles.deckSection}>
       <View style={styles.deckSectionHeader}>
@@ -1081,15 +1105,16 @@ function PlanDeckSection({ plan, index, total, onPress }: { plan: PlanDto; index
         </View>
         <SemanticBadge label={`${index + 1}/${total}`} tone="muted" size="sm" />
       </View>
-      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={onPress} />
+      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} />
     </View>
   );
-}
+});
 
-function PlanIdeaDeckSection({ ideaKey, index, total, onPress }: { ideaKey: StarterPlanIdeaKey; index: number; total: number; onPress: () => void }) {
+const PlanIdeaDeckSection = React.memo(function PlanIdeaDeckSection({ ideaKey, index, total, onPressIdea }: { ideaKey: StarterPlanIdeaKey; index: number; total: number; onPressIdea: (ideaKey: StarterPlanIdeaKey) => void }) {
   const theme = useThemeTokens();
   const idea = starterPlanIdeas[ideaKey];
   const plan = useMemo(() => planIdeaPreviewPlan(idea), [idea]);
+  const handlePress = useCallback(() => onPressIdea(ideaKey), [ideaKey, onPressIdea]);
   return (
     <View style={styles.deckSection}>
       <View style={styles.deckSectionHeader}>
@@ -1099,10 +1124,10 @@ function PlanIdeaDeckSection({ ideaKey, index, total, onPress }: { ideaKey: Star
         </View>
         <SemanticBadge label={`${index + 1}/${total}`} tone="muted" size="sm" />
       </View>
-      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={onPress} topBadgeLabel={`Plan idea · ${idea.pack}`} topBadgeTone="plan" showModeBadge={false} />
+      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} topBadgeLabel={`Plan idea · ${idea.pack}`} topBadgeTone="plan" showModeBadge={false} />
     </View>
   );
-}
+});
 
 function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'> }) {
   const theme = useThemeTokens();

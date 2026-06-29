@@ -1,0 +1,225 @@
+diff --git a/apps/mobile/src/components/LowerImageAtmosphere.tsx b/apps/mobile/src/components/LowerImageAtmosphere.tsx
+index 4ef1fd1..abd42fe 100644
+--- a/apps/mobile/src/components/LowerImageAtmosphere.tsx
++++ b/apps/mobile/src/components/LowerImageAtmosphere.tsx
+@@ -41,26 +41,26 @@ type AtmospherePresetConfig = {
+ 
+ const POSTER_ATMOSPHERE_PRESET_CONFIGS: Record<LowerImageAtmospherePreset, AtmospherePresetConfig> = {
+   trade: {
+-    startPercent: 50,
+-    tintBandCount: 5,
+-    tintBandOverlap: 7,
+-    tintStrength: 0.34,
++    startPercent: 52,
++    tintBandCount: 4,
++    tintBandOverlap: 18,
++    tintStrength: 0.25,
+     imageBands: [
+-      { top: 58, height: 32, blur: 14, opacity: 0.035 },
+-      { top: 72, height: 30, blur: 26, opacity: 0.085 },
++      { top: 62, height: 34, blur: 12, opacity: 0.026 },
++      { top: 78, height: 24, blur: 22, opacity: 0.055 },
+     ],
+-    tint: { dark: 'rgba(1,7,7,0.68)', light: 'rgba(2,22,18,0.68)' },
++    tint: { dark: 'rgba(1,5,5,0.58)', light: 'rgba(4,12,11,0.58)' },
+   },
+   plan: {
+-    startPercent: 50,
+-    tintBandCount: 5,
+-    tintBandOverlap: 7,
+-    tintStrength: 0.38,
++    startPercent: 52,
++    tintBandCount: 4,
++    tintBandOverlap: 18,
++    tintStrength: 0.27,
+     imageBands: [
+-      { top: 58, height: 32, blur: 14, opacity: 0.038 },
+-      { top: 72, height: 30, blur: 26, opacity: 0.09 },
++      { top: 62, height: 34, blur: 12, opacity: 0.028 },
++      { top: 78, height: 24, blur: 22, opacity: 0.06 },
+     ],
+-    tint: { dark: 'rgba(4,4,12,0.68)', light: 'rgba(5,12,22,0.68)' },
++    tint: { dark: 'rgba(2,3,8,0.6)', light: 'rgba(5,10,14,0.6)' },
+   },
+ };
+ 
+@@ -80,13 +80,13 @@ function createProfile(preset: LowerImageAtmospherePreset): LowerImageAtmosphere
+     tint: config.tint,
+     tintBands: Array.from({ length: config.tintBandCount }, (_, index) => {
+       const progress = (index + 1) / config.tintBandCount;
+-      const eased = smoothstep(progress);
+-      const bottomGuard = smoothstep((progress - 0.7) / 0.3);
++      const eased = smoothstep((progress - 0.08) / 0.92);
++      const bottomGuard = smoothstep((progress - 0.72) / 0.28);
+ 
+       return {
+         top: safeStart + index * tintBandHeight,
+         height: tintBandHeight + config.tintBandOverlap,
+-        opacity: clamp(eased * config.tintStrength + bottomGuard * 0.1, 0, 0.5),
++        opacity: clamp(eased * config.tintStrength + bottomGuard * 0.115, 0, 0.42),
+       };
+     }),
+   };
+diff --git a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+index d2236ab..ea55a24 100644
+--- a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
++++ b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+@@ -120,12 +120,12 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+   const timeLabel = isEmpty ? getPlanParticipantLabel(card.plan) : getPlaceDateLabel(place, card.plan.startsAt);
+   const primaryBadgeLabel = topBadgeLabel ?? `Place · ${cardCounter}`;
+   const hasPosterImage = Boolean(imageUrl);
+-  const posterTextShadow = hasPosterImage ? 'rgba(0,0,0,0.5)' : isDark ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.48)';
++  const posterTextShadow = hasPosterImage ? 'rgba(0,0,0,0.42)' : isDark ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.48)';
+   const posterTitleColor = hasPosterImage ? '#FFFFFF' : theme.color.text;
+-  const posterMutedColor = hasPosterImage ? 'rgba(255,255,255,0.9)' : theme.color.muted;
+-  const posterSubtleColor = hasPosterImage ? 'rgba(255,255,255,0.84)' : theme.color.muted;
+-  const posterPillBg = hasPosterImage ? 'rgba(12,17,24,0.38)' : undefined;
+-  const posterPillBorder = hasPosterImage ? 'rgba(255,255,255,0.12)' : undefined;
++  const posterMutedColor = hasPosterImage ? 'rgba(255,255,255,0.88)' : theme.color.muted;
++  const posterSubtleColor = hasPosterImage ? 'rgba(255,255,255,0.8)' : theme.color.muted;
++  const posterPillBg = hasPosterImage ? 'rgba(12,17,24,0.32)' : undefined;
++  const posterPillBorder = hasPosterImage ? 'rgba(255,255,255,0.1)' : undefined;
+   const posterPillText = hasPosterImage ? 'rgba(255,255,255,0.94)' : undefined;
+ 
+   return (
+@@ -135,7 +135,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+       onPress={onOpen}
+       style={({ pressed }) => [
+         styles.card,
+-        { backgroundColor: imageUrl ? '#0B1016' : theme.semantic.place.softBg, borderColor: imageUrl ? 'rgba(255,255,255,0.22)' : theme.semantic.place.border },
++        { backgroundColor: imageUrl ? '#0B1016' : theme.semantic.place.softBg, borderColor: imageUrl ? 'rgba(255,255,255,0.16)' : theme.semantic.place.border },
+         pressed && styles.pressed,
+       ]}
+     >
+@@ -299,46 +299,46 @@ const styles = StyleSheet.create({
+     textTransform: 'uppercase',
+   },
+   cardCopy: {
+-    gap: 5,
+-    paddingTop: 134,
++    gap: 4,
++    paddingTop: 150,
+   },
+   planTitle: {
+-    fontSize: 11,
+-    fontWeight: '900',
++    fontSize: 10.5,
++    fontWeight: '800',
+     textTransform: 'uppercase',
+     letterSpacing: 0.9,
+     textShadowOffset: { width: 0, height: 1 },
+-    textShadowRadius: 7,
++    textShadowRadius: 5,
+   },
+   placeTitle: {
+-    fontSize: 29,
+-    lineHeight: 33,
++    fontSize: 27,
++    lineHeight: 31,
+     fontWeight: '900',
+     letterSpacing: -1,
+     textShadowOffset: { width: 0, height: 1 },
+-    textShadowRadius: 8,
++    textShadowRadius: 6,
+   },
+   emptyHint: {
+     fontSize: 14,
+     lineHeight: 19,
+     fontWeight: '800',
+     textShadowOffset: { width: 0, height: 1 },
+-    textShadowRadius: 7,
++    textShadowRadius: 6,
+   },
+   placeMetaText: {
+-    marginTop: 4,
+-    fontSize: 13,
+-    lineHeight: 18,
++    marginTop: 3,
++    fontSize: 12.5,
++    lineHeight: 17,
+     fontWeight: '800',
+     textShadowOffset: { width: 0, height: 1 },
+-    textShadowRadius: 7,
++    textShadowRadius: 6,
+   },
+   placeTimeText: {
+-    fontSize: 13,
+-    lineHeight: 18,
++    fontSize: 12.5,
++    lineHeight: 17,
+     fontWeight: '900',
+     textShadowOffset: { width: 0, height: 1 },
+-    textShadowRadius: 6,
++    textShadowRadius: 5,
+   },
+   pressed: {
+     opacity: 0.76,
+diff --git a/apps/mobile/src/features/trade/components/TradePosterCard.tsx b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+index aee7954..b955181 100644
+--- a/apps/mobile/src/features/trade/components/TradePosterCard.tsx
++++ b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+@@ -89,12 +89,12 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
+   const titleColor = hasPosterImage ? '#FFFFFF' : isDark ? '#FFFFFF' : '#101010';
+   const bodyColor = hasPosterImage ? 'rgba(255,255,255,0.9)' : isDark ? 'rgba(255,255,255,0.86)' : 'rgba(15,20,28,0.86)';
+   const eyebrowColor = hasPosterImage ? 'rgba(255,255,255,0.94)' : isDark ? 'rgba(255,255,255,0.92)' : 'rgba(12,18,28,0.84)';
+-  const overlayTextShadow = hasPosterImage ? 'rgba(0,0,0,0.48)' : isDark ? 'rgba(0,0,0,0.50)' : 'rgba(255,255,255,0.38)';
+-  const topPillBg = hasPosterImage ? 'rgba(12,17,24,0.38)' : isDark ? 'rgba(10,16,24,0.36)' : 'rgba(255,255,255,0.84)';
+-  const topPillBorder = hasPosterImage ? 'rgba(255,255,255,0.12)' : isDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.07)';
+-  const lowerPillBg = hasPosterImage ? 'rgba(12,17,24,0.24)' : topPillBg;
+-  const lowerPillBorder = hasPosterImage ? 'rgba(255,255,255,0.1)' : topPillBorder;
+-  const cardBorder = hasPosterImage ? 'rgba(255,255,255,0.22)' : 'rgba(15,23,42,0.08)';
++  const overlayTextShadow = hasPosterImage ? 'rgba(0,0,0,0.42)' : isDark ? 'rgba(0,0,0,0.50)' : 'rgba(255,255,255,0.38)';
++  const topPillBg = hasPosterImage ? 'rgba(12,17,24,0.32)' : isDark ? 'rgba(10,16,24,0.36)' : 'rgba(255,255,255,0.84)';
++  const topPillBorder = hasPosterImage ? 'rgba(255,255,255,0.1)' : isDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.07)';
++  const lowerPillBg = hasPosterImage ? 'rgba(12,17,24,0.18)' : topPillBg;
++  const lowerPillBorder = hasPosterImage ? 'rgba(255,255,255,0.08)' : topPillBorder;
++  const cardBorder = hasPosterImage ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.08)';
+   const statusColor = status?.tone === 'none'
+     ? (hasPosterImage ? 'rgba(255,255,255,0.9)' : isDark ? 'rgba(255,255,255,0.58)' : 'rgba(15,23,42,0.58)')
+     : status?.tone === 'expired'
+@@ -299,9 +299,9 @@ const styles = StyleSheet.create({
+   },
+   copyBlock: {
+     alignSelf: 'stretch',
+-    gap: 5,
++    gap: 4,
+     paddingRight: 8,
+-    paddingBottom: 2,
++    paddingBottom: 0,
+   },
+   eyebrow: {
+     fontSize: 11,
+@@ -313,19 +313,19 @@ const styles = StyleSheet.create({
+     textShadowRadius: 7,
+   },
+   title: {
+-    fontSize: 19,
+-    lineHeight: 23,
++    fontSize: 18.5,
++    lineHeight: 22,
+     fontWeight: '900',
+     letterSpacing: -0.45,
+-    textShadowOffset: { width: 0, height: 2 },
+-    textShadowRadius: 8,
++    textShadowOffset: { width: 0, height: 1 },
++    textShadowRadius: 6,
+   },
+   subtitle: {
+     fontSize: 12,
+     lineHeight: 16,
+     fontWeight: '800',
+     textShadowOffset: { width: 0, height: 1 },
+-    textShadowRadius: 7,
++    textShadowRadius: 6,
+   },
+   statusText: {
+     alignSelf: 'flex-start',
+@@ -335,7 +335,7 @@ const styles = StyleSheet.create({
+     fontWeight: '900',
+     letterSpacing: 0.8,
+     textShadowOffset: { width: 0, height: 1 },
+-    textShadowRadius: 6,
++    textShadowRadius: 5,
+   },
+   footerLabel: {
+     alignSelf: 'flex-start',

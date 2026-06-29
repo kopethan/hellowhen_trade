@@ -120,13 +120,13 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
   const timeLabel = isEmpty ? getPlanParticipantLabel(card.plan) : getPlaceDateLabel(place, card.plan.startsAt);
   const primaryBadgeLabel = topBadgeLabel ?? `Place · ${cardCounter}`;
   const hasPosterImage = Boolean(imageUrl);
-  const posterTextShadow = hasPosterImage ? 'rgba(0,0,0,0.64)' : isDark ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.48)';
+  const posterTextShadow = hasPosterImage ? 'rgba(0,0,0,0.34)' : isDark ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.48)';
   const posterTitleColor = hasPosterImage ? '#FFFFFF' : theme.color.text;
-  const posterMutedColor = hasPosterImage ? 'rgba(255,255,255,0.9)' : theme.color.muted;
-  const posterSubtleColor = hasPosterImage ? 'rgba(255,255,255,0.82)' : theme.color.muted;
-  const posterPillBg = hasPosterImage ? 'rgba(13,18,24,0.72)' : undefined;
-  const posterPillBorder = hasPosterImage ? 'rgba(255,255,255,0.2)' : undefined;
-  const posterPillText = hasPosterImage ? 'rgba(255,255,255,0.94)' : undefined;
+  const posterMutedColor = hasPosterImage ? 'rgba(255,255,255,0.86)' : theme.color.muted;
+  const posterSubtleColor = hasPosterImage ? 'rgba(255,255,255,0.74)' : theme.color.muted;
+  const posterPillBg = hasPosterImage ? 'rgba(10,15,22,0.24)' : undefined;
+  const posterPillBorder = hasPosterImage ? 'rgba(255,255,255,0.08)' : undefined;
+  const posterPillText = hasPosterImage ? 'rgba(255,255,255,0.9)' : undefined;
 
   return (
     <Pressable
@@ -135,7 +135,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
       onPress={onOpen}
       style={({ pressed }) => [
         styles.card,
-        { backgroundColor: imageUrl ? '#0B1016' : theme.semantic.place.softBg, borderColor: imageUrl ? 'rgba(255,255,255,0.42)' : theme.semantic.place.border },
+        { backgroundColor: imageUrl ? '#0B1016' : theme.semantic.place.softBg, borderColor: imageUrl ? 'rgba(255,255,255,0.16)' : theme.semantic.place.border },
         pressed && styles.pressed,
       ]}
     >
@@ -188,7 +188,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
         )) : null}
       </View>
 
-      <View style={styles.cardCopy}>
+      <View style={[styles.cardCopy, hasPosterImage && styles.posterCardCopy]}>
         <AppText style={[styles.planTitle, { color: posterSubtleColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{card.plan.title}</AppText>
         <AppText style={[styles.placeTitle, { color: posterTitleColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{placeTitle}</AppText>
         {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>Add a first stop to turn this Plan into route cards.</AppText> : null}
@@ -208,7 +208,7 @@ export function PlanSquareDeck({ plan, onOpen, style, topBadgeLabel, topBadgeTon
       <ContinuousSquareStackDeck<PlanPlaceDeckCard>
         cards={cards}
         renderCard={({ card }) => <PlanPlaceDeckCardView card={card} onOpen={handleOpen} topBadgeLabel={topBadgeLabel} topBadgeTone={topBadgeTone} showModeBadge={showModeBadge} />}
-        renderWindow="all"
+        renderWindow="visible"
         showDebugBadge={false}
         depthEffect="motionOnly"
         availableHeight={MOBILE_PLAN_DECK_AVAILABLE_HEIGHT}
@@ -229,7 +229,7 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     borderWidth: 1,
     overflow: 'hidden',
-    padding: 18,
+    padding: 17,
     justifyContent: 'space-between',
   },
   cardImage: {
@@ -279,12 +279,12 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   posterPill: {
-    minHeight: 28,
+    minHeight: 23,
     maxWidth: '60%',
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -292,53 +292,58 @@ const styles = StyleSheet.create({
     maxWidth: '46%',
   },
   posterPillText: {
-    fontSize: 10.5,
-    lineHeight: 13,
-    fontWeight: '900',
-    letterSpacing: 0.75,
+    fontSize: 10,
+    lineHeight: 12.5,
+    fontWeight: '800',
+    letterSpacing: 0.68,
     textTransform: 'uppercase',
   },
   cardCopy: {
-    gap: 6,
-    paddingTop: 128,
+    gap: 4,
+    paddingTop: 150,
+  },
+  posterCardCopy: {
+    gap: 3,
+    paddingTop: 160,
+    paddingRight: 4,
   },
   planTitle: {
-    fontSize: 12,
-    fontWeight: '900',
+    fontSize: 10,
+    fontWeight: '800',
     textTransform: 'uppercase',
-    letterSpacing: 0.9,
+    letterSpacing: 0.72,
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 8,
+    textShadowRadius: 4,
   },
   placeTitle: {
-    fontSize: 31,
-    lineHeight: 35,
+    fontSize: 25.5,
+    lineHeight: 29,
     fontWeight: '900',
-    letterSpacing: -1,
+    letterSpacing: -0.82,
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 10,
+    textShadowRadius: 4.5,
   },
   emptyHint: {
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 13.5,
+    lineHeight: 18.5,
     fontWeight: '800',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 8,
+    textShadowRadius: 4.5,
   },
   placeMetaText: {
-    marginTop: 6,
-    fontSize: 13,
-    lineHeight: 18,
+    marginTop: 3,
+    fontSize: 12.2,
+    lineHeight: 16.5,
     fontWeight: '800',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 8,
+    textShadowRadius: 4.5,
   },
   placeTimeText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '900',
+    fontSize: 12.2,
+    lineHeight: 16.5,
+    fontWeight: '800',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 7,
+    textShadowRadius: 4.5,
   },
   pressed: {
     opacity: 0.76,

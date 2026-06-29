@@ -10,20 +10,18 @@ type BlurBand = {
   height: number;
   blur: number;
   opacity: number;
-  tintOpacity: number;
 };
 
-type WashBand = {
+type TintBand = {
   top: number;
   height: number;
   opacity: number;
-  tone: ToneValue;
 };
 
 type LowerImageAtmosphereProfile = {
-  bands: readonly BlurBand[];
+  imageBands: readonly BlurBand[];
+  tintBands: readonly TintBand[];
   tint: ToneValue;
-  washes: readonly WashBand[];
 };
 
 type LowerImageAtmosphereProps = {
@@ -32,40 +30,37 @@ type LowerImageAtmosphereProps = {
   preset?: LowerImageAtmospherePreset;
 };
 
-const POSTER_ATMOSPHERE_BAND_GEOMETRY = [
-  { top: 58, height: 34, blur: 8 },
-  { top: 66, height: 30, blur: 16 },
-  { top: 74, height: 26, blur: 28 },
-  { top: 84, height: 20, blur: 42 },
-] as const;
-
-const POSTER_ATMOSPHERE_WASH_GEOMETRY = [
-  { top: 60, height: 18 },
-  { top: 68, height: 18 },
-  { top: 76, height: 18 },
-  { top: 84, height: 18 },
-] as const;
-
-const POSTER_ATMOSPHERE_PROFILES: Record<LowerImageAtmospherePreset, {
-  bandOpacity: readonly number[];
-  bandTintOpacity: readonly number[];
+type AtmospherePresetConfig = {
+  startPercent: number;
+  tintBandCount: number;
+  tintBandOverlap: number;
+  tintStrength: number;
+  imageBands: readonly BlurBand[];
   tint: ToneValue;
-  washOpacity: readonly number[];
-  washTone: ToneValue;
-}> = {
+};
+
+const POSTER_ATMOSPHERE_PRESET_CONFIGS: Record<LowerImageAtmospherePreset, AtmospherePresetConfig> = {
   trade: {
-    bandOpacity: [0.012, 0.04, 0.085, 0.14],
-    bandTintOpacity: [0.006, 0.026, 0.055, 0.085],
-    tint: { dark: 'rgba(2,10,9,0.32)', light: 'rgba(2,28,22,0.36)' },
-    washOpacity: [0.035, 0.08, 0.16, 0.34],
-    washTone: { dark: 'rgba(1,7,7,0.78)', light: 'rgba(1,20,17,0.78)' },
+    startPercent: 52,
+    tintBandCount: 4,
+    tintBandOverlap: 18,
+    tintStrength: 0.25,
+    imageBands: [
+      { top: 62, height: 34, blur: 12, opacity: 0.026 },
+      { top: 78, height: 24, blur: 22, opacity: 0.055 },
+    ],
+    tint: { dark: 'rgba(1,5,5,0.58)', light: 'rgba(4,12,11,0.58)' },
   },
   plan: {
-    bandOpacity: [0.012, 0.038, 0.08, 0.135],
-    bandTintOpacity: [0.006, 0.024, 0.052, 0.085],
-    tint: { dark: 'rgba(8,6,18,0.3)', light: 'rgba(12,19,28,0.34)' },
-    washOpacity: [0.032, 0.074, 0.15, 0.32],
-    washTone: { dark: 'rgba(3,3,8,0.76)', light: 'rgba(4,8,15,0.76)' },
+    startPercent: 52,
+    tintBandCount: 4,
+    tintBandOverlap: 18,
+    tintStrength: 0.27,
+    imageBands: [
+      { top: 62, height: 34, blur: 12, opacity: 0.028 },
+      { top: 78, height: 24, blur: 22, opacity: 0.06 },
+    ],
+    tint: { dark: 'rgba(2,3,8,0.6)', light: 'rgba(5,10,14,0.6)' },
   },
 };
 
@@ -75,21 +70,35 @@ const PROFILES: Record<LowerImageAtmospherePreset, LowerImageAtmosphereProfile> 
 };
 
 function createProfile(preset: LowerImageAtmospherePreset): LowerImageAtmosphereProfile {
-  const { bandOpacity, bandTintOpacity, washOpacity, washTone, tint } = POSTER_ATMOSPHERE_PROFILES[preset];
+  const config = POSTER_ATMOSPHERE_PRESET_CONFIGS[preset];
+  const safeStart = clamp(config.startPercent, 0, 92);
+  const overlayHeight = 100 - safeStart;
+  const tintBandHeight = overlayHeight / config.tintBandCount;
 
   return {
-    tint,
-    bands: POSTER_ATMOSPHERE_BAND_GEOMETRY.map((band, index) => ({
-      ...band,
-      opacity: bandOpacity[index] ?? 0,
-      tintOpacity: bandTintOpacity[index] ?? 0,
-    })),
-    washes: POSTER_ATMOSPHERE_WASH_GEOMETRY.map((wash, index) => ({
-      ...wash,
-      opacity: washOpacity[index] ?? 0,
-      tone: washTone,
-    })),
+    imageBands: config.imageBands,
+    tint: config.tint,
+    tintBands: Array.from({ length: config.tintBandCount }, (_, index) => {
+      const progress = (index + 1) / config.tintBandCount;
+      const eased = smoothstep((progress - 0.08) / 0.92);
+      const bottomGuard = smoothstep((progress - 0.72) / 0.28);
+
+      return {
+        top: safeStart + index * tintBandHeight,
+        height: tintBandHeight + config.tintBandOverlap,
+        opacity: clamp(eased * config.tintStrength + bottomGuard * 0.115, 0, 0.42),
+      };
+    }),
   };
+}
+
+function smoothstep(value: number) {
+  const progress = clamp(value, 0, 1);
+  return progress * progress * (3 - 2 * progress);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function tone(value: ToneValue, isDark: boolean) {
@@ -104,43 +113,31 @@ export function LowerImageAtmosphere({ imageUrl, isDark, preset = 'trade' }: Low
 
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
-      {profile.bands.map((band, index) => (
-        <React.Fragment key={`${preset}-lower-image-atmosphere-band-${index}`}>
-          <View
-            style={[
-              styles.blurBand,
-              {
-                top: `${band.top}%`,
-                height: `${band.height}%`,
-                opacity: band.opacity,
-              },
-            ]}
-          >
-            <Image source={{ uri: imageUrl }} resizeMode="cover" blurRadius={band.blur} style={StyleSheet.absoluteFillObject} />
-          </View>
-          <View
-            style={[
-              styles.blurBand,
-              {
-                top: `${band.top}%`,
-                height: `${band.height}%`,
-                backgroundColor: imageTint,
-                opacity: band.tintOpacity,
-              },
-            ]}
-          />
-        </React.Fragment>
-      ))}
-      {profile.washes.map((wash, index) => (
+      {profile.imageBands.map((band, index) => (
         <View
-          key={`${preset}-lower-image-atmosphere-wash-${index}`}
+          key={`${preset}-lower-image-atmosphere-image-band-${index}`}
           style={[
-            styles.washBand,
+            styles.band,
             {
-              top: `${wash.top}%`,
-              height: `${wash.height}%`,
-              backgroundColor: tone(wash.tone, isDark),
-              opacity: wash.opacity,
+              top: `${band.top}%`,
+              height: `${band.height}%`,
+              opacity: band.opacity,
+            },
+          ]}
+        >
+          <Image source={{ uri: imageUrl }} resizeMode="cover" blurRadius={band.blur} style={StyleSheet.absoluteFillObject} />
+        </View>
+      ))}
+      {profile.tintBands.map((band, index) => (
+        <View
+          key={`${preset}-lower-image-atmosphere-tint-band-${index}`}
+          style={[
+            styles.band,
+            {
+              top: `${band.top}%`,
+              height: `${band.height}%`,
+              backgroundColor: imageTint,
+              opacity: band.opacity,
             },
           ]}
         />
@@ -150,15 +147,10 @@ export function LowerImageAtmosphere({ imageUrl, isDark, preset = 'trade' }: Low
 }
 
 const styles = StyleSheet.create({
-  blurBand: {
+  band: {
     position: 'absolute',
     left: 0,
     right: 0,
     overflow: 'hidden',
-  },
-  washBand: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
   },
 });

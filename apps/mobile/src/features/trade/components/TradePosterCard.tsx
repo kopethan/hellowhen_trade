@@ -89,10 +89,12 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
   const titleColor = hasPosterImage ? '#FFFFFF' : isDark ? '#FFFFFF' : '#101010';
   const bodyColor = hasPosterImage ? 'rgba(255,255,255,0.9)' : isDark ? 'rgba(255,255,255,0.86)' : 'rgba(15,20,28,0.86)';
   const eyebrowColor = hasPosterImage ? 'rgba(255,255,255,0.94)' : isDark ? 'rgba(255,255,255,0.92)' : 'rgba(12,18,28,0.84)';
-  const overlayTextShadow = hasPosterImage ? 'rgba(0,0,0,0.62)' : isDark ? 'rgba(0,0,0,0.50)' : 'rgba(255,255,255,0.38)';
-  const pillBg = hasPosterImage ? 'rgba(13,18,24,0.72)' : isDark ? 'rgba(10,16,24,0.36)' : 'rgba(255,255,255,0.84)';
-  const pillBorder = hasPosterImage ? 'rgba(255,255,255,0.2)' : isDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.07)';
-  const cardBorder = hasPosterImage ? 'rgba(255,255,255,0.42)' : 'rgba(15,23,42,0.08)';
+  const overlayTextShadow = hasPosterImage ? 'rgba(0,0,0,0.42)' : isDark ? 'rgba(0,0,0,0.50)' : 'rgba(255,255,255,0.38)';
+  const topPillBg = hasPosterImage ? 'rgba(12,17,24,0.32)' : isDark ? 'rgba(10,16,24,0.36)' : 'rgba(255,255,255,0.84)';
+  const topPillBorder = hasPosterImage ? 'rgba(255,255,255,0.1)' : isDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.07)';
+  const lowerPillBg = hasPosterImage ? 'rgba(12,17,24,0.18)' : topPillBg;
+  const lowerPillBorder = hasPosterImage ? 'rgba(255,255,255,0.08)' : topPillBorder;
+  const cardBorder = hasPosterImage ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.08)';
   const statusColor = status?.tone === 'none'
     ? (hasPosterImage ? 'rgba(255,255,255,0.9)' : isDark ? 'rgba(255,255,255,0.58)' : 'rgba(15,23,42,0.58)')
     : status?.tone === 'expired'
@@ -138,11 +140,11 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
 
       <View style={styles.contentLayer}>
         <View style={styles.topBar}>
-          <View style={[styles.badge, { backgroundColor: pillBg, borderColor: pillBorder }]}>
+          <View style={[styles.badge, { backgroundColor: topPillBg, borderColor: topPillBorder }]}>
             <AppText style={[styles.badgeText, { color: eyebrowColor }]} numberOfLines={1}>{badge}</AppText>
           </View>
           {identity ? <View style={styles.identitySlot}>{identity}</View> : topMeta ? (
-            <View style={[styles.topMetaBadge, { backgroundColor: pillBg, borderColor: pillBorder }]}>
+            <View style={[styles.topMetaBadge, { backgroundColor: topPillBg, borderColor: topPillBorder }]}>
               <AppText style={[styles.topMetaText, { color: eyebrowColor }]} numberOfLines={1}>{topMeta}</AppText>
             </View>
           ) : null}
@@ -202,7 +204,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
           {visibleChips.length ? (
             <View style={styles.chipRow}>
               {visibleChips.map((chip, index) => (
-                <View key={`${id}-chip-${index}-${chip}`} style={[styles.chip, { backgroundColor: pillBg, borderColor: pillBorder }]}>
+                <View key={`${id}-chip-${index}-${chip}`} style={[styles.chip, { backgroundColor: lowerPillBg, borderColor: lowerPillBorder }]}>
                   <AppText style={[styles.chipText, { color: eyebrowColor }]} numberOfLines={1}>{chip}</AppText>
                 </View>
               ))}
@@ -246,9 +248,9 @@ const styles = StyleSheet.create({
   contentLayer: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 18,
+    paddingHorizontal: 15,
+    paddingTop: 15,
+    paddingBottom: 17,
   },
   topBar: {
     flexDirection: 'row',
@@ -257,12 +259,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   badge: {
-    minHeight: 26,
+    minHeight: 25,
     maxWidth: '58%',
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 11,
-    paddingVertical: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -272,13 +274,13 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   topMetaBadge: {
-    minHeight: 26,
+    minHeight: 25,
     maxWidth: '48%',
     flexShrink: 1,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -297,9 +299,9 @@ const styles = StyleSheet.create({
   },
   copyBlock: {
     alignSelf: 'stretch',
-    gap: 5,
+    gap: 4,
     paddingRight: 8,
-    paddingBottom: 2,
+    paddingBottom: 0,
   },
   eyebrow: {
     fontSize: 11,
@@ -308,22 +310,22 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.75,
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 8,
+    textShadowRadius: 7,
   },
   title: {
-    fontSize: 20,
-    lineHeight: 24,
+    fontSize: 18.5,
+    lineHeight: 22,
     fontWeight: '900',
     letterSpacing: -0.45,
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 9,
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
   subtitle: {
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '800',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 8,
+    textShadowRadius: 6,
   },
   statusText: {
     alignSelf: 'flex-start',
@@ -333,7 +335,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 0.8,
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 7,
+    textShadowRadius: 5,
   },
   footerLabel: {
     alignSelf: 'flex-start',
@@ -343,7 +345,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 0.45,
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 7,
+    textShadowRadius: 6,
   },
   chipRow: {
     flexDirection: 'row',
@@ -355,8 +357,8 @@ const styles = StyleSheet.create({
     maxWidth: 132,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
   },
   chipText: {
     fontSize: 11,

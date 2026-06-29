@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -26,6 +26,10 @@ import { emptyFeedStarterIdeaPlacement, feedTradeIdeaHasNeed, feedTradeIdeaHasOf
 import type { TradeDeckItem } from './types';
 
 type FeedResponse = { trades: TradeDeckItem[] };
+type TradeFeedListItem =
+  | { type: 'trade'; key: string; trade: TradeDeckItem; index: number; total: number }
+  | { type: 'idea'; key: string; ideaKey: FeedTradeIdeaKey }
+  | { type: 'ideaGroup'; key: string; ideaKeys: readonly FeedTradeIdeaKey[] };
 type TradeActivityTab = 'mine' | 'involved';
 type TradeWithCounts = TradeDeckItem & { _count?: { proposals?: number } };
 type TradeWithViewerProposal = TradeWithCounts & { viewerProposal?: { id: string; status: string; createdAt?: string; respondedAt?: string | null } | null; viewerInvolvement?: 'owner' | 'provider' | 'applicant' };
@@ -305,7 +309,6 @@ export function TradeDeckFeedScreen() {
   }, [queueSearchKeywordRecord]);
 
   const hasTrades = trades.length > 0;
-  const hasVisibleTrades = visibleTrades.length > 0;
   const hasFilters = activeFilterCount > 0;
   const randomizedFeedIdeaKeys = useMemo(() => getRandomizedFeedIdeaKeys(refreshSeed), [refreshSeed]);
   const starterIdeaPlacement = useMemo(() => (
@@ -313,7 +316,24 @@ export function TradeDeckFeedScreen() {
       ? getFeedStarterIdeaPlacement(visibleTrades.length, randomizedFeedIdeaKeys)
       : emptyFeedStarterIdeaPlacement
   ), [error, hasFilters, loading, randomizedFeedIdeaKeys, visibleTrades.length]);
-  const hasStarterIdeas = Boolean(Object.keys(starterIdeaPlacement.inlineIdeaKeysByAfterIndex).length || starterIdeaPlacement.appendedIdeaKeys.length);
+  const feedItems = useMemo<TradeFeedListItem[]>(() => {
+    const items: TradeFeedListItem[] = [];
+    visibleTrades.forEach((trade, index) => {
+      items.push({ type: 'trade', key: `trade-${trade.id}`, trade, index, total: visibleTrades.length });
+      const ideaKey = getInlineFeedIdeaKey(index, starterIdeaPlacement);
+      if (ideaKey) items.push({ type: 'idea', key: `starter-inline-${index}-${ideaKey}`, ideaKey });
+    });
+    if (starterIdeaPlacement.appendedIdeaKeys.length) {
+      items.push({ type: 'ideaGroup', key: `starter-appended-${starterIdeaPlacement.appendedIdeaKeys.join('-')}`, ideaKeys: starterIdeaPlacement.appendedIdeaKeys });
+    }
+    return items;
+  }, [starterIdeaPlacement, visibleTrades]);
+
+  const renderFeedItem = useCallback(({ item }: { item: TradeFeedListItem }) => {
+    if (item.type === 'trade') return <TradeDeckSection trade={item.trade} index={item.index} total={item.total} onOpenTrade={openTrade} />;
+    if (item.type === 'idea') return <TradeFeedInlineIdeaCard ideaKey={item.ideaKey} onOpenIdea={openTradeIdea} />;
+    return <TradeFeedIdeaGroup ideaKeys={item.ideaKeys} onOpenIdea={openTradeIdea} />;
+  }, [openTrade, openTradeIdea]);
 
   const header = (
     <View style={styles.fixedHeaderStack}>
@@ -339,25 +359,22 @@ export function TradeDeckFeedScreen() {
     <AppCollapsibleHeaderScreen header={header} resetKey="discover">
       {(scrollProps) => (
         <>
-          <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshDiscoveryOrder} />}>
-            {error ? <InfoNotice tone="danger" title={t('trade.filters.couldNotLoadTrades')} body={error} /> : null}
-            {hasVisibleTrades || hasStarterIdeas ? (
-              <View style={styles.feedList}>
-                {visibleTrades.map((trade, index) => {
-                  const ideaKey = getInlineFeedIdeaKey(index, starterIdeaPlacement);
-                  return (
-                    <React.Fragment key={trade.id}>
-                      <TradeDeckSection trade={trade} index={index} total={visibleTrades.length} onOpen={() => openTrade(trade)} />
-                      {ideaKey ? <TradeFeedInlineIdeaCard key={`starter-inline-${index}-${ideaKey}`} ideaKey={ideaKey} onOpenIdea={openTradeIdea} /> : null}
-                    </React.Fragment>
-                  );
-                })}
-                {starterIdeaPlacement.appendedIdeaKeys.length ? <TradeFeedIdeaGroup ideaKeys={starterIdeaPlacement.appendedIdeaKeys} onOpenIdea={openTradeIdea} /> : null}
-              </View>
-            ) : (
-              <EmptyTradesState loading={loading} hasTrades={hasTrades} hasFilters={hasFilters} onCreate={createTrade} onRefresh={refreshDiscoveryOrder} onClear={clearFilters} />
-            )}
-          </ScrollView>
+          <FlatList
+            {...scrollProps.scrollViewProps}
+            data={error ? [] : feedItems}
+            keyExtractor={(item) => item.key}
+            renderItem={renderFeedItem}
+            contentContainerStyle={[scrollProps.contentInsetStyle, styles.content, styles.feedList]}
+            showsVerticalScrollIndicator={false}
+            refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshDiscoveryOrder} />}
+            ListHeaderComponent={error ? <InfoNotice tone="danger" title={t('trade.filters.couldNotLoadTrades')} body={error} /> : null}
+            ListEmptyComponent={!error ? <EmptyTradesState loading={loading} hasTrades={hasTrades} hasFilters={hasFilters} onCreate={createTrade} onRefresh={refreshDiscoveryOrder} onClear={clearFilters} /> : null}
+            removeClippedSubviews={Platform.OS === 'android'}
+            initialNumToRender={3}
+            maxToRenderPerBatch={3}
+            windowSize={5}
+            updateCellsBatchingPeriod={60}
+          />
           <TradeWizardMenuModal
             visible={wizardModalVisible}
             onClose={() => setWizardModalVisible(false)}
@@ -1182,9 +1199,10 @@ function InvolvedTradesEmpty({ hasFilter }: { hasFilter: boolean }) {
   );
 }
 
-function TradeDeckSection({ trade, index, total, onOpen }: { trade: TradeDeckItem; index: number; total: number; onOpen: () => void }) {
-  return <TradeSquareDeck trade={trade} index={index} total={total} onOpen={onOpen} />;
-}
+const TradeDeckSection = React.memo(function TradeDeckSection({ trade, index, total, onOpenTrade }: { trade: TradeDeckItem; index: number; total: number; onOpenTrade: (trade: TradeDeckItem) => void }) {
+  const handleOpen = useCallback(() => onOpenTrade(trade), [onOpenTrade, trade]);
+  return <TradeSquareDeck trade={trade} index={index} total={total} onOpen={handleOpen} />;
+});
 
 function EmptyTradesState({ loading, hasTrades, hasFilters, onCreate, onRefresh, onClear }: { loading: boolean; hasTrades: boolean; hasFilters: boolean; onCreate: () => void; onRefresh: () => void; onClear: () => void }) {
   const theme = useThemeTokens();
