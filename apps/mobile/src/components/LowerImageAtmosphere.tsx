@@ -29,13 +29,13 @@ type AtmospherePresetConfig = LowerImageAtmosphereProfile;
 
 const SHARED_POSTER_ATMOSPHERE_PROFILE: AtmospherePresetConfig = {
   blurRadius: 22,
-  blurOpacity: 0.052,
-  gradientTop: 40,
+  blurOpacity: 0.058,
+  gradientTop: 46,
   stops: [
     { offset: 0, opacity: 0 },
-    { offset: 0.16, opacity: 0.026 },
-    { offset: 0.42, opacity: 0.15 },
-    { offset: 0.7, opacity: 0.36 },
+    { offset: 0.18, opacity: 0.02 },
+    { offset: 0.48, opacity: 0.14 },
+    { offset: 0.84, opacity: 0.46 },
     { offset: 1, opacity: 0.62 },
   ],
   tint: { dark: '#02070A', light: '#06100E' },
