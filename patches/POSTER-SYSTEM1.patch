@@ -1,0 +1,54 @@
+diff --git a/apps/mobile/src/components/LowerImageAtmosphere.tsx b/apps/mobile/src/components/LowerImageAtmosphere.tsx
+index bb032e6..a4af029 100644
+--- a/apps/mobile/src/components/LowerImageAtmosphere.tsx
++++ b/apps/mobile/src/components/LowerImageAtmosphere.tsx
+@@ -27,33 +27,23 @@ type LowerImageAtmosphereProps = {
+ 
+ type AtmospherePresetConfig = LowerImageAtmosphereProfile;
+ 
++const SHARED_POSTER_ATMOSPHERE_PROFILE: AtmospherePresetConfig = {
++  blurRadius: 22,
++  blurOpacity: 0.052,
++  gradientTop: 40,
++  stops: [
++    { offset: 0, opacity: 0 },
++    { offset: 0.16, opacity: 0.026 },
++    { offset: 0.42, opacity: 0.15 },
++    { offset: 0.7, opacity: 0.36 },
++    { offset: 1, opacity: 0.62 },
++  ],
++  tint: { dark: '#02070A', light: '#06100E' },
++};
++
+ const POSTER_ATMOSPHERE_PRESET_CONFIGS: Record<LowerImageAtmospherePreset, AtmospherePresetConfig> = {
+-  trade: {
+-    blurRadius: 22,
+-    blurOpacity: 0.055,
+-    gradientTop: 41,
+-    stops: [
+-      { offset: 0, opacity: 0 },
+-      { offset: 0.2, opacity: 0.045 },
+-      { offset: 0.48, opacity: 0.2 },
+-      { offset: 0.76, opacity: 0.46 },
+-      { offset: 1, opacity: 0.68 },
+-    ],
+-    tint: { dark: '#010505', light: '#040C0B' },
+-  },
+-  plan: {
+-    blurRadius: 22,
+-    blurOpacity: 0.05,
+-    gradientTop: 43,
+-    stops: [
+-      { offset: 0, opacity: 0 },
+-      { offset: 0.2, opacity: 0.04 },
+-      { offset: 0.5, opacity: 0.19 },
+-      { offset: 0.78, opacity: 0.43 },
+-      { offset: 1, opacity: 0.64 },
+-    ],
+-    tint: { dark: '#020308', light: '#050A0E' },
+-  },
++  trade: SHARED_POSTER_ATMOSPHERE_PROFILE,
++  plan: SHARED_POSTER_ATMOSPHERE_PROFILE,
+ };
+ 
+ function tone(value: ToneValue, isDark: boolean) {

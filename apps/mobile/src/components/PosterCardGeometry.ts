@@ -1,0 +1,18 @@
+export const POSTER_CARD_GEOMETRY = {
+  cardRadius: 28,
+  contentInset: 17,
+  topPillMinHeight: 25,
+  topPillPaddingHorizontal: 10,
+  topPillPaddingVertical: 4,
+  topPillMaxWidth: '58%' as const,
+  secondaryPillMaxWidth: '48%' as const,
+  topPillFontSize: 10.5,
+  topPillLineHeight: 13,
+  topPillLetterSpacing: 0.75,
+  footerGlassBleed: -8,
+  footerGlassRadius: 23,
+  footerContentPaddingHorizontal: 9,
+  footerContentPaddingTop: 8,
+  footerContentPaddingBottom: 9,
+  footerContentGap: 4,
+} as const;

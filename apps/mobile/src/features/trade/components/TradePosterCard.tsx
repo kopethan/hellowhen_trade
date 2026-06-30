@@ -3,6 +3,8 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { normalizePreviewCardTheme } from '@hellowhen/shared';
 import { AppText } from '../../../components/AppText';
 import { LowerImageAtmosphere } from '../../../components/LowerImageAtmosphere';
+import { POSTER_CARD_GEOMETRY } from '../../../components/PosterCardGeometry';
+import { PosterGlassFooter } from '../../../components/PosterGlassFooter';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 
 export type TradePosterCardVariant = 'trade' | 'need' | 'offer';
@@ -150,7 +152,13 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
           ) : null}
         </View>
 
-        <View style={styles.copyBlock}>
+        <PosterGlassFooter
+          enabled={hasPosterImage}
+          isDark={isDark}
+          style={styles.copyBlock}
+          glassStyle={styles.copyGlassBlock}
+          contentStyle={styles.copyGlassContent}
+        >
           {eyebrow ? (
             <AppText
               style={[
@@ -210,7 +218,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
               ))}
             </View>
           ) : null}
-        </View>
+        </PosterGlassFooter>
       </View>
     </Pressable>
   );
@@ -222,6 +230,7 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     overflow: 'hidden',
+    borderRadius: POSTER_CARD_GEOMETRY.cardRadius,
     borderWidth: StyleSheet.hairlineWidth,
   },
   fallbackMedia: {
@@ -248,9 +257,7 @@ const styles = StyleSheet.create({
   contentLayer: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'space-between',
-    paddingHorizontal: 15,
-    paddingTop: 15,
-    paddingBottom: 17,
+    padding: POSTER_CARD_GEOMETRY.contentInset,
   },
   topBar: {
     flexDirection: 'row',
@@ -259,12 +266,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   badge: {
-    minHeight: 25,
-    maxWidth: '58%',
+    minHeight: POSTER_CARD_GEOMETRY.topPillMinHeight,
+    maxWidth: POSTER_CARD_GEOMETRY.topPillMaxWidth,
+    flexShrink: 1,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: POSTER_CARD_GEOMETRY.topPillPaddingHorizontal,
+    paddingVertical: POSTER_CARD_GEOMETRY.topPillPaddingVertical,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -274,34 +282,45 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   topMetaBadge: {
-    minHeight: 25,
-    maxWidth: '48%',
+    minHeight: POSTER_CARD_GEOMETRY.topPillMinHeight,
+    maxWidth: POSTER_CARD_GEOMETRY.secondaryPillMaxWidth,
     flexShrink: 1,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+    paddingHorizontal: POSTER_CARD_GEOMETRY.topPillPaddingHorizontal,
+    paddingVertical: POSTER_CARD_GEOMETRY.topPillPaddingVertical,
     alignItems: 'center',
     justifyContent: 'center',
   },
   topMetaText: {
-    fontSize: 10.5,
-    lineHeight: 13,
+    fontSize: POSTER_CARD_GEOMETRY.topPillFontSize,
+    lineHeight: POSTER_CARD_GEOMETRY.topPillLineHeight,
     fontWeight: '900',
-    letterSpacing: 0.25,
+    letterSpacing: 0.35,
   },
   badgeText: {
-    fontSize: 10.5,
-    lineHeight: 13,
+    fontSize: POSTER_CARD_GEOMETRY.topPillFontSize,
+    lineHeight: POSTER_CARD_GEOMETRY.topPillLineHeight,
     fontWeight: '900',
-    letterSpacing: 0.75,
+    letterSpacing: POSTER_CARD_GEOMETRY.topPillLetterSpacing,
     textTransform: 'uppercase',
   },
   copyBlock: {
     alignSelf: 'stretch',
-    gap: 4,
-    paddingRight: 8,
+    gap: POSTER_CARD_GEOMETRY.footerContentGap,
+    paddingRight: 0,
     paddingBottom: 0,
+  },
+  copyGlassBlock: {
+    marginHorizontal: POSTER_CARD_GEOMETRY.footerGlassBleed,
+    marginBottom: POSTER_CARD_GEOMETRY.footerGlassBleed,
+    borderRadius: POSTER_CARD_GEOMETRY.footerGlassRadius,
+  },
+  copyGlassContent: {
+    gap: POSTER_CARD_GEOMETRY.footerContentGap,
+    paddingHorizontal: POSTER_CARD_GEOMETRY.footerContentPaddingHorizontal,
+    paddingTop: POSTER_CARD_GEOMETRY.footerContentPaddingTop,
+    paddingBottom: POSTER_CARD_GEOMETRY.footerContentPaddingBottom,
   },
   eyebrow: {
     fontSize: 11,

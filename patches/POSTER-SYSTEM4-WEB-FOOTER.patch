@@ -1,0 +1,89 @@
+diff --git a/apps/mobile/src/components/LowerImageAtmosphere.tsx b/apps/mobile/src/components/LowerImageAtmosphere.tsx
+index a4af029..e8efe50 100644
+--- a/apps/mobile/src/components/LowerImageAtmosphere.tsx
++++ b/apps/mobile/src/components/LowerImageAtmosphere.tsx
+@@ -29,13 +29,13 @@ type AtmospherePresetConfig = LowerImageAtmosphereProfile;
+ 
+ const SHARED_POSTER_ATMOSPHERE_PROFILE: AtmospherePresetConfig = {
+   blurRadius: 22,
+-  blurOpacity: 0.052,
+-  gradientTop: 40,
++  blurOpacity: 0.058,
++  gradientTop: 46,
+   stops: [
+     { offset: 0, opacity: 0 },
+-    { offset: 0.16, opacity: 0.026 },
+-    { offset: 0.42, opacity: 0.15 },
+-    { offset: 0.7, opacity: 0.36 },
++    { offset: 0.18, opacity: 0.02 },
++    { offset: 0.48, opacity: 0.14 },
++    { offset: 0.84, opacity: 0.46 },
+     { offset: 1, opacity: 0.62 },
+   ],
+   tint: { dark: '#02070A', light: '#06100E' },
+diff --git a/apps/mobile/src/components/PosterGlassFooter.tsx b/apps/mobile/src/components/PosterGlassFooter.tsx
+index 898dc71..39ec386 100644
+--- a/apps/mobile/src/components/PosterGlassFooter.tsx
++++ b/apps/mobile/src/components/PosterGlassFooter.tsx
+@@ -1,5 +1,5 @@
+ import React, { type PropsWithChildren } from 'react';
+-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
++import { View, type StyleProp, type ViewStyle } from 'react-native';
+ 
+ type PosterGlassFooterProps = PropsWithChildren<{
+   enabled?: boolean;
+@@ -9,52 +9,14 @@ type PosterGlassFooterProps = PropsWithChildren<{
+   contentStyle?: StyleProp<ViewStyle>;
+ }>;
+ 
+-export function PosterGlassFooter({ enabled = true, isDark, style, glassStyle, contentStyle, children }: PosterGlassFooterProps) {
++export function PosterGlassFooter({ enabled = true, style, glassStyle, contentStyle, children }: PosterGlassFooterProps) {
+   if (!enabled) {
+     return <View style={style}>{children}</View>;
+   }
+ 
+   return (
+     <View style={style}>
+-      <View
+-        style={[
+-          styles.glass,
+-          {
+-            backgroundColor: isDark ? 'rgba(3,9,13,0.2)' : 'rgba(4,13,12,0.17)',
+-            borderColor: 'rgba(255,255,255,0.1)',
+-          },
+-          glassStyle,
+-        ]}
+-      >
+-        <View pointerEvents="none" style={[styles.softWash, { backgroundColor: isDark ? 'rgba(255,255,255,0.035)' : 'rgba(255,255,255,0.045)' }]} />
+-        <View pointerEvents="none" style={[styles.lowerVeil, { backgroundColor: isDark ? 'rgba(0,0,0,0.04)' : 'rgba(0,0,0,0.035)' }]} />
+-        <View style={[styles.content, contentStyle]}>{children}</View>
+-      </View>
++      <View style={[glassStyle, contentStyle]}>{children}</View>
+     </View>
+   );
+ }
+-
+-const styles = StyleSheet.create({
+-  glass: {
+-    overflow: 'hidden',
+-    borderWidth: StyleSheet.hairlineWidth,
+-    borderRadius: 22,
+-  },
+-  softWash: {
+-    position: 'absolute',
+-    left: 0,
+-    right: 0,
+-    top: 0,
+-    height: '46%',
+-  },
+-  lowerVeil: {
+-    position: 'absolute',
+-    left: 0,
+-    right: 0,
+-    bottom: 0,
+-    height: '42%',
+-  },
+-  content: {
+-    position: 'relative',
+-  },
+-});

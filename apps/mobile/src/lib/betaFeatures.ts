@@ -1,7 +1,13 @@
 import { AI_FEATURE_DEFAULTS, PLUS_SUBSCRIPTION_FEATURE_DEFAULTS, PRO_SUBSCRIPTION_FEATURE_DEFAULTS, getProTradePackageEntitlements, normalizeAiProvider } from '@hellowhen/shared';
 const enabled = (value: string | undefined) => value?.toLowerCase() === 'true';
 const disabled = (value: string | undefined) => value?.toLowerCase() === 'false';
-const firstLaunchGuardsEnabled = !disabled(process.env.EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED);
+
+function publicEnv(suffix: string) {
+  const env = process.env as Record<string, string | undefined>;
+  return env[`EXPO_PUBLIC_${suffix}`] ?? env[`NEXT_PUBLIC_${suffix}`];
+}
+
+const firstLaunchGuardsEnabled = !disabled(publicEnv('FIRST_LAUNCH_GUARDS_ENABLED'));
 const forceFirstLaunchSafeFlags = process.env.NODE_ENV === 'production' && firstLaunchGuardsEnabled;
 
 const rawMoneyProvider = (process.env.EXPO_PUBLIC_MONEY_PROVIDER ?? 'none').toLowerCase() as 'none' | 'stripe' | 'airwallex';
@@ -67,9 +73,9 @@ const proTradePackageFeatures = {
 } as const;
 const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_MONEY_FEATURES_VISIBLE);
 const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED);
-const plansEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_PLANS_ENABLED);
-const plansVisible = plansEnabled && enabled(process.env.EXPO_PUBLIC_PLANS_VISIBLE);
-const mainNavPlansMeTrade = plansVisible && !disabled(process.env.EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE);
+const plansEnabled = !forceFirstLaunchSafeFlags && enabled(publicEnv('PLANS_ENABLED'));
+const plansVisible = plansEnabled && enabled(publicEnv('PLANS_VISIBLE'));
+const mainNavPlansMeTrade = plansVisible && !disabled(publicEnv('MAIN_NAV_PLANS_ME_TRADE'));
 const mobileMembershipVisible = !forceFirstLaunchSafeFlags && (
   enabled(process.env.EXPO_PUBLIC_MOBILE_MEMBERSHIP_VISIBLE)
   || (subscriptionsEnabled && plusSubscriptionFeatures.plusPublic)

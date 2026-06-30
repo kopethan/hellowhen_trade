@@ -1,5 +1,6 @@
 declare const process: {
   env: {
+    [key: string]: string | undefined;
     NODE_ENV?: string;
     EXPO_PUBLIC_API_URL?: string;
     EXPO_PUBLIC_WEB_URL?: string;
@@ -20,6 +21,10 @@ declare const process: {
     EXPO_PUBLIC_PLANS_ENABLED?: string;
     EXPO_PUBLIC_PLANS_VISIBLE?: string;
     EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE?: string;
+    NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED?: string;
+    NEXT_PUBLIC_PLANS_ENABLED?: string;
+    NEXT_PUBLIC_PLANS_VISIBLE?: string;
+    NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE?: string;
     EXPO_PUBLIC_ADS_ENABLED?: string;
     EXPO_PUBLIC_MOBILE_ADS_ENABLED?: string;
     EXPO_PUBLIC_ADS_PROVIDER?: string;

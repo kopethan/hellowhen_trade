@@ -4,6 +4,8 @@ import type { MediaAssetDto, PlaceStaticMapDto, PlanDto, PlanPlaceDto } from '@h
 import type { SemanticColorName } from '@hellowhen/theme';
 import { AppText } from '../../../components/AppText';
 import { LowerImageAtmosphere } from '../../../components/LowerImageAtmosphere';
+import { POSTER_CARD_GEOMETRY } from '../../../components/PosterCardGeometry';
+import { PosterGlassFooter } from '../../../components/PosterGlassFooter';
 import { SemanticBadge } from '../../../components/SemanticUI';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { ContinuousSquareStackDeck, type SquareStackDeckCard } from '../../trade/deck';
@@ -208,13 +210,19 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
         )) : null}
       </View>
 
-      <View style={[styles.cardCopy, hasPosterImage && styles.posterCardCopy]}>
+      <PosterGlassFooter
+        enabled={hasPosterImage}
+        isDark={isDark}
+        style={[styles.cardCopy, hasPosterImage && styles.posterCardCopy]}
+        glassStyle={styles.posterCardGlass}
+        contentStyle={styles.posterCardGlassContent}
+      >
         <AppText style={[styles.planTitle, { color: posterSubtleColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{card.plan.title}</AppText>
         <AppText style={[styles.placeTitle, { color: posterTitleColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{placeTitle}</AppText>
         {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>Add a first stop to turn this Plan into route cards.</AppText> : null}
         {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{locationLabel}</AppText> : null}
         <AppText style={[styles.placeTimeText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{timeLabel}</AppText>
-      </View>
+      </PosterGlassFooter>
     </Pressable>
   );
 }
@@ -246,10 +254,10 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     alignSelf: 'stretch',
-    borderRadius: 28,
-    borderWidth: 1,
+    borderRadius: POSTER_CARD_GEOMETRY.cardRadius,
+    borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
-    padding: 17,
+    padding: POSTER_CARD_GEOMETRY.contentInset,
     justifyContent: 'space-between',
   },
   cardImage: {
@@ -296,36 +304,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
-    flexWrap: 'wrap',
   },
   posterPill: {
-    minHeight: 23,
-    maxWidth: '60%',
+    minHeight: POSTER_CARD_GEOMETRY.topPillMinHeight,
+    maxWidth: POSTER_CARD_GEOMETRY.topPillMaxWidth,
+    flexShrink: 1,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+    paddingHorizontal: POSTER_CARD_GEOMETRY.topPillPaddingHorizontal,
+    paddingVertical: POSTER_CARD_GEOMETRY.topPillPaddingVertical,
     alignItems: 'center',
     justifyContent: 'center',
   },
   posterModePill: {
-    maxWidth: '46%',
+    maxWidth: POSTER_CARD_GEOMETRY.secondaryPillMaxWidth,
   },
   posterPillText: {
-    fontSize: 10,
-    lineHeight: 12.5,
-    fontWeight: '800',
-    letterSpacing: 0.68,
+    fontSize: POSTER_CARD_GEOMETRY.topPillFontSize,
+    lineHeight: POSTER_CARD_GEOMETRY.topPillLineHeight,
+    fontWeight: '900',
+    letterSpacing: POSTER_CARD_GEOMETRY.topPillLetterSpacing,
     textTransform: 'uppercase',
   },
   cardCopy: {
-    gap: 4,
-    paddingTop: 150,
+    alignSelf: 'stretch',
+    gap: POSTER_CARD_GEOMETRY.footerContentGap,
+    paddingTop: 0,
+    paddingRight: 0,
   },
   posterCardCopy: {
-    gap: 3,
-    paddingTop: 160,
-    paddingRight: 4,
+    paddingTop: 0,
+  },
+  posterCardGlass: {
+    marginHorizontal: POSTER_CARD_GEOMETRY.footerGlassBleed,
+    marginBottom: POSTER_CARD_GEOMETRY.footerGlassBleed,
+    borderRadius: POSTER_CARD_GEOMETRY.footerGlassRadius,
+  },
+  posterCardGlassContent: {
+    gap: POSTER_CARD_GEOMETRY.footerContentGap,
+    paddingHorizontal: POSTER_CARD_GEOMETRY.footerContentPaddingHorizontal,
+    paddingTop: POSTER_CARD_GEOMETRY.footerContentPaddingTop,
+    paddingBottom: POSTER_CARD_GEOMETRY.footerContentPaddingBottom,
   },
   planTitle: {
     fontSize: 10,
