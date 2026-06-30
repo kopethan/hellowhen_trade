@@ -9803,9 +9803,50 @@ html[data-theme="dark"] .onboarding-guide-primary {
   display: grid;
   gap: 3px;
 }
+.plan-section-heading--with-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.plan-section-heading--with-action > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
 .plan-section-heading h2,
 .plan-section-heading p {
   margin: 0;
+}
+.plan-route-maps-action {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--place-border);
+  border-radius: 999px;
+  background: var(--place-bg);
+  color: white;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1;
+  text-decoration: none;
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--place-text) 18%, transparent);
+}
+.plan-route-maps-action:hover {
+  transform: translateY(-1px);
+}
+.plan-route-maps-action .web-icon {
+  flex: 0 0 auto;
+}
+.plan-route-maps-hint {
+  margin: -4px 0 0;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.45;
 }
 .plan-route-list,
 .plan-participant-list {
@@ -10352,6 +10393,17 @@ html[data-theme="dark"] .onboarding-guide-primary {
   .plan-detail-toolbar__actions .plans-internal-badge { display: none; }
   .plan-detail-hero-social h1 { max-width: 12ch; font-size: clamp(38px, 14vw, 58px); }
   .plan-route-section { gap: 17px; }
+  .plan-section-heading--with-action {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .plan-route-maps-action {
+    width: 100%;
+    min-height: 42px;
+  }
+  .plan-route-maps-hint {
+    margin-top: -7px;
+  }
   .plan-route-shell { display: block; }
   .plan-route-desktop-preview { display: none; }
   .plan-route-list { gap: 0; }

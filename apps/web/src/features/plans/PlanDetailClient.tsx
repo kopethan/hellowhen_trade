@@ -112,9 +112,35 @@ function planPlaceDescription(place: PlanPlaceDto) {
   return place.sourcePlace?.description?.trim() || '';
 }
 
+// Keep the free Google Maps URL conservative for mobile browsers: origin + 3 waypoints + destination.
+const GOOGLE_MAPS_MAX_ROUTE_STOPS = 5;
+
 function buildMapsSearchUrl(value: string) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value)}`;
 }
+
+function buildGoogleMapsDirectionsUrl(queries: string[]) {
+  if (queries.length <= 1) return buildMapsSearchUrl(queries[0] ?? '');
+  const [origin, ...rest] = queries;
+  const destination = rest[rest.length - 1];
+  const waypoints = rest.slice(0, -1);
+  const params = [
+    'api=1',
+    `origin=${encodeURIComponent(origin)}`,
+    `destination=${encodeURIComponent(destination)}`,
+  ];
+  if (waypoints.length) params.push(`waypoints=${encodeURIComponent(waypoints.join('|'))}`);
+  return `https://www.google.com/maps/dir/?${params.join('&')}`;
+}
+
+type PlanRouteMapsLink = {
+  href: string;
+  label: string;
+  body: string;
+  stopCount: number;
+  totalStopCount: number;
+  skippedOnlineCount: number;
+};
 
 type PlanPlaceLocationDisplay = {
   kind: 'local' | 'remote';
@@ -163,6 +189,34 @@ function planPlaceVerificationCoordinates(place: PlanPlaceDto) {
   const longitude = typeof place.longitude === 'number' ? place.longitude : place.sourcePlace?.longitude;
   if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
   return { latitude, longitude };
+}
+
+function planPlaceMapsQuery(place: PlanPlaceDto) {
+  if (!isOfflinePlanPlace(place)) return null;
+  const coordinates = planPlaceVerificationCoordinates(place);
+  if (coordinates) return `${coordinates.latitude},${coordinates.longitude}`;
+  return place.addressPublicText || place.sourcePlace?.addressPublicText || place.sourcePlace?.areaLabel || null;
+}
+
+function buildPlanRouteMapsLink(places: PlanPlaceDto[]): PlanRouteMapsLink | null {
+  const offlineQueries = places.map(planPlaceMapsQuery).filter((value): value is string => Boolean(value));
+  if (!offlineQueries.length) return null;
+  const includedQueries = offlineQueries.slice(0, GOOGLE_MAPS_MAX_ROUTE_STOPS);
+  const skippedOnlineCount = places.filter((place) => place.mode === 'remote').length;
+  const truncatedCount = Math.max(offlineQueries.length - includedQueries.length, 0);
+  const bodyParts = [
+    includedQueries.length > 1 ? `${includedQueries.length} offline stops` : '1 offline stop',
+    skippedOnlineCount ? `${skippedOnlineCount} online ${skippedOnlineCount === 1 ? 'place is' : 'places are'} skipped` : '',
+    truncatedCount ? `${truncatedCount} later ${truncatedCount === 1 ? 'stop is' : 'stops are'} skipped` : '',
+  ].filter(Boolean);
+  return {
+    href: buildGoogleMapsDirectionsUrl(includedQueries),
+    label: includedQueries.length > 1 ? 'Open route in Google Maps' : 'Open in Google Maps',
+    body: bodyParts.join(' · '),
+    stopCount: includedQueries.length,
+    totalStopCount: offlineQueries.length,
+    skippedOnlineCount,
+  };
 }
 
 function formatPresenceDistance(value?: number | null) {
@@ -452,6 +506,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
   const participantCopy = !isOwner ? participantStateCopy(currentParticipantStatus) : '';
   const showReportActions = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner);
   const places = plan?.places ?? [];
+  const routeMapsLink = buildPlanRouteMapsLink(places);
   const joinedCount = plan?.participantCount ?? 0;
   const placeCount = places.length;
   const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
@@ -692,10 +747,19 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
             </section>
 
             <section className="plan-social-section plan-route-section plan-route-section--desktop-split">
-              <div className="plan-section-heading">
-                <p className="eyebrow">Route</p>
-                <h2>Places and times</h2>
+              <div className="plan-section-heading plan-section-heading--with-action">
+                <div>
+                  <p className="eyebrow">Route</p>
+                  <h2>Places and times</h2>
+                </div>
+                {routeMapsLink ? (
+                  <a className="plan-route-maps-action" href={routeMapsLink.href} target="_blank" rel="noreferrer">
+                    <WebIcon name="location-on" size={15} decorative />
+                    <span>{routeMapsLink.label}</span>
+                  </a>
+                ) : null}
               </div>
+              {routeMapsLink ? <p className="plan-route-maps-hint">{routeMapsLink.body}</p> : null}
               <div className="plan-route-shell">
                 <div className="plan-route-list">
                   {places.map((place, index) => (

@@ -700,8 +700,71 @@ type PlanPlaceLocationDetails = {
   href?: string;
 };
 
+// Keep the free Google Maps URL conservative for mobile browsers: origin + 3 waypoints + destination.
+const GOOGLE_MAPS_MAX_ROUTE_STOPS = 5;
+
 function buildMapsSearchUrl(value: string) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value)}`;
+}
+
+type PlanRouteMapsLink = {
+  href: string;
+  label: string;
+  body: string;
+  stopCount: number;
+  totalStopCount: number;
+  skippedOnlineCount: number;
+};
+
+function getPlanPlaceMapsQuery(place: PlanPlaceDto) {
+  if (!isOfflinePlanPlace(place)) return null;
+  const coordinates = getPlanPlaceVerificationCoordinates(place);
+  if (coordinates) return `${coordinates.latitude},${coordinates.longitude}`;
+  return place.addressPublicText || place.sourcePlace?.addressPublicText || place.sourcePlace?.areaLabel || null;
+}
+
+function buildGoogleMapsDirectionsUrl(queries: string[]) {
+  if (queries.length <= 1) return buildMapsSearchUrl(queries[0] ?? '');
+  const [origin, ...rest] = queries;
+  const destination = rest[rest.length - 1];
+  const waypoints = rest.slice(0, -1);
+  const params = [
+    'api=1',
+    `origin=${encodeURIComponent(origin)}`,
+    `destination=${encodeURIComponent(destination)}`,
+  ];
+  if (waypoints.length) params.push(`waypoints=${encodeURIComponent(waypoints.join('|'))}`);
+  return `https://www.google.com/maps/dir/?${params.join('&')}`;
+}
+
+function buildPlanRouteMapsLink(places: PlanPlaceDto[]): PlanRouteMapsLink | null {
+  const offlineQueries = places.map(getPlanPlaceMapsQuery).filter((value): value is string => Boolean(value));
+  if (!offlineQueries.length) return null;
+  const includedQueries = offlineQueries.slice(0, GOOGLE_MAPS_MAX_ROUTE_STOPS);
+  const skippedOnlineCount = places.filter((place) => place.mode === 'remote').length;
+  const truncatedCount = Math.max(offlineQueries.length - includedQueries.length, 0);
+  const routeLabel = includedQueries.length > 1 ? 'Open route in Google Maps' : 'Open in Google Maps';
+  const bodyParts = [
+    includedQueries.length > 1 ? `${includedQueries.length} offline stops` : '1 offline stop',
+    skippedOnlineCount ? `${skippedOnlineCount} online ${skippedOnlineCount === 1 ? 'place is' : 'places are'} skipped` : '',
+    truncatedCount ? `${truncatedCount} later ${truncatedCount === 1 ? 'stop is' : 'stops are'} skipped` : '',
+  ].filter(Boolean);
+  return {
+    href: buildGoogleMapsDirectionsUrl(includedQueries),
+    label: routeLabel,
+    body: bodyParts.join(' · '),
+    stopCount: includedQueries.length,
+    totalStopCount: offlineQueries.length,
+    skippedOnlineCount,
+  };
+}
+
+async function openPlanRouteMaps(routeMaps: PlanRouteMapsLink) {
+  try {
+    await Linking.openURL(routeMaps.href);
+  } catch {
+    Alert.alert('Could not open Google Maps', 'Try opening one address from the route instead.');
+  }
 }
 
 function buildNativeMapsUrl(value: string) {
@@ -1917,6 +1980,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   const canCancelPlan = Boolean(plan && isOwner && plan.status !== 'cancelled');
   const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus) : '';
   const places = plan ? sortedPlanPlaces(plan) : [];
+  const routeMaps = buildPlanRouteMapsLink(places);
   const acceptedParticipants = plan ? getAcceptedParticipants(plan) : [];
   const joinedCount = plan?.participantCount ?? acceptedParticipants.length;
   const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
@@ -1965,10 +2029,24 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
           <PlanSectionDivider />
 
           <View style={styles.planDetailSectionFlat}>
-            <View style={styles.sectionTitleRow}>
-              <AppText style={styles.sectionTitle}>Route</AppText>
-              <SemanticBadge label={`${places.length}`} tone="place" size="sm" />
+            <View style={styles.planRouteSectionHeader}>
+              <View style={styles.sectionTitleRow}>
+                <AppText style={styles.sectionTitle}>Route</AppText>
+                <SemanticBadge label={`${places.length}`} tone="place" size="sm" />
+              </View>
+              {routeMaps ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={routeMaps.label}
+                  onPress={() => { void openPlanRouteMaps(routeMaps); }}
+                  style={({ pressed }) => [styles.planRouteMapsButton, { backgroundColor: theme.semantic.place.bg, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}
+                >
+                  <MobileIcon name="location-on" size={15} color={theme.color.background} />
+                  <AppText style={[styles.planRouteMapsButtonText, { color: theme.color.background }]}>{routeMaps.label}</AppText>
+                </Pressable>
+              ) : null}
             </View>
+            {routeMaps ? <AppText style={[styles.planRouteMapsHint, { color: theme.color.muted }]}>{routeMaps.body}</AppText> : null}
             {places.length === 0 ? <EmptyBlock title="No places yet" body="This Plan does not have places attached yet." /> : null}
             {places.map((place, index) => (
               <PlanPlaceTimelineCard
@@ -3512,6 +3590,10 @@ const styles = StyleSheet.create({
   planDetailDescription: { fontSize: 15, lineHeight: 22, fontWeight: '700', paddingTop: 3 },
   planSectionDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: -2 },
   planDetailSectionFlat: { gap: 12 },
+  planRouteSectionHeader: { gap: 10 },
+  planRouteMapsButton: { minHeight: 42, borderRadius: 18, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, alignSelf: 'stretch' },
+  planRouteMapsButtonText: { fontSize: 13, lineHeight: 17, fontWeight: '900' },
+  planRouteMapsHint: { marginTop: -4, fontSize: 12, lineHeight: 17, fontWeight: '800' },
   planRouteStop: { gap: 12 },
   planRouteStopTop: { flexDirection: 'row', alignItems: 'stretch', gap: 12 },
   planRouteTimeline: { width: 34, alignItems: 'center' },
