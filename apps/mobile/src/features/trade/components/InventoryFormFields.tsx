@@ -170,8 +170,8 @@ export function LanguagePicker({ value, onChange, disabled }: { value: Discovery
   return (
     <View style={styles.field}>
       <View style={styles.labelRow}>
-        <AppText style={styles.label}>{t('inventory.labels.defaultLanguage')}</AppText>
-        <AppText style={[styles.hint, { color: theme.color.muted }]}>{t('inventory.form.languageBody')}</AppText>
+        <AppText style={styles.label}>{t('inventory.form.originalLanguageSelector')}</AppText>
+        <AppText style={[styles.hint, { color: theme.color.muted }]}>{t('inventory.form.originalLanguageHelp')}</AppText>
       </View>
       <View style={styles.modeRow}>
         {inventoryLanguageOptions.map((languageCode) => {

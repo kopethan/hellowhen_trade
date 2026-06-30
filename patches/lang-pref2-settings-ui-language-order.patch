@@ -1,0 +1,327 @@
+diff --git a/apps/mobile/src/features/settings/SettingsScreen.tsx b/apps/mobile/src/features/settings/SettingsScreen.tsx
+index 76fbe7b..1457fb7 100644
+--- a/apps/mobile/src/features/settings/SettingsScreen.tsx
++++ b/apps/mobile/src/features/settings/SettingsScreen.tsx
+@@ -2,7 +2,7 @@ import React, { useCallback, useState } from 'react';
+ import { Pressable, RefreshControl, ScrollView, StyleSheet, Switch, View } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+-import type { AppSettings } from '@hellowhen/contracts';
++import type { AppSettings, ContentLanguageCode } from '@hellowhen/contracts';
+ import type { LanguagePreference } from '@hellowhen/i18n';
+ import { AppCard } from '../../components/AppCard';
+ import { AppHeader } from '../../components/AppHeader';
+@@ -35,6 +35,38 @@ const languageOptions: Array<ChoiceOption<LanguagePreference>> = [
+   { labelKey: 'settings.language.options.es.title', value: 'es' },
+ ];
+ 
++const contentLanguageOptions: Array<ChoiceOption<ContentLanguageCode>> = [
++  { labelKey: 'settings.language.options.en.title', value: 'en' },
++  { labelKey: 'settings.language.options.fr.title', value: 'fr' },
++  { labelKey: 'settings.language.options.es.title', value: 'es' },
++];
++
++function contentLanguageTitleKey(language: ContentLanguageCode) {
++  return contentLanguageOptions.find((option) => option.value === language)?.labelKey ?? 'settings.language.options.en.title';
++}
++
++function defaultContentLanguageOrder(language: LanguagePreference): ContentLanguageCode[] {
++  if (language === 'fr' || language === 'es') return [language, 'en'];
++  return ['en'];
++}
++
++function moveContentLanguage(order: ContentLanguageCode[], language: ContentLanguageCode, direction: -1 | 1) {
++  const next = [...order];
++  const index = next.indexOf(language);
++  const targetIndex = index + direction;
++  if (index < 0 || targetIndex < 0 || targetIndex >= next.length) return next;
++  const current = next[index]!;
++  const target = next[targetIndex]!;
++  next[index] = target;
++  next[targetIndex] = current;
++  return next;
++}
++
++function removeContentLanguage(order: ContentLanguageCode[], language: ContentLanguageCode) {
++  const next = order.filter((item) => item !== language);
++  return next.length ? next : order;
++}
++
+ export function SettingsScreen() {
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const auth = useAuth();
+@@ -109,6 +141,10 @@ export function SettingsScreen() {
+     }
+   }
+ 
++  async function updateContentLanguageOrder(nextOrder: ContentLanguageCode[]) {
++    await updateSettings({ contentLanguageOrder: nextOrder });
++  }
++
+   return (
+     <AppScreen>
+       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadSettings(); }} />}>
+@@ -138,6 +174,36 @@ export function SettingsScreen() {
+           </View>
+         </AppCard>
+ 
++        <AppCard>
++          <SemanticBadge label={t('settings.contentLanguage.badge')} tone="info" size="sm" />
++          <AppText style={styles.sectionTitle}>{t('settings.contentLanguage.title')}</AppText>
++          <AppText style={[styles.body, { color: theme.color.muted }]}>{t('settings.contentLanguage.bodyNative')}</AppText>
++          <View style={styles.languageOrderList}>
++            {settings.contentLanguageOrder.map((language, index) => (
++              <View key={language} style={[styles.languageOrderRow, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++                <View style={styles.languageOrderCopy}>
++                  <SemanticBadge label={`${index + 1}`} tone="muted" size="sm" />
++                  <View style={styles.languageOrderText}>
++                    <AppText style={styles.languageOrderTitle}>{t(contentLanguageTitleKey(language))}</AppText>
++                    <AppText style={[styles.languageOrderBody, { color: theme.color.muted }]}>{index === 0 ? t('settings.contentLanguage.firstChoice') : t('settings.contentLanguage.fallbackChoice')}</AppText>
++                  </View>
++                </View>
++                <View style={styles.languageOrderActions}>
++                  <ChoiceButton label={t('settings.contentLanguage.moveUp')} selected={false} disabled={saving || index === 0} onPress={() => { void updateContentLanguageOrder(moveContentLanguage(settings.contentLanguageOrder, language, -1)); }} />
++                  <ChoiceButton label={t('settings.contentLanguage.moveDown')} selected={false} disabled={saving || index === settings.contentLanguageOrder.length - 1} onPress={() => { void updateContentLanguageOrder(moveContentLanguage(settings.contentLanguageOrder, language, 1)); }} />
++                  <ChoiceButton label={t('settings.contentLanguage.remove')} selected={false} disabled={saving || settings.contentLanguageOrder.length <= 1} onPress={() => { void updateContentLanguageOrder(removeContentLanguage(settings.contentLanguageOrder, language)); }} />
++                </View>
++              </View>
++            ))}
++          </View>
++          <View style={styles.optionRow}>
++            {contentLanguageOptions.filter((option) => !settings.contentLanguageOrder.includes(option.value)).map((option) => (
++              <ChoiceButton key={option.value} label={t('settings.contentLanguage.addLanguage', { language: t(option.labelKey) })} selected={false} disabled={saving} onPress={() => { void updateContentLanguageOrder([...settings.contentLanguageOrder, option.value]); }} />
++            ))}
++            <ChoiceButton label={t('settings.contentLanguage.reset')} selected={false} disabled={saving} onPress={() => { void updateContentLanguageOrder(defaultContentLanguageOrder(settings.language)); }} />
++          </View>
++        </AppCard>
++
+         <AppCard>
+           <View style={styles.switchRow}>
+             <View style={styles.switchCopy}>
+@@ -240,6 +306,13 @@ const styles = StyleSheet.create({
+   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
+   switchCopy: { flex: 1, gap: 5 },
+   optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
++  languageOrderList: { gap: 9 },
++  languageOrderRow: { borderWidth: 1, borderRadius: 18, padding: 11, gap: 10 },
++  languageOrderCopy: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
++  languageOrderText: { flex: 1, minWidth: 0, gap: 2 },
++  languageOrderTitle: { fontWeight: '900', fontSize: 15 },
++  languageOrderBody: { fontWeight: '700', fontSize: 12, lineHeight: 16 },
++  languageOrderActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+   choiceButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
+   choiceButtonText: { fontWeight: '900' },
+   securityRows: { gap: 6 },
+diff --git a/apps/web/src/app/account/settings/page.tsx b/apps/web/src/app/account/settings/page.tsx
+index 4ca6e0c..c928baa 100644
+--- a/apps/web/src/app/account/settings/page.tsx
++++ b/apps/web/src/app/account/settings/page.tsx
+@@ -3,7 +3,7 @@
+ import Link from 'next/link';
+ import { useEffect, useState } from 'react';
+ import QRCode from 'qrcode';
+-import type { AppSettings } from '@hellowhen/contracts';
++import type { AppSettings, ContentLanguageCode } from '@hellowhen/contracts';
+ import type { LanguagePreference } from '@hellowhen/i18n';
+ import { MobilePage, PageIntro } from '../../../components/MobilePage';
+ import { api } from '../../../lib/api';
+@@ -29,6 +29,38 @@ const languageOptions: Array<ChoiceOption<LanguagePreference>> = [
+   { value: 'es', titleKey: 'settings.language.options.es.title', bodyKey: 'settings.language.options.es.body' },
+ ];
+ 
++const contentLanguageOptions: Array<Pick<ChoiceOption<ContentLanguageCode>, 'value' | 'titleKey'>> = [
++  { value: 'en', titleKey: 'settings.language.options.en.title' },
++  { value: 'fr', titleKey: 'settings.language.options.fr.title' },
++  { value: 'es', titleKey: 'settings.language.options.es.title' },
++];
++
++function contentLanguageTitleKey(language: ContentLanguageCode) {
++  return contentLanguageOptions.find((option) => option.value === language)?.titleKey ?? 'settings.language.options.en.title';
++}
++
++function defaultContentLanguageOrder(language: LanguagePreference): ContentLanguageCode[] {
++  if (language === 'fr' || language === 'es') return [language, 'en'];
++  return ['en'];
++}
++
++function moveContentLanguage(order: ContentLanguageCode[], language: ContentLanguageCode, direction: -1 | 1) {
++  const next = [...order];
++  const index = next.indexOf(language);
++  const targetIndex = index + direction;
++  if (index < 0 || targetIndex < 0 || targetIndex >= next.length) return next;
++  const current = next[index]!;
++  const target = next[targetIndex]!;
++  next[index] = target;
++  next[targetIndex] = current;
++  return next;
++}
++
++function removeContentLanguage(order: ContentLanguageCode[], language: ContentLanguageCode) {
++  const next = order.filter((item) => item !== language);
++  return next.length ? next : order;
++}
++
+ function normalizeTwoFactorCode(value: string) {
+   return value.trim().replace(/\s+/g, '');
+ }
+@@ -95,6 +127,10 @@ export default function AccountSettingsPage() {
+     }
+   }
+ 
++  async function updateContentLanguageOrder(nextOrder: ContentLanguageCode[]) {
++    await updateAppSettings({ contentLanguageOrder: nextOrder }, 'settings.contentLanguage.savedAccount', 'settings.contentLanguage.savedBrowser');
++  }
++
+   async function requestEmailVerification() {
+     setSaving(true);
+     setMessage(null);
+@@ -278,6 +314,46 @@ export default function AccountSettingsPage() {
+         </div>
+       </section>
+ 
++      <section className="mobile-card settings-panel">
++        <div>
++          <span className="semantic-badge info">{t('settings.contentLanguage.badge')}</span>
++          <h3>{t('settings.contentLanguage.title')}</h3>
++          <p>{t('settings.contentLanguage.body')}</p>
++        </div>
++        <div className="content-language-order-list" aria-label={t('settings.contentLanguage.orderLabel')}>
++          {appSettings.settings.contentLanguageOrder.map((language, index) => (
++            <div className="content-language-row" key={language}>
++              <strong className="content-language-rank">{index + 1}</strong>
++              <span className="content-language-copy">
++                <strong>{t(contentLanguageTitleKey(language))}</strong>
++                <small>{index === 0 ? t('settings.contentLanguage.firstChoice') : t('settings.contentLanguage.fallbackChoice')}</small>
++              </span>
++              <span className="content-language-actions">
++                <button type="button" className="secondary" disabled={saving || index === 0} onClick={() => { void updateContentLanguageOrder(moveContentLanguage(appSettings.settings.contentLanguageOrder, language, -1)); }}>
++                  {t('settings.contentLanguage.moveUp')}
++                </button>
++                <button type="button" className="secondary" disabled={saving || index === appSettings.settings.contentLanguageOrder.length - 1} onClick={() => { void updateContentLanguageOrder(moveContentLanguage(appSettings.settings.contentLanguageOrder, language, 1)); }}>
++                  {t('settings.contentLanguage.moveDown')}
++                </button>
++                <button type="button" className="secondary danger-text" disabled={saving || appSettings.settings.contentLanguageOrder.length <= 1} onClick={() => { void updateContentLanguageOrder(removeContentLanguage(appSettings.settings.contentLanguageOrder, language)); }}>
++                  {t('settings.contentLanguage.remove')}
++                </button>
++              </span>
++            </div>
++          ))}
++        </div>
++        <div className="settings-inline-actions">
++          {contentLanguageOptions.filter((option) => !appSettings.settings.contentLanguageOrder.includes(option.value)).map((option) => (
++            <button key={option.value} type="button" className="secondary" disabled={saving} onClick={() => { void updateContentLanguageOrder([...appSettings.settings.contentLanguageOrder, option.value]); }}>
++              {t('settings.contentLanguage.addLanguage', { language: t(option.titleKey) })}
++            </button>
++          ))}
++          <button type="button" className="secondary" disabled={saving} onClick={() => { void updateContentLanguageOrder(defaultContentLanguageOrder(appSettings.settings.language)); }}>
++            {t('settings.contentLanguage.reset')}
++          </button>
++        </div>
++      </section>
++
+       <section className="mobile-card settings-panel">
+         <div>
+           <span className="semantic-badge instruction">{t('settings.notifications.badge')}</span>
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index f5a8867..b9472c4 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -563,6 +563,13 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .choice-card em { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; background: var(--success-bg); color: var(--success-text); font-style: normal; }
+ .choice-card--active { border-color: var(--proposal-border); background: var(--proposal-bg); color: var(--proposal-text); }
+ .choice-card--active small { color: var(--proposal-text); opacity: 0.85; }
++.content-language-order-list { display: grid; gap: 9px; }
++.content-language-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 1px solid var(--app-border); border-radius: 20px; background: var(--app-surface-soft); padding: 12px; }
++.content-language-rank { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 999px; background: var(--app-bg-muted); color: var(--app-text-soft); font-size: 13px; }
++.content-language-copy { display: grid; gap: 3px; min-width: 0; }
++.content-language-copy small { color: var(--app-text-muted); font-size: 12px; font-weight: 750; line-height: 1.35; }
++.content-language-actions, .settings-inline-actions { display: flex; flex-wrap: wrap; gap: 8px; }
++.content-language-actions .secondary, .settings-inline-actions .secondary { min-height: 34px; padding: 7px 10px; font-size: 12px; }
+ .reset-card { display: grid; gap: 16px; }
+ 
+ /* Phase 19.3: mobile-web trade feed + social detail */
+diff --git a/packages/i18n/src/locales/en/settings.ts b/packages/i18n/src/locales/en/settings.ts
+index f0d9c02..c38f116 100644
+--- a/packages/i18n/src/locales/en/settings.ts
++++ b/packages/i18n/src/locales/en/settings.ts
+@@ -42,6 +42,23 @@ export const settings = {
+       es: { title: 'Español', body: 'Use Spanish for app labels.' },
+     },
+   },
++  contentLanguage: {
++    badge: 'Content languages',
++    title: 'Content language order',
++    body: 'Choose which language to show first when a trade, plan, or place has several creator-written versions. If your first choice is missing, Hellowhen follows this order.',
++    bodyNative: 'Choose which creator-written language to show first. If your first choice is missing, Hellowhen follows this order.',
++    orderLabel: 'Content language preference order',
++    firstChoice: 'Shown first when available.',
++    fallbackChoice: 'Fallback when earlier languages are unavailable.',
++    addLanguage: 'Add {{language}}',
++    moveUp: 'Up',
++    moveDown: 'Down',
++    remove: 'Remove',
++    reset: 'Reset to app language',
++    savedAccount: 'Content language order saved to your account.',
++    savedLocal: 'Content language order saved on this device.',
++    savedBrowser: 'Content language order saved on this browser.',
++  },
+   security: {
+     badge: 'Security',
+     title: 'Account protection',
+diff --git a/packages/i18n/src/locales/es/settings.ts b/packages/i18n/src/locales/es/settings.ts
+index 050583c..b374743 100644
+--- a/packages/i18n/src/locales/es/settings.ts
++++ b/packages/i18n/src/locales/es/settings.ts
+@@ -48,6 +48,24 @@ export const settings = {
+       es: { title: 'Español', body: 'Usar español para las etiquetas de la app.' },
+     },
+   },
++  contentLanguage: {
++    ...enSettings.contentLanguage,
++    badge: 'Idiomas de contenido',
++    title: 'Orden de idiomas de contenido',
++    body: 'Elige qué idioma mostrar primero cuando un intercambio, plan o lugar tiene varias versiones escritas por el creador. Si falta tu primera opción, Hellowhen sigue este orden.',
++    bodyNative: 'Elige qué idioma escrito por el creador mostrar primero. Si falta tu primera opción, Hellowhen sigue este orden.',
++    orderLabel: 'Orden de preferencia de idiomas de contenido',
++    firstChoice: 'Se muestra primero cuando está disponible.',
++    fallbackChoice: 'Idioma de respaldo si los anteriores no están disponibles.',
++    addLanguage: 'Añadir {{language}}',
++    moveUp: 'Subir',
++    moveDown: 'Bajar',
++    remove: 'Quitar',
++    reset: 'Restablecer al idioma de la app',
++    savedAccount: 'Orden de idiomas de contenido guardado en tu cuenta.',
++    savedLocal: 'Orden de idiomas de contenido guardado en este dispositivo.',
++    savedBrowser: 'Orden de idiomas de contenido guardado en este navegador.',
++  },
+   security: {
+     ...enSettings.security,
+     badge: 'Seguridad',
+diff --git a/packages/i18n/src/locales/fr/settings.ts b/packages/i18n/src/locales/fr/settings.ts
+index f45a454..913a3aa 100644
+--- a/packages/i18n/src/locales/fr/settings.ts
++++ b/packages/i18n/src/locales/fr/settings.ts
+@@ -42,6 +42,23 @@ export const settings = {
+       es: { title: 'Español', body: 'Utiliser l’espagnol pour les libellés de l’application.' },
+     },
+   },
++  contentLanguage: {
++    badge: 'Langues de contenu',
++    title: 'Ordre des langues de contenu',
++    body: 'Choisissez quelle langue afficher en premier lorsqu’un échange, plan ou lieu possède plusieurs versions écrites par le créateur. Si votre premier choix manque, Hellowhen suit cet ordre.',
++    bodyNative: 'Choisissez quelle langue écrite par le créateur afficher en premier. Si votre premier choix manque, Hellowhen suit cet ordre.',
++    orderLabel: 'Ordre de préférence des langues de contenu',
++    firstChoice: 'Affichée en premier lorsqu’elle est disponible.',
++    fallbackChoice: 'Langue de secours si les langues précédentes sont indisponibles.',
++    addLanguage: 'Ajouter {{language}}',
++    moveUp: 'Monter',
++    moveDown: 'Descendre',
++    remove: 'Retirer',
++    reset: 'Réinitialiser selon la langue de l’app',
++    savedAccount: 'Ordre des langues de contenu enregistré sur votre compte.',
++    savedLocal: 'Ordre des langues de contenu enregistré sur cet appareil.',
++    savedBrowser: 'Ordre des langues de contenu enregistré sur ce navigateur.',
++  },
+   security: {
+     badge: 'Sécurité',
+     title: 'Protection du compte',

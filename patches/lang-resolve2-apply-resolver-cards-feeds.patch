@@ -1,0 +1,517 @@
+diff --git a/apps/api/src/modules/places/places.routes.ts b/apps/api/src/modules/places/places.routes.ts
+index 29118e7..14b63a6 100644
+--- a/apps/api/src/modules/places/places.routes.ts
++++ b/apps/api/src/modules/places/places.routes.ts
+@@ -1,6 +1,6 @@
+ import { Router } from 'express';
+ import type { Prisma } from '@prisma/client';
+-import { evaluatePlusGate } from '@hellowhen/shared';
++import { evaluatePlusGate, normalizeContentLanguageOrder, type ContentLanguageCode } from '@hellowhen/shared';
+ import {
+   PLAN_PLACE_MEDIA_LIMITS,
+   createPlaceRequestSchema,
+@@ -12,7 +12,7 @@ import { prisma } from '../../lib/prisma.js';
+ import { optionalAuth, requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { attachUploadedMediaToEntity, withMedia, type MediaVisibility } from '../media/media.helpers.js';
+ import { stripAnonymousPublicProfileMedia } from '../users/publicUser.js';
+-import { syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
++import { applyInventoryDisplayLanguage, syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
+ import { usersHaveBlockBetween } from '../users/userBlocks.js';
+ import { loadMembershipAccessStateForUser } from '../subscriptions/membershipEntitlements.js';
+ import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
+@@ -96,6 +96,37 @@ function libraryVisibilityWhere(): Prisma.PlaceWhereInput {
+   return { OR: [{ ownerId: null }, { owner: { trustTier: { not: 'restricted' as any } } }] };
+ }
+ 
++function normalizeRouteLanguage(value?: string | null): ContentLanguageCode | null {
++  const normalized = value?.trim().toLowerCase();
++  if (!normalized || normalized === 'system') return null;
++  const base = normalized.replace('_', '-').split('-')[0];
++  return base === 'fr' || base === 'en' || base === 'es' ? base : null;
++}
++
++function languageFromAcceptLanguage(value: unknown): ContentLanguageCode | null {
++  if (typeof value !== 'string') return null;
++  for (const candidate of value.split(',').map((entry) => entry.split(';')[0]?.trim()).filter(Boolean)) {
++    const language = normalizeRouteLanguage(candidate);
++    if (language) return language;
++  }
++  return null;
++}
++
++async function resolveContentLanguagePreferences(viewerId: string | undefined, acceptLanguageHeader: unknown) {
++  const settings = viewerId
++    ? await prisma.userSettings.findUnique({ where: { userId: viewerId }, select: { language: true, contentLanguageOrder: true } })
++    : null;
++  const language = normalizeRouteLanguage(settings?.language) ?? languageFromAcceptLanguage(acceptLanguageHeader) ?? 'en';
++  return {
++    language,
++    contentLanguageOrder: normalizeContentLanguageOrder({
++      viewerLanguage: language,
++      preferredLanguages: Array.isArray(settings?.contentLanguageOrder) ? settings.contentLanguageOrder as string[] : null,
++      defaultLanguage: 'en',
++    }),
++  };
++}
++
+ function canManageLibraryPlace(actor: { role: string } | null | undefined) {
+   return actor?.role === 'admin';
+ }
+@@ -269,16 +300,29 @@ function cleanPlaceForViewer(place: any, viewerId?: string | null, actorRole?: s
+   return { ...cleaned, staticMap: buildPlaceStaticMap(cleaned) };
+ }
+ 
+-async function decoratePlaces(places: any[], viewerId?: string | null, visibility: MediaVisibility = 'owner', actorRole?: string | null) {
++async function decoratePlaces(
++  places: any[],
++  viewerId?: string | null,
++  visibility: MediaVisibility = 'owner',
++  actorRole?: string | null,
++  languagePreferences?: { language: ContentLanguageCode; contentLanguageOrder: ContentLanguageCode[] },
++) {
+   const withTranslations = await withInventoryTranslations(prisma, 'place', places);
+-  const withPlaceMedia = await withMedia('place' as any, withTranslations, visibility);
++  const displayReadyPlaces = applyInventoryDisplayLanguage(withTranslations, languagePreferences?.language, languagePreferences?.contentLanguageOrder);
++  const withPlaceMedia = await withMedia('place' as any, displayReadyPlaces, visibility);
+   const usageCounts = await loadPlaceUsageCounts(withPlaceMedia.map((place: any) => place.id));
+   return withPlaceMedia.map((place: any) => cleanPlaceForViewer({ ...place, usedInPlansCount: usageCounts.get(place.id) ?? 0 }, viewerId ?? null, actorRole ?? null));
+ }
+ 
+-async function decoratePlace(place: any, viewerId?: string | null, visibility: MediaVisibility = 'owner', actorRole?: string | null) {
++async function decoratePlace(
++  place: any,
++  viewerId?: string | null,
++  visibility: MediaVisibility = 'owner',
++  actorRole?: string | null,
++  languagePreferences?: { language: ContentLanguageCode; contentLanguageOrder: ContentLanguageCode[] },
++) {
+   const withTranslations = await withOneInventoryTranslation(prisma, 'place', place);
+-  const [decorated] = await decoratePlaces([withTranslations], viewerId, visibility, actorRole);
++  const [decorated] = await decoratePlaces([withTranslations], viewerId, visibility, actorRole, languagePreferences);
+   return decorated;
+ }
+ 
+@@ -317,7 +361,8 @@ placesRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
+     orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+     take: input.take ?? 100,
+   });
+-  res.json({ places: await decoratePlaces(places, req.user!.id, 'owner') });
++  const languagePreferences = await resolveContentLanguagePreferences(req.user!.id, req.headers['accept-language']);
++  res.json({ places: await decoratePlaces(places, req.user!.id, 'owner', null, languagePreferences) });
+ }));
+ 
+ placesRoutes.get('/library', optionalAuth, asyncRoute(async (req, res) => {
+@@ -334,7 +379,8 @@ placesRoutes.get('/library', optionalAuth, asyncRoute(async (req, res) => {
+     take: input.take ?? 100,
+   });
+   const visibility = req.user?.id ? 'public' : 'public_anonymous';
+-  const decorated = await decoratePlaces(places, req.user?.id ?? null, visibility);
++  const languagePreferences = await resolveContentLanguagePreferences(req.user?.id, req.headers['accept-language']);
++  const decorated = await decoratePlaces(places, req.user?.id ?? null, visibility, null, languagePreferences);
+   res.json(stripAnonymousPublicProfileMedia({ places: decorated }, req.user?.id));
+ }));
+ 
+@@ -352,7 +398,8 @@ placesRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req,
+   await syncInventoryTranslations(prisma, 'place', place.id, req.user!.id, (place as any).defaultLanguage ?? input.defaultLanguage ?? 'en', input.translations ?? []);
+   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'place' as any, place.id, { maxImages: mediaLimit });
+   const created = await prisma.place.findUnique({ where: { id: place.id }, include: placeInclude() });
+-  res.status(201).json({ place: await decoratePlace(created, req.user!.id, 'owner', actor.role) });
++  const languagePreferences = await resolveContentLanguagePreferences(req.user!.id, req.headers['accept-language']);
++  res.status(201).json({ place: await decoratePlace(created, req.user!.id, 'owner', actor.role, languagePreferences) });
+ }));
+ 
+ placesRoutes.get('/:placeId', optionalAuth, asyncRoute(async (req, res) => {
+@@ -363,7 +410,8 @@ placesRoutes.get('/:placeId', optionalAuth, asyncRoute(async (req, res) => {
+   const actor = req.user?.id ? await loadActor(req.user.id) : null;
+   const isOwner = Boolean(req.user?.id && place.ownerId === req.user.id);
+   const visibility = isOwner ? 'owner' : req.user?.id ? 'public' : 'public_anonymous';
+-  const decorated = await decoratePlace(place, req.user?.id ?? null, visibility, actor?.role ?? null);
++  const languagePreferences = await resolveContentLanguagePreferences(req.user?.id, req.headers['accept-language']);
++  const decorated = await decoratePlace(place, req.user?.id ?? null, visibility, actor?.role ?? null, languagePreferences);
+   res.json(stripAnonymousPublicProfileMedia({ place: decorated }, req.user?.id));
+ }));
+ 
+@@ -400,7 +448,8 @@ placesRoutes.patch('/:placeId', requireAuth, requireActiveAccount, asyncRoute(as
+   await syncInventoryTranslations(prisma, 'place', updated.id, req.user!.id, (updated as any).defaultLanguage ?? input.defaultLanguage ?? 'en', input.translations);
+   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'place' as any, updated.id, { maxImages: mediaLimit, syncSelection: input.mediaIds !== undefined });
+   const refreshed = await prisma.place.findUnique({ where: { id: updated.id }, include: placeInclude() });
+-  res.json({ place: await decoratePlace(refreshed, req.user!.id, 'owner', actor.role) });
++  const languagePreferences = await resolveContentLanguagePreferences(req.user!.id, req.headers['accept-language']);
++  res.json({ place: await decoratePlace(refreshed, req.user!.id, 'owner', actor.role, languagePreferences) });
+ }));
+ 
+ placesRoutes.delete('/:placeId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+@@ -418,5 +467,6 @@ placesRoutes.delete('/:placeId', requireAuth, requireActiveAccount, asyncRoute(a
+   });
+   if (!existing) return res.status(404).json({ error: 'not_found' });
+   const archived = await prisma.place.update({ where: { id: existing.id }, data: { status: 'archived' as any, archivedAt: new Date() }, include: placeInclude() });
+-  res.json({ place: await decoratePlace(archived, req.user!.id, 'owner', actor.role) });
++  const languagePreferences = await resolveContentLanguagePreferences(req.user!.id, req.headers['accept-language']);
++  res.json({ place: await decoratePlace(archived, req.user!.id, 'owner', actor.role, languagePreferences) });
+ }));
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index a3f1165..54fb404 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -891,6 +891,12 @@ function PlanRow({ plan, onPress }: { plan: PlanDto; onPress: () => void }) {
+   );
+ }
+ 
++
++function placeDisplayLanguageLabel(place: PlaceDto) {
++  if (!place.displayLanguage?.languageCode || place.displayLanguage.source === 'exact') return null;
++  return place.displayLanguage.languageCode.toUpperCase();
++}
++
+ function PlaceRow({
+   place,
+   onPress,
+@@ -917,6 +923,7 @@ function PlaceRow({
+           <View style={styles.rowTop}>
+             <SemanticBadge label={isLibrary ? 'Library place' : 'My place'} tone="place" size="sm" />
+             <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
++            {placeDisplayLanguageLabel(place) ? <SemanticBadge label={placeDisplayLanguageLabel(place) ?? ''} tone="instruction" size="sm" /> : null}
+           </View>
+           <AppText style={styles.rowTitle}>{place.title}</AppText>
+           <AppText style={[styles.rowBody, { color: theme.color.muted }]} numberOfLines={2}>{place.description || 'Reusable place for future Plans.'}</AppText>
+diff --git a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+index 9d16b49..05613fb 100644
+--- a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
++++ b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+@@ -108,6 +108,12 @@ function getPlaceLocationLabel(place: PlanPlaceDto | undefined) {
+   return place.addressPublicText || place.sourcePlace?.areaLabel || '';
+ }
+ 
++function getPlaceLanguageLabel(place: PlanPlaceDto | undefined) {
++  const displayLanguage = place?.displayLanguage ?? place?.sourcePlace?.displayLanguage ?? null;
++  if (!displayLanguage?.languageCode || displayLanguage.source === 'exact') return '';
++  return displayLanguage.languageCode.toUpperCase();
++}
++
+ function getPlanParticipantLabel(plan: PlanDto) {
+   const count = plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
+   return `${count} joined`;
+@@ -129,7 +135,8 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+   const cardCounter = isEmpty ? '0 places' : `${String(card.placeIndex + 1).padStart(2, '0')}/${String(card.placeTotal).padStart(2, '0')}`;
+   const modeLabel = place?.mode === 'remote' ? 'Online' : 'Offline';
+   const placeTitle = place?.title ?? 'No places yet';
+-  const locationLabel = isEmpty ? '' : getPlaceLocationLabel(place);
++  const languageLabel = isEmpty ? '' : getPlaceLanguageLabel(place);
++  const locationLabel = isEmpty ? '' : [languageLabel, getPlaceLocationLabel(place)].filter(Boolean).join(' · ');
+   const timeLabel = isEmpty ? getPlanParticipantLabel(card.plan) : getPlaceDateLabel(place, card.plan.startsAt);
+   const primaryBadgeLabel = topBadgeLabel ?? `Place · ${cardCounter}`;
+   const hasPosterImage = Boolean(imageUrl);
+diff --git a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+index 17b37cd..f645826 100644
+--- a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
++++ b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+@@ -88,6 +88,7 @@ function cashPromiseLabel(trade: TradeDeckItem) { return trade.cashPromise ? for
+ function needTitle(trade: TradeDeckItem, t: TFunction) { if (cashPromiseSide(trade) === 'need') return t('trade.cashPromise.title'); return moneySide(trade) === 'need' ? t('account.walletMoney') : trade.need?.title || trade.title || t('trade.labels.openRequestFallback'); }
+ function offerTitle(trade: TradeDeckItem, t: TFunction) { if (cashPromiseSide(trade) === 'offer') return t('trade.cashPromise.title'); return moneySide(trade) === 'offer' ? t('account.walletMoney') : trade.offer?.title || t('trade.labels.openOfferFallback'); }
+ function compactJoin(values: Array<string | null | undefined>, limit = 3) { return values.filter((value): value is string => Boolean(value && value.trim())).slice(0, limit).join(' · '); }
++function languageChip(item: { displayLanguage?: { languageCode?: string | null; source?: string | null } | null } | null | undefined) { const code = item?.displayLanguage?.languageCode?.toUpperCase(); return code && item?.displayLanguage?.source !== 'exact' ? code : null; }
+ function compactSideMeta(metadata: string, fallback?: string | null) { return metadata || fallback || ''; }
+ function needTimingBadge(need: NeedItem | null | undefined, t: TFunction) { return need ? durationPresetLabel(need.estimatedDurationPreset, t) : ''; }
+ function offerTimingBadge(offer: OfferItem | null | undefined, t: TFunction) { return offer ? durationPresetLabel(offer.typicalDurationPreset, t) : ''; }
+@@ -118,7 +119,7 @@ function summaryBadge(trade: TradeDeckItem, tradeIndex: number, tradeTotal: numb
+   return `${prefix} · ${getTradeCounter(tradeIndex, tradeTotal)}`;
+ }
+ function imagePlaceholderLabel(media: MediaAssetDto | undefined, hiddenImageCount: number | undefined, t: TFunction) { if (hiddenImageCount) return t('media.authRequired.title'); return media ? t('trade.labels.imageUnavailable') : t('media.empty.noImagesYet'); }
+-function starterChips(trade: TradeDeckItem) { return [...(trade.need?.tags ?? []), ...(trade.offer?.tags ?? [])].filter((chip): chip is string => Boolean(chip)).slice(0, 3); }
++function starterChips(trade: TradeDeckItem) { return [languageChip(trade.need), languageChip(trade.offer), ...(trade.need?.tags ?? []), ...(trade.offer?.tags ?? [])].filter((chip): chip is string => Boolean(chip)).slice(0, 3); }
+ export function needMeta(need: NeedItem | null | undefined, trade: TradeDeckItem | undefined, t: TFunction) { if (trade && cashPromiseSide(trade) === 'need') return `${cashPromiseLabel(trade)} · ${t('trade.cashPromise.notProcessed')}`; if (trade && moneySide(trade) === 'need') return moneyLabel(trade); return need ? compactJoin([need.category, needTimingBadge(need, t), modeLabel(need.mode, t), need.locationLabel], 2) || t('trade.labels.needDetails') : t('trade.labels.needDetails'); }
+ export function offerMeta(offer: OfferItem | null | undefined, trade: TradeDeckItem | undefined, t: TFunction) { if (trade && cashPromiseSide(trade) === 'offer') return `${cashPromiseLabel(trade)} · ${t('trade.cashPromise.notProcessed')}`; if (trade && moneySide(trade) === 'offer') return moneyLabel(trade); return offer ? compactJoin([offer.includes?.[0], offerTimingBadge(offer, t), modeLabel(offer.mode, t), offer.locationLabel], 2) || t('trade.labels.offerDetails') : t('trade.labels.offerDetails'); }
+ 
+@@ -180,7 +181,7 @@ function CompleteTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Tra
+         <View style={styles.tradeSideBlock}>
+           <AppText style={[styles.sideEyebrow, { color: '#60A5FA' }]}>{t('trade.labels.iNeed')}</AppText>
+           <AppText style={[styles.sideTitle, { color: theme.color.text }]} numberOfLines={2}>{needTitle(trade, t)}</AppText>
+-          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={1}>{needMeta(trade.need, trade, t)}</AppText>
++          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={1}>{compactJoin([languageChip(trade.need), needMeta(trade.need, trade, t)], 2)}</AppText>
+         </View>
+ 
+         <View style={styles.exchangeRow}>
+@@ -192,7 +193,7 @@ function CompleteTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Tra
+         <View style={styles.tradeSideBlock}>
+           <AppText style={[styles.sideEyebrow, { color: '#34D399' }]}>{t('trade.labels.iOffer')}</AppText>
+           <AppText style={[styles.sideTitle, { color: theme.color.text }]} numberOfLines={2}>{offerTitle(trade, t)}</AppText>
+-          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={1}>{offerMeta(trade.offer, trade, t)}</AppText>
++          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={1}>{compactJoin([languageChip(trade.offer), offerMeta(trade.offer, trade, t)], 2)}</AppText>
+         </View>
+       </View>
+ 
+@@ -267,7 +268,7 @@ export function TradeImageCard({ trade, kind, media, hiddenImageCount, onOpen }:
+       eyebrow={isNeed ? t('trade.labels.iNeed') : t('trade.labels.iOffer')}
+       title={sideTitle}
+       subtitle={hiddenImageCount ? t('media.authRequired.body', { count: hiddenImageCount }) : compactSideMeta(sideMeta, sideDescription)}
+-      chips={(side?.tags ?? []).slice(0, 3)}
++      chips={[languageChip(side), ...(side?.tags ?? [])].filter((chip): chip is string => Boolean(chip)).slice(0, 3)}
+       variant={isNeed ? 'need' : 'offer'}
+       onPress={onOpen}
+       previewTheme={previewThemeForTrade(trade)}
+diff --git a/apps/web/src/features/plans/PlacesManageClient.tsx b/apps/web/src/features/plans/PlacesManageClient.tsx
+index 8ed8609..bc80eef 100644
+--- a/apps/web/src/features/plans/PlacesManageClient.tsx
++++ b/apps/web/src/features/plans/PlacesManageClient.tsx
+@@ -34,6 +34,11 @@ function placeUsedInPlansCount(place: PlaceDto) {
+   return Number.isFinite(value) && value > 0 ? value : 0;
+ }
+ 
++function placeLanguageBadge(place: PlaceDto) {
++  if (!place.displayLanguage?.languageCode || place.displayLanguage.source === 'exact') return null;
++  return place.displayLanguage.languageCode.toUpperCase();
++}
++
+ function placeUsageLabel(count: number) {
+   return count === 1 ? 'Used in 1 Plan' : `Used in ${count} Plans`;
+ }
+@@ -53,6 +58,7 @@ function PlaceManageCard({ place, onArchive, archiving, themeMode }: { place: Pl
+           <div className="place-manage-card__top">
+             <span className="semantic-badge place">My Place</span>
+             <span className="semantic-badge muted">{place.mode === 'remote' ? 'Online' : 'Offline'}</span>
++            {placeLanguageBadge(place) ? <span className="semantic-badge instruction">{placeLanguageBadge(place)}</span> : null}
+             {isLocked ? <span className="semantic-badge warning">{placeUsageLabel(usedInPlansCount)}</span> : null}
+           </div>
+           <div className="place-manage-card__body">
+diff --git a/apps/web/src/features/plans/PlanPreviewDeck.tsx b/apps/web/src/features/plans/PlanPreviewDeck.tsx
+index fac40a8..d2f253b 100644
+--- a/apps/web/src/features/plans/PlanPreviewDeck.tsx
++++ b/apps/web/src/features/plans/PlanPreviewDeck.tsx
+@@ -1,6 +1,6 @@
+ 'use client';
+ 
+-import type { MediaAssetDto, PlaceStaticMapDto, PlanDto, PlanPlaceMode } from '@hellowhen/contracts';
++import type { InventoryDisplayLanguage, MediaAssetDto, PlaceStaticMapDto, PlanDto, PlanPlaceMode } from '@hellowhen/contracts';
+ import { SquareStackDeck, type SquareStackDeckItem } from '../deck/SquareStackDeck';
+ import { TradePosterCard } from '../trade/TradePosterCard';
+ import { formatWebDateTime } from '../../lib/webFormat';
+@@ -18,6 +18,7 @@ type PreviewPlace = {
+   startsAt?: string | null;
+   media?: MediaAssetDto | null;
+   staticMap?: PlaceStaticMapDto | null;
++  displayLanguage?: InventoryDisplayLanguage | null;
+ };
+ 
+ type PlanPreviewDeckProps = {
+@@ -60,6 +61,11 @@ function compactJoin(values: Array<string | null | undefined>) {
+   return values.filter((value): value is string => Boolean(value && value.trim())).join(' · ');
+ }
+ 
++function displayLanguageChip(displayLanguage?: InventoryDisplayLanguage | null) {
++  if (!displayLanguage?.languageCode || displayLanguage.source === 'exact') return null;
++  return displayLanguage.languageCode.toUpperCase();
++}
++
+ function visiblePlaceTitle(place: PreviewPlace) {
+   return place.title.trim() || 'Place name';
+ }
+@@ -96,7 +102,7 @@ function planDeckItems({ title, places, actionLabel = 'Open', badgeLabel, themeM
+           title={visibleTitle}
+           detailTitle={placeTitle}
+           subtitle={compactJoin([planPlaceModeLabel(mode), location])}
+-          chips={[`Place ${index + 1}/${totalCards}`, planPlaceModeLabel(mode)]}
++          chips={[displayLanguageChip(place.displayLanguage), `Place ${index + 1}/${totalCards}`, planPlaceModeLabel(mode)].filter((chip): chip is string => Boolean(chip))}
+           variant="trade"
+         />
+       ),
+@@ -132,6 +138,7 @@ export function PlanDtoPreviewDeck({ plan, className, onOpen, actionLabel, badge
+     startsAt: place.startsAt ?? undefined,
+     media: place.media?.[0] ?? null,
+     staticMap: place.staticMap ?? place.sourcePlace?.staticMap ?? null,
++    displayLanguage: place.displayLanguage ?? place.sourcePlace?.displayLanguage ?? null,
+   }));
+   return (
+     <PlanPreviewDeck
+diff --git a/apps/web/src/features/trade/TradeStackDeck.tsx b/apps/web/src/features/trade/TradeStackDeck.tsx
+index ce7d435..802b393 100644
+--- a/apps/web/src/features/trade/TradeStackDeck.tsx
++++ b/apps/web/src/features/trade/TradeStackDeck.tsx
+@@ -158,7 +158,8 @@ function summaryChipsForTrade(trade: TradeDto, need: ReturnType<typeof getNeedSi
+     : postType === 'open_offer'
+       ? offer.tags
+       : [...need.tags, ...offer.tags];
+-  return [urgencyChip, ...baseChips].filter((chip): chip is string => Boolean(chip)).slice(0, 3);
++  const languageChips = [need.languageBadge, offer.languageBadge].filter((chip): chip is string => Boolean(chip));
++  return [urgencyChip, ...languageChips, ...baseChips].filter((chip): chip is string => Boolean(chip)).slice(0, 3);
+ }
+ 
+ function summaryBadgeForTrade(trade: TradeDto, totalCards: number, i18n?: TradeI18n) {
+@@ -268,7 +269,7 @@ export function buildTradeStackDeckItems(trade: TradeDto, actionLabel = 'Open',
+           eyebrow={side.label}
+           title={side.title}
+           subtitle={sideMeta}
+-          chips={side.tags.slice(0, 3)}
++          chips={[side.languageBadge, ...side.tags].filter((chip): chip is string => Boolean(chip)).slice(0, 3)}
+           variant={variant}
+           previewTheme={previewTheme}
+         />
+diff --git a/apps/web/src/features/trade/tradePresentation.ts b/apps/web/src/features/trade/tradePresentation.ts
+index 7dd09a7..aa792db 100644
+--- a/apps/web/src/features/trade/tradePresentation.ts
++++ b/apps/web/src/features/trade/tradePresentation.ts
+@@ -1,4 +1,4 @@
+-import type { MediaAssetDto, NeedDto, OfferDto, PublicMediaAccessDto, TradeDto } from '@hellowhen/contracts';
++import type { InventoryDisplayLanguage, MediaAssetDto, NeedDto, OfferDto, PublicMediaAccessDto, TradeDto } from '@hellowhen/contracts';
+ import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
+ import { resolveWebAssetUrl } from '../../lib/api';
+ import { formatWebMoney, formatWebShortDate } from '../../lib/webFormat';
+@@ -25,6 +25,7 @@ export type TradeSide = {
+   tags: string[];
+   media: MediaAssetDto[];
+   mediaAccess?: PublicMediaAccessDto;
++  languageBadge?: string;
+ };
+ 
+ export type DeckImage = {
+@@ -45,6 +46,13 @@ function compactJoin(values: Array<string | null | undefined>) {
+   return values.filter((value): value is string => Boolean(value && value.trim())).join(' · ');
+ }
+ 
++function contentLanguageBadge(displayLanguage?: InventoryDisplayLanguage | null, i18n?: TradeI18n) {
++  const languageCode = displayLanguage?.languageCode?.toUpperCase();
++  if (!languageCode) return null;
++  if (displayLanguage?.source === 'exact' && displayLanguage.languageCode === i18n?.language) return null;
++  return languageCode;
++}
++
+ export function getNeedTimingBadge(need: NeedDurationSource, i18n?: TradeI18n) {
+   if (!need) return '';
+   return durationPresetLabel(need.estimatedDurationPreset, i18n);
+@@ -213,6 +221,7 @@ export function needToSide(need: NeedDto | null | undefined, label: string, i18n
+     tags: need.tags ?? [],
+     media: need.media ?? [],
+     mediaAccess: need.mediaAccess,
++    languageBadge: contentLanguageBadge(need.displayLanguage, i18n) ?? undefined,
+   };
+ }
+ 
+@@ -238,6 +247,7 @@ export function offerToSide(offer: OfferDto | null | undefined, label: string, i
+     tags: [...(offer.includes ?? []), ...(offer.tags ?? [])],
+     media: offer.media ?? [],
+     mediaAccess: offer.mediaAccess,
++    languageBadge: contentLanguageBadge(offer.displayLanguage, i18n) ?? undefined,
+   };
+ }
+ 
+diff --git a/packages/contracts/src/plans.ts b/packages/contracts/src/plans.ts
+index 98a238b..7d7d724 100644
+--- a/packages/contracts/src/plans.ts
++++ b/packages/contracts/src/plans.ts
+@@ -1,6 +1,6 @@
+ import { z } from 'zod';
+ import { mediaAssetSchema } from './media.js';
+-import { discoveryLanguageSchema, inventoryTranslationSchema, tradeExchangeModeSchema } from './trade.js';
++import { discoveryLanguageSchema, inventoryDisplayLanguageSchema, inventoryTranslationSchema, tradeExchangeModeSchema } from './trade.js';
+ 
+ export const planStatusSchema = z.enum(['draft', 'open', 'full', 'started', 'completed', 'cancelled', 'expired', 'hidden']);
+ export const planPublicStatusSchema = z.enum(['open', 'full', 'started', 'cancelled']);
+@@ -375,6 +375,7 @@ export const placeSchema = z.object({
+   owner: publicUserSummarySchema.nullable().optional(),
+   media: z.array(mediaAssetSchema).optional(),
+   staticMap: placeStaticMapSchema.nullable().optional(),
++  displayLanguage: inventoryDisplayLanguageSchema.optional(),
+ }).passthrough();
+ 
+ export const planPlaceSchema = z.object({
+@@ -407,6 +408,7 @@ export const planPlaceSchema = z.object({
+   sourcePlace: placeSchema.nullable().optional(),
+   media: z.array(mediaAssetSchema).optional(),
+   staticMap: placeStaticMapSchema.nullable().optional(),
++  displayLanguage: inventoryDisplayLanguageSchema.optional(),
+ }).passthrough();
+ 
+ export const planParticipantSchema = z.object({
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index 0c08a6f..e984bb7 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -104,6 +104,14 @@ export const inventoryTranslationSchema = z.object({
+   updatedAt: z.string().optional()
+ });
+ 
++export const inventoryDisplayLanguageSchema = z.object({
++  languageCode: discoveryLanguageSchema,
++  isTranslated: z.boolean(),
++  source: z.enum(['exact', 'preference', 'default', 'fallback', 'machine']),
++  requestedLanguages: z.array(discoveryLanguageSchema).optional(),
++  availableLanguages: z.array(discoveryLanguageSchema).optional(),
++}).passthrough();
++
+ export const createNeedRequestSchema = z.object({
+   title: z.string().min(INVENTORY_TITLE_MIN_LENGTH).max(INVENTORY_TITLE_MAX_LENGTH),
+   description: z.string().min(INVENTORY_DESCRIPTION_MIN_LENGTH).max(INVENTORY_DESCRIPTION_MAX_LENGTH),
+@@ -363,7 +371,8 @@ export const needSchema = z.object({
+   expiresAt: z.string().nullable().optional(),
+   previewTheme: previewCardThemeSchema.optional().default('default'),
+   media: z.array(mediaAssetSchema).optional(),
+-  mediaAccess: publicMediaAccessSchema.optional()
++  mediaAccess: publicMediaAccessSchema.optional(),
++  displayLanguage: inventoryDisplayLanguageSchema.optional()
+ });
+ 
+ export const offerSchema = z.object({
+@@ -393,7 +402,8 @@ export const offerSchema = z.object({
+   expiresAt: z.string().nullable().optional(),
+   previewTheme: previewCardThemeSchema.optional().default('default'),
+   media: z.array(mediaAssetSchema).optional(),
+-  mediaAccess: publicMediaAccessSchema.optional()
++  mediaAccess: publicMediaAccessSchema.optional(),
++  displayLanguage: inventoryDisplayLanguageSchema.optional()
+ });
+ 
+ export const cashPromiseSchema = z.object({
+@@ -636,6 +646,7 @@ export const tradeProposalSchema = z.object({
+ export type NeedDto = z.infer<typeof needSchema>;
+ export type OfferDto = z.infer<typeof offerSchema>;
+ export type InventoryTranslationDto = z.infer<typeof inventoryTranslationSchema>;
++export type InventoryDisplayLanguage = z.infer<typeof inventoryDisplayLanguageSchema>;
+ export type InventoryTemplateDto = z.infer<typeof inventoryTemplateSchema>;
+ export type CloneInventoryTemplateResponse = z.infer<typeof cloneInventoryTemplateResponseSchema>;
+ export type TradeDto = z.infer<typeof tradeSchema>;
+diff --git a/packages/shared/src/inventoryTranslations.ts b/packages/shared/src/inventoryTranslations.ts
+index 1b28e2c..0c16071 100644
+--- a/packages/shared/src/inventoryTranslations.ts
++++ b/packages/shared/src/inventoryTranslations.ts
+@@ -21,9 +21,7 @@ export type InventoryTranslatableLike = {
+   translations?: InventoryTranslationLike[] | null;
+ };
+ 
+-export type InventoryDisplayCopy = {
+-  title: string;
+-  description: string;
++export type InventoryDisplayLanguage = {
+   languageCode: string;
+   isTranslated: boolean;
+   source: LocalizedContentResolutionSource;
+@@ -31,6 +29,11 @@ export type InventoryDisplayCopy = {
+   availableLanguages: InventoryLanguageCode[];
+ };
+ 
++export type InventoryDisplayCopy = InventoryDisplayLanguage & {
++  title: string;
++  description: string;
++};
++
+ export function normalizeInventoryLanguageCode(value?: string | null): InventoryLanguageCode | null {
+   return normalizeContentLanguageCode(value);
+ }
+@@ -61,11 +64,18 @@ export function resolveInventoryDisplayCopy(item: InventoryTranslatableLike, vie
+   };
+ }
+ 
+-export function withResolvedInventoryDisplay<T extends InventoryTranslatableLike>(item: T, viewerLanguage?: string | null, preferredLanguages?: readonly (string | null | undefined)[] | null): T {
++export function withResolvedInventoryDisplay<T extends InventoryTranslatableLike>(item: T, viewerLanguage?: string | null, preferredLanguages?: readonly (string | null | undefined)[] | null): T & { displayLanguage: InventoryDisplayLanguage } {
+   const display = resolveInventoryDisplayCopy(item, viewerLanguage, preferredLanguages);
+   return {
+     ...item,
+     title: display.title,
+     description: display.description,
++    displayLanguage: {
++      languageCode: display.languageCode,
++      isTranslated: display.isTranslated,
++      source: display.source,
++      requestedLanguages: display.requestedLanguages,
++      availableLanguages: display.availableLanguages,
++    },
+   };
+ }

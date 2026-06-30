@@ -25,6 +25,8 @@ import { stripAnonymousPublicProfileMedia } from '../users/publicUser.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
 import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
 import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
+import { buildPlaceStaticMap } from '../places/placeStaticMap.js';
+import { createRandomPlaceStaticMapTemplateAssignment } from '../places/placeStaticMapTemplates.js';
 
 export const plansRoutes = Router();
 
@@ -172,9 +174,9 @@ function createPlanRequestError(code: string, publicMessage: string, statusCode 
   return Object.assign(new Error(publicMessage), { code, publicMessage, statusCode });
 }
 
-function cleanReusablePlaceForViewer(place: any, canSeePrivateDetails: boolean) {
+function cleanReusablePlaceForViewer(place: any, canSeePrivateDetails: boolean, viewerId?: string | null) {
   if (!place) return null;
-  return {
+  const cleaned = {
     ...place,
     mode: place.mode ?? 'local',
     source: place.source ?? 'user',
@@ -182,6 +184,7 @@ function cleanReusablePlaceForViewer(place: any, canSeePrivateDetails: boolean) 
     addressPrivateText: canSeePrivateDetails ? place.addressPrivateText ?? null : null,
     defaultMeetingInstructions: canSeePrivateDetails ? place.defaultMeetingInstructions ?? null : null,
   };
+  return { ...cleaned, staticMap: buildPlaceStaticMap(cleaned, { viewerId }) };
 }
 
 function planPlaceSourceFor(place: any) {
@@ -202,13 +205,17 @@ function serializePlan(plan: any, viewerId: string | null) {
 
   return {
     ...plan,
-    places: (plan.places ?? []).map((place: any) => ({
-      ...place,
-      source: planPlaceSourceFor(place),
-      sourcePlace: canSeeSourcePlace ? cleanReusablePlaceForViewer(place.sourcePlace, canSeePrivatePlaceDetails) : null,
-      mode: place.mode ?? 'local',
-      addressPrivateText: canSeePrivatePlaceDetails ? place.addressPrivateText ?? null : null,
-    })),
+    places: (plan.places ?? []).map((place: any) => {
+      const sourcePlace = canSeeSourcePlace ? cleanReusablePlaceForViewer(place.sourcePlace, canSeePrivatePlaceDetails, viewerId) : null;
+      const cleanedPlace = {
+        ...place,
+        source: planPlaceSourceFor(place),
+        sourcePlace,
+        mode: place.mode ?? 'local',
+        addressPrivateText: canSeePrivatePlaceDetails ? place.addressPrivateText ?? null : null,
+      };
+      return { ...cleanedPlace, staticMap: buildPlaceStaticMap(cleanedPlace, { viewerId }) };
+    }),
     participants: visibleParticipants,
     participantCount: acceptedParticipants.length,
     pendingRequestCount: isOwner ? pendingParticipants.length : undefined,
@@ -533,6 +540,35 @@ function planUpdateData(input: ReturnType<typeof updatePlanRequestSchema.parse>)
   };
 }
 
+
+function hasPlanPlaceStaticMapCandidate(input: { mode?: string | null; latitude?: number | null; longitude?: number | null; addressPublicText?: string | null; formattedAddress?: string | null; googlePlaceName?: string | null }, reusablePlace?: any | null) {
+  const mode = input.mode ?? reusablePlace?.mode ?? 'local';
+  if (mode === 'remote') return false;
+  if (typeof input.latitude === 'number' && typeof input.longitude === 'number') return true;
+  if (typeof reusablePlace?.latitude === 'number' && typeof reusablePlace?.longitude === 'number') return true;
+  return Boolean(
+    input.addressPublicText?.trim()
+    || input.formattedAddress?.trim()
+    || input.googlePlaceName?.trim()
+    || reusablePlace?.addressPublicText?.trim?.()
+    || reusablePlace?.areaLabel?.trim?.()
+    || reusablePlace?.formattedAddress?.trim?.()
+    || reusablePlace?.googlePlaceName?.trim?.(),
+  );
+}
+
+function planPlaceStaticMapTemplateSnapshot(input: { mediaIds?: string[]; mode?: string | null; latitude?: number | null; longitude?: number | null; addressPublicText?: string | null; formattedAddress?: string | null; googlePlaceName?: string | null }, reusablePlace?: any | null) {
+  if (reusablePlace?.staticMapTemplateFamily) {
+    return {
+      staticMapTemplateFamily: reusablePlace.staticMapTemplateFamily,
+      staticMapTemplateSeed: reusablePlace.staticMapTemplateSeed ?? null,
+    };
+  }
+  if (input.mediaIds?.length) return {};
+  if (!hasPlanPlaceStaticMapCandidate(input, reusablePlace)) return {};
+  return createRandomPlaceStaticMapTemplateAssignment('plan_place');
+}
+
 async function loadReusablePlaceForSnapshot(placeId: string, userId: string) {
   return prisma.place.findFirst({
     where: {
@@ -567,6 +603,7 @@ function planPlaceSnapshotData(planId: string, input: ReturnType<typeof createPl
     addressValidationStatus: input.addressValidationStatus ?? reusablePlace?.addressValidationStatus ?? (input.googlePlaceId || reusablePlace?.googlePlaceId ? 'confirmed' : null),
     onlineLabel: input.onlineLabel ?? reusablePlace?.onlineLabel ?? null,
     onlineUrl: input.onlineUrl ?? reusablePlace?.onlineUrl ?? null,
+    ...planPlaceStaticMapTemplateSnapshot(input, reusablePlace),
     startsAt: input.startsAt ? new Date(input.startsAt) : null,
     endsAt: input.endsAt ? new Date(input.endsAt) : null,
   };
@@ -588,6 +625,7 @@ async function placeUpdateData(ownerId: string, input: ReturnType<typeof updateP
     throw createPlanRequestError('place_not_found', 'Choose one of your places or a Hellowhen library place.', 404);
   }
   const snapshot = reusablePlace ? planPlaceSnapshotData('', input, 0, reusablePlace) : null;
+  const templateSnapshot = planPlaceStaticMapTemplateSnapshot(input, reusablePlace);
   return {
     ...(input.placeId !== undefined ? { placeId: reusablePlace?.id ?? null } : {}),
     ...(input.order !== undefined ? { order: input.order } : {}),
@@ -606,6 +644,7 @@ async function placeUpdateData(ownerId: string, input: ReturnType<typeof updateP
     ...(input.addressValidationStatus !== undefined || input.googlePlaceId !== undefined || reusablePlace ? { addressValidationStatus: input.addressValidationStatus ?? snapshot?.addressValidationStatus ?? (input.googlePlaceId ? 'confirmed' : null) } : {}),
     ...(input.onlineLabel !== undefined || reusablePlace ? { onlineLabel: input.onlineLabel ?? snapshot?.onlineLabel ?? null } : {}),
     ...(input.onlineUrl !== undefined || reusablePlace ? { onlineUrl: input.onlineUrl ?? snapshot?.onlineUrl ?? null } : {}),
+    ...(Object.keys(templateSnapshot).length ? templateSnapshot : {}),
     ...(input.startsAt !== undefined ? { startsAt: input.startsAt ? new Date(input.startsAt) : null } : {}),
     ...(input.endsAt !== undefined ? { endsAt: input.endsAt ? new Date(input.endsAt) : null } : {}),
   };

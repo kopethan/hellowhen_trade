@@ -10,6 +10,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
 import { formatInventoryDate, getInventoryDurationLabel, getInventoryMetadata, inventoryCategoryLabel, inventoryStatusLabel, itemTypeLabel, getInventoryTags, kindLabel, kindPluralLabel, mediaSrc, modeLabel, normalizeInventoryItem, sideClassName, sideLabel, type InventoryItem, type InventoryKind } from './inventoryPresentation';
+import { ContentLanguageDetailControls, useContentLanguageDetailSelection } from './ContentLanguageDetailControls';
 
 type InventoryDetailClientProps = {
   kind: InventoryKind;
@@ -53,6 +54,11 @@ export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientPro
   const i18n = { t, language };
   const noun = kindLabel(kind, i18n);
   const pluralNoun = kindPluralLabel(kind, i18n);
+  const languageSelection = useContentLanguageDetailSelection({
+    displayLanguage: item?.displayLanguage,
+    fallbackTitle: item?.title ?? noun,
+    fallbackDescription: item?.description ?? '',
+  });
 
   if (!item && loading) {
     return (
@@ -92,14 +98,15 @@ export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientPro
           <span className="semantic-badge instruction">{inventoryStatusLabel(item.status, i18n)}</span>
           {usingFallback ? <span className="semantic-badge instruction">{t('trade.labels.demoDetail')}</span> : null}
         </div>
-        <h2>{item.title}</h2>
-        <p>{item.description}</p>
+        <h2>{languageSelection.title}</h2>
+        <ContentLanguageDetailControls displayLanguage={item.displayLanguage} selectedLanguage={languageSelection.selectedLanguage} onSelectLanguage={languageSelection.setSelectedLanguage} i18n={i18n} />
+        <p>{languageSelection.description}</p>
         {metadata ? <p className="meta">{metadata}</p> : null}
         <div className="inventory-detail-actions">
           <Link href={`${baseHref}/${item.id}/edit`} className="button">{kind === 'need' ? t('inventory.actions.editNeed') : t('inventory.actions.editOffer')}</Link>
           <Link href={kind === 'need' ? `/trades/create?needId=${item.id}` : `/trades/create?offerId=${item.id}`} className="button secondary">{t('inventory.actions.useInTrade')}</Link>
           <SavedToggleButton itemType={kind} itemId={item.id} hidden={isOwner} />
-          <AddToAgendaButton sourceType={kind} sourceId={item.id} itemType={kind} title={item.title} note={item.description} />
+          <AddToAgendaButton sourceType={kind} sourceId={item.id} itemType={kind} title={languageSelection.title} note={languageSelection.description} />
         </div>
       </section>
 

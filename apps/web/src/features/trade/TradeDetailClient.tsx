@@ -17,6 +17,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockTrades } from '../../lib/mockData';
 import { TradeImageGrid } from './TradeImageGrid';
+import { ContentLanguageDetailControls, useContentLanguageDetailSelection } from '../inventory/ContentLanguageDetailControls';
 import { UserIdentityLink } from '../users/UserIdentityLink';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getNeedSide, getOfferSide, getStatusLabel, getTradeHeadline, getTradeHowItWorks, getTradePostType, getTradeProposalCopy, type TradeI18n, type TradeSide } from './tradePresentation';
@@ -84,17 +85,23 @@ function TradeDetailLoadingSkeleton({ label, title }: { label: string; title: st
 
 function SideSection({ side, i18n }: { side: TradeSide; i18n?: TradeI18n }) {
   const badgeClass = side.kind === 'need' ? 'need' : side.kind === 'offer' ? 'offer' : 'instruction';
+  const languageSelection = useContentLanguageDetailSelection({
+    displayLanguage: side.displayLanguage,
+    fallbackTitle: side.title,
+    fallbackDescription: side.description,
+  });
 
   return (
     <section className="trade-social-section">
       <div className="trade-section-heading">
         <div>
           <p className="eyebrow">{side.label}</p>
-          <h2>{side.title}</h2>
+          <h2>{languageSelection.title}</h2>
         </div>
         <span className={`semantic-badge ${badgeClass}`}>{side.kind === 'need' ? <WebIcon name="need" size={14} decorative /> : side.kind === 'offer' ? <WebIcon name="offer" size={14} decorative /> : null}{side.label}</span>
       </div>
-      <p>{side.description}</p>
+      <ContentLanguageDetailControls displayLanguage={side.displayLanguage} selectedLanguage={languageSelection.selectedLanguage} onSelectLanguage={languageSelection.setSelectedLanguage} i18n={i18n} />
+      <p>{languageSelection.description}</p>
       {side.metadata ? <p className="meta">{side.metadata}</p> : null}
       {side.tags.length ? (
         <div className="tag-row">

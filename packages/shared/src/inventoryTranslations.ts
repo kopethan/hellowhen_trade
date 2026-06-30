@@ -1,9 +1,18 @@
-export type InventoryLanguageCode = 'en' | 'fr' | 'es';
+import {
+  normalizeContentLanguageCode,
+  resolveLocalizedContent,
+  type ContentLanguageCode,
+  type LocalizedContentOption,
+  type LocalizedContentResolutionSource,
+} from './contentLanguageResolver.js';
+
+export type InventoryLanguageCode = ContentLanguageCode;
 
 export type InventoryTranslationLike = {
   languageCode?: string | null;
   title?: string | null;
   description?: string | null;
+  source?: 'creator' | 'machine' | string | null;
 };
 
 export type InventoryTranslatableLike = {
@@ -13,17 +22,22 @@ export type InventoryTranslatableLike = {
   translations?: InventoryTranslationLike[] | null;
 };
 
-export type InventoryDisplayCopy = {
-  title: string;
-  description: string;
+export type InventoryDisplayLanguage = {
   languageCode: string;
   isTranslated: boolean;
+  source: LocalizedContentResolutionSource;
+  requestedLanguages: InventoryLanguageCode[];
+  availableLanguages: InventoryLanguageCode[];
+  options: LocalizedContentOption[];
+};
+
+export type InventoryDisplayCopy = InventoryDisplayLanguage & {
+  title: string;
+  description: string;
 };
 
 export function normalizeInventoryLanguageCode(value?: string | null): InventoryLanguageCode | null {
-  const normalized = value?.trim().toLowerCase().replace('_', '-').split('-')[0];
-  if (normalized === 'en' || normalized === 'fr' || normalized === 'es') return normalized;
-  return null;
+  return normalizeContentLanguageCode(value);
 }
 
 export function getAlternateInventoryLanguage(languageCode: string): InventoryLanguageCode {
@@ -32,36 +46,40 @@ export function getAlternateInventoryLanguage(languageCode: string): InventoryLa
   return 'fr';
 }
 
-export function resolveInventoryDisplayCopy(item: InventoryTranslatableLike, viewerLanguage?: string | null): InventoryDisplayCopy {
-  const defaultLanguage = normalizeInventoryLanguageCode(item.defaultLanguage) ?? 'en';
-  const requestedLanguage = normalizeInventoryLanguageCode(viewerLanguage) ?? defaultLanguage;
-  const original = {
-    title: item.title?.trim() ?? '',
-    description: item.description?.trim() ?? '',
-    languageCode: defaultLanguage,
-    isTranslated: false,
-  };
-
-  if (requestedLanguage === defaultLanguage) return original;
-
-  const translation = (item.translations ?? []).find((entry) => normalizeInventoryLanguageCode(entry.languageCode) === requestedLanguage);
-  const translatedTitle = translation?.title?.trim();
-  const translatedDescription = translation?.description?.trim();
-  if (!translatedTitle || !translatedDescription) return original;
+export function resolveInventoryDisplayCopy(item: InventoryTranslatableLike, viewerLanguage?: string | null, preferredLanguages?: readonly (string | null | undefined)[] | null): InventoryDisplayCopy {
+  const display = resolveLocalizedContent({
+    viewerLanguage,
+    preferredLanguages,
+    defaultLanguage: item.defaultLanguage,
+    translations: item.translations,
+    fallbackFields: item,
+  });
 
   return {
-    title: translatedTitle,
-    description: translatedDescription,
-    languageCode: requestedLanguage,
-    isTranslated: true,
+    title: display.title,
+    description: display.description,
+    languageCode: display.languageCode,
+    isTranslated: display.isTranslated,
+    source: display.source,
+    requestedLanguages: display.requestedLanguages,
+    availableLanguages: display.availableLanguages,
+    options: display.options,
   };
 }
 
-export function withResolvedInventoryDisplay<T extends InventoryTranslatableLike>(item: T, viewerLanguage?: string | null): T {
-  const display = resolveInventoryDisplayCopy(item, viewerLanguage);
+export function withResolvedInventoryDisplay<T extends InventoryTranslatableLike>(item: T, viewerLanguage?: string | null, preferredLanguages?: readonly (string | null | undefined)[] | null): T & { displayLanguage: InventoryDisplayLanguage } {
+  const display = resolveInventoryDisplayCopy(item, viewerLanguage, preferredLanguages);
   return {
     ...item,
     title: display.title,
     description: display.description,
+    displayLanguage: {
+      languageCode: display.languageCode,
+      isTranslated: display.isTranslated,
+      source: display.source,
+      requestedLanguages: display.requestedLanguages,
+      availableLanguages: display.availableLanguages,
+      options: display.options,
+    },
   };
 }

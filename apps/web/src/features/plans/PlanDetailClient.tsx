@@ -12,6 +12,8 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
 import { UserIdentityLink } from '../users/UserIdentityLink';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
 import { planDateTime, planMediaSrc, planMetadata, planOwnerName, planParticipantStatusLabel, planStatusLabel } from './plansPresentation';
+import { resolvePlaceVisual, useResolvedPlaceVisualTheme } from './placeVisuals';
+import { ContentLanguageDetailControls, useContentLanguageDetailSelection } from '../inventory/ContentLanguageDetailControls';
 
 type ActionState = {
   loading: boolean;
@@ -277,8 +279,15 @@ function PlanPlaceCard({
   const media = place.media?.[0] ?? null;
   const sourceMedia = place.sourcePlace?.media?.[0] ?? null;
   const displayMedia = media ?? sourceMedia ?? null;
+  const themeMode = useResolvedPlaceVisualTheme();
+  const placeVisual = resolvePlaceVisual({ media: displayMedia, staticMap: place.staticMap ?? place.sourcePlace?.staticMap ?? null, themeMode });
   const placeTime = planPlaceTimeRange(place, planStartsAt);
   const description = planPlaceDescription(place);
+  const languageSelection = useContentLanguageDetailSelection({
+    displayLanguage: place.displayLanguage ?? place.sourcePlace?.displayLanguage ?? null,
+    fallbackTitle: place.title,
+    fallbackDescription: description,
+  });
   const location = planPlaceLocation(place);
   const hasVerificationCoordinates = Boolean(planPlaceVerificationCoordinates(place));
   const showPresenceVerification = isOfflinePlanPlace(place) && (canVerifyPresence || presenceNotice || hasVerificationCoordinates);
@@ -295,7 +304,8 @@ function PlanPlaceCard({
         </div>
         <div className="plan-route-stop__content">
           <div className="plan-route-stop__copy">
-            <h4>{place.title}</h4>
+            <h4>{languageSelection.title}</h4>
+            <ContentLanguageDetailControls displayLanguage={place.displayLanguage ?? place.sourcePlace?.displayLanguage ?? null} selectedLanguage={languageSelection.selectedLanguage} onSelectLanguage={languageSelection.setSelectedLanguage} />
             {location ? (
               <div className={`plan-route-stop__location plan-route-stop__location--${location.kind}`}>
                 <span className="plan-route-stop__location-icon" aria-hidden="true">
@@ -332,12 +342,12 @@ function PlanPlaceCard({
                 ) : null}
               </div>
             ) : null}
-            {displayMedia ? (
+            {placeVisual.url ? (
               <div className="plan-route-stop__media">
-                <PlanPlaceImage media={displayMedia} />
+                {placeVisual.kind === 'media' && displayMedia ? <PlanPlaceImage media={displayMedia} /> : <img src={placeVisual.url} alt="" loading="lazy" className="is-static-map" />}
               </div>
             ) : null}
-            {description ? <p>{description}</p> : null}
+            {languageSelection.description ? <p>{languageSelection.description}</p> : null}
             {showReport ? <ReportContentButton targetType="plan_place" targetId={place.id} /> : null}
           </div>
         </div>

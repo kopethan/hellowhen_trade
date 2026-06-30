@@ -158,7 +158,8 @@ function summaryChipsForTrade(trade: TradeDto, need: ReturnType<typeof getNeedSi
     : postType === 'open_offer'
       ? offer.tags
       : [...need.tags, ...offer.tags];
-  return [urgencyChip, ...baseChips].filter((chip): chip is string => Boolean(chip)).slice(0, 3);
+  const languageChips = [need.languageBadge, offer.languageBadge].filter((chip): chip is string => Boolean(chip));
+  return [urgencyChip, ...languageChips, ...baseChips].filter((chip): chip is string => Boolean(chip)).slice(0, 3);
 }
 
 function summaryBadgeForTrade(trade: TradeDto, totalCards: number, i18n?: TradeI18n) {
@@ -268,7 +269,7 @@ export function buildTradeStackDeckItems(trade: TradeDto, actionLabel = 'Open', 
           eyebrow={side.label}
           title={side.title}
           subtitle={sideMeta}
-          chips={side.tags.slice(0, 3)}
+          chips={[side.languageBadge, ...side.tags].filter((chip): chip is string => Boolean(chip)).slice(0, 3)}
           variant={variant}
           previewTheme={previewTheme}
         />

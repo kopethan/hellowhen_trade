@@ -104,6 +104,23 @@ export const inventoryTranslationSchema = z.object({
   updatedAt: z.string().optional()
 });
 
+export const inventoryDisplayLanguageOptionSchema = z.object({
+  languageCode: discoveryLanguageSchema,
+  title: z.string(),
+  description: z.string(),
+  source: z.enum(['creator', 'machine']),
+  isOriginal: z.boolean(),
+}).passthrough();
+
+export const inventoryDisplayLanguageSchema = z.object({
+  languageCode: discoveryLanguageSchema,
+  isTranslated: z.boolean(),
+  source: z.enum(['exact', 'preference', 'default', 'fallback', 'machine']),
+  requestedLanguages: z.array(discoveryLanguageSchema).optional(),
+  availableLanguages: z.array(discoveryLanguageSchema).optional(),
+  options: z.array(inventoryDisplayLanguageOptionSchema).optional(),
+}).passthrough();
+
 export const createNeedRequestSchema = z.object({
   title: z.string().min(INVENTORY_TITLE_MIN_LENGTH).max(INVENTORY_TITLE_MAX_LENGTH),
   description: z.string().min(INVENTORY_DESCRIPTION_MIN_LENGTH).max(INVENTORY_DESCRIPTION_MAX_LENGTH),
@@ -363,7 +380,8 @@ export const needSchema = z.object({
   expiresAt: z.string().nullable().optional(),
   previewTheme: previewCardThemeSchema.optional().default('default'),
   media: z.array(mediaAssetSchema).optional(),
-  mediaAccess: publicMediaAccessSchema.optional()
+  mediaAccess: publicMediaAccessSchema.optional(),
+  displayLanguage: inventoryDisplayLanguageSchema.optional()
 });
 
 export const offerSchema = z.object({
@@ -393,7 +411,8 @@ export const offerSchema = z.object({
   expiresAt: z.string().nullable().optional(),
   previewTheme: previewCardThemeSchema.optional().default('default'),
   media: z.array(mediaAssetSchema).optional(),
-  mediaAccess: publicMediaAccessSchema.optional()
+  mediaAccess: publicMediaAccessSchema.optional(),
+  displayLanguage: inventoryDisplayLanguageSchema.optional()
 });
 
 export const cashPromiseSchema = z.object({
@@ -636,6 +655,7 @@ export const tradeProposalSchema = z.object({
 export type NeedDto = z.infer<typeof needSchema>;
 export type OfferDto = z.infer<typeof offerSchema>;
 export type InventoryTranslationDto = z.infer<typeof inventoryTranslationSchema>;
+export type InventoryDisplayLanguage = z.infer<typeof inventoryDisplayLanguageSchema>;
 export type InventoryTemplateDto = z.infer<typeof inventoryTemplateSchema>;
 export type CloneInventoryTemplateResponse = z.infer<typeof cloneInventoryTemplateResponseSchema>;
 export type TradeDto = z.infer<typeof tradeSchema>;

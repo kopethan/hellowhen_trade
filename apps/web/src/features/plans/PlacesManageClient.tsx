@@ -10,7 +10,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
 import { WebIcon } from '../../components/WebIcon';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
-import { planMediaSrc } from './plansPresentation';
+import { resolvePlaceVisual, useResolvedPlaceVisualTheme, type PlaceVisualThemeMode } from './placeVisuals';
 
 type PlacesManageClientProps = {
   plansEnabled?: boolean;
@@ -34,25 +34,31 @@ function placeUsedInPlansCount(place: PlaceDto) {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+function placeLanguageBadge(place: PlaceDto) {
+  if (!place.displayLanguage?.languageCode || place.displayLanguage.source === 'exact') return null;
+  return place.displayLanguage.languageCode.toUpperCase();
+}
+
 function placeUsageLabel(count: number) {
   return count === 1 ? 'Used in 1 Plan' : `Used in ${count} Plans`;
 }
 
-function PlaceManageCard({ place, onArchive, archiving }: { place: PlaceDto; onArchive: (place: PlaceDto) => void; archiving?: boolean }) {
+function PlaceManageCard({ place, onArchive, archiving, themeMode }: { place: PlaceDto; onArchive: (place: PlaceDto) => void; archiving?: boolean; themeMode: PlaceVisualThemeMode }) {
   const meta = placeMeta(place);
-  const imageSrc = planMediaSrc(place.media?.[0] ?? null);
+  const placeVisual = resolvePlaceVisual({ media: place.media?.[0] ?? null, staticMap: place.staticMap ?? null, themeMode });
   const usedInPlansCount = placeUsedInPlansCount(place);
   const isLocked = usedInPlansCount > 0;
   return (
     <article className="place-manage-card">
       <div className="place-manage-card__main">
         <div className="place-manage-card__media" aria-hidden="true">
-          {imageSrc ? <img src={imageSrc} alt="" loading="lazy" /> : <WebIcon name="location-on" size={28} decorative />}
+          {placeVisual.url ? <img src={placeVisual.url} alt="" loading="lazy" className={placeVisual.kind === 'static_map' ? 'is-static-map' : undefined} /> : <WebIcon name="location-on" size={28} decorative />}
         </div>
         <div className="place-manage-card__copy">
           <div className="place-manage-card__top">
             <span className="semantic-badge place">My Place</span>
             <span className="semantic-badge muted">{place.mode === 'remote' ? 'Online' : 'Offline'}</span>
+            {placeLanguageBadge(place) ? <span className="semantic-badge instruction">{placeLanguageBadge(place)}</span> : null}
             {isLocked ? <span className="semantic-badge warning">{placeUsageLabel(usedInPlansCount)}</span> : null}
           </div>
           <div className="place-manage-card__body">
@@ -86,6 +92,7 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
   const [deleteDialogPlace, setDeleteDialogPlace] = useState<PlaceDto | null>(null);
 
   const createPlaceHref = auth.isAuthenticated ? '/places/new' : nextAuthHref('/places/new');
+  const themeMode = useResolvedPlaceVisualTheme();
 
   const loadPlaces = useCallback(async () => {
     if (!auth.hydrated) return;
@@ -176,6 +183,7 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
                   place={place}
                   onArchive={setDeleteDialogPlace}
                   archiving={archivingPlaceId === place.id}
+                  themeMode={themeMode}
                 />
               ))}
             </section>

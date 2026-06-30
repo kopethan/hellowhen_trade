@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Image, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-import type { MediaAssetDto, PlanDto, PlanPlaceDto } from '@hellowhen/contracts';
+import type { MediaAssetDto, PlaceStaticMapDto, PlanDto, PlanPlaceDto } from '@hellowhen/contracts';
 import type { SemanticColorName } from '@hellowhen/theme';
 import { AppText } from '../../../components/AppText';
 import { LowerImageAtmosphere } from '../../../components/LowerImageAtmosphere';
@@ -19,6 +19,7 @@ type PlanPlaceDeckCard = SquareStackDeckCard & {
   placeIndex: number;
   placeTotal: number;
   media?: MediaAssetDto;
+  staticMap?: PlaceStaticMapDto | null;
 };
 
 type PlanSquareDeckProps = {
@@ -41,8 +42,17 @@ function activeMediaUrl(media?: MediaAssetDto | null) {
   return resolveMediaUrl(media.url);
 }
 
+function staticMapUrlForTheme(staticMap?: PlaceStaticMapDto | null, themeMode: 'light' | 'dark' = 'light') {
+  if (!staticMap) return null;
+  return themeMode === 'dark' ? staticMap.darkUrl || staticMap.lightUrl || null : staticMap.lightUrl || staticMap.darkUrl || null;
+}
+
 function getPlaceMedia(place: PlanPlaceDto | undefined) {
   return activeMedia(place?.media)[0] ?? activeMedia(place?.sourcePlace?.media)[0];
+}
+
+function getPlaceStaticMap(place: PlanPlaceDto | undefined) {
+  return place?.staticMap ?? place?.sourcePlace?.staticMap ?? null;
 }
 
 function sortedPlanPlaces(plan: PlanDto) {
@@ -81,6 +91,7 @@ function buildPlanPlaceDeckCards(plan: PlanDto): PlanPlaceDeckCard[] {
     placeIndex: index,
     placeTotal: places.length,
     media: getPlaceMedia(place),
+    staticMap: getPlaceStaticMap(place),
   }));
 }
 
@@ -97,6 +108,12 @@ function getPlaceLocationLabel(place: PlanPlaceDto | undefined) {
   return place.addressPublicText || place.sourcePlace?.areaLabel || '';
 }
 
+function getPlaceLanguageLabel(place: PlanPlaceDto | undefined) {
+  const displayLanguage = place?.displayLanguage ?? place?.sourcePlace?.displayLanguage ?? null;
+  if (!displayLanguage?.languageCode || displayLanguage.source === 'exact') return '';
+  return displayLanguage.languageCode.toUpperCase();
+}
+
 function getPlanParticipantLabel(plan: PlanDto) {
   const count = plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
   return `${count} joined`;
@@ -109,14 +126,17 @@ function getPlaceDateLabel(place: PlanPlaceDto | undefined, planStartsAt: string
 function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'instruction', showModeBadge = true }: { card: PlanPlaceDeckCard; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
   const theme = useThemeTokens();
   const isDark = theme.mode === 'dark';
-  const imageUrl = activeMediaUrl(card.media);
+  const mediaUrl = activeMediaUrl(card.media);
+  const staticMapUrl = staticMapUrlForTheme(card.staticMap, theme.mode);
+  const imageUrl = mediaUrl ?? staticMapUrl;
   const fallback = useMemo(() => fallbackModel(card.id), [card.id]);
   const place = card.place;
   const isEmpty = card.kind === 'emptyPlace' || !place;
   const cardCounter = isEmpty ? '0 places' : `${String(card.placeIndex + 1).padStart(2, '0')}/${String(card.placeTotal).padStart(2, '0')}`;
   const modeLabel = place?.mode === 'remote' ? 'Online' : 'Offline';
   const placeTitle = place?.title ?? 'No places yet';
-  const locationLabel = isEmpty ? '' : getPlaceLocationLabel(place);
+  const languageLabel = isEmpty ? '' : getPlaceLanguageLabel(place);
+  const locationLabel = isEmpty ? '' : [languageLabel, getPlaceLocationLabel(place)].filter(Boolean).join(' · ');
   const timeLabel = isEmpty ? getPlanParticipantLabel(card.plan) : getPlaceDateLabel(place, card.plan.startsAt);
   const primaryBadgeLabel = topBadgeLabel ?? `Place · ${cardCounter}`;
   const hasPosterImage = Boolean(imageUrl);

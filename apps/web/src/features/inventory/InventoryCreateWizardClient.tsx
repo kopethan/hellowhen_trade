@@ -23,6 +23,7 @@ import {
   getInventoryTranslationDraft,
   getVisibleInventoryTranslations,
   inventoryLanguageLabel,
+  inventoryLanguageOptions,
   isInventoryDurationPreset,
   itemTypeLabel,
   kindLabel,
@@ -35,6 +36,7 @@ import {
   parseCsvList,
   parseLineList,
   removeInventoryTranslationDraft,
+  setInventoryOriginalLanguage,
   setInventoryTranslationDraft,
   sideClassName,
   sideLabel,
@@ -394,6 +396,11 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
       : { ...current, typicalDurationPreset: nextPreset, typicalDurationMinutes: nextMinutes }));
   }
 
+  function updateOriginalLanguage(languageCode: InventoryFormValues['defaultLanguage']) {
+    setValues((current) => setInventoryOriginalLanguage(current, languageCode));
+    setTranslationPickerOpen(false);
+  }
+
   function addTranslationLanguage(languageCode: InventoryFormValues['defaultLanguage']) {
     setValues((current) => setInventoryTranslationDraft(current, { languageCode, title: '', description: '' }));
     setTranslationPickerOpen(false);
@@ -740,6 +747,14 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
                   </div>
                   <span className="inventory-language-summary">{t('inventory.form.originalContentLanguage', { language: originalLanguageLabel })}</span>
                 </div>
+
+                <label className="field-label inventory-original-language-field">
+                  <span className="field-label__row"><span>{t('inventory.form.originalLanguageSelector')}</span><small>{t('inventory.labels.defaultLanguage')}</small></span>
+                  <select value={values.defaultLanguage} onChange={(event) => updateOriginalLanguage(event.target.value as InventoryFormValues['defaultLanguage'])}>
+                    {inventoryLanguageOptions.map((languageCode) => <option key={languageCode} value={languageCode}>{inventoryLanguageLabel(languageCode, i18n)}</option>)}
+                  </select>
+                  <small>{t('inventory.form.originalLanguageHelp')}</small>
+                </label>
 
                 {visibleTranslations.map((translation) => {
                   const translationDraft = getInventoryTranslationDraft(values, translation.languageCode);

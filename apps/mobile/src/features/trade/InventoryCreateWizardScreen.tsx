@@ -31,6 +31,7 @@ import {
   durationPresetMinutes,
   DurationPresetPicker,
   InventoryTextField,
+  LanguagePicker,
   ManualTranslationFields,
   OriginalLanguageSummary,
   buildManualTranslation,
@@ -78,6 +79,7 @@ type InventoryWizardDraft = {
 
 type InventoryWizardPersistedDraft = InventoryWizardDraft & {
   activeStepId: InventoryWizardStepId;
+  defaultLanguage?: DiscoveryLanguage;
   translationTitle: string;
   translationDescription: string;
   translationEnabled: boolean;
@@ -121,7 +123,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
   const [activeStepId, setActiveStepId] = useState<InventoryWizardStepId>('idea');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [defaultLanguage] = useState<DiscoveryLanguage>(language);
+  const [defaultLanguage, setDefaultLanguage] = useState<DiscoveryLanguage>(language);
   const [translationTitle, setTranslationTitle] = useState('');
   const [translationDescription, setTranslationDescription] = useState('');
   const [translationEnabled, setTranslationEnabled] = useState(false);
@@ -158,10 +160,11 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
   const persistedDraft = useMemo<InventoryWizardPersistedDraft>(() => ({
     ...draft,
     activeStepId,
+    defaultLanguage,
     translationTitle,
     translationDescription,
     translationEnabled,
-  }), [activeStepId, draft, translationDescription, translationEnabled, translationTitle]);
+  }), [activeStepId, defaultLanguage, draft, translationDescription, translationEnabled, translationTitle]);
 
   const draftStorageKey = useMemo(() => buildMobileWizardDraftKey(kind === 'need' ? 'create-need' : 'create-offer', auth.user?.id), [auth.user?.id, kind]);
 
@@ -175,6 +178,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     setLocationLabel(typeof savedDraft.locationLabel === 'string' ? savedDraft.locationLabel : '');
     setPreviewTheme(['default', 'blue', 'green', 'purple', 'amber', 'rose'].includes(savedDraft.previewTheme) ? savedDraft.previewTheme : 'default');
     setImages(Array.isArray(savedDraft.images) ? savedDraft.images : []);
+    setDefaultLanguage(savedDraft.defaultLanguage === 'fr' || savedDraft.defaultLanguage === 'es' ? savedDraft.defaultLanguage : language);
     const restoredTranslationTitle = typeof savedDraft.translationTitle === 'string' ? savedDraft.translationTitle : '';
     const restoredTranslationDescription = typeof savedDraft.translationDescription === 'string' ? savedDraft.translationDescription : '';
     const restoredTranslationEnabled = Boolean(savedDraft.translationEnabled);
@@ -183,13 +187,13 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     setTranslationEnabled(restoredTranslationEnabled);
     setTranslationPanelExpanded(restoredTranslationEnabled || Boolean(restoredTranslationTitle.trim() || restoredTranslationDescription.trim()));
     setActiveStepId(stepIds.includes(savedDraft.activeStepId) ? savedDraft.activeStepId : (savedDraft.activeStepId === 'review' ? 'images' : 'idea'));
-  }, []);
+  }, [language]);
 
   const inventoryWizardDraft = useMobileWizardDraft({
     storageKey: draftStorageKey,
     draft: persistedDraft,
     enabled: !submitting,
-    hasContent: (candidate) => hasDraftContent(candidate, candidate.translationTitle, candidate.translationDescription),
+    hasContent: (candidate) => hasDraftContent(candidate, candidate.translationTitle, candidate.translationDescription) || Boolean(candidate.defaultLanguage && candidate.defaultLanguage !== language),
     onRestore: restoreDraft,
   });
 
@@ -280,6 +284,15 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     if (!previousStepId || previousStepId === activeStepId) return;
     setError(null);
     setActiveStepId(previousStepId);
+  }
+
+  function changeDefaultLanguage(nextLanguage: DiscoveryLanguage) {
+    setDefaultLanguage(nextLanguage);
+    if (translationEnabled) {
+      setTranslationEnabled(false);
+      setTranslationTitle('');
+      setTranslationDescription('');
+    }
   }
 
   function applyAiTranslation(_languageCode: DiscoveryLanguage, titleText: string, descriptionText: string) {
@@ -508,6 +521,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
           {translationPanelExpanded ? (
             <AppCard style={styles.compactCard}>
               <AppText style={[styles.translationBody, { color: theme.color.muted }]}>{t('inventory.form.languageBody')}</AppText>
+              <LanguagePicker value={defaultLanguage} onChange={changeDefaultLanguage} disabled={submitting} />
               <OriginalLanguageSummary languageCode={defaultLanguage} />
               {translationEnabled ? (
                 <ManualTranslationFields

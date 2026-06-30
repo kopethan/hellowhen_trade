@@ -88,6 +88,7 @@ function cashPromiseLabel(trade: TradeDeckItem) { return trade.cashPromise ? for
 function needTitle(trade: TradeDeckItem, t: TFunction) { if (cashPromiseSide(trade) === 'need') return t('trade.cashPromise.title'); return moneySide(trade) === 'need' ? t('account.walletMoney') : trade.need?.title || trade.title || t('trade.labels.openRequestFallback'); }
 function offerTitle(trade: TradeDeckItem, t: TFunction) { if (cashPromiseSide(trade) === 'offer') return t('trade.cashPromise.title'); return moneySide(trade) === 'offer' ? t('account.walletMoney') : trade.offer?.title || t('trade.labels.openOfferFallback'); }
 function compactJoin(values: Array<string | null | undefined>, limit = 3) { return values.filter((value): value is string => Boolean(value && value.trim())).slice(0, limit).join(' · '); }
+function languageChip(item: { displayLanguage?: { languageCode?: string | null; source?: string | null } | null } | null | undefined) { const code = item?.displayLanguage?.languageCode?.toUpperCase(); return code && item?.displayLanguage?.source !== 'exact' ? code : null; }
 function compactSideMeta(metadata: string, fallback?: string | null) { return metadata || fallback || ''; }
 function needTimingBadge(need: NeedItem | null | undefined, t: TFunction) { return need ? durationPresetLabel(need.estimatedDurationPreset, t) : ''; }
 function offerTimingBadge(offer: OfferItem | null | undefined, t: TFunction) { return offer ? durationPresetLabel(offer.typicalDurationPreset, t) : ''; }
@@ -118,7 +119,7 @@ function summaryBadge(trade: TradeDeckItem, tradeIndex: number, tradeTotal: numb
   return `${prefix} · ${getTradeCounter(tradeIndex, tradeTotal)}`;
 }
 function imagePlaceholderLabel(media: MediaAssetDto | undefined, hiddenImageCount: number | undefined, t: TFunction) { if (hiddenImageCount) return t('media.authRequired.title'); return media ? t('trade.labels.imageUnavailable') : t('media.empty.noImagesYet'); }
-function starterChips(trade: TradeDeckItem) { return [...(trade.need?.tags ?? []), ...(trade.offer?.tags ?? [])].filter((chip): chip is string => Boolean(chip)).slice(0, 3); }
+function starterChips(trade: TradeDeckItem) { return [languageChip(trade.need), languageChip(trade.offer), ...(trade.need?.tags ?? []), ...(trade.offer?.tags ?? [])].filter((chip): chip is string => Boolean(chip)).slice(0, 3); }
 export function needMeta(need: NeedItem | null | undefined, trade: TradeDeckItem | undefined, t: TFunction) { if (trade && cashPromiseSide(trade) === 'need') return `${cashPromiseLabel(trade)} · ${t('trade.cashPromise.notProcessed')}`; if (trade && moneySide(trade) === 'need') return moneyLabel(trade); return need ? compactJoin([need.category, needTimingBadge(need, t), modeLabel(need.mode, t), need.locationLabel], 2) || t('trade.labels.needDetails') : t('trade.labels.needDetails'); }
 export function offerMeta(offer: OfferItem | null | undefined, trade: TradeDeckItem | undefined, t: TFunction) { if (trade && cashPromiseSide(trade) === 'offer') return `${cashPromiseLabel(trade)} · ${t('trade.cashPromise.notProcessed')}`; if (trade && moneySide(trade) === 'offer') return moneyLabel(trade); return offer ? compactJoin([offer.includes?.[0], offerTimingBadge(offer, t), modeLabel(offer.mode, t), offer.locationLabel], 2) || t('trade.labels.offerDetails') : t('trade.labels.offerDetails'); }
 
@@ -180,7 +181,7 @@ function CompleteTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Tra
         <View style={styles.tradeSideBlock}>
           <AppText style={[styles.sideEyebrow, { color: '#60A5FA' }]}>{t('trade.labels.iNeed')}</AppText>
           <AppText style={[styles.sideTitle, { color: theme.color.text }]} numberOfLines={2}>{needTitle(trade, t)}</AppText>
-          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={1}>{needMeta(trade.need, trade, t)}</AppText>
+          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={1}>{compactJoin([languageChip(trade.need), needMeta(trade.need, trade, t)], 2)}</AppText>
         </View>
 
         <View style={styles.exchangeRow}>
@@ -192,7 +193,7 @@ function CompleteTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Tra
         <View style={styles.tradeSideBlock}>
           <AppText style={[styles.sideEyebrow, { color: '#34D399' }]}>{t('trade.labels.iOffer')}</AppText>
           <AppText style={[styles.sideTitle, { color: theme.color.text }]} numberOfLines={2}>{offerTitle(trade, t)}</AppText>
-          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={1}>{offerMeta(trade.offer, trade, t)}</AppText>
+          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={1}>{compactJoin([languageChip(trade.offer), offerMeta(trade.offer, trade, t)], 2)}</AppText>
         </View>
       </View>
 
@@ -267,7 +268,7 @@ export function TradeImageCard({ trade, kind, media, hiddenImageCount, onOpen }:
       eyebrow={isNeed ? t('trade.labels.iNeed') : t('trade.labels.iOffer')}
       title={sideTitle}
       subtitle={hiddenImageCount ? t('media.authRequired.body', { count: hiddenImageCount }) : compactSideMeta(sideMeta, sideDescription)}
-      chips={(side?.tags ?? []).slice(0, 3)}
+      chips={[languageChip(side), ...(side?.tags ?? [])].filter((chip): chip is string => Boolean(chip)).slice(0, 3)}
       variant={isNeed ? 'need' : 'offer'}
       onPress={onOpen}
       previewTheme={previewThemeForTrade(trade)}

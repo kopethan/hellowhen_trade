@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { MediaAsset, Prisma } from '@prisma/client';
 import { createTradeProposalRequestSchema, createTradePublicMessageRequestSchema, createTradeRequestSchema, listTradePublicMessagesQuerySchema, listTradesFeedQuerySchema, renewTradeRequestSchema, updateTradePublicMessageRequestSchema, updateTradeStatusRequestSchema, type ListTradesFeedQuery } from '@hellowhen/contracts';
-import { buildGeneratedTradeDisplay, type InventoryTranslationLike } from '@hellowhen/shared';
+import { buildGeneratedTradeDisplay, normalizeContentLanguageOrder, type ContentLanguageCode, type InventoryTranslationLike } from '@hellowhen/shared';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
@@ -25,7 +25,7 @@ import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } f
 export const tradesRoutes = Router();
 export const tradeInclude = { owner: { select: publicUserPreviewSelect }, provider: { select: publicUserPreviewSelect }, need: true, offer: true, payment: true, escrow: true, cashPromise: true } as const;
 const feedTradeInclude = {
-  owner: { select: { ...publicUserPreviewSelect, settings: { select: { language: true } } } },
+  owner: { select: { ...publicUserPreviewSelect, settings: { select: { language: true, contentLanguageOrder: true } } } },
   provider: { select: publicUserPreviewSelect },
   need: true,
   offer: true,
@@ -275,7 +275,8 @@ type FeedRankableTrade = {
 };
 
 type FeedDiscoveryPreferences = {
-  language: 'en' | 'fr' | 'es';
+  language: ContentLanguageCode;
+  contentLanguageOrder: ContentLanguageCode[];
   countryCode?: string;
 };
 
@@ -343,25 +344,39 @@ function resolveLanguageFromAcceptLanguage(value: unknown): 'en' | 'fr' | 'es' |
 
 function resolveFeedDiscoveryPreferences(
   filters: ListTradesFeedQuery,
-  actorPreferences: { profile?: { countryCode?: string | null } | null; settings?: { language?: string | null } | null } | null | undefined,
+  actorPreferences: { profile?: { countryCode?: string | null } | null; settings?: { language?: string | null; contentLanguageOrder?: unknown } | null } | null | undefined,
   acceptLanguageHeader: unknown,
 ): FeedDiscoveryPreferences {
+  const language = normalizeDiscoveryLanguage(filters.language)
+    ?? normalizeDiscoveryLanguage(actorPreferences?.settings?.language)
+    ?? resolveLanguageFromAcceptLanguage(acceptLanguageHeader)
+    ?? 'en';
   return {
-    language: normalizeDiscoveryLanguage(filters.language)
-      ?? normalizeDiscoveryLanguage(actorPreferences?.settings?.language)
-      ?? resolveLanguageFromAcceptLanguage(acceptLanguageHeader)
-      ?? 'en',
+    language,
+    contentLanguageOrder: normalizeContentLanguageOrder({
+      viewerLanguage: language,
+      preferredLanguages: Array.isArray(actorPreferences?.settings?.contentLanguageOrder) ? actorPreferences.settings.contentLanguageOrder as string[] : null,
+      defaultLanguage: 'en',
+    }),
     countryCode: normalizeCountryCode(filters.countryCode) ?? normalizeCountryCode(actorPreferences?.profile?.countryCode),
   };
 }
 
-async function resolveViewerLanguage(actorId: string | undefined, acceptLanguageHeader: unknown): Promise<'en' | 'fr' | 'es'> {
+async function resolveViewerLanguagePreferences(actorId: string | undefined, acceptLanguageHeader: unknown): Promise<{ language: ContentLanguageCode; contentLanguageOrder: ContentLanguageCode[] }> {
   const actorPreferences = actorId
-    ? await prisma.user.findUnique({ where: { id: actorId }, select: { settings: { select: { language: true } } } })
+    ? await prisma.user.findUnique({ where: { id: actorId }, select: { settings: { select: { language: true, contentLanguageOrder: true } } } })
     : null;
-  return normalizeDiscoveryLanguage(actorPreferences?.settings?.language)
+  const language = normalizeDiscoveryLanguage(actorPreferences?.settings?.language)
     ?? resolveLanguageFromAcceptLanguage(acceptLanguageHeader)
     ?? 'en';
+  return {
+    language,
+    contentLanguageOrder: normalizeContentLanguageOrder({
+      viewerLanguage: language,
+      preferredLanguages: Array.isArray(actorPreferences?.settings?.contentLanguageOrder) ? actorPreferences.settings.contentLanguageOrder as string[] : null,
+      defaultLanguage: 'en',
+    }),
+  };
 }
 
 function getLocaleAffinityScore(trade: FeedRankableTrade, preferences: FeedDiscoveryPreferences) {
@@ -659,7 +674,7 @@ tradesRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
   const requestedTake = input.take ?? 50;
   const candidateTake = Math.min(100, Math.max(requestedTake, requestedTake * 3));
   const actorPreferences = actorId
-    ? await prisma.user.findUnique({ where: { id: actorId }, select: { profile: { select: { countryCode: true } }, settings: { select: { language: true } } } })
+    ? await prisma.user.findUnique({ where: { id: actorId }, select: { profile: { select: { countryCode: true } }, settings: { select: { language: true, contentLanguageOrder: true } } } })
     : null;
   const preferences = resolveFeedDiscoveryPreferences(input, actorPreferences, req.headers['accept-language']);
   const [trades, blocks] = await Promise.all([
@@ -673,7 +688,7 @@ tradesRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
     ? hydratedTrades.filter((trade) => tradePublicMediaCount(trade) > 0)
     : hydratedTrades;
   const sortedTrades = sortTradesForDiscovery(filteredTrades, input, actorId, preferences).slice(0, requestedTake).map(stripFeedRankingOnlyFields);
-  res.json(stripAnonymousPublicProfileMedia({ trades: applyInventoryDisplayLanguageToTrades(sortedTrades, preferences.language) }, actorId));
+  res.json(stripAnonymousPublicProfileMedia({ trades: applyInventoryDisplayLanguageToTrades(sortedTrades, preferences.language, preferences.contentLanguageOrder) }, actorId));
 }));
 
 tradesRoutes.get('/:tradeId/public-messages', requireAuth, asyncRoute(async (req, res) => {
@@ -845,8 +860,8 @@ tradesRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
     const viewerInvolvement = trade.ownerId === actorId ? 'owner' : trade.providerId === actorId ? 'provider' : viewerProposal ? 'applicant' : undefined;
     return viewerInvolvement ? { ...trade, viewerInvolvement, viewerProposal } : trade;
   });
-  const viewerLanguage = await resolveViewerLanguage(actorId, req.headers['accept-language']);
-  res.json({ trades: applyInventoryDisplayLanguageToTrades(await withTradeDeckMedia(tradesWithViewerContext, 'owner'), viewerLanguage) });
+  const viewerLanguagePreferences = await resolveViewerLanguagePreferences(actorId, req.headers['accept-language']);
+  res.json({ trades: applyInventoryDisplayLanguageToTrades(await withTradeDeckMedia(tradesWithViewerContext, 'owner'), viewerLanguagePreferences.language, viewerLanguagePreferences.contentLanguageOrder) });
 }));
 tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
   const actorId = req.user?.id;
@@ -865,9 +880,9 @@ tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
   if (actorId && ![trade.ownerId, trade.providerId].includes(actorId) && await usersHaveBlockBetween(actorId, trade.ownerId)) return res.status(404).json({ error: 'not_found' });
   const isParticipant = actorId && (trade.ownerId === actorId || trade.providerId === actorId);
   const visibility: MediaVisibility = isParticipant ? 'owner' : trade.isPublic && trade.status === 'active' ? (actorId ? 'trade_public' : 'public_anonymous') : (actorId ? 'public' : 'public_anonymous');
-  const viewerLanguage = await resolveViewerLanguage(actorId, req.headers['accept-language']);
+  const viewerLanguagePreferences = await resolveViewerLanguagePreferences(actorId, req.headers['accept-language']);
   const hydratedTrade = await withOneTradeDeckMedia(trade, visibility);
-  res.json(stripAnonymousPublicProfileMedia({ trade: applyInventoryDisplayLanguageToTrade(hydratedTrade, viewerLanguage) }, actorId));
+  res.json(stripAnonymousPublicProfileMedia({ trade: applyInventoryDisplayLanguageToTrade(hydratedTrade, viewerLanguagePreferences.language, viewerLanguagePreferences.contentLanguageOrder) }, actorId));
 }));
 
 const tradeDeleteAllowedStatuses = ['draft', 'active', 'expired', 'cancelled', 'closed'] as const;

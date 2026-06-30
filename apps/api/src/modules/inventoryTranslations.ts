@@ -98,18 +98,18 @@ export async function withOneInventoryTranslation<T extends InventoryWithId>(
   return hydrated ?? ({ ...item, translations: [] } as T);
 }
 
-export function applyInventoryDisplayLanguage<T extends InventoryWithId>(items: T[], viewerLanguage?: string | null): T[] {
-  return items.map((item) => withResolvedInventoryDisplay(item, viewerLanguage) as T);
+export function applyInventoryDisplayLanguage<T extends InventoryWithId>(items: T[], viewerLanguage?: string | null, preferredLanguages?: readonly (string | null | undefined)[] | null): T[] {
+  return items.map((item) => withResolvedInventoryDisplay(item, viewerLanguage, preferredLanguages) as T);
 }
 
-export function applyInventoryDisplayLanguageToTrade<T extends { need?: InventoryWithId | null; offer?: InventoryWithId | null }>(trade: T, viewerLanguage?: string | null): T {
+export function applyInventoryDisplayLanguageToTrade<T extends { need?: InventoryWithId | null; offer?: InventoryWithId | null }>(trade: T, viewerLanguage?: string | null, preferredLanguages?: readonly (string | null | undefined)[] | null): T {
   return {
     ...trade,
-    need: trade.need ? withResolvedInventoryDisplay(trade.need, viewerLanguage) : trade.need,
-    offer: trade.offer ? withResolvedInventoryDisplay(trade.offer, viewerLanguage) : trade.offer,
+    need: trade.need ? withResolvedInventoryDisplay(trade.need, viewerLanguage, preferredLanguages) : trade.need,
+    offer: trade.offer ? withResolvedInventoryDisplay(trade.offer, viewerLanguage, preferredLanguages) : trade.offer,
   };
 }
 
-export function applyInventoryDisplayLanguageToTrades<T extends { need?: InventoryWithId | null; offer?: InventoryWithId | null }>(trades: T[], viewerLanguage?: string | null): T[] {
-  return trades.map((trade) => applyInventoryDisplayLanguageToTrade(trade, viewerLanguage));
+export function applyInventoryDisplayLanguageToTrades<T extends { need?: InventoryWithId | null; offer?: InventoryWithId | null }>(trades: T[], viewerLanguage?: string | null, preferredLanguages?: readonly (string | null | undefined)[] | null): T[] {
+  return trades.map((trade) => applyInventoryDisplayLanguageToTrade(trade, viewerLanguage, preferredLanguages));
 }

@@ -23,6 +23,7 @@ import {
   getInventoryTranslationDraft,
   getVisibleInventoryTranslations,
   inventoryLanguageLabel,
+  inventoryLanguageOptions,
   inventoryToFormValues,
   itemTypeLabel,
   kindLabel,
@@ -34,6 +35,7 @@ import {
   parseLineList,
   sideClassName,
   modeLabel,
+  setInventoryOriginalLanguage,
   setInventoryTranslationDraft,
   sideLabel,
   toIsoDate,
@@ -227,6 +229,11 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
 
   function applyAiCategoryTags(categoryText: string, tagList: string[]) {
     setValues((current) => ({ ...current, category: categoryText, tags: tagList.join(', ') }));
+  }
+
+  function updateOriginalLanguage(languageCode: InventoryFormValues['defaultLanguage']) {
+    setValues((current) => setInventoryOriginalLanguage(current, languageCode));
+    setTranslationPickerOpen(false);
   }
 
   function addTranslationLanguage(languageCode: InventoryFormValues['defaultLanguage']) {
@@ -458,6 +465,14 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
             </div>
             <span className="inventory-language-summary">{t('inventory.form.originalContentLanguage', { language: inventoryLanguageLabel(values.defaultLanguage, i18n) })}</span>
           </div>
+
+          <label className="field-label inventory-original-language-field">
+            <span className="field-label__row"><span>{t('inventory.form.originalLanguageSelector')}</span><small>{t('inventory.labels.defaultLanguage')}</small></span>
+            <select value={values.defaultLanguage} onChange={(event) => updateOriginalLanguage(event.target.value as InventoryFormValues['defaultLanguage'])}>
+              {inventoryLanguageOptions.map((languageCode) => <option key={languageCode} value={languageCode}>{inventoryLanguageLabel(languageCode, i18n)}</option>)}
+            </select>
+            <small>{t('inventory.form.originalLanguageHelp')}</small>
+          </label>
 
           {visibleTranslations.map((translation) => {
             const translationDraft = getInventoryTranslationDraft(values, translation.languageCode);

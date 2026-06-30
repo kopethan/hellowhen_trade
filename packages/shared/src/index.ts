@@ -11,6 +11,7 @@ export * from './tradePackages.js';
 export * from './wizard.js';
 
 export * from './inventoryCategories.js';
+export * from './contentLanguageResolver.js';
 export * from './inventoryTranslations.js';
 
 export * from './tradeDisplay.js';

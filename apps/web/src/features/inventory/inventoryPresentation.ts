@@ -187,6 +187,15 @@ export function removeInventoryTranslationDraft(values: InventoryFormValues, lan
   return { ...values, translations: values.translations.filter((translation) => translation.languageCode !== languageCode) };
 }
 
+export function setInventoryOriginalLanguage(values: InventoryFormValues, defaultLanguage: DiscoveryLanguage): InventoryFormValues {
+  if (values.defaultLanguage === defaultLanguage) return values;
+  return {
+    ...values,
+    defaultLanguage,
+    translations: values.translations.filter((translation) => translation.languageCode !== defaultLanguage),
+  };
+}
+
 export function normalizeInventoryTranslationsForPayload(values: InventoryFormValues) {
   return values.translations
     .filter((translation) => translation.languageCode !== values.defaultLanguage)

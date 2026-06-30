@@ -4,7 +4,7 @@ import * as Location from 'expo-location';
 import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { DiscoveryLanguage, GooglePlacePrediction, GoogleResolvedPlace, InventoryTranslationDto, ListPlansQuery, MediaAssetDto, PlaceDto, PlacePresenceVerificationResponse, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
+import type { DiscoveryLanguage, GooglePlacePrediction, GoogleResolvedPlace, InventoryTranslationDto, ListPlansQuery, MediaAssetDto, PlaceDto, PlacePresenceVerificationResponse, PlaceStaticMapDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
 import { buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type NormalWorkspaceMenuItem, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
@@ -12,6 +12,7 @@ import { AppText } from '../../components/AppText';
 import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
 import { KeyboardDoneAccessory, KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
 import { ReportContentPanel } from '../../components/ReportContentPanel';
+import { ContentLanguageControls, useContentLanguageSelection } from '../../components/ContentLanguageControls';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
@@ -264,6 +265,7 @@ function selectedPlaceFromPlanIdeaStop(stop: StarterPlanIdeaStop, index: number,
     onlineLabel: stop.mode === 'remote' ? stop.onlineLabel ?? '' : '',
     onlineUrl: stop.mode === 'remote' ? stop.onlineUrl ?? '' : '',
     existingMedia: null,
+    existingStaticMap: null,
   };
 }
 
@@ -282,6 +284,7 @@ type SelectedPlanPlaceState = {
   onlineLabel: string;
   onlineUrl: string;
   existingMedia?: MediaAssetDto | null;
+  existingStaticMap?: PlaceStaticMapDto | null;
 };
 
 type AdvancedPlanDetailsState = {
@@ -372,6 +375,15 @@ function removePlaceTranslationDraft(state: PlaceCreateFormState, languageCode: 
   return { ...state, translations: state.translations.filter((translation) => translation.languageCode !== languageCode) };
 }
 
+function setPlaceOriginalLanguage(state: PlaceCreateFormState, languageCode: DiscoveryLanguage): PlaceCreateFormState {
+  if (state.defaultLanguage === languageCode) return state;
+  return {
+    ...state,
+    defaultLanguage: languageCode,
+    translations: state.translations.filter((translation) => translation.languageCode !== languageCode),
+  };
+}
+
 function normalizePlaceTranslationsForPayload(state: PlaceCreateFormState) {
   return state.translations
     .filter((translation) => translation.languageCode !== state.defaultLanguage)
@@ -458,6 +470,7 @@ function selectedPlaceFromReusable(place: PlaceDto, index: number, date = toDate
     onlineLabel: place.onlineLabel ?? '',
     onlineUrl: place.onlineUrl ?? '',
     existingMedia: activeMedia(place.media)[0] ?? null,
+    existingStaticMap: place.staticMap ?? null,
   };
 }
 
@@ -472,6 +485,7 @@ function resetSelectedPlaceToCustom(place: SelectedPlanPlaceState): SelectedPlan
     sourcePlaceSource: 'custom',
     sourcePlaceTitle: undefined,
     existingMedia: null,
+    existingStaticMap: null,
   };
 }
 
@@ -643,6 +657,15 @@ function activeMedia(media: MediaAssetDto[] | undefined) {
 function activeMediaUrl(media?: MediaAssetDto | null) {
   if (!media?.url || media.status !== 'active') return null;
   return resolveMediaUrl(media.url);
+}
+
+function staticMapUrlForTheme(staticMap?: PlaceStaticMapDto | null, themeMode: 'light' | 'dark' = 'light') {
+  if (!staticMap) return null;
+  return themeMode === 'dark' ? staticMap.darkUrl || staticMap.lightUrl || null : staticMap.lightUrl || staticMap.darkUrl || null;
+}
+
+function placeVisualUrl(media?: MediaAssetDto | null, staticMap?: PlaceStaticMapDto | null, themeMode: 'light' | 'dark' = 'light') {
+  return activeMediaUrl(media) ?? staticMapUrlForTheme(staticMap, themeMode);
 }
 
 function reusablePlaceMediaForEdit(place?: PlaceDto | null) {
@@ -878,6 +901,12 @@ function PlanRow({ plan, onPress }: { plan: PlanDto; onPress: () => void }) {
   );
 }
 
+
+function placeDisplayLanguageLabel(place: PlaceDto) {
+  if (!place.displayLanguage?.languageCode || place.displayLanguage.source === 'exact') return null;
+  return place.displayLanguage.languageCode.toUpperCase();
+}
+
 function PlaceRow({
   place,
   onPress,
@@ -893,7 +922,7 @@ function PlaceRow({
 }) {
   const theme = useThemeTokens();
   const isLibrary = place.source === 'hellowhen_library';
-  const mediaUrl = activeMediaUrl(activeMedia(place.media)[0]);
+  const mediaUrl = placeVisualUrl(activeMedia(place.media)[0], place.staticMap, theme.mode);
   const content = (
     <>
       <View style={styles.placeRowContent}>
@@ -904,6 +933,7 @@ function PlaceRow({
           <View style={styles.rowTop}>
             <SemanticBadge label={isLibrary ? 'Library place' : 'My place'} tone="place" size="sm" />
             <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
+            {placeDisplayLanguageLabel(place) ? <SemanticBadge label={placeDisplayLanguageLabel(place) ?? ''} tone="instruction" size="sm" /> : null}
           </View>
           <AppText style={styles.rowTitle}>{place.title}</AppText>
           <AppText style={[styles.rowBody, { color: theme.color.muted }]} numberOfLines={2}>{place.description || 'Reusable place for future Plans.'}</AppText>
@@ -1487,9 +1517,14 @@ function PlanPlaceTimelineCard({
   onVerifyPresence: (place: PlanPlaceDto) => void;
 }) {
   const theme = useThemeTokens();
-  const mediaUrl = activeMediaUrl(getPlanPlaceMedia(place));
+  const mediaUrl = placeVisualUrl(getPlanPlaceMedia(place), place.staticMap ?? place.sourcePlace?.staticMap ?? null, theme.mode);
   const locationDetails = getPlanPlaceLocationDetails(place);
   const description = getPlanPlaceDescription(place);
+  const languageSelection = useContentLanguageSelection({
+    displayLanguage: place.displayLanguage ?? place.sourcePlace?.displayLanguage ?? null,
+    fallbackTitle: place.title,
+    fallbackDescription: description,
+  });
   const sourceLabel = getPlanPlaceSourceLabel(place);
   const hasVerificationCoordinates = Boolean(getPlanPlaceVerificationCoordinates(place));
   const showPresenceVerification = isOfflinePlanPlace(place) && (canVerifyPresence || presenceNotice || hasVerificationCoordinates);
@@ -1510,7 +1545,8 @@ function PlanPlaceTimelineCard({
           </View>
           <View style={styles.planRouteContentRow}>
             <View style={styles.planRouteTextBlock}>
-              <AppText style={styles.planRouteTitle}>{place.title}</AppText>
+              <AppText style={styles.planRouteTitle}>{languageSelection.title}</AppText>
+              <ContentLanguageControls displayLanguage={place.displayLanguage ?? place.sourcePlace?.displayLanguage ?? null} selectedLanguage={languageSelection.selectedLanguage} onSelectLanguage={languageSelection.setSelectedLanguage} />
               {locationDetails ? (
                 <View style={[
                   styles.planRouteLocationCard,
@@ -1580,7 +1616,7 @@ function PlanPlaceTimelineCard({
                   </View>
                 </View>
               ) : null}
-              {description ? <AppText style={[styles.planRouteDescription, { color: theme.color.muted }]} numberOfLines={3}>{description}</AppText> : null}
+              {languageSelection.description ? <AppText style={[styles.planRouteDescription, { color: theme.color.muted }]} numberOfLines={3}>{languageSelection.description}</AppText> : null}
             </View>
             {mediaUrl ? (
               <View style={styles.planRouteImageWrap}>
@@ -2294,7 +2330,7 @@ function PlaceChoiceCard({ place, onAdd }: { place: PlaceDto; onAdd: () => void 
   const meta = [place.mode === 'remote' ? 'Online' : 'Offline', place.category, place.areaLabel || place.addressPublicText || place.onlineLabel]
     .filter((value): value is string => Boolean(value && value.trim()))
     .join(' · ');
-  const mediaUrl = activeMediaUrl(activeMedia(place.media)[0]);
+  const mediaUrl = placeVisualUrl(activeMedia(place.media)[0], place.staticMap, theme.mode);
   return (
     <Pressable accessibilityRole="button" onPress={onAdd} style={({ pressed }) => [styles.choiceCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
       <View style={[styles.choiceIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
@@ -2318,7 +2354,7 @@ function PlaceChoiceCard({ place, onAdd }: { place: PlaceDto; onAdd: () => void 
 function PlaceTimelineRow({ place, index, onPress }: { place: SelectedPlanPlaceState; index: number; onPress: () => void }) {
   const theme = useThemeTokens();
   const meta = placePreviewLocation(place) || 'No location yet';
-  const mediaUrl = activeMediaUrl(place.existingMedia);
+  const mediaUrl = placeVisualUrl(place.existingMedia, place.existingStaticMap, theme.mode);
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.placeTimelineRow, { borderColor: theme.color.border }, pressed && styles.pressed]}>
       {mediaUrl ? (
@@ -2550,6 +2586,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       media: place.existingMedia ? [place.existingMedia] : undefined,
+      staticMap: place.existingStaticMap ?? null,
     })),
   }) as PlanDto, [advancedDetails.category, advancedDetails.tags, explicitPlanEnd.endsAt, places, placesForGeneratedDisplay, previewDescription, previewTitle, schedule.endsAt, schedule.placeStartsAt, schedule.startsAt]);
 
@@ -3164,9 +3201,26 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                     <View style={styles.placeTranslationSummaryRow}>
                       <View style={styles.feedTitleWrap}>
                         <AppText style={styles.formLabel}>Languages</AppText>
-                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>Translations are optional. The original Place language follows your app language when you create a new Place.</AppText>
+                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose the language used for the main Place name and description. Add translations only when you write them manually.</AppText>
                       </View>
                       <SemanticBadge label={`Original content: ${placeLanguageLabel(state.defaultLanguage)}`} tone="place" />
+                    </View>
+
+                    <View style={[styles.placeTranslationFields, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }]}>
+                      <View style={styles.feedTitleWrap}>
+                        <AppText style={styles.formLabel}>Original Place language</AppText>
+                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>Viewers fall back to this language when their preferred languages are not available.</AppText>
+                      </View>
+                      <View style={styles.placeLanguageChips}>
+                        {placeLanguageOptions.map((languageCode) => (
+                          <PillButton
+                            key={languageCode}
+                            label={placeLanguageLabel(languageCode)}
+                            active={state.defaultLanguage === languageCode}
+                            onPress={() => setState((current) => setPlaceOriginalLanguage(current, languageCode))}
+                          />
+                        ))}
+                      </View>
                     </View>
 
                     {state.translations.map((translation) => (

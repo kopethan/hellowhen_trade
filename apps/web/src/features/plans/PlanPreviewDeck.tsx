@@ -1,11 +1,12 @@
 'use client';
 
-import type { MediaAssetDto, PlanDto, PlanPlaceMode } from '@hellowhen/contracts';
+import type { InventoryDisplayLanguage, MediaAssetDto, PlaceStaticMapDto, PlanDto, PlanPlaceMode } from '@hellowhen/contracts';
 import { SquareStackDeck, type SquareStackDeckItem } from '../deck/SquareStackDeck';
 import { TradePosterCard } from '../trade/TradePosterCard';
 import { formatWebDateTime } from '../../lib/webFormat';
 import { toDateInputValue, toTimeInputValue } from './planSchedule';
-import { planMediaSrc, planPlaceModeLabel } from './plansPresentation';
+import { planPlaceModeLabel } from './plansPresentation';
+import { resolvePlaceVisual, useResolvedPlaceVisualTheme, type PlaceVisualThemeMode } from './placeVisuals';
 
 type PreviewPlace = {
   id: string;
@@ -16,6 +17,8 @@ type PreviewPlace = {
   time?: string;
   startsAt?: string | null;
   media?: MediaAssetDto | null;
+  staticMap?: PlaceStaticMapDto | null;
+  displayLanguage?: InventoryDisplayLanguage | null;
 };
 
 type PlanPreviewDeckProps = {
@@ -58,6 +61,11 @@ function compactJoin(values: Array<string | null | undefined>) {
   return values.filter((value): value is string => Boolean(value && value.trim())).join(' · ');
 }
 
+function displayLanguageChip(displayLanguage?: InventoryDisplayLanguage | null) {
+  if (!displayLanguage?.languageCode || displayLanguage.source === 'exact') return null;
+  return displayLanguage.languageCode.toUpperCase();
+}
+
 function visiblePlaceTitle(place: PreviewPlace) {
   return place.title.trim() || 'Place name';
 }
@@ -67,7 +75,7 @@ function visiblePlaceLocation(place: PreviewPlace) {
   return shortLocation(place.location) || (mode === 'remote' ? 'Online link or instructions' : 'Address or meeting point');
 }
 
-function planDeckItems({ title, places, actionLabel = 'Open', badgeLabel }: Omit<PlanPreviewDeckProps, 'className' | 'onOpen'>): SquareStackDeckItem[] {
+function planDeckItems({ title, places, actionLabel = 'Open', badgeLabel, themeMode }: Omit<PlanPreviewDeckProps, 'className' | 'onOpen'> & { themeMode: PlaceVisualThemeMode }): SquareStackDeckItem[] {
   const visibleTitle = title.trim() || 'Untitled Plan';
   const fallbackPlace: PreviewPlace = { id: `${visibleTitle}-empty-place`, title: 'Place to be added', mode: 'local' as PlanPlaceMode };
   const visiblePlaces: PreviewPlace[] = places.length ? places : [fallbackPlace];
@@ -78,7 +86,7 @@ function planDeckItems({ title, places, actionLabel = 'Open', badgeLabel }: Omit
     const placeTitle = visiblePlaceTitle(place);
     const location = visiblePlaceLocation(place);
     const timeLabel = previewDateTime(place);
-    const imageSrc = planMediaSrc(place.media);
+    const placeVisual = resolvePlaceVisual({ media: place.media, staticMap: place.staticMap, themeMode });
     const cardNumber = index + 1;
 
     return {
@@ -87,14 +95,14 @@ function planDeckItems({ title, places, actionLabel = 'Open', badgeLabel }: Omit
       content: (
         <TradePosterCard
           id={`${place.id}-plan-place`}
-          imageUrl={imageSrc}
+          imageUrl={placeVisual.url}
           imageAlt={placeTitle}
           badge={badgeLabel ?? (timeLabel === 'Time not set' ? `PLACE · ${cardCountLabel(cardNumber, totalCards)}` : timeLabel)}
           eyebrow={`Place ${index + 1}/${totalCards} · ${planPlaceModeLabel(mode)}`}
           title={visibleTitle}
           detailTitle={placeTitle}
           subtitle={compactJoin([planPlaceModeLabel(mode), location])}
-          chips={[`Place ${index + 1}/${totalCards}`, planPlaceModeLabel(mode)]}
+          chips={[displayLanguageChip(place.displayLanguage), `Place ${index + 1}/${totalCards}`, planPlaceModeLabel(mode)].filter((chip): chip is string => Boolean(chip))}
           variant="trade"
         />
       ),
@@ -103,7 +111,8 @@ function planDeckItems({ title, places, actionLabel = 'Open', badgeLabel }: Omit
 }
 
 export function PlanPreviewDeck({ title, description, rangeLabel, places, className, onOpen, actionLabel, badgeLabel }: PlanPreviewDeckProps) {
-  const items = planDeckItems({ title, description, rangeLabel, places, actionLabel: actionLabel ?? (onOpen ? 'Open' : 'Preview'), badgeLabel });
+  const themeMode = useResolvedPlaceVisualTheme();
+  const items = planDeckItems({ title, description, rangeLabel, places, actionLabel: actionLabel ?? (onOpen ? 'Open' : 'Preview'), badgeLabel, themeMode });
   const visibleTitle = title.trim() || 'Untitled Plan';
   const deckClassName = ['trade-stack-deck', 'plan-stack-deck', !onOpen ? 'trade-stack-deck--preview' : null, className].filter(Boolean).join(' ');
 
@@ -128,6 +137,8 @@ export function PlanDtoPreviewDeck({ plan, className, onOpen, actionLabel, badge
     time: place.startsAt ? toTimeInputValue(place.startsAt) : undefined,
     startsAt: place.startsAt ?? undefined,
     media: place.media?.[0] ?? null,
+    staticMap: place.staticMap ?? place.sourcePlace?.staticMap ?? null,
+    displayLanguage: place.displayLanguage ?? place.sourcePlace?.displayLanguage ?? null,
   }));
   return (
     <PlanPreviewDeck

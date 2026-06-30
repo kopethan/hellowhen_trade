@@ -563,6 +563,13 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
 .choice-card em { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; background: var(--success-bg); color: var(--success-text); font-style: normal; }
 .choice-card--active { border-color: var(--proposal-border); background: var(--proposal-bg); color: var(--proposal-text); }
 .choice-card--active small { color: var(--proposal-text); opacity: 0.85; }
+.content-language-order-list { display: grid; gap: 9px; }
+.content-language-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 1px solid var(--app-border); border-radius: 20px; background: var(--app-surface-soft); padding: 12px; }
+.content-language-rank { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 999px; background: var(--app-bg-muted); color: var(--app-text-soft); font-size: 13px; }
+.content-language-copy { display: grid; gap: 3px; min-width: 0; }
+.content-language-copy small { color: var(--app-text-muted); font-size: 12px; font-weight: 750; line-height: 1.35; }
+.content-language-actions, .settings-inline-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.content-language-actions .secondary, .settings-inline-actions .secondary { min-height: 34px; padding: 7px 10px; font-size: 12px; }
 .reset-card { display: grid; gap: 16px; }
 
 /* Phase 19.3: mobile-web trade feed + social detail */
@@ -3200,6 +3207,29 @@ html[data-theme="dark"] .inventory-empty-state__plus {
 .place-image-empty { display: grid; gap: 5px; border: 1px dashed var(--place-border); border-radius: 22px; background: color-mix(in srgb, var(--place-bg) 8%, var(--app-surface)); padding: 18px; }
 .place-image-empty strong { font-size: 16px; font-weight: 950; }
 .place-image-empty span { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
+
+
+.place-map-template-picker { display: grid; gap: 12px; border-top: 1px solid var(--app-divider); padding-top: 13px; }
+.place-map-template-picker__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.place-map-template-option { --map-template-accent: var(--place-bg); --map-template-soft: var(--place-soft); display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 9px; border: 1px solid var(--app-border); border-radius: 18px; background: var(--app-surface); padding: 10px; color: var(--app-text); text-align: left; cursor: pointer; }
+.place-map-template-option:disabled { cursor: not-allowed; opacity: 0.58; }
+.place-map-template-option.is-selected { border-color: color-mix(in srgb, var(--map-template-accent) 62%, var(--app-border)); background: color-mix(in srgb, var(--map-template-soft) 62%, var(--app-surface)); }
+.place-map-template-option__swatch { grid-row: span 2; width: 28px; height: 28px; border-radius: 999px; background: linear-gradient(135deg, var(--map-template-accent), color-mix(in srgb, var(--map-template-accent) 28%, var(--app-surface))); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-text) 9%, transparent); }
+.place-map-template-option__swatch.is-system { background: repeating-linear-gradient(135deg, var(--app-border-strong) 0 5px, var(--app-surface-soft) 5px 10px); }
+.place-map-template-option strong { min-width: 0; font-size: 13px; font-weight: 950; }
+.place-map-template-option small { display: block; min-width: 0; color: var(--app-text-muted); font-size: 11px; font-weight: 760; line-height: 1.25; }
+.place-map-template-option--night_social { --map-template-accent: #7c3aed; --map-template-soft: #ede9fe; }
+.place-map-template-option--soft_pastel { --map-template-accent: #f97316; --map-template-soft: #ffedd5; }
+.place-map-template-option--minimal_address { --map-template-accent: #111827; --map-template-soft: #f3f4f6; }
+.place-map-template-option--city_grid { --map-template-accent: #2563eb; --map-template-soft: #dbeafe; }
+.place-map-template-option--green_outdoor { --map-template-accent: #16a34a; --map-template-soft: #dcfce7; }
+.place-map-template-option--warm_travel { --map-template-accent: #b45309; --map-template-soft: #fef3c7; }
+.place-map-template-option--premium_mono { --map-template-accent: #18181b; --map-template-soft: #e4e4e7; }
+[data-theme="dark"] .place-map-template-option--minimal_address,
+[data-theme="dark"] .place-map-template-option--premium_mono { --map-template-soft: #27272a; }
+@media (max-width: 520px) {
+  .place-map-template-picker__grid { grid-template-columns: 1fr; }
+}
 
 .place-create-intro { padding-bottom: 2px; }
 .place-create-intro p { max-width: 34rem; font-size: 13px; line-height: 1.35; }
@@ -12230,3 +12260,40 @@ html[data-theme="dark"] .web-app-page--me {
 .google-place-picker__pin { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--place-border); border-radius: 999px; background: color-mix(in srgb, var(--place-bg) 16%, var(--app-surface)); color: var(--place-text); font-size: 14px; font-weight: 950; }
 .plan-place-picker-panel .google-place-picker { border-bottom: 0; padding-bottom: 0; }
 .place-clean-form > .google-place-picker { border-bottom: 1px solid var(--app-divider); padding-bottom: 13px; }
+
+.content-language-detail {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.content-language-detail__summary,
+.content-language-detail__options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.content-language-detail__summary small {
+  color: var(--app-text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.content-language-detail__options button {
+  border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent);
+  background: color-mix(in srgb, var(--app-surface) 88%, transparent);
+  color: var(--app-text-muted);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.content-language-detail__options button.is-active {
+  border-color: color-mix(in srgb, var(--instruction-text) 62%, var(--app-border));
+  background: color-mix(in srgb, var(--instruction-text) 12%, var(--app-surface));
+  color: var(--app-text);
+}

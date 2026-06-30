@@ -27,6 +27,7 @@ import {
   DetailSection,
 } from '../../components/detail';
 import { InfoNotice, StatusBadge } from '../../components/SemanticUI';
+import { ContentLanguageControls, useContentLanguageSelection } from '../../components/ContentLanguageControls';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
@@ -39,6 +40,7 @@ import {
   getEditableTranslationLanguage,
   durationPresetLabel,
   itemTypeLabel,
+  LanguagePicker,
   ManualTranslationFields,
   OriginalLanguageSummary,
 } from './components/InventoryFormFields';
@@ -233,6 +235,7 @@ export function InventoryDetailScreen({
     return Boolean(
       title !== (item.title ?? '') ||
         description !== (item.description ?? '') ||
+        defaultLanguage !== itemDefaultLanguage ||
         translationEnabled !== itemTranslationEnabled ||
         translationTitle !== itemTranslationTitle ||
         translationDescription !== itemTranslationDescription ||
@@ -245,7 +248,7 @@ export function InventoryDetailScreen({
         existingMedia.find((media) => media.isCover)?.id !== (item.media ?? []).find((media) => media.isCover)?.id ||
         newImages.length > 0,
     );
-  }, [category, description, editing, isNeed, item, itemType, language, locationLabel, mode, newImages.length, timingOrAvailability, title, translationDescription, translationEnabled, translationTitle]);
+  }, [category, defaultLanguage, description, editing, isNeed, item, itemType, language, locationLabel, mode, newImages.length, timingOrAvailability, title, translationDescription, translationEnabled, translationTitle]);
 
   const unsavedChangesConfirm = useUnsavedChangesWarning({
     navigation,
@@ -255,6 +258,15 @@ export function InventoryDetailScreen({
     stayLabel: t('common.actions.cancel'),
     discardLabel: t('inventory.form.discardDraft'),
   });
+
+  function changeDefaultLanguage(nextLanguage: DiscoveryLanguage) {
+    setDefaultLanguage(nextLanguage);
+    if (translationEnabled) {
+      setTranslationEnabled(false);
+      setTranslationTitle('');
+      setTranslationDescription('');
+    }
+  }
 
   const hydrateForm = useCallback(
     (nextItem: InventoryItem) => {
@@ -520,6 +532,11 @@ export function InventoryDetailScreen({
       }),
     [category, itemType, locationLabel, mode, structuredTiming.duration, t, tone],
   );
+  const languageSelection = useContentLanguageSelection({
+    displayLanguage: !editing ? item?.displayLanguage : null,
+    fallbackTitle: item?.title ?? fallbackTitle ?? label,
+    fallbackDescription: item?.description ?? '',
+  });
   const status = typeof item?.status === 'string' ? item.status : 'draft';
   const isActive = status === 'active';
   const ownerId = typeof item?.ownerId === 'string' ? item.ownerId : null;
@@ -625,8 +642,8 @@ export function InventoryDetailScreen({
           <>
             <DetailHero
               eyebrow={`${label} · ${statusLabel(status, t)}`}
-              title={editing ? title || item.title : item.title}
-              subtitle={!editing ? item.description : undefined}
+              title={editing ? title || item.title : languageSelection.title}
+              subtitle={!editing ? languageSelection.description : undefined}
               meta={
                 updatedAt
                   ? `${t('inventory.labels.updated')} ${updatedAt}`
@@ -641,9 +658,12 @@ export function InventoryDetailScreen({
                 ]}
               />
               {!editing ? (
-                <View style={styles.heroActionRow}>
-                  <AddToAgendaButton sourceType={kind} sourceId={item.id} itemType={kind} title={item.title} note={item.description} style={styles.heroAgendaButton} />
-                </View>
+                <>
+                  <ContentLanguageControls displayLanguage={item.displayLanguage} selectedLanguage={languageSelection.selectedLanguage} onSelectLanguage={languageSelection.setSelectedLanguage} />
+                  <View style={styles.heroActionRow}>
+                    <AddToAgendaButton sourceType={kind} sourceId={item.id} itemType={kind} title={languageSelection.title} note={languageSelection.description} style={styles.heroAgendaButton} />
+                  </View>
+                </>
               ) : null}
             </DetailHero>
 
@@ -689,6 +709,7 @@ export function InventoryDetailScreen({
                   description={t('inventory.form.languageBody')}
                 >
                   <View style={styles.form}>
+                    <LanguagePicker value={defaultLanguage} onChange={changeDefaultLanguage} disabled={saving} />
                     <OriginalLanguageSummary languageCode={defaultLanguage} />
                     {translationEnabled ? (
                       <ManualTranslationFields
@@ -806,7 +827,7 @@ export function InventoryDetailScreen({
                       ? t('inventory.side.need')
                       : t('inventory.side.offer')
                   }
-                  description={item.description}
+                  description={languageSelection.description}
                 >
                   <DetailMetadataChips compact chips={chips} />
                 </DetailSection>

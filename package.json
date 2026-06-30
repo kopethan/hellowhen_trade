@@ -29,7 +29,8 @@
     "mobile:store-readiness": "npm run mobile:launch-smoke && node scripts/mobile-store-readiness.mjs && npm run cash-promise:safety-smoke",
     "cash-promise:safety-smoke": "node scripts/cash-promise-safety-smoke.mjs",
     "starter-library:qa": "node scripts/starter-library-qa.mjs",
-    "places:smoke": "node scripts/place-library-hidden-smoke.mjs"
+    "places:smoke": "node scripts/place-library-hidden-smoke.mjs",
+    "language:audit": "node scripts/language-consistency-audit.mjs"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

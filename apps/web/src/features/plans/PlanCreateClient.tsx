@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ChangeEvent, FormEvent } from 'react';
-import type { MediaAssetDto, PlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
+import type { MediaAssetDto, PlaceDto, PlaceStaticMapDto, PlanPlaceMode } from '@hellowhen/contracts';
 import { buildGeneratedPlanDisplay, parseStarterPlanIdeaKey, starterPlanIdeas, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { WebIcon } from '../../components/WebIcon';
@@ -29,6 +29,7 @@ type PlaceFormState = {
   onlineLabel: string;
   onlineUrl: string;
   existingMedia: MediaAssetDto | null;
+  existingStaticMap: PlaceStaticMapDto | null;
   media: MediaAssetDto | null;
   uploading: boolean;
 };
@@ -45,6 +46,7 @@ function makePlace(index: number, date = toDateInputValue()): PlaceFormState {
     onlineLabel: '',
     onlineUrl: '',
     existingMedia: null,
+    existingStaticMap: null,
     media: null,
     uploading: false,
   };
@@ -62,6 +64,7 @@ function makePlaceFromPlanIdeaStop(stop: StarterPlanIdeaStop, index: number, dat
     onlineLabel: stop.mode === 'remote' ? stop.onlineLabel ?? '' : '',
     onlineUrl: stop.mode === 'remote' ? stop.onlineUrl ?? '' : '',
     existingMedia: null,
+    existingStaticMap: null,
     media: null,
     uploading: false,
   };
@@ -153,6 +156,7 @@ function safeReadPlanDraft(): PlaceFormState[] {
       onlineLabel: place.onlineLabel || '',
       onlineUrl: place.onlineUrl || '',
       existingMedia: place.existingMedia ?? null,
+      existingStaticMap: place.existingStaticMap ?? null,
       media: place.media ?? null,
       uploading: false,
     }));
@@ -284,6 +288,7 @@ function applyReusablePlacePatch(place: PlaceDto): Partial<PlaceFormState> {
     onlineLabel: place.onlineLabel ?? '',
     onlineUrl: place.onlineUrl ?? '',
     existingMedia: place.media?.[0] ?? null,
+    existingStaticMap: place.staticMap ?? null,
     media: null,
   };
 }
@@ -294,6 +299,7 @@ function resetToCustomPatch(): Partial<PlaceFormState> {
     sourcePlaceSource: 'custom',
     sourcePlaceTitle: undefined,
     existingMedia: null,
+    existingStaticMap: null,
   };
 }
 
@@ -920,7 +926,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                         title={previewTitle}
                         description={previewDescription}
                         rangeLabel={rangeLabel}
-                        places={places.map((place, index) => ({ id: place.id, mode: place.mode, title: planPreviewPlaceTitle(place, index), location: placePreviewLocation(place), date: place.date, time: place.time, media: place.media ?? place.existingMedia }))}
+                        places={places.map((place, index) => ({ id: place.id, mode: place.mode, title: planPreviewPlaceTitle(place, index), location: placePreviewLocation(place), date: place.date, time: place.time, media: place.media ?? place.existingMedia, staticMap: place.existingStaticMap }))}
                         className="trade-stack-deck--create-preview"
                       />
                     </div>

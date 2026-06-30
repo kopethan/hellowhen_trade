@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { Prisma } from '@prisma/client';
-import { evaluatePlusGate } from '@hellowhen/shared';
+import { evaluatePlusGate, normalizeContentLanguageOrder, type ContentLanguageCode } from '@hellowhen/shared';
 import {
   PLAN_PLACE_MEDIA_LIMITS,
   createPlaceRequestSchema,
@@ -12,11 +12,13 @@ import { prisma } from '../../lib/prisma.js';
 import { optionalAuth, requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { attachUploadedMediaToEntity, withMedia, type MediaVisibility } from '../media/media.helpers.js';
 import { stripAnonymousPublicProfileMedia } from '../users/publicUser.js';
-import { syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
+import { applyInventoryDisplayLanguage, syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
 import { loadMembershipAccessStateForUser } from '../subscriptions/membershipEntitlements.js';
 import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
 import { googlePlacesRoutes } from './googlePlaces.routes.js';
+import { buildPlaceStaticMap } from './placeStaticMap.js';
+import { createRandomPlaceStaticMapTemplateAssignment, isPlaceStaticMapTemplateFamily } from './placeStaticMapTemplates.js';
 
 export const placesRoutes = Router();
 
@@ -32,6 +34,42 @@ function createPlaceRequestError(code: string, publicMessage: string, statusCode
 
 function cleanTags(value: string[] | undefined) {
   return Array.from(new Set(value ?? [])).map((item) => item.trim()).filter(Boolean).slice(0, 8);
+}
+
+function hasLocalStaticMapCandidate(input: { mode?: string | null; latitude?: number | null; longitude?: number | null; addressPublicText?: string | null; areaLabel?: string | null; formattedAddress?: string | null; googlePlaceName?: string | null }) {
+  if (input.mode === 'remote') return false;
+  if (typeof input.latitude === 'number' && typeof input.longitude === 'number') return true;
+  return Boolean(input.addressPublicText?.trim() || input.areaLabel?.trim() || input.formattedAddress?.trim() || input.googlePlaceName?.trim());
+}
+
+function placeStaticMapTemplateCreateData(input: ReturnType<typeof createPlaceRequestSchema.parse>, canChooseTemplate: boolean) {
+  if (input.staticMapTemplateFamily) {
+    if (!canChooseTemplate) {
+      throw createPlaceRequestError('plus_template_required', 'Manual Place map templates are available with Plus customization.', 403);
+    }
+    if (!isPlaceStaticMapTemplateFamily(input.staticMapTemplateFamily)) return {};
+    return {
+      staticMapTemplateFamily: input.staticMapTemplateFamily,
+      staticMapTemplateSeed: `manual:${input.staticMapTemplateFamily}`,
+    };
+  }
+  if (input.staticMapTemplateFamily === null) return { staticMapTemplateFamily: null, staticMapTemplateSeed: null };
+  if (input.mediaIds?.length) return {};
+  if (!hasLocalStaticMapCandidate(input)) return {};
+  return createRandomPlaceStaticMapTemplateAssignment('place');
+}
+
+function placeStaticMapTemplateUpdateData(input: ReturnType<typeof updatePlaceRequestSchema.parse>, canChooseTemplate: boolean) {
+  if (input.staticMapTemplateFamily === undefined) return {};
+  if (input.staticMapTemplateFamily === null) return { staticMapTemplateFamily: null, staticMapTemplateSeed: null };
+  if (!canChooseTemplate) {
+    throw createPlaceRequestError('plus_template_required', 'Manual Place map templates are available with Plus customization.', 403);
+  }
+  if (!isPlaceStaticMapTemplateFamily(input.staticMapTemplateFamily)) return {};
+  return {
+    staticMapTemplateFamily: input.staticMapTemplateFamily,
+    staticMapTemplateSeed: `manual:${input.staticMapTemplateFamily}`,
+  };
 }
 
 function placeInclude() {
@@ -58,6 +96,37 @@ function libraryVisibilityWhere(): Prisma.PlaceWhereInput {
   return { OR: [{ ownerId: null }, { owner: { trustTier: { not: 'restricted' as any } } }] };
 }
 
+function normalizeRouteLanguage(value?: string | null): ContentLanguageCode | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || normalized === 'system') return null;
+  const base = normalized.replace('_', '-').split('-')[0];
+  return base === 'fr' || base === 'en' || base === 'es' ? base : null;
+}
+
+function languageFromAcceptLanguage(value: unknown): ContentLanguageCode | null {
+  if (typeof value !== 'string') return null;
+  for (const candidate of value.split(',').map((entry) => entry.split(';')[0]?.trim()).filter(Boolean)) {
+    const language = normalizeRouteLanguage(candidate);
+    if (language) return language;
+  }
+  return null;
+}
+
+async function resolveContentLanguagePreferences(viewerId: string | undefined, acceptLanguageHeader: unknown) {
+  const settings = viewerId
+    ? await prisma.userSettings.findUnique({ where: { userId: viewerId }, select: { language: true, contentLanguageOrder: true } })
+    : null;
+  const language = normalizeRouteLanguage(settings?.language) ?? languageFromAcceptLanguage(acceptLanguageHeader) ?? 'en';
+  return {
+    language,
+    contentLanguageOrder: normalizeContentLanguageOrder({
+      viewerLanguage: language,
+      preferredLanguages: Array.isArray(settings?.contentLanguageOrder) ? settings.contentLanguageOrder as string[] : null,
+      defaultLanguage: 'en',
+    }),
+  };
+}
+
 function canManageLibraryPlace(actor: { role: string } | null | undefined) {
   return actor?.role === 'admin';
 }
@@ -69,12 +138,22 @@ async function loadActor(userId: string) {
   });
 }
 
+async function placeMembershipGate(actor: { id: string; role: string } | null) {
+  if (!actor) return evaluatePlusGate(plusConfigSnapshot(), null as any);
+  const accessState = await loadMembershipAccessStateForUser(prisma as any, actor.id);
+  return evaluatePlusGate(plusConfigSnapshot(), accessState as any);
+}
+
 async function placeMediaLimitFor(actor: { id: string; role: string } | null, source: string) {
   if (source === 'hellowhen_library') return PLAN_PLACE_MEDIA_LIMITS.adminLibrary;
-  if (!actor) return PLAN_PLACE_MEDIA_LIMITS.free;
-  const accessState = await loadMembershipAccessStateForUser(prisma as any, actor.id);
-  const gate = evaluatePlusGate(plusConfigSnapshot(), accessState as any);
+  const gate = await placeMembershipGate(actor);
   return gate.hasPlusAccess ? PLAN_PLACE_MEDIA_LIMITS.plus : PLAN_PLACE_MEDIA_LIMITS.free;
+}
+
+async function canChoosePlaceStaticMapTemplate(actor: { id: string; role: string } | null, source: string) {
+  if (source === 'hellowhen_library') return Boolean(actor && canManageLibraryPlace(actor));
+  const gate = await placeMembershipGate(actor);
+  return Boolean(gate.entitlements.customization);
 }
 
 function normalizeCreateInput(input: ReturnType<typeof createPlaceRequestSchema.parse>, actor: { role: string }) {
@@ -118,7 +197,7 @@ function normalizeUpdateInput(input: ReturnType<typeof updatePlaceRequestSchema.
   };
 }
 
-function createPlaceData(ownerId: string, input: ReturnType<typeof createPlaceRequestSchema.parse>, normalized: ReturnType<typeof normalizeCreateInput>) {
+function createPlaceData(ownerId: string, input: ReturnType<typeof createPlaceRequestSchema.parse>, normalized: ReturnType<typeof normalizeCreateInput>, staticMapTemplateData: Record<string, unknown>) {
   return {
     ownerId: normalized.source === 'user' ? ownerId : normalized.ownerId,
     source: normalized.source as any,
@@ -146,10 +225,11 @@ function createPlaceData(ownerId: string, input: ReturnType<typeof createPlaceRe
     defaultDurationMinutes: input.defaultDurationMinutes ?? null,
     defaultNote: input.defaultNote ?? null,
     defaultMeetingInstructions: input.defaultMeetingInstructions ?? null,
+    ...staticMapTemplateData,
   };
 }
 
-function updatePlaceData(input: ReturnType<typeof updatePlaceRequestSchema.parse>, normalized: ReturnType<typeof normalizeUpdateInput>) {
+function updatePlaceData(input: ReturnType<typeof updatePlaceRequestSchema.parse>, normalized: ReturnType<typeof normalizeUpdateInput>, staticMapTemplateData: Record<string, unknown>) {
   const status = normalized.status;
   return {
     ...(input.mode !== undefined ? { mode: input.mode } : {}),
@@ -174,6 +254,7 @@ function updatePlaceData(input: ReturnType<typeof updatePlaceRequestSchema.parse
     ...(input.defaultDurationMinutes !== undefined ? { defaultDurationMinutes: input.defaultDurationMinutes ?? null } : {}),
     ...(input.defaultNote !== undefined ? { defaultNote: input.defaultNote ?? null } : {}),
     ...(input.defaultMeetingInstructions !== undefined ? { defaultMeetingInstructions: input.defaultMeetingInstructions ?? null } : {}),
+    ...staticMapTemplateData,
     ...(normalized.visibility !== undefined ? { visibility: normalized.visibility as any } : {}),
     ...(status !== undefined ? { status: status as any, archivedAt: status === 'archived' ? new Date() : null } : {}),
   };
@@ -206,7 +287,7 @@ function cleanPlaceForViewer(place: any, viewerId?: string | null, actorRole?: s
   const isAdmin = actorRole === 'admin';
   const canSeePrivateDetails = isOwner || isAdmin;
   const owner = place.owner ? { ...place.owner, trustTier: undefined } : place.owner;
-  return {
+  const cleaned = {
     ...place,
     owner,
     mode: place.mode ?? 'local',
@@ -216,18 +297,32 @@ function cleanPlaceForViewer(place: any, viewerId?: string | null, actorRole?: s
     defaultMeetingInstructions: canSeePrivateDetails ? place.defaultMeetingInstructions ?? null : null,
     usedInPlansCount: canSeePrivateDetails ? place.usedInPlansCount ?? 0 : undefined,
   };
+  return { ...cleaned, staticMap: buildPlaceStaticMap(cleaned, { viewerId }) };
 }
 
-async function decoratePlaces(places: any[], viewerId?: string | null, visibility: MediaVisibility = 'owner', actorRole?: string | null) {
+async function decoratePlaces(
+  places: any[],
+  viewerId?: string | null,
+  visibility: MediaVisibility = 'owner',
+  actorRole?: string | null,
+  languagePreferences?: { language: ContentLanguageCode; contentLanguageOrder: ContentLanguageCode[] },
+) {
   const withTranslations = await withInventoryTranslations(prisma, 'place', places);
-  const withPlaceMedia = await withMedia('place' as any, withTranslations, visibility);
+  const displayReadyPlaces = applyInventoryDisplayLanguage(withTranslations, languagePreferences?.language, languagePreferences?.contentLanguageOrder);
+  const withPlaceMedia = await withMedia('place' as any, displayReadyPlaces, visibility);
   const usageCounts = await loadPlaceUsageCounts(withPlaceMedia.map((place: any) => place.id));
   return withPlaceMedia.map((place: any) => cleanPlaceForViewer({ ...place, usedInPlansCount: usageCounts.get(place.id) ?? 0 }, viewerId ?? null, actorRole ?? null));
 }
 
-async function decoratePlace(place: any, viewerId?: string | null, visibility: MediaVisibility = 'owner', actorRole?: string | null) {
+async function decoratePlace(
+  place: any,
+  viewerId?: string | null,
+  visibility: MediaVisibility = 'owner',
+  actorRole?: string | null,
+  languagePreferences?: { language: ContentLanguageCode; contentLanguageOrder: ContentLanguageCode[] },
+) {
   const withTranslations = await withOneInventoryTranslation(prisma, 'place', place);
-  const [decorated] = await decoratePlaces([withTranslations], viewerId, visibility, actorRole);
+  const [decorated] = await decoratePlaces([withTranslations], viewerId, visibility, actorRole, languagePreferences);
   return decorated;
 }
 
@@ -266,7 +361,8 @@ placesRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
     orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     take: input.take ?? 100,
   });
-  res.json({ places: await decoratePlaces(places, req.user!.id, 'owner') });
+  const languagePreferences = await resolveContentLanguagePreferences(req.user!.id, req.headers['accept-language']);
+  res.json({ places: await decoratePlaces(places, req.user!.id, 'owner', null, languagePreferences) });
 }));
 
 placesRoutes.get('/library', optionalAuth, asyncRoute(async (req, res) => {
@@ -283,7 +379,8 @@ placesRoutes.get('/library', optionalAuth, asyncRoute(async (req, res) => {
     take: input.take ?? 100,
   });
   const visibility = req.user?.id ? 'public' : 'public_anonymous';
-  const decorated = await decoratePlaces(places, req.user?.id ?? null, visibility);
+  const languagePreferences = await resolveContentLanguagePreferences(req.user?.id, req.headers['accept-language']);
+  const decorated = await decoratePlaces(places, req.user?.id ?? null, visibility, null, languagePreferences);
   res.json(stripAnonymousPublicProfileMedia({ places: decorated }, req.user?.id));
 }));
 
@@ -292,12 +389,17 @@ placesRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req,
   const actor = await loadActor(req.user!.id);
   if (!actor) return res.status(401).json({ error: 'unauthorized' });
   const normalized = normalizeCreateInput(input, actor);
-  const mediaLimit = await placeMediaLimitFor(actor, normalized.source);
-  const place = await prisma.place.create({ data: createPlaceData(req.user!.id, input, normalized) as any, include: placeInclude() });
+  const [mediaLimit, canChooseTemplate] = await Promise.all([
+    placeMediaLimitFor(actor, normalized.source),
+    canChoosePlaceStaticMapTemplate(actor, normalized.source),
+  ]);
+  const staticMapTemplateData = placeStaticMapTemplateCreateData(input, canChooseTemplate);
+  const place = await prisma.place.create({ data: createPlaceData(req.user!.id, input, normalized, staticMapTemplateData) as any, include: placeInclude() });
   await syncInventoryTranslations(prisma, 'place', place.id, req.user!.id, (place as any).defaultLanguage ?? input.defaultLanguage ?? 'en', input.translations ?? []);
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'place' as any, place.id, { maxImages: mediaLimit });
   const created = await prisma.place.findUnique({ where: { id: place.id }, include: placeInclude() });
-  res.status(201).json({ place: await decoratePlace(created, req.user!.id, 'owner', actor.role) });
+  const languagePreferences = await resolveContentLanguagePreferences(req.user!.id, req.headers['accept-language']);
+  res.status(201).json({ place: await decoratePlace(created, req.user!.id, 'owner', actor.role, languagePreferences) });
 }));
 
 placesRoutes.get('/:placeId', optionalAuth, asyncRoute(async (req, res) => {
@@ -308,7 +410,8 @@ placesRoutes.get('/:placeId', optionalAuth, asyncRoute(async (req, res) => {
   const actor = req.user?.id ? await loadActor(req.user.id) : null;
   const isOwner = Boolean(req.user?.id && place.ownerId === req.user.id);
   const visibility = isOwner ? 'owner' : req.user?.id ? 'public' : 'public_anonymous';
-  const decorated = await decoratePlace(place, req.user?.id ?? null, visibility, actor?.role ?? null);
+  const languagePreferences = await resolveContentLanguagePreferences(req.user?.id, req.headers['accept-language']);
+  const decorated = await decoratePlace(place, req.user?.id ?? null, visibility, actor?.role ?? null, languagePreferences);
   res.json(stripAnonymousPublicProfileMedia({ place: decorated }, req.user?.id));
 }));
 
@@ -336,12 +439,17 @@ placesRoutes.patch('/:placeId', requireAuth, requireActiveAccount, asyncRoute(as
     });
   }
   const normalized = normalizeUpdateInput(input, existing as any, actor);
-  const mediaLimit = await placeMediaLimitFor(actor, existing.source);
-  const updated = await prisma.place.update({ where: { id: existing.id }, data: updatePlaceData(input, normalized) as any, include: placeInclude() });
+  const [mediaLimit, canChooseTemplate] = await Promise.all([
+    placeMediaLimitFor(actor, existing.source),
+    canChoosePlaceStaticMapTemplate(actor, existing.source),
+  ]);
+  const staticMapTemplateData = placeStaticMapTemplateUpdateData(input, canChooseTemplate);
+  const updated = await prisma.place.update({ where: { id: existing.id }, data: updatePlaceData(input, normalized, staticMapTemplateData) as any, include: placeInclude() });
   await syncInventoryTranslations(prisma, 'place', updated.id, req.user!.id, (updated as any).defaultLanguage ?? input.defaultLanguage ?? 'en', input.translations);
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'place' as any, updated.id, { maxImages: mediaLimit, syncSelection: input.mediaIds !== undefined });
   const refreshed = await prisma.place.findUnique({ where: { id: updated.id }, include: placeInclude() });
-  res.json({ place: await decoratePlace(refreshed, req.user!.id, 'owner', actor.role) });
+  const languagePreferences = await resolveContentLanguagePreferences(req.user!.id, req.headers['accept-language']);
+  res.json({ place: await decoratePlace(refreshed, req.user!.id, 'owner', actor.role, languagePreferences) });
 }));
 
 placesRoutes.delete('/:placeId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
@@ -359,5 +467,6 @@ placesRoutes.delete('/:placeId', requireAuth, requireActiveAccount, asyncRoute(a
   });
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const archived = await prisma.place.update({ where: { id: existing.id }, data: { status: 'archived' as any, archivedAt: new Date() }, include: placeInclude() });
-  res.json({ place: await decoratePlace(archived, req.user!.id, 'owner', actor.role) });
+  const languagePreferences = await resolveContentLanguagePreferences(req.user!.id, req.headers['accept-language']);
+  res.json({ place: await decoratePlace(archived, req.user!.id, 'owner', actor.role, languagePreferences) });
 }));

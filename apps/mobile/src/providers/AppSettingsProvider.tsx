@@ -1,14 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import type { AppSettings } from '@hellowhen/contracts';
+import type { AppSettings, ContentLanguageCode, LanguagePreference } from '@hellowhen/contracts';
 import { normalizeLanguagePreference } from '@hellowhen/i18n';
 import { api } from '../lib/api';
 
 const SETTINGS_STORAGE_KEY = 'hellowhen_app_settings_v1';
+const contentLanguageCodes = ['en', 'fr', 'es'] as const satisfies readonly ContentLanguageCode[];
 
 const defaultSettings: AppSettings = {
   appearance: 'system',
   language: 'system',
+  contentLanguageOrder: ['en'],
   notificationsEnabled: true,
 };
 
@@ -26,10 +28,30 @@ const SettingsContext = createContext<SettingsContextValue>({
   hydrated: false,
 });
 
+function normalizeContentLanguageOrder(value: unknown, appLanguage: LanguagePreference): ContentLanguageCode[] {
+  const ordered: ContentLanguageCode[] = [];
+  const add = (language: unknown) => {
+    if (typeof language !== 'string') return;
+    if (!contentLanguageCodes.includes(language as ContentLanguageCode)) return;
+    if (ordered.includes(language as ContentLanguageCode)) return;
+    ordered.push(language as ContentLanguageCode);
+  };
+
+  if (Array.isArray(value)) {
+    value.forEach(add);
+  }
+
+  if (!ordered.length && appLanguage !== 'system') add(appLanguage);
+  if (!ordered.length) add('en');
+  return ordered;
+}
+
 function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppSettings {
+  const language = normalizeLanguagePreference(value?.language);
   return {
     appearance: value?.appearance === 'light' || value?.appearance === 'dark' || value?.appearance === 'system' ? value.appearance : defaultSettings.appearance,
-    language: normalizeLanguagePreference(value?.language),
+    language,
+    contentLanguageOrder: normalizeContentLanguageOrder(value?.contentLanguageOrder, language),
     notificationsEnabled: typeof value?.notificationsEnabled === 'boolean' ? value.notificationsEnabled : defaultSettings.notificationsEnabled,
   };
 }

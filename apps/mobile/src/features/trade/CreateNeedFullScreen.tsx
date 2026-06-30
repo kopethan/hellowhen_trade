@@ -14,7 +14,7 @@ import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { ImagePickerField } from './components/ImagePickerField';
-import { AddTranslationButton, buildManualTranslation, CategoryPicker, InventoryTextField, ManualTranslationFields, ModePicker, optionalText, OriginalLanguageSummary } from './components/InventoryFormFields';
+import { AddTranslationButton, buildManualTranslation, CategoryPicker, InventoryTextField, LanguagePicker, ManualTranslationFields, ModePicker, optionalText, OriginalLanguageSummary } from './components/InventoryFormFields';
 import { InventoryAiAssistCard } from './components/InventoryAiAssistCard';
 import { PreviewThemePickerCard } from './components/PreviewThemePickerCard';
 import { formatUploadProgress, getFriendlyUploadErrorMessage, uploadSelectedImages, type SelectedImageUploadProgress, type SelectedLocalImage } from './mediaUpload';
@@ -42,7 +42,7 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
   const { t, language } = useTranslation();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [defaultLanguage] = useState<DiscoveryLanguage>(language);
+  const [defaultLanguage, setDefaultLanguage] = useState<DiscoveryLanguage>(language);
   const [translationTitle, setTranslationTitle] = useState('');
   const [translationDescription, setTranslationDescription] = useState('');
   const [translationEnabled, setTranslationEnabled] = useState(false);
@@ -110,6 +110,7 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
         if (!template) throw new Error('starter_template_missing');
         setTitle(template.title);
         setDescription(template.description);
+        setDefaultLanguage(template.languageCode === 'fr' || template.languageCode === 'es' ? template.languageCode : language);
         setCategory(template.category ?? '');
         setTags((template.tags ?? []).join(', '));
         setMode(template.mode ?? 'remote');
@@ -125,6 +126,15 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
     void loadStarterTemplate();
     return () => { mounted = false; };
   }, [language, route.params?.initialTemplateKey, starterPrefillApplied, t]);
+
+  function changeDefaultLanguage(nextLanguage: DiscoveryLanguage) {
+    setDefaultLanguage(nextLanguage);
+    if (translationEnabled) {
+      setTranslationEnabled(false);
+      setTranslationTitle('');
+      setTranslationDescription('');
+    }
+  }
 
   function applyAiTranslation(_languageCode: DiscoveryLanguage, titleText: string, descriptionText: string) {
     setTranslationEnabled(true);
@@ -257,6 +267,7 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
         <AppCard>
           <AppText style={styles.sectionTitle}>{t('inventory.form.languageTitle')}</AppText>
           <AppText style={styles.sectionBody}>{t('inventory.form.languageBody')}</AppText>
+          <LanguagePicker value={defaultLanguage} onChange={changeDefaultLanguage} disabled={submitting} />
           <OriginalLanguageSummary languageCode={defaultLanguage} />
           {translationEnabled ? (
             <ManualTranslationFields

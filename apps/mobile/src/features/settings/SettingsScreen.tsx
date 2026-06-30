@@ -2,7 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { AppSettings } from '@hellowhen/contracts';
+import type { AppSettings, ContentLanguageCode } from '@hellowhen/contracts';
 import type { LanguagePreference } from '@hellowhen/i18n';
 import { AppCard } from '../../components/AppCard';
 import { AppHeader } from '../../components/AppHeader';
@@ -34,6 +34,38 @@ const languageOptions: Array<ChoiceOption<LanguagePreference>> = [
   { labelKey: 'settings.language.options.fr.title', value: 'fr' },
   { labelKey: 'settings.language.options.es.title', value: 'es' },
 ];
+
+const contentLanguageOptions: Array<ChoiceOption<ContentLanguageCode>> = [
+  { labelKey: 'settings.language.options.en.title', value: 'en' },
+  { labelKey: 'settings.language.options.fr.title', value: 'fr' },
+  { labelKey: 'settings.language.options.es.title', value: 'es' },
+];
+
+function contentLanguageTitleKey(language: ContentLanguageCode) {
+  return contentLanguageOptions.find((option) => option.value === language)?.labelKey ?? 'settings.language.options.en.title';
+}
+
+function defaultContentLanguageOrder(language: LanguagePreference): ContentLanguageCode[] {
+  if (language === 'fr' || language === 'es') return [language, 'en'];
+  return ['en'];
+}
+
+function moveContentLanguage(order: ContentLanguageCode[], language: ContentLanguageCode, direction: -1 | 1) {
+  const next = [...order];
+  const index = next.indexOf(language);
+  const targetIndex = index + direction;
+  if (index < 0 || targetIndex < 0 || targetIndex >= next.length) return next;
+  const current = next[index]!;
+  const target = next[targetIndex]!;
+  next[index] = target;
+  next[targetIndex] = current;
+  return next;
+}
+
+function removeContentLanguage(order: ContentLanguageCode[], language: ContentLanguageCode) {
+  const next = order.filter((item) => item !== language);
+  return next.length ? next : order;
+}
 
 export function SettingsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -109,6 +141,10 @@ export function SettingsScreen() {
     }
   }
 
+  async function updateContentLanguageOrder(nextOrder: ContentLanguageCode[]) {
+    await updateSettings({ contentLanguageOrder: nextOrder });
+  }
+
   return (
     <AppScreen>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadSettings(); }} />}>
@@ -135,6 +171,36 @@ export function SettingsScreen() {
                 onPress={() => { void updateSettings({ language: option.value }); }}
               />
             ))}
+          </View>
+        </AppCard>
+
+        <AppCard>
+          <SemanticBadge label={t('settings.contentLanguage.badge')} tone="info" size="sm" />
+          <AppText style={styles.sectionTitle}>{t('settings.contentLanguage.title')}</AppText>
+          <AppText style={[styles.body, { color: theme.color.muted }]}>{t('settings.contentLanguage.bodyNative')}</AppText>
+          <View style={styles.languageOrderList}>
+            {settings.contentLanguageOrder.map((language, index) => (
+              <View key={language} style={[styles.languageOrderRow, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+                <View style={styles.languageOrderCopy}>
+                  <SemanticBadge label={`${index + 1}`} tone="muted" size="sm" />
+                  <View style={styles.languageOrderText}>
+                    <AppText style={styles.languageOrderTitle}>{t(contentLanguageTitleKey(language))}</AppText>
+                    <AppText style={[styles.languageOrderBody, { color: theme.color.muted }]}>{index === 0 ? t('settings.contentLanguage.firstChoice') : t('settings.contentLanguage.fallbackChoice')}</AppText>
+                  </View>
+                </View>
+                <View style={styles.languageOrderActions}>
+                  <ChoiceButton label={t('settings.contentLanguage.moveUp')} selected={false} disabled={saving || index === 0} onPress={() => { void updateContentLanguageOrder(moveContentLanguage(settings.contentLanguageOrder, language, -1)); }} />
+                  <ChoiceButton label={t('settings.contentLanguage.moveDown')} selected={false} disabled={saving || index === settings.contentLanguageOrder.length - 1} onPress={() => { void updateContentLanguageOrder(moveContentLanguage(settings.contentLanguageOrder, language, 1)); }} />
+                  <ChoiceButton label={t('settings.contentLanguage.remove')} selected={false} disabled={saving || settings.contentLanguageOrder.length <= 1} onPress={() => { void updateContentLanguageOrder(removeContentLanguage(settings.contentLanguageOrder, language)); }} />
+                </View>
+              </View>
+            ))}
+          </View>
+          <View style={styles.optionRow}>
+            {contentLanguageOptions.filter((option) => !settings.contentLanguageOrder.includes(option.value)).map((option) => (
+              <ChoiceButton key={option.value} label={t('settings.contentLanguage.addLanguage', { language: t(option.labelKey) })} selected={false} disabled={saving} onPress={() => { void updateContentLanguageOrder([...settings.contentLanguageOrder, option.value]); }} />
+            ))}
+            <ChoiceButton label={t('settings.contentLanguage.reset')} selected={false} disabled={saving} onPress={() => { void updateContentLanguageOrder(defaultContentLanguageOrder(settings.language)); }} />
           </View>
         </AppCard>
 
@@ -240,6 +306,13 @@ const styles = StyleSheet.create({
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
   switchCopy: { flex: 1, gap: 5 },
   optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  languageOrderList: { gap: 9 },
+  languageOrderRow: { borderWidth: 1, borderRadius: 18, padding: 11, gap: 10 },
+  languageOrderCopy: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  languageOrderText: { flex: 1, minWidth: 0, gap: 2 },
+  languageOrderTitle: { fontWeight: '900', fontSize: 15 },
+  languageOrderBody: { fontWeight: '700', fontSize: 12, lineHeight: 16 },
+  languageOrderActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   choiceButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
   choiceButtonText: { fontWeight: '900' },
   securityRows: { gap: 6 },

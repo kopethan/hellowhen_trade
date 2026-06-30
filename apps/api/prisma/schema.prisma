@@ -1348,6 +1348,7 @@ model UserSettings {
   appearance            String   @default("system")
   accent                String   @default("teal")
   language              String   @default("system")
+  contentLanguageOrder  Json?
   notificationsEnabled  Boolean  @default(true)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
@@ -2697,6 +2698,8 @@ model Place {
   defaultDurationMinutes     Int?
   defaultNote                String?
   defaultMeetingInstructions String?
+  staticMapTemplateFamily    String?
+  staticMapTemplateSeed      String?
   createdAt                  DateTime        @default(now())
   updatedAt                  DateTime        @updatedAt
   archivedAt                 DateTime?
@@ -2711,6 +2714,7 @@ model Place {
   @@index([category])
   @@index([googlePlaceId])
   @@index([latitude, longitude])
+  @@index([staticMapTemplateFamily])
 }
 
 
@@ -2796,6 +2800,8 @@ model PlanPlace {
   addressValidationStatus PlaceAddressValidationStatus?
   onlineLabel        String?
   onlineUrl          String?
+  staticMapTemplateFamily String?
+  staticMapTemplateSeed   String?
   startsAt           DateTime?
   endsAt             DateTime?
   createdAt          DateTime      @default(now())
@@ -2811,6 +2817,7 @@ model PlanPlace {
   @@index([startsAt])
   @@index([googlePlaceId])
   @@index([latitude, longitude])
+  @@index([staticMapTemplateFamily])
 }
 
 model PlacePresenceVerification {

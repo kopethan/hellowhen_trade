@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ChangeEvent, FormEvent } from 'react';
-import type { MediaAssetDto, PlanDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
+import type { MediaAssetDto, PlaceStaticMapDto, PlanDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
@@ -22,6 +22,7 @@ type PlaceFormState = {
   title: string;
   location: string;
   existingMedia: MediaAssetDto | null;
+  existingStaticMap: PlaceStaticMapDto | null;
   media: MediaAssetDto | null;
   uploading: boolean;
 };
@@ -59,6 +60,7 @@ function placeFormFromPlace(place: PlanPlaceDto): PlaceFormState {
     title: place.title,
     location: place.addressPublicText ?? '',
     existingMedia: place.media?.[0] ?? null,
+    existingStaticMap: place.staticMap ?? place.sourcePlace?.staticMap ?? null,
     media: null,
     uploading: false,
   };
@@ -73,6 +75,7 @@ function makeNewPlace(index: number, date = toDateInputValue()): PlaceFormState 
     title: '',
     location: '',
     existingMedia: null,
+    existingStaticMap: null,
     media: null,
     uploading: false,
   };
@@ -387,7 +390,7 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
                   title={title}
                   description={description}
                   rangeLabel={rangeLabel}
-                  places={places.map((place) => ({ id: place.id, mode: place.mode, title: place.title, location: place.location, date: place.date, time: place.time, media: place.media ?? place.existingMedia }))}
+                  places={places.map((place) => ({ id: place.id, mode: place.mode, title: place.title, location: place.location, date: place.date, time: place.time, media: place.media ?? place.existingMedia, staticMap: place.existingStaticMap }))}
                   className="trade-stack-deck--create-preview"
                 />
               </div>

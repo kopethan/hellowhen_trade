@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { mediaAssetSchema } from './media.js';
-import { discoveryLanguageSchema, inventoryTranslationSchema, tradeExchangeModeSchema } from './trade.js';
+import { discoveryLanguageSchema, inventoryDisplayLanguageSchema, inventoryTranslationSchema, tradeExchangeModeSchema } from './trade.js';
 
 export const planStatusSchema = z.enum(['draft', 'open', 'full', 'started', 'completed', 'cancelled', 'expired', 'hidden']);
 export const planPublicStatusSchema = z.enum(['open', 'full', 'started', 'cancelled']);
@@ -16,6 +16,29 @@ export const placeLocationSourceSchema = z.enum(['manual', 'google_places']);
 export const placeAddressValidationStatusSchema = z.enum(['confirmed', 'needs_review', 'unsupported']);
 export const placePresenceVerificationSourceSchema = z.enum(['device_gps']);
 export const placePresenceVerificationStatusSchema = z.enum(['verified', 'rejected']);
+export const PLACE_STATIC_MAP_TEMPLATE_FAMILIES = [
+  'clean_local',
+  'night_social',
+  'soft_pastel',
+  'minimal_address',
+  'city_grid',
+  'green_outdoor',
+  'warm_travel',
+  'premium_mono',
+] as const;
+export const placeStaticMapTemplateFamilySchema = z.enum(PLACE_STATIC_MAP_TEMPLATE_FAMILIES);
+export const placeStaticMapSourceSchema = z.enum(['coordinates', 'address']);
+export const placeStaticMapSchema = z.object({
+  provider: z.literal('google_static_maps'),
+  templateFamily: placeStaticMapTemplateFamilySchema,
+  source: placeStaticMapSourceSchema,
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  scale: z.number().int().min(1).max(4),
+  zoom: z.number().int().min(1).max(22),
+  lightUrl: z.string().url(),
+  darkUrl: z.string().url(),
+}).passthrough();
 
 export const googlePlaceValidationStatusSchema = z.enum(['confirmed', 'needs_review', 'unsupported']);
 export const googlePlaceAddressComponentSchema = z.object({
@@ -108,6 +131,7 @@ const reusablePlaceInputBaseSchema = z.object({
   longitude: z.number().min(-180).max(180).optional(),
   locationSource: placeLocationSourceSchema.optional(),
   addressValidationStatus: placeAddressValidationStatusSchema.optional(),
+  staticMapTemplateFamily: placeStaticMapTemplateFamilySchema.nullable().optional(),
   onlineLabel: z.string().trim().min(1).max(120).optional(),
   onlineUrl: z.string().trim().url().max(500).optional(),
   defaultDurationMinutes: z.number().int().min(5).max(24 * 60).optional(),
@@ -342,12 +366,16 @@ export const placeSchema = z.object({
   defaultDurationMinutes: z.number().int().nullable().optional(),
   defaultNote: z.string().nullable().optional(),
   defaultMeetingInstructions: z.string().nullable().optional(),
+  staticMapTemplateFamily: placeStaticMapTemplateFamilySchema.nullable().optional(),
+  staticMapTemplateSeed: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   archivedAt: z.string().nullable().optional(),
   usedInPlansCount: z.number().int().nonnegative().optional(),
   owner: publicUserSummarySchema.nullable().optional(),
   media: z.array(mediaAssetSchema).optional(),
+  staticMap: placeStaticMapSchema.nullable().optional(),
+  displayLanguage: inventoryDisplayLanguageSchema.optional(),
 }).passthrough();
 
 export const planPlaceSchema = z.object({
@@ -371,12 +399,16 @@ export const planPlaceSchema = z.object({
   addressValidationStatus: placeAddressValidationStatusSchema.nullable().optional(),
   onlineLabel: z.string().nullable().optional(),
   onlineUrl: z.string().nullable().optional(),
+  staticMapTemplateFamily: placeStaticMapTemplateFamilySchema.nullable().optional(),
+  staticMapTemplateSeed: z.string().nullable().optional(),
   startsAt: z.string().nullable().optional(),
   endsAt: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   sourcePlace: placeSchema.nullable().optional(),
   media: z.array(mediaAssetSchema).optional(),
+  staticMap: placeStaticMapSchema.nullable().optional(),
+  displayLanguage: inventoryDisplayLanguageSchema.optional(),
 }).passthrough();
 
 export const planParticipantSchema = z.object({
@@ -492,6 +524,9 @@ export type PlaceLocationSource = z.infer<typeof placeLocationSourceSchema>;
 export type PlaceAddressValidationStatus = z.infer<typeof placeAddressValidationStatusSchema>;
 export type PlacePresenceVerificationSource = z.infer<typeof placePresenceVerificationSourceSchema>;
 export type PlacePresenceVerificationStatus = z.infer<typeof placePresenceVerificationStatusSchema>;
+export type PlaceStaticMapTemplateFamily = z.infer<typeof placeStaticMapTemplateFamilySchema>;
+export type PlaceStaticMapSource = z.infer<typeof placeStaticMapSourceSchema>;
+export type PlaceStaticMapDto = z.infer<typeof placeStaticMapSchema>;
 export type GooglePlaceValidationStatus = z.infer<typeof googlePlaceValidationStatusSchema>;
 export type GooglePlacePrediction = z.infer<typeof googlePlacePredictionSchema>;
 export type GoogleResolvedPlace = z.infer<typeof googleResolvedPlaceSchema>;

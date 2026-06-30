@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
-import type { AppSettings } from '@hellowhen/contracts';
+import type { AppSettings, ContentLanguageCode } from '@hellowhen/contracts';
 import type { LanguagePreference } from '@hellowhen/i18n';
 import { MobilePage, PageIntro } from '../../../components/MobilePage';
 import { api } from '../../../lib/api';
@@ -28,6 +28,38 @@ const languageOptions: Array<ChoiceOption<LanguagePreference>> = [
   { value: 'fr', titleKey: 'settings.language.options.fr.title', bodyKey: 'settings.language.options.fr.body' },
   { value: 'es', titleKey: 'settings.language.options.es.title', bodyKey: 'settings.language.options.es.body' },
 ];
+
+const contentLanguageOptions: Array<Pick<ChoiceOption<ContentLanguageCode>, 'value' | 'titleKey'>> = [
+  { value: 'en', titleKey: 'settings.language.options.en.title' },
+  { value: 'fr', titleKey: 'settings.language.options.fr.title' },
+  { value: 'es', titleKey: 'settings.language.options.es.title' },
+];
+
+function contentLanguageTitleKey(language: ContentLanguageCode) {
+  return contentLanguageOptions.find((option) => option.value === language)?.titleKey ?? 'settings.language.options.en.title';
+}
+
+function defaultContentLanguageOrder(language: LanguagePreference): ContentLanguageCode[] {
+  if (language === 'fr' || language === 'es') return [language, 'en'];
+  return ['en'];
+}
+
+function moveContentLanguage(order: ContentLanguageCode[], language: ContentLanguageCode, direction: -1 | 1) {
+  const next = [...order];
+  const index = next.indexOf(language);
+  const targetIndex = index + direction;
+  if (index < 0 || targetIndex < 0 || targetIndex >= next.length) return next;
+  const current = next[index]!;
+  const target = next[targetIndex]!;
+  next[index] = target;
+  next[targetIndex] = current;
+  return next;
+}
+
+function removeContentLanguage(order: ContentLanguageCode[], language: ContentLanguageCode) {
+  const next = order.filter((item) => item !== language);
+  return next.length ? next : order;
+}
 
 function normalizeTwoFactorCode(value: string) {
   return value.trim().replace(/\s+/g, '');
@@ -93,6 +125,10 @@ export default function AccountSettingsPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function updateContentLanguageOrder(nextOrder: ContentLanguageCode[]) {
+    await updateAppSettings({ contentLanguageOrder: nextOrder }, 'settings.contentLanguage.savedAccount', 'settings.contentLanguage.savedBrowser');
   }
 
   async function requestEmailVerification() {
@@ -275,6 +311,46 @@ export default function AccountSettingsPage() {
               </button>
             );
           })}
+        </div>
+      </section>
+
+      <section className="mobile-card settings-panel">
+        <div>
+          <span className="semantic-badge info">{t('settings.contentLanguage.badge')}</span>
+          <h3>{t('settings.contentLanguage.title')}</h3>
+          <p>{t('settings.contentLanguage.body')}</p>
+        </div>
+        <div className="content-language-order-list" aria-label={t('settings.contentLanguage.orderLabel')}>
+          {appSettings.settings.contentLanguageOrder.map((language, index) => (
+            <div className="content-language-row" key={language}>
+              <strong className="content-language-rank">{index + 1}</strong>
+              <span className="content-language-copy">
+                <strong>{t(contentLanguageTitleKey(language))}</strong>
+                <small>{index === 0 ? t('settings.contentLanguage.firstChoice') : t('settings.contentLanguage.fallbackChoice')}</small>
+              </span>
+              <span className="content-language-actions">
+                <button type="button" className="secondary" disabled={saving || index === 0} onClick={() => { void updateContentLanguageOrder(moveContentLanguage(appSettings.settings.contentLanguageOrder, language, -1)); }}>
+                  {t('settings.contentLanguage.moveUp')}
+                </button>
+                <button type="button" className="secondary" disabled={saving || index === appSettings.settings.contentLanguageOrder.length - 1} onClick={() => { void updateContentLanguageOrder(moveContentLanguage(appSettings.settings.contentLanguageOrder, language, 1)); }}>
+                  {t('settings.contentLanguage.moveDown')}
+                </button>
+                <button type="button" className="secondary danger-text" disabled={saving || appSettings.settings.contentLanguageOrder.length <= 1} onClick={() => { void updateContentLanguageOrder(removeContentLanguage(appSettings.settings.contentLanguageOrder, language)); }}>
+                  {t('settings.contentLanguage.remove')}
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="settings-inline-actions">
+          {contentLanguageOptions.filter((option) => !appSettings.settings.contentLanguageOrder.includes(option.value)).map((option) => (
+            <button key={option.value} type="button" className="secondary" disabled={saving} onClick={() => { void updateContentLanguageOrder([...appSettings.settings.contentLanguageOrder, option.value]); }}>
+              {t('settings.contentLanguage.addLanguage', { language: t(option.titleKey) })}
+            </button>
+          ))}
+          <button type="button" className="secondary" disabled={saving} onClick={() => { void updateContentLanguageOrder(defaultContentLanguageOrder(appSettings.settings.language)); }}>
+            {t('settings.contentLanguage.reset')}
+          </button>
         </div>
       </section>
 

@@ -1,4 +1,4 @@
-import type { MediaAssetDto, NeedDto, OfferDto, PublicMediaAccessDto, TradeDto } from '@hellowhen/contracts';
+import type { InventoryDisplayLanguage, MediaAssetDto, NeedDto, OfferDto, PublicMediaAccessDto, TradeDto } from '@hellowhen/contracts';
 import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
 import { resolveWebAssetUrl } from '../../lib/api';
 import { formatWebMoney, formatWebShortDate } from '../../lib/webFormat';
@@ -25,6 +25,8 @@ export type TradeSide = {
   tags: string[];
   media: MediaAssetDto[];
   mediaAccess?: PublicMediaAccessDto;
+  languageBadge?: string;
+  displayLanguage?: InventoryDisplayLanguage | null;
 };
 
 export type DeckImage = {
@@ -43,6 +45,13 @@ type OfferDurationSource = Pick<OfferDto, 'typicalDurationPreset'> | null | unde
 
 function compactJoin(values: Array<string | null | undefined>) {
   return values.filter((value): value is string => Boolean(value && value.trim())).join(' · ');
+}
+
+function contentLanguageBadge(displayLanguage?: InventoryDisplayLanguage | null, i18n?: TradeI18n) {
+  const languageCode = displayLanguage?.languageCode?.toUpperCase();
+  if (!languageCode) return null;
+  if (displayLanguage?.source === 'exact' && displayLanguage.languageCode === i18n?.language) return null;
+  return languageCode;
 }
 
 export function getNeedTimingBadge(need: NeedDurationSource, i18n?: TradeI18n) {
@@ -213,6 +222,8 @@ export function needToSide(need: NeedDto | null | undefined, label: string, i18n
     tags: need.tags ?? [],
     media: need.media ?? [],
     mediaAccess: need.mediaAccess,
+    languageBadge: contentLanguageBadge(need.displayLanguage, i18n) ?? undefined,
+    displayLanguage: need.displayLanguage ?? null,
   };
 }
 
@@ -238,6 +249,8 @@ export function offerToSide(offer: OfferDto | null | undefined, label: string, i
     tags: [...(offer.includes ?? []), ...(offer.tags ?? [])],
     media: offer.media ?? [],
     mediaAccess: offer.mediaAccess,
+    languageBadge: contentLanguageBadge(offer.displayLanguage, i18n) ?? undefined,
+    displayLanguage: offer.displayLanguage ?? null,
   };
 }
 

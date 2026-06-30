@@ -4,8 +4,9 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ChangeEvent, FormEvent } from 'react';
 import { useEffect, useState } from 'react';
-import type { DiscoveryLanguage, InventoryTranslationDto, MediaAssetDto, PlanPlaceMode } from '@hellowhen/contracts';
+import { PLACE_STATIC_MAP_TEMPLATE_FAMILIES, type DiscoveryLanguage, type InventoryTranslationDto, type MediaAssetDto, type PlaceStaticMapTemplateFamily, type PlanPlaceMode } from '@hellowhen/contracts';
 import { api } from '../../lib/api';
+import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
@@ -31,6 +32,7 @@ type PlaceCreateFormState = {
   location: string;
   onlineLabel: string;
   onlineUrl: string;
+  staticMapTemplateFamily: PlaceStaticMapTemplateFamily | '';
 };
 
 function makePlaceCreateForm(defaultLanguage: DiscoveryLanguage = 'en'): PlaceCreateFormState {
@@ -43,10 +45,15 @@ function makePlaceCreateForm(defaultLanguage: DiscoveryLanguage = 'en'): PlaceCr
     location: '',
     onlineLabel: '',
     onlineUrl: '',
+    staticMapTemplateFamily: '',
   };
 }
 
-function formStateFromPlace(place: { mode?: PlanPlaceMode | null; title?: string | null; description?: string | null; defaultLanguage?: string | null; translations?: InventoryTranslationDto[] | null; addressPublicText?: string | null; areaLabel?: string | null; onlineLabel?: string | null; onlineUrl?: string | null }): PlaceCreateFormState {
+function normalizeStaticMapTemplateFamily(value?: string | null): PlaceStaticMapTemplateFamily | '' {
+  return PLACE_STATIC_MAP_TEMPLATE_FAMILIES.includes(value as PlaceStaticMapTemplateFamily) ? value as PlaceStaticMapTemplateFamily : '';
+}
+
+function formStateFromPlace(place: { mode?: PlanPlaceMode | null; title?: string | null; description?: string | null; defaultLanguage?: string | null; translations?: InventoryTranslationDto[] | null; addressPublicText?: string | null; areaLabel?: string | null; onlineLabel?: string | null; onlineUrl?: string | null; staticMapTemplateFamily?: string | null }): PlaceCreateFormState {
   const mode = place.mode === 'remote' ? 'remote' : 'local';
   return {
     mode,
@@ -57,8 +64,20 @@ function formStateFromPlace(place: { mode?: PlanPlaceMode | null; title?: string
     location: mode === 'local' ? place.addressPublicText ?? place.areaLabel ?? '' : '',
     onlineLabel: mode === 'remote' ? place.onlineLabel ?? '' : '',
     onlineUrl: mode === 'remote' ? place.onlineUrl ?? '' : '',
+    staticMapTemplateFamily: normalizeStaticMapTemplateFamily(place.staticMapTemplateFamily),
   };
 }
+
+const placeStaticMapTemplateCopy: Record<PlaceStaticMapTemplateFamily, { label: string; description: string }> = {
+  clean_local: { label: 'Clean Local', description: 'Bright, simple streets for everyday meetups.' },
+  night_social: { label: 'Night Social', description: 'Purple evening style for social plans.' },
+  soft_pastel: { label: 'Soft Pastel', description: 'Warm friendly color for casual places.' },
+  minimal_address: { label: 'Minimal Address', description: 'Low-noise map focused on the marker.' },
+  city_grid: { label: 'City Grid', description: 'Sharper street grid for urban places.' },
+  green_outdoor: { label: 'Green Outdoor', description: 'Terrain-inspired style for parks and outdoor stops.' },
+  warm_travel: { label: 'Warm Travel', description: 'Sunny travel-card mood for exploration.' },
+  premium_mono: { label: 'Premium Mono', description: 'Polished monochrome look for Plus cards.' },
+};
 
 
 const placeLanguageOptions: DiscoveryLanguage[] = ['en', 'fr', 'es'];
@@ -90,6 +109,15 @@ function setPlaceTranslationDraft(state: PlaceCreateFormState, draft: PlaceTrans
 
 function removePlaceTranslationDraft(state: PlaceCreateFormState, languageCode: DiscoveryLanguage): PlaceCreateFormState {
   return { ...state, translations: state.translations.filter((translation) => translation.languageCode !== languageCode) };
+}
+
+function setPlaceOriginalLanguage(state: PlaceCreateFormState, languageCode: DiscoveryLanguage): PlaceCreateFormState {
+  if (state.defaultLanguage === languageCode) return state;
+  return {
+    ...state,
+    defaultLanguage: languageCode,
+    translations: state.translations.filter((translation) => translation.languageCode !== languageCode),
+  };
 }
 
 function normalizePlaceTranslationsForPayload(state: PlaceCreateFormState) {
@@ -146,6 +174,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
   const [step, setStep] = useState<PlaceCreateStep>('details');
   const [translationPanelOpen, setTranslationPanelOpen] = useState(false);
   const [media, setMedia] = useState<MediaAssetDto[]>([]);
+  const [canCustomizeMapTemplates, setCanCustomizeMapTemplates] = useState(false);
   const [loadingPlace, setLoadingPlace] = useState(Boolean(placeId || copyFromPlaceId));
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -161,6 +190,24 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
       return { ...current, defaultLanguage: appLanguage };
     });
   }, [copyFromPlaceId, isEditing, language]);
+
+  useEffect(() => {
+    if (!betaFeatures.plusSubscriptionFeatures.customizationEnabled || !auth.hydrated || !auth.isAuthenticated) {
+      setCanCustomizeMapTemplates(false);
+      return;
+    }
+    let mounted = true;
+    async function loadPlusSnapshot() {
+      try {
+        const response = await api.plus.me();
+        if (mounted) setCanCustomizeMapTemplates(Boolean(response.access.entitlements.customization));
+      } catch {
+        if (mounted) setCanCustomizeMapTemplates(false);
+      }
+    }
+    void loadPlusSnapshot();
+    return () => { mounted = false; };
+  }, [auth.hydrated, auth.isAuthenticated]);
 
   useEffect(() => {
     const sourcePlaceId = placeId || copyFromPlaceId;
@@ -284,6 +331,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
         onlineLabel: state.mode === 'remote' ? state.onlineLabel.trim() || undefined : undefined,
         onlineUrl: state.mode === 'remote' ? state.onlineUrl.trim() || undefined : undefined,
         mediaIds: media.map((item) => item.id).slice(0, 1),
+        staticMapTemplateFamily: canCustomizeMapTemplates && state.mode === 'local' && state.staticMapTemplateFamily ? state.staticMapTemplateFamily : undefined,
       };
       const response = isEditing && placeId ? await api.places.update(placeId, body) : await api.places.create(body);
       setMedia(activePlaceMedia(response.place.media));
@@ -421,10 +469,18 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
                       <div className="inventory-translation-panel__header place-translation-summary">
                         <div className="inventory-form__helper-copy">
                           <strong>Languages</strong>
-                          <span>Translations are optional. The original Place language follows your app language when you create a new Place.</span>
+                          <span>Choose the language used for the main Place name and description. Add translations only when you write them manually.</span>
                         </div>
                         <span className="inventory-language-summary">Original content: {placeLanguageLabel(state.defaultLanguage)}</span>
                       </div>
+
+                      <label className="field-label inventory-original-language-field">
+                        <span className="field-label__row"><span>Original Place language</span><small>Default fallback</small></span>
+                        <select value={state.defaultLanguage} onChange={(event) => setState((current) => setPlaceOriginalLanguage(current, normalizePlaceLanguage(event.target.value)))}>
+                          {placeLanguageOptions.map((languageCode) => <option key={languageCode} value={languageCode}>{placeLanguageLabel(languageCode)}</option>)}
+                        </select>
+                        <small>This is the language of the main Place text. Viewers fall back to it when their preferred languages are not available.</small>
+                      </label>
 
                       {state.translations.length ? (
                         state.translations.map((translation) => (
@@ -516,6 +572,46 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
                     {uploading ? 'Uploading...' : imagePreviewSrc ? 'Replace image' : 'Upload image'}
                   </label>
                 </div>
+
+                {betaFeatures.plusSubscriptionFeatures.customizationEnabled && state.mode === 'local' ? (
+                  <section className="place-map-template-picker">
+                    <div className="inventory-form__helper-copy">
+                      <strong>Static map template</strong>
+                      <span>{canCustomizeMapTemplates ? 'Plus users can manually choose the map family. Light/dark variants still follow the app theme.' : 'Free users get an automatic map style after saving.'}</span>
+                    </div>
+                    <div className="place-map-template-picker__grid" aria-label="Static map template family">
+                      <button
+                        type="button"
+                        className={["place-map-template-option", !state.staticMapTemplateFamily ? 'is-selected' : null].filter(Boolean).join(' ')}
+                        onClick={() => setState((current) => ({ ...current, staticMapTemplateFamily: '' }))}
+                        disabled={saving || uploading || !canCustomizeMapTemplates}
+                        aria-pressed={!state.staticMapTemplateFamily}
+                      >
+                        <span className="place-map-template-option__swatch is-system" aria-hidden="true" />
+                        <strong>System pick</strong>
+                        <small>Hellowhen chooses a free style automatically.</small>
+                      </button>
+                      {PLACE_STATIC_MAP_TEMPLATE_FAMILIES.map((templateFamily) => {
+                        const selected = state.staticMapTemplateFamily === templateFamily;
+                        const copy = placeStaticMapTemplateCopy[templateFamily];
+                        return (
+                          <button
+                            key={templateFamily}
+                            type="button"
+                            className={["place-map-template-option", `place-map-template-option--${templateFamily}`, selected ? 'is-selected' : null].filter(Boolean).join(' ')}
+                            onClick={() => setState((current) => ({ ...current, staticMapTemplateFamily: templateFamily }))}
+                            disabled={saving || uploading || !canCustomizeMapTemplates}
+                            aria-pressed={selected}
+                          >
+                            <span className="place-map-template-option__swatch" aria-hidden="true" />
+                            <strong>{copy.label}</strong>
+                            <small>{copy.description}</small>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ) : null}
               </section>
             )}
 
