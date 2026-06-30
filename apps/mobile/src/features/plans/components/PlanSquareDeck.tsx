@@ -5,7 +5,7 @@ import type { SemanticColorName } from '@hellowhen/theme';
 import { AppText } from '../../../components/AppText';
 import { LowerImageAtmosphere } from '../../../components/LowerImageAtmosphere';
 import { POSTER_CARD_GEOMETRY } from '../../../components/PosterCardGeometry';
-import { PosterGlassFooter } from '../../../components/PosterGlassFooter';
+import { PosterCardFooter } from '../../../components/PosterCardFooter';
 import { SemanticBadge } from '../../../components/SemanticUI';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { ContinuousSquareStackDeck, type SquareStackDeckCard } from '../../trade/deck';
@@ -157,7 +157,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
       onPress={onOpen}
       style={({ pressed }) => [
         styles.card,
-        { backgroundColor: imageUrl ? '#0B1016' : theme.semantic.place.softBg, borderColor: imageUrl ? 'rgba(255,255,255,0.16)' : theme.semantic.place.border },
+        { backgroundColor: imageUrl ? '#0B1016' : theme.semantic.place.softBg, borderColor: imageUrl ? 'transparent' : theme.semantic.place.border, borderWidth: imageUrl ? 0 : 1 },
         pressed && styles.pressed,
       ]}
     >
@@ -210,19 +210,18 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
         )) : null}
       </View>
 
-      <PosterGlassFooter
+      <PosterCardFooter
         enabled={hasPosterImage}
-        isDark={isDark}
         style={[styles.cardCopy, hasPosterImage && styles.posterCardCopy]}
-        glassStyle={styles.posterCardGlass}
-        contentStyle={styles.posterCardGlassContent}
+        surfaceStyle={styles.posterCardFooterSurface}
+        contentStyle={styles.posterCardFooterContent}
       >
         <AppText style={[styles.planTitle, { color: posterSubtleColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{card.plan.title}</AppText>
         <AppText style={[styles.placeTitle, { color: posterTitleColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{placeTitle}</AppText>
         {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>Add a first stop to turn this Plan into route cards.</AppText> : null}
         {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{locationLabel}</AppText> : null}
         <AppText style={[styles.placeTimeText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{timeLabel}</AppText>
-      </PosterGlassFooter>
+      </PosterCardFooter>
     </Pressable>
   );
 }
@@ -335,12 +334,12 @@ const styles = StyleSheet.create({
   posterCardCopy: {
     paddingTop: 0,
   },
-  posterCardGlass: {
-    marginHorizontal: POSTER_CARD_GEOMETRY.footerGlassBleed,
-    marginBottom: POSTER_CARD_GEOMETRY.footerGlassBleed,
-    borderRadius: POSTER_CARD_GEOMETRY.footerGlassRadius,
+  posterCardFooterSurface: {
+    marginHorizontal: POSTER_CARD_GEOMETRY.footerBleed,
+    marginBottom: POSTER_CARD_GEOMETRY.footerBleed,
+    borderRadius: POSTER_CARD_GEOMETRY.footerRadius,
   },
-  posterCardGlassContent: {
+  posterCardFooterContent: {
     gap: POSTER_CARD_GEOMETRY.footerContentGap,
     paddingHorizontal: POSTER_CARD_GEOMETRY.footerContentPaddingHorizontal,
     paddingTop: POSTER_CARD_GEOMETRY.footerContentPaddingTop,

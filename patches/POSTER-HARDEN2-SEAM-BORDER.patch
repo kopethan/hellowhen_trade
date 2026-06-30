@@ -1,0 +1,62 @@
+diff --git a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+index 102a350..1eecdb8 100644
+--- a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
++++ b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+@@ -157,7 +157,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+       onPress={onOpen}
+       style={({ pressed }) => [
+         styles.card,
+-        { backgroundColor: imageUrl ? '#0B1016' : theme.semantic.place.softBg, borderColor: imageUrl ? 'rgba(255,255,255,0.16)' : theme.semantic.place.border },
++        { backgroundColor: imageUrl ? '#0B1016' : theme.semantic.place.softBg, borderColor: imageUrl ? 'transparent' : theme.semantic.place.border, borderWidth: imageUrl ? 0 : 1 },
+         pressed && styles.pressed,
+       ]}
+     >
+diff --git a/apps/mobile/src/features/trade/components/TradePosterCard.tsx b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+index ca162de..00a9e49 100644
+--- a/apps/mobile/src/features/trade/components/TradePosterCard.tsx
++++ b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+@@ -96,7 +96,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
+   const topPillBorder = hasPosterImage ? 'rgba(255,255,255,0.1)' : isDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.07)';
+   const lowerPillBg = hasPosterImage ? 'rgba(12,17,24,0.18)' : topPillBg;
+   const lowerPillBorder = hasPosterImage ? 'rgba(255,255,255,0.08)' : topPillBorder;
+-  const cardBorder = hasPosterImage ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.08)';
++  const cardBorder = hasPosterImage ? 'transparent' : 'rgba(15,23,42,0.08)';
+   const statusColor = status?.tone === 'none'
+     ? (hasPosterImage ? 'rgba(255,255,255,0.9)' : isDark ? 'rgba(255,255,255,0.58)' : 'rgba(15,23,42,0.58)')
+     : status?.tone === 'expired'
+@@ -108,7 +108,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
+           : (hasPosterImage ? '#FCD34D' : '#b91c1c');
+ 
+   return (
+-    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: controlledAccent && !visibleImageUrl ? `${controlledAccent}24` : mediaSurface, borderColor: cardBorder }, pressed && styles.pressed]}>
++    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: controlledAccent && !visibleImageUrl ? `${controlledAccent}24` : mediaSurface, borderColor: cardBorder, borderWidth: hasPosterImage ? 0 : StyleSheet.hairlineWidth }, pressed && styles.pressed]}>
+       {visibleImageUrl ? (
+         <Image source={{ uri: visibleImageUrl }} resizeMode="cover" onError={() => setImageFailed(true)} style={StyleSheet.absoluteFillObject} />
+       ) : (
+diff --git a/apps/mobile/src/features/trade/deck/components/SquareStackCardShell.tsx b/apps/mobile/src/features/trade/deck/components/SquareStackCardShell.tsx
+index 2c5d62d..b4fcfa1 100644
+--- a/apps/mobile/src/features/trade/deck/components/SquareStackCardShell.tsx
++++ b/apps/mobile/src/features/trade/deck/components/SquareStackCardShell.tsx
+@@ -22,7 +22,9 @@ const styles = StyleSheet.create({
+     overflow: 'hidden',
+     borderWidth: 0,
+     borderColor: 'transparent',
+-    backgroundColor: '#FFFFFF',
++    // Keep the shell transparent so poster cards with their own radius do not
++    // reveal a white crescent at rounded corners.
++    backgroundColor: 'transparent',
+     ...(Platform.OS === 'web' ? ({ willChange: 'transform' } as any) : null),
+   },
+ });
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index a7577ed..1f2d2e2 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -1471,6 +1471,7 @@ html.trade-tools-open, html.trade-tools-open body { overflow: hidden; }
+ .square-stack-deck__surface { position: relative; width: 100%; aspect-ratio: 1 / 1; outline: none; cursor: pointer; touch-action: pan-y; user-select: none; }
+ .square-stack-deck__surface:focus-visible { outline: 3px solid var(--proposal-border); outline-offset: 8px; border-radius: 34px; }
+ .square-stack-deck__layer { position: absolute; inset: 0; overflow: hidden; border: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent); border-radius: 34px; background: var(--app-surface); color: var(--app-text); box-shadow: var(--app-card-shadow-strong); transition: transform 210ms cubic-bezier(0.2, 0.9, 0.2, 1), opacity 210ms ease; will-change: transform, opacity; }
++.square-stack-deck__layer:has(.trade-poster-card.has-image) { border-color: transparent; background: transparent; }
+ .square-stack-deck__layer.is-front { cursor: pointer; }
+ .square-stack-deck__surface.is-prev-entering .square-stack-deck__layer.is-front { animation: square-stack-prev-enter 210ms cubic-bezier(0.2, 0.9, 0.2, 1); }
+ .square-stack-deck__control { position: absolute; z-index: 18; display: grid; place-items: center; width: 46px; height: 46px; border: 0; border-radius: 999px; background: transparent; color: var(--app-text-muted); line-height: 1; cursor: pointer; opacity: 0; pointer-events: none; transform: scale(0.96); transition: opacity 160ms ease-out, transform 160ms ease-out, color 160ms ease-out; }

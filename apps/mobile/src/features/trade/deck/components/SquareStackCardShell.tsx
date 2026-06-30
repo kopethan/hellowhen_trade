@@ -22,7 +22,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 0,
     borderColor: 'transparent',
-    backgroundColor: '#FFFFFF',
+    // Keep the shell transparent so poster cards with their own radius do not
+    // reveal a white crescent at rounded corners.
+    backgroundColor: 'transparent',
     ...(Platform.OS === 'web' ? ({ willChange: 'transform' } as any) : null),
   },
 });

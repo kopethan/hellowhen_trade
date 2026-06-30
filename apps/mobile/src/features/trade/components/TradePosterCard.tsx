@@ -4,7 +4,7 @@ import { normalizePreviewCardTheme } from '@hellowhen/shared';
 import { AppText } from '../../../components/AppText';
 import { LowerImageAtmosphere } from '../../../components/LowerImageAtmosphere';
 import { POSTER_CARD_GEOMETRY } from '../../../components/PosterCardGeometry';
-import { PosterGlassFooter } from '../../../components/PosterGlassFooter';
+import { PosterCardFooter } from '../../../components/PosterCardFooter';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 
 export type TradePosterCardVariant = 'trade' | 'need' | 'offer';
@@ -96,7 +96,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
   const topPillBorder = hasPosterImage ? 'rgba(255,255,255,0.1)' : isDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.07)';
   const lowerPillBg = hasPosterImage ? 'rgba(12,17,24,0.18)' : topPillBg;
   const lowerPillBorder = hasPosterImage ? 'rgba(255,255,255,0.08)' : topPillBorder;
-  const cardBorder = hasPosterImage ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.08)';
+  const cardBorder = hasPosterImage ? 'transparent' : 'rgba(15,23,42,0.08)';
   const statusColor = status?.tone === 'none'
     ? (hasPosterImage ? 'rgba(255,255,255,0.9)' : isDark ? 'rgba(255,255,255,0.58)' : 'rgba(15,23,42,0.58)')
     : status?.tone === 'expired'
@@ -108,7 +108,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
           : (hasPosterImage ? '#FCD34D' : '#b91c1c');
 
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: controlledAccent && !visibleImageUrl ? `${controlledAccent}24` : mediaSurface, borderColor: cardBorder }, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: controlledAccent && !visibleImageUrl ? `${controlledAccent}24` : mediaSurface, borderColor: cardBorder, borderWidth: hasPosterImage ? 0 : StyleSheet.hairlineWidth }, pressed && styles.pressed]}>
       {visibleImageUrl ? (
         <Image source={{ uri: visibleImageUrl }} resizeMode="cover" onError={() => setImageFailed(true)} style={StyleSheet.absoluteFillObject} />
       ) : (
@@ -152,12 +152,11 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
           ) : null}
         </View>
 
-        <PosterGlassFooter
+        <PosterCardFooter
           enabled={hasPosterImage}
-          isDark={isDark}
           style={styles.copyBlock}
-          glassStyle={styles.copyGlassBlock}
-          contentStyle={styles.copyGlassContent}
+          surfaceStyle={styles.copyFooterSurface}
+          contentStyle={styles.copyFooterContent}
         >
           {eyebrow ? (
             <AppText
@@ -218,7 +217,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
               ))}
             </View>
           ) : null}
-        </PosterGlassFooter>
+        </PosterCardFooter>
       </View>
     </Pressable>
   );
@@ -311,12 +310,12 @@ const styles = StyleSheet.create({
     paddingRight: 0,
     paddingBottom: 0,
   },
-  copyGlassBlock: {
-    marginHorizontal: POSTER_CARD_GEOMETRY.footerGlassBleed,
-    marginBottom: POSTER_CARD_GEOMETRY.footerGlassBleed,
-    borderRadius: POSTER_CARD_GEOMETRY.footerGlassRadius,
+  copyFooterSurface: {
+    marginHorizontal: POSTER_CARD_GEOMETRY.footerBleed,
+    marginBottom: POSTER_CARD_GEOMETRY.footerBleed,
+    borderRadius: POSTER_CARD_GEOMETRY.footerRadius,
   },
-  copyGlassContent: {
+  copyFooterContent: {
     gap: POSTER_CARD_GEOMETRY.footerContentGap,
     paddingHorizontal: POSTER_CARD_GEOMETRY.footerContentPaddingHorizontal,
     paddingTop: POSTER_CARD_GEOMETRY.footerContentPaddingTop,
