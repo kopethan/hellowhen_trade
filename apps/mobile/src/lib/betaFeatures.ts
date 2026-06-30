@@ -69,7 +69,7 @@ const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.E
 const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED);
 const plansEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_PLANS_ENABLED);
 const plansVisible = plansEnabled && enabled(process.env.EXPO_PUBLIC_PLANS_VISIBLE);
-const mainNavPlansMeTrade = plansVisible && enabled(process.env.EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE);
+const mainNavPlansMeTrade = plansVisible && !disabled(process.env.EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE);
 const mobileMembershipVisible = !forceFirstLaunchSafeFlags && (
   enabled(process.env.EXPO_PUBLIC_MOBILE_MEMBERSHIP_VISIBLE)
   || (subscriptionsEnabled && plusSubscriptionFeatures.plusPublic)

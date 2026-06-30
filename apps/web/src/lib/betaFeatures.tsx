@@ -71,7 +71,7 @@ const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.N
 const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED);
 const plansEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_PLANS_ENABLED);
 const plansVisible = plansEnabled && enabled(process.env.NEXT_PUBLIC_PLANS_VISIBLE);
-const mainNavPlansMeTrade = plansVisible && enabled(process.env.NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE);
+const mainNavPlansMeTrade = plansVisible && !disabled(process.env.NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE);
 
 export const betaFeatures = {
   moneyProvider: forceFirstLaunchSafeFlags ? 'none' : rawMoneyProvider,
