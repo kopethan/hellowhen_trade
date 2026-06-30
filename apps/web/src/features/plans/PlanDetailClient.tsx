@@ -48,6 +48,10 @@ function PlanPlaceImage({ media }: { media?: MediaAssetDto | null }) {
   return <img src={imageSrc} alt="" loading="lazy" />;
 }
 
+function planPlaceDisplayMedia(place: PlanPlaceDto) {
+  return place.media?.[0] ?? place.sourcePlace?.media?.[0] ?? null;
+}
+
 function detailStatusTone(status: PlanStatus) {
   if (status === 'open' || status === 'started') return 'success';
   if (status === 'cancelled' || status === 'expired' || status === 'hidden') return 'danger';
@@ -257,6 +261,54 @@ function PlanDetailItem({ label, value }: { label: string; value: string }) {
   );
 }
 
+function PlanRouteDesktopPreview({ places, planStartsAt }: { places: PlanPlaceDto[]; planStartsAt: string }) {
+  const themeMode = useResolvedPlaceVisualTheme();
+  const preview = useMemo(() => {
+    const entries = places.map((place) => {
+      const displayMedia = planPlaceDisplayMedia(place);
+      const visual = resolvePlaceVisual({ media: displayMedia, staticMap: place.staticMap ?? place.sourcePlace?.staticMap ?? null, themeMode });
+      return { place, displayMedia, visual };
+    });
+
+    return entries.find((entry) => entry.visual.url) ?? entries[0] ?? null;
+  }, [places, themeMode]);
+
+  if (!preview) return null;
+
+  const location = planPlaceLocation(preview.place);
+  const previewDescription = planPlaceDescription(preview.place);
+
+  return (
+    <aside className="plan-route-desktop-preview" aria-label="Route visual preview">
+      <div className="plan-route-desktop-preview__media">
+        {preview.visual.url ? (
+          preview.visual.kind === 'media' && preview.displayMedia ? <PlanPlaceImage media={preview.displayMedia} /> : <img src={preview.visual.url} alt="" loading="lazy" className="is-static-map" />
+        ) : (
+          <WebIcon name="location-on" size={34} decorative />
+        )}
+      </div>
+      <div className="plan-route-desktop-preview__copy">
+        <p className="eyebrow">Route preview</p>
+        <h3>{preview.place.title}</h3>
+        <p>{planPlaceTimeRange(preview.place, planStartsAt)}</p>
+        {location ? <small>{location.value}</small> : null}
+        {previewDescription ? <span>{previewDescription}</span> : null}
+      </div>
+      <div className="plan-route-desktop-preview__stops" aria-label="Plan route stops">
+        {places.map((place, index) => (
+          <div key={`route-preview-stop-${place.id}`} className={`plan-route-desktop-preview__stop${place.id === preview.place.id ? ' is-active' : ''}`}>
+            <span aria-hidden="true">{index + 1}</span>
+            <div>
+              <strong>{place.title}</strong>
+              <small>{planPlaceTimeRange(place, planStartsAt)} · {planPlaceModeDisplay(place)}</small>
+            </div>
+          </div>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
 function PlanPlaceCard({
   place,
   index,
@@ -276,9 +328,7 @@ function PlanPlaceCard({
   presenceNotice?: PlanPlacePresenceNotice;
   onVerifyPresence: (place: PlanPlaceDto) => void;
 }) {
-  const media = place.media?.[0] ?? null;
-  const sourceMedia = place.sourcePlace?.media?.[0] ?? null;
-  const displayMedia = media ?? sourceMedia ?? null;
+  const displayMedia = planPlaceDisplayMedia(place);
   const themeMode = useResolvedPlaceVisualTheme();
   const placeVisual = resolvePlaceVisual({ media: displayMedia, staticMap: place.staticMap ?? place.sourcePlace?.staticMap ?? null, themeMode });
   const placeTime = planPlaceTimeRange(place, planStartsAt);
@@ -289,9 +339,15 @@ function PlanPlaceCard({
     fallbackDescription: description,
   });
   const location = planPlaceLocation(place);
+  const [locationCopyNotice, setLocationCopyNotice] = useState('');
   const hasVerificationCoordinates = Boolean(planPlaceVerificationCoordinates(place));
   const showPresenceVerification = isOfflinePlanPlace(place) && (canVerifyPresence || presenceNotice || hasVerificationCoordinates);
   const verificationDisabled = isVerifyingPresence || !hasVerificationCoordinates;
+
+  async function copyLocationValue(value: string) {
+    const copied = await copyTextToClipboard(value);
+    setLocationCopyNotice(copied ? 'Copied.' : 'Could not copy.');
+  }
 
   return (
     <article className="plan-route-stop">
@@ -307,27 +363,46 @@ function PlanPlaceCard({
             <h4>{languageSelection.title}</h4>
             <ContentLanguageDetailControls displayLanguage={place.displayLanguage ?? place.sourcePlace?.displayLanguage ?? null} selectedLanguage={languageSelection.selectedLanguage} onSelectLanguage={languageSelection.setSelectedLanguage} />
             {location ? (
-              <div className={`plan-route-stop__location plan-route-stop__location--${location.kind}`}>
-                <span className="plan-route-stop__location-icon" aria-hidden="true">
-                  <WebIcon name={location.kind === 'local' ? 'location-on' : 'plan'} size={17} decorative />
-                </span>
-                <div className="plan-route-stop__location-copy">
-                  <span>{location.label}</span>
-                  <p>{location.value}</p>
-                </div>
-                {location.href && location.actionLabel ? (
-                  <a className="plan-route-stop__location-action" href={location.href} target="_blank" rel="noreferrer">
-                    {location.actionLabel}
+              <details className={`plan-route-stop__location plan-route-stop__location--${location.kind}`}>
+                <summary className="plan-route-stop__location-summary">
+                  <span className="plan-route-stop__location-icon" aria-hidden="true">
+                    <WebIcon name={location.kind === 'local' ? 'location-on' : 'plan'} size={17} decorative />
+                  </span>
+                  <span className="plan-route-stop__location-copy">
+                    <span>{location.label}</span>
+                    <span className="plan-route-stop__location-value">{location.value}</span>
+                  </span>
+                  <span className="plan-route-stop__location-chevron" aria-hidden="true">
                     <WebIcon name="arrow-right" size={13} decorative />
-                  </a>
-                ) : null}
+                  </span>
+                </summary>
+                <div className="plan-route-stop__location-panel">
+                  <div className="plan-route-stop__location-actions">
+                    {location.href && location.actionLabel ? (
+                      <a className="plan-route-stop__location-action" href={location.href} target="_blank" rel="noreferrer">
+                        {location.actionLabel}
+                        <WebIcon name="arrow-right" size={13} decorative />
+                      </a>
+                    ) : null}
+                    <button type="button" className="plan-route-stop__location-action" onClick={() => { void copyLocationValue(location.value); }}>
+                      {location.kind === 'local' ? 'Copy address' : 'Copy link'}
+                    </button>
+                  </div>
+                  {locationCopyNotice ? <p className="plan-route-stop__location-notice" role="status">{locationCopyNotice}</p> : null}
+                </div>
+              </details>
+            ) : null}
+            {languageSelection.description ? <p className="plan-route-stop__description">{languageSelection.description}</p> : null}
+            {placeVisual.url ? (
+              <div className="plan-route-stop__media">
+                {placeVisual.kind === 'media' && displayMedia ? <PlanPlaceImage media={displayMedia} /> : <img src={placeVisual.url} alt="" loading="lazy" className="is-static-map" />}
               </div>
             ) : null}
             {showPresenceVerification ? (
               <div className={`plan-route-stop__presence plan-route-stop__presence--${presenceNotice?.tone ?? 'info'}`}>
                 <div className="plan-route-stop__presence-copy">
-                  <strong>{presenceNotice?.title ?? 'Presence verification'}</strong>
-                  <p>{presenceNotice?.body ?? (hasVerificationCoordinates ? 'Use this device location when you reach this place. Mobile web usually works best.' : 'This place needs a Google-confirmed map position before browser location verification can work.')}</p>
+                  <strong>{presenceNotice?.title ?? (hasVerificationCoordinates ? 'GPS verification' : 'GPS unavailable')}</strong>
+                  <p>{presenceNotice?.body ?? (hasVerificationCoordinates ? 'Use this device location when you reach this place. Mobile web usually works best.' : 'Google-confirmed map position needed before browser location verification can work.')}</p>
                 </div>
                 {hasVerificationCoordinates ? (
                   <button
@@ -342,12 +417,6 @@ function PlanPlaceCard({
                 ) : null}
               </div>
             ) : null}
-            {placeVisual.url ? (
-              <div className="plan-route-stop__media">
-                {placeVisual.kind === 'media' && displayMedia ? <PlanPlaceImage media={displayMedia} /> : <img src={placeVisual.url} alt="" loading="lazy" className="is-static-map" />}
-              </div>
-            ) : null}
-            {languageSelection.description ? <p>{languageSelection.description}</p> : null}
             {showReport ? <ReportContentButton targetType="plan_place" targetId={place.id} /> : null}
           </div>
         </div>
@@ -622,26 +691,29 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
               </div>
             </section>
 
-            <section className="plan-social-section plan-route-section">
+            <section className="plan-social-section plan-route-section plan-route-section--desktop-split">
               <div className="plan-section-heading">
                 <p className="eyebrow">Route</p>
                 <h2>Places and times</h2>
               </div>
-              <div className="plan-route-list">
-                {places.map((place, index) => (
-                  <PlanPlaceCard
-                    key={place.id}
-                    place={place}
-                    index={index}
-                    planStartsAt={plan.startsAt}
-                    showReport={showReportActions}
-                    canVerifyPresence={canVerifyPresence}
-                    isVerifyingPresence={verifyingPlaceId === place.id}
-                    presenceNotice={presenceNotices[place.id]}
-                    onVerifyPresence={(nextPlace) => { void verifyPlanPlacePresence(nextPlace); }}
-                  />
-                ))}
-                {places.length === 0 ? <p className="meta">No places added yet.</p> : null}
+              <div className="plan-route-shell">
+                <div className="plan-route-list">
+                  {places.map((place, index) => (
+                    <PlanPlaceCard
+                      key={place.id}
+                      place={place}
+                      index={index}
+                      planStartsAt={plan.startsAt}
+                      showReport={showReportActions}
+                      canVerifyPresence={canVerifyPresence}
+                      isVerifyingPresence={verifyingPlaceId === place.id}
+                      presenceNotice={presenceNotices[place.id]}
+                      onVerifyPresence={(nextPlace) => { void verifyPlanPlacePresence(nextPlace); }}
+                    />
+                  ))}
+                  {places.length === 0 ? <p className="meta">No places added yet.</p> : null}
+                </div>
+                <PlanRouteDesktopPreview places={places} planStartsAt={plan.startsAt} />
               </div>
             </section>
 

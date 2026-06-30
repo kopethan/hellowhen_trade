@@ -1,6 +1,7 @@
 import { AI_FEATURE_DEFAULTS, PLUS_SUBSCRIPTION_FEATURE_DEFAULTS, PRO_SUBSCRIPTION_FEATURE_DEFAULTS, getProTradePackageEntitlements, normalizeAiProvider } from '@hellowhen/shared';
 const enabled = (value: string | undefined) => value?.toLowerCase() === 'true';
 const disabled = (value: string | undefined) => value?.toLowerCase() === 'false';
+const enabledUnlessExplicitlyFalse = (value: string | undefined) => !disabled(value);
 
 function publicEnv(suffix: string) {
   const env = process.env as Record<string, string | undefined>;
@@ -73,8 +74,11 @@ const proTradePackageFeatures = {
 } as const;
 const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_MONEY_FEATURES_VISIBLE);
 const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED);
-const plansEnabled = !forceFirstLaunchSafeFlags && enabled(publicEnv('PLANS_ENABLED'));
-const plansVisible = plansEnabled && enabled(publicEnv('PLANS_VISIBLE'));
+// Plans are now the default native app surface. Keep them visible unless a
+// native bundle explicitly sets the plan flags to false. This prevents the
+// old hidden-route placeholder when Expo did not load a local .env file.
+const plansEnabled = !forceFirstLaunchSafeFlags && enabledUnlessExplicitlyFalse(publicEnv('PLANS_ENABLED'));
+const plansVisible = plansEnabled && enabledUnlessExplicitlyFalse(publicEnv('PLANS_VISIBLE'));
 const mainNavPlansMeTrade = plansVisible && !disabled(publicEnv('MAIN_NAV_PLANS_ME_TRADE'));
 const mobileMembershipVisible = !forceFirstLaunchSafeFlags && (
   enabled(process.env.EXPO_PUBLIC_MOBILE_MEMBERSHIP_VISIBLE)

@@ -704,6 +704,13 @@ function buildMapsSearchUrl(value: string) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value)}`;
 }
 
+function buildNativeMapsUrl(value: string) {
+  const encodedValue = encodeURIComponent(value);
+  if (Platform.OS === 'ios') return `maps://?q=${encodedValue}`;
+  if (Platform.OS === 'android') return `geo:0,0?q=${encodedValue}`;
+  return buildMapsSearchUrl(value);
+}
+
 function getPlanPlaceLocationDetails(place: PlanPlaceDto): PlanPlaceLocationDetails | null {
   if (place.mode === 'remote') {
     const value = place.onlineUrl || place.onlineLabel || null;
@@ -748,10 +755,31 @@ function getPlanPlaceLocationPrefix(place: PlanPlaceDto) {
 
 async function openPlanPlaceLocation(location: PlanPlaceLocationDetails) {
   if (!location.href) return;
+  const preferredHref = location.kind === 'local' ? buildNativeMapsUrl(location.value) : location.href;
   try {
-    await Linking.openURL(location.href);
+    await Linking.openURL(preferredHref);
+    return;
   } catch {
-    Alert.alert('Could not open location', 'Try copying the address and opening it in your maps app.');
+    if (location.kind === 'local' && location.href !== preferredHref) {
+      try {
+        await Linking.openURL(location.href);
+        return;
+      } catch {
+        // Fall through to the user-facing message below.
+      }
+    }
+    Alert.alert('Could not open location', 'Try sharing the address and opening it in your maps app.');
+  }
+}
+
+async function sharePlanPlaceLocation(location: PlanPlaceLocationDetails) {
+  try {
+    await Share.share({
+      title: location.label,
+      message: location.value,
+    });
+  } catch {
+    Alert.alert('Could not share location', 'Try opening the address and copying it from your maps app.');
   }
 }
 
@@ -1497,9 +1525,74 @@ function ParticipantCompactRow({ participant }: { participant: PlanParticipantDt
   );
 }
 
+function PlanPlaceLocationSheet({ location, visible, onClose }: { location: PlanPlaceLocationDetails | null; visible: boolean; onClose: () => void }) {
+  const theme = useThemeTokens();
+  if (!location) return null;
+
+  const isLocal = location.kind === 'local';
+  const openLabel = isLocal ? 'Open in Maps' : 'Open link';
+  const shareLabel = isLocal ? 'Copy / share address' : 'Copy / share link';
+
+  return (
+    <Modal animationType="fade" transparent visible={visible} onRequestClose={onClose}>
+      <View style={styles.locationSheetRoot}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Close address actions" style={styles.locationSheetBackdrop} onPress={onClose} />
+        <View style={[styles.locationSheet, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
+          <View style={styles.locationSheetHeader}>
+            <View style={[styles.locationSheetIcon, { backgroundColor: isLocal ? theme.semantic.place.softBg : theme.semantic.plan.softBg, borderColor: isLocal ? theme.semantic.place.border : theme.semantic.plan.border }]}>
+              <MobileIcon name={isLocal ? 'location-on' : 'plan'} size={18} color={isLocal ? theme.semantic.place.text : theme.semantic.plan.text} />
+            </View>
+            <View style={styles.locationSheetHeaderCopy}>
+              <AppText style={styles.locationSheetTitle}>{location.label}</AppText>
+              <AppText style={[styles.locationSheetHint, { color: theme.color.muted }]}>{isLocal ? 'Choose how to open or share this stop.' : 'Open or share this online place.'}</AppText>
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={({ pressed }) => [styles.locationSheetClose, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
+              <MobileIcon name="close" size={17} color={theme.color.muted} />
+            </Pressable>
+          </View>
+
+          <View style={[styles.locationSheetValueBox, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+            <AppText selectable style={styles.locationSheetValue}>{location.value}</AppText>
+          </View>
+
+          <View style={styles.locationSheetActions}>
+            {location.href ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={openLabel}
+                onPress={() => {
+                  onClose();
+                  void openPlanPlaceLocation(location);
+                }}
+                style={({ pressed }) => [styles.locationSheetAction, { backgroundColor: isLocal ? theme.semantic.place.bg : theme.semantic.plan.bg, borderColor: isLocal ? theme.semantic.place.border : theme.semantic.plan.border }, pressed && styles.pressed]}
+              >
+                <MobileIcon name={isLocal ? 'location-on' : 'plan'} size={17} color={theme.color.background} />
+                <AppText style={[styles.locationSheetActionText, { color: theme.color.background }]}>{openLabel}</AppText>
+              </Pressable>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={shareLabel}
+              onPress={() => {
+                onClose();
+                void sharePlanPlaceLocation(location);
+              }}
+              style={({ pressed }) => [styles.locationSheetAction, styles.locationSheetActionSecondary, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
+            >
+              <MobileIcon name="share" size={17} color={theme.color.text} />
+              <AppText style={styles.locationSheetActionText}>{shareLabel}</AppText>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function PlanPlaceTimelineCard({
   place,
   index,
+  isLast,
   planStartsAt,
   showReport,
   canVerifyPresence,
@@ -1509,6 +1602,7 @@ function PlanPlaceTimelineCard({
 }: {
   place: PlanPlaceDto;
   index: number;
+  isLast: boolean;
   planStartsAt: string;
   showReport: boolean;
   canVerifyPresence: boolean;
@@ -1519,114 +1613,120 @@ function PlanPlaceTimelineCard({
   const theme = useThemeTokens();
   const mediaUrl = placeVisualUrl(getPlanPlaceMedia(place), place.staticMap ?? place.sourcePlace?.staticMap ?? null, theme.mode);
   const locationDetails = getPlanPlaceLocationDetails(place);
+  const [locationSheetVisible, setLocationSheetVisible] = useState(false);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const description = getPlanPlaceDescription(place);
   const languageSelection = useContentLanguageSelection({
     displayLanguage: place.displayLanguage ?? place.sourcePlace?.displayLanguage ?? null,
     fallbackTitle: place.title,
     fallbackDescription: description,
   });
+  const routeDescription = languageSelection.description?.trim() ?? '';
+  const shouldClampDescription = routeDescription.length > 150 || routeDescription.split(/\r?\n/).length > 3;
   const sourceLabel = getPlanPlaceSourceLabel(place);
   const hasVerificationCoordinates = Boolean(getPlanPlaceVerificationCoordinates(place));
   const showPresenceVerification = isOfflinePlanPlace(place) && (canVerifyPresence || presenceNotice || hasVerificationCoordinates);
-  const verificationDisabled = isVerifyingPresence || !hasVerificationCoordinates;
+  const verificationDisabled = isVerifyingPresence || !hasVerificationCoordinates || !canVerifyPresence;
+  const presenceToneColor = presenceNotice?.tone === 'success' ? theme.semantic.success.text : presenceNotice?.tone === 'warning' ? theme.semantic.warning.text : hasVerificationCoordinates ? theme.semantic.place.text : theme.color.muted;
+  const presenceTitle = presenceNotice?.title ?? (hasVerificationCoordinates ? 'Presence verification' : 'GPS verification unavailable');
+  const presenceBody = presenceNotice?.body ?? (hasVerificationCoordinates ? 'Verify when you reach this stop.' : 'Google-confirmed location needed first.');
+
+  useEffect(() => {
+    setDescriptionExpanded(false);
+  }, [place.id, routeDescription]);
 
   return (
-    <View style={[styles.planRouteStop, { borderBottomColor: theme.color.border }]}>
+    <View style={styles.planRouteStop}>
       <View style={styles.planRouteStopTop}>
         <View style={styles.planRouteTimeline}>
-          <View style={[styles.planRouteNumber, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
+          <View style={[styles.planRouteNumber, { backgroundColor: theme.color.background, borderColor: theme.semantic.place.border }]}>
             <AppText style={[styles.planRouteNumberText, { color: theme.semantic.place.text }]}>{index + 1}</AppText>
           </View>
+          {!isLast ? <View style={[styles.planRouteLine, { backgroundColor: theme.color.border }]} /> : null}
         </View>
+
         <View style={styles.planRouteCopy}>
           <View style={styles.planRouteTimeRow}>
             <AppText style={[styles.planRouteTime, { color: theme.semantic.time.text }]}>{getPlanPlaceTimeLabel(place, planStartsAt)}</AppText>
             <AppText style={[styles.planRouteSource, { color: theme.color.muted }]}>{getPlanPlaceModeDisplay(place)} · {sourceLabel}</AppText>
           </View>
-          <View style={styles.planRouteContentRow}>
-            <View style={styles.planRouteTextBlock}>
-              <AppText style={styles.planRouteTitle}>{languageSelection.title}</AppText>
-              <ContentLanguageControls displayLanguage={place.displayLanguage ?? place.sourcePlace?.displayLanguage ?? null} selectedLanguage={languageSelection.selectedLanguage} onSelectLanguage={languageSelection.setSelectedLanguage} />
-              {locationDetails ? (
-                <View style={[
-                  styles.planRouteLocationCard,
-                  {
-                    backgroundColor: locationDetails.kind === 'local' ? theme.semantic.place.softBg : theme.semantic.plan.softBg,
-                    borderColor: locationDetails.kind === 'local' ? theme.semantic.place.border : theme.semantic.plan.border,
-                  },
-                ]}>
-                  <View style={[
-                    styles.planRouteLocationIcon,
-                    {
-                      backgroundColor: theme.color.surface,
-                      borderColor: locationDetails.kind === 'local' ? theme.semantic.place.border : theme.semantic.plan.border,
-                    },
-                  ]}>
-                    <MobileIcon name={locationDetails.kind === 'local' ? 'location-on' : 'plan'} color={locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text} size={16} />
-                  </View>
-                  <View style={styles.planRouteLocationCopy}>
-                    <AppText style={[styles.planRouteLocationLabel, { color: locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text }]}>{locationDetails.label}</AppText>
-                    <AppText style={styles.planRouteLocationValue} numberOfLines={2}>{locationDetails.value}</AppText>
-                  </View>
-                  {locationDetails.href && locationDetails.actionLabel ? (
-                    <Pressable
-                      accessibilityRole="link"
-                      accessibilityLabel={locationDetails.actionLabel}
-                      onPress={() => { void openPlanPlaceLocation(locationDetails); }}
-                      style={({ pressed }) => [styles.planRouteLocationAction, { backgroundColor: theme.color.surface }, pressed && styles.pressed]}
-                    >
-                      <AppText style={[styles.planRouteLocationActionText, { color: locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text }]}>{locationDetails.actionLabel}</AppText>
-                      <MobileIcon name="chevron-right" color={locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text} size={14} />
-                    </Pressable>
-                  ) : null}
-                </View>
-              ) : null}
-              {showPresenceVerification ? (
-                <View style={[
-                  styles.planPresenceCard,
-                  {
-                    backgroundColor: presenceNotice?.tone === 'success' ? theme.semantic.success.softBg : presenceNotice?.tone === 'warning' ? theme.semantic.warning.softBg : theme.color.surface,
-                    borderColor: presenceNotice?.tone === 'success' ? theme.semantic.success.border : presenceNotice?.tone === 'warning' ? theme.semantic.warning.border : theme.color.border,
-                  },
-                ]}>
-                  <View style={styles.planPresenceHeaderRow}>
-                    <View style={styles.planPresenceCopy}>
-                      <AppText style={[styles.planPresenceTitle, { color: presenceNotice?.tone === 'success' ? theme.semantic.success.text : presenceNotice?.tone === 'warning' ? theme.semantic.warning.text : theme.color.text }]}>{presenceNotice?.title ?? 'Presence verification'}</AppText>
-                      <AppText style={[styles.planPresenceBody, { color: theme.color.muted }]}>
-                        {presenceNotice?.body ?? (hasVerificationCoordinates ? 'Use your device GPS when you reach this place.' : 'This place needs a Google-confirmed map position before GPS verification can work.')}
-                      </AppText>
-                    </View>
-                    {hasVerificationCoordinates ? (
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Verify I am here"
-                        disabled={verificationDisabled}
-                        onPress={() => onVerifyPresence(place)}
-                        style={({ pressed }) => [
-                          styles.planPresenceButton,
-                          { backgroundColor: canVerifyPresence ? theme.semantic.place.bg : theme.color.surface, borderColor: canVerifyPresence ? theme.semantic.place.border : theme.color.border },
-                          (pressed || isVerifyingPresence) && styles.pressed,
-                          verificationDisabled && styles.disabled,
-                        ]}
-                      >
-                        {isVerifyingPresence ? <ActivityIndicator size="small" color={canVerifyPresence ? theme.color.background : theme.color.muted} /> : <MobileIcon name="location-on" size={15} color={canVerifyPresence ? theme.color.background : theme.color.muted} />}
-                        <AppText style={[styles.planPresenceButtonText, { color: canVerifyPresence ? theme.color.background : theme.color.muted }]}>{isVerifyingPresence ? 'Checking...' : 'Verify'}</AppText>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                </View>
-              ) : null}
-              {languageSelection.description ? <AppText style={[styles.planRouteDescription, { color: theme.color.muted }]} numberOfLines={3}>{languageSelection.description}</AppText> : null}
-            </View>
-            {mediaUrl ? (
-              <View style={styles.planRouteImageWrap}>
-                <Image source={{ uri: mediaUrl }} resizeMode="cover" style={styles.planRouteImage as ImageStyle} />
+
+          <AppText style={styles.planRouteTitle}>{languageSelection.title}</AppText>
+          <ContentLanguageControls displayLanguage={place.displayLanguage ?? place.sourcePlace?.displayLanguage ?? null} selectedLanguage={languageSelection.selectedLanguage} onSelectLanguage={languageSelection.setSelectedLanguage} />
+
+          {locationDetails ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${locationDetails.label} actions`}
+              onPress={() => setLocationSheetVisible(true)}
+              style={({ pressed }) => [styles.planRouteLocationRow, pressed && styles.pressed]}
+            >
+              <MobileIcon name={locationDetails.kind === 'local' ? 'location-on' : 'plan'} color={locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text} size={16} />
+              <View style={styles.planRouteLocationCopy}>
+                <AppText style={[styles.planRouteLocationLabel, { color: locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text }]}>{locationDetails.label}</AppText>
+                <AppText style={[styles.planRouteLocationValue, { color: theme.color.text }]} numberOfLines={2}>{locationDetails.value}</AppText>
               </View>
-            ) : null}
-          </View>
+              <MobileIcon name="chevron-right" color={theme.color.muted} size={16} />
+            </Pressable>
+          ) : null}
+
+          {routeDescription ? (
+            <View style={styles.planRouteDescriptionBlock}>
+              <AppText style={[styles.planRouteDescription, { color: theme.color.muted }]} numberOfLines={shouldClampDescription && !descriptionExpanded ? 3 : undefined}>
+                {routeDescription}
+              </AppText>
+              {shouldClampDescription ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={descriptionExpanded ? 'Show less place description' : 'See more place description'}
+                  onPress={() => setDescriptionExpanded((value) => !value)}
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.planRouteDescriptionToggle, pressed && styles.pressed]}
+                >
+                  <AppText style={[styles.planRouteDescriptionToggleText, { color: theme.semantic.place.text }]}>{descriptionExpanded ? 'Show less' : 'See more'}</AppText>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+
+          {mediaUrl ? (
+            <View style={styles.planRouteImageWrap}>
+              <Image source={{ uri: mediaUrl }} resizeMode="cover" style={styles.planRouteImage as ImageStyle} />
+            </View>
+          ) : null}
+
+          {showPresenceVerification ? (
+            <View style={[styles.planPresenceCompactRow, { borderColor: theme.color.border, backgroundColor: theme.color.surface }]}>
+              <View style={styles.planPresenceCopy}>
+                <AppText style={[styles.planPresenceTitle, { color: presenceToneColor }]}>{presenceTitle}</AppText>
+                <AppText style={[styles.planPresenceBody, { color: theme.color.muted }]} numberOfLines={2}>{presenceBody}</AppText>
+              </View>
+              {hasVerificationCoordinates ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Verify I am here"
+                  disabled={verificationDisabled}
+                  onPress={() => onVerifyPresence(place)}
+                  style={({ pressed }) => [
+                    styles.planPresenceButton,
+                    { backgroundColor: canVerifyPresence ? theme.semantic.place.bg : theme.color.surface, borderColor: canVerifyPresence ? theme.semantic.place.border : theme.color.border },
+                    (pressed || isVerifyingPresence) && styles.pressed,
+                    verificationDisabled && styles.disabled,
+                  ]}
+                >
+                  {isVerifyingPresence ? <ActivityIndicator size="small" color={canVerifyPresence ? theme.color.background : theme.color.muted} /> : <MobileIcon name="location-on" size={15} color={canVerifyPresence ? theme.color.background : theme.color.muted} />}
+                  <AppText style={[styles.planPresenceButtonText, { color: canVerifyPresence ? theme.color.background : theme.color.muted }]}>{isVerifyingPresence ? 'Checking...' : 'Verify'}</AppText>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+
+          {showReport ? <ReportContentPanel targetType="plan_place" targetId={place.id} labelKey="report.button" helperKey="report.helper.content" /> : null}
         </View>
       </View>
-      {showReport ? <ReportContentPanel targetType="plan_place" targetId={place.id} labelKey="report.button" helperKey="report.helper.content" /> : null}
+
+      {!isLast ? <View style={[styles.planRouteDivider, { backgroundColor: theme.color.border }]} /> : null}
+      <PlanPlaceLocationSheet location={locationDetails} visible={locationSheetVisible} onClose={() => setLocationSheetVisible(false)} />
     </View>
   );
 }
@@ -1875,6 +1975,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                 key={place.id}
                 place={place}
                 index={index}
+                isLast={index === places.length - 1}
                 planStartsAt={plan.startsAt}
                 showReport={showReportActions}
                 canVerifyPresence={Boolean(auth.user && (isOwner || isJoined))}
@@ -3411,36 +3512,50 @@ const styles = StyleSheet.create({
   planDetailDescription: { fontSize: 15, lineHeight: 22, fontWeight: '700', paddingTop: 3 },
   planSectionDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: -2 },
   planDetailSectionFlat: { gap: 12 },
-  planRouteStop: { borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 14, gap: 10 },
-  planRouteStopTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  planRouteStop: { gap: 12 },
+  planRouteStopTop: { flexDirection: 'row', alignItems: 'stretch', gap: 12 },
   planRouteTimeline: { width: 34, alignItems: 'center' },
-  planRouteNumber: { width: 31, height: 31, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  planRouteNumber: { width: 31, height: 31, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
   planRouteNumberText: { fontSize: 13, fontWeight: '900' },
-  planRouteCopy: { flex: 1, minWidth: 0, gap: 8 },
+  planRouteLine: { flex: 1, width: 2, marginTop: 7, borderRadius: 999 },
+  planRouteCopy: { flex: 1, minWidth: 0, gap: 8, paddingBottom: 2 },
   planRouteTimeRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 },
   planRouteTime: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 17, fontWeight: '900', letterSpacing: 0.3, textTransform: 'uppercase' },
   planRouteSource: { flexShrink: 0, fontSize: 11, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase' },
-  planRouteContentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  planRouteTextBlock: { flex: 1, minWidth: 0, gap: 5 },
-  planRouteTitle: { fontSize: 19, lineHeight: 24, fontWeight: '900', letterSpacing: -0.25 },
+  planRouteTitle: { fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.28 },
   planRouteMeta: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
-  planRouteLocationCard: { marginTop: 4, borderRadius: 18, borderWidth: 1, padding: 10, gap: 9 },
-  planRouteLocationIcon: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  planRouteLocationCopy: { gap: 2 },
-  planRouteLocationLabel: { fontSize: 11, lineHeight: 15, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.45 },
-  planRouteLocationValue: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
-  planRouteLocationAction: { alignSelf: 'flex-start', minHeight: 32, borderRadius: 16, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 4 },
-  planRouteLocationActionText: { fontSize: 12, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.35 },
-  planPresenceCard: { marginTop: 4, borderRadius: 18, borderWidth: 1, padding: 11, gap: 9 },
-  planPresenceHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  planPresenceCopy: { flex: 1, minWidth: 0, gap: 3 },
+  planRouteLocationRow: { marginTop: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 4 },
+  planRouteLocationCopy: { flex: 1, minWidth: 0, gap: 1 },
+  planRouteLocationLabel: { fontSize: 10.5, lineHeight: 14, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.45 },
+  planRouteLocationValue: { fontSize: 14, lineHeight: 19, fontWeight: '800' },
+  planPresenceCompactRow: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 11, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  planPresenceCopy: { flex: 1, minWidth: 0, gap: 2 },
   planPresenceTitle: { fontSize: 13, lineHeight: 18, fontWeight: '900' },
   planPresenceBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
   planPresenceButton: { minHeight: 34, borderRadius: 17, borderWidth: 1, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
   planPresenceButtonText: { fontSize: 12, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.35 },
+  planRouteDescriptionBlock: { gap: 5 },
   planRouteDescription: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
-  planRouteImageWrap: { width: 64, height: 64, borderRadius: 19, overflow: 'hidden' },
+  planRouteDescriptionToggle: { alignSelf: 'flex-start', minHeight: 26, justifyContent: 'center', paddingRight: 10 },
+  planRouteDescriptionToggleText: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  planRouteImageWrap: { width: '100%', aspectRatio: 16 / 10, borderRadius: 24, overflow: 'hidden' },
   planRouteImage: { width: '100%', height: '100%' },
+  planRouteDivider: { height: StyleSheet.hairlineWidth, marginLeft: 46 },
+  locationSheetRoot: { flex: 1, justifyContent: 'flex-end' },
+  locationSheetBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(2,6,23,0.34)' },
+  locationSheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, borderWidth: 1, borderBottomWidth: 0, padding: 16, paddingBottom: 24, gap: 14 },
+  locationSheetHeader: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  locationSheetIcon: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  locationSheetHeaderCopy: { flex: 1, minWidth: 0, gap: 2 },
+  locationSheetTitle: { fontSize: 17, lineHeight: 22, fontWeight: '900', letterSpacing: -0.18 },
+  locationSheetHint: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  locationSheetClose: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  locationSheetValueBox: { borderRadius: 18, borderWidth: 1, padding: 12 },
+  locationSheetValue: { fontSize: 14, lineHeight: 20, fontWeight: '800' },
+  locationSheetActions: { gap: 8 },
+  locationSheetAction: { minHeight: 48, borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  locationSheetActionSecondary: { justifyContent: 'flex-start' },
+  locationSheetActionText: { fontSize: 14, lineHeight: 18, fontWeight: '900' },
   planDetailInfoList: { gap: 0 },
   planDetailInfoRow: { minHeight: 46, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
   planDetailInfoLabel: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
