@@ -1,0 +1,357 @@
+diff --git a/.env.example b/.env.example
+index 57ae0a9..efb50b0 100644
+--- a/.env.example
++++ b/.env.example
+@@ -8,6 +8,15 @@ JWT_SECRET=dev-change-me
+ WEB_ORIGIN=http://localhost:3000
+ MOBILE_ORIGIN=exp://127.0.0.1:8081
+ UPLOAD_DIR=./uploads
++# Media uploads stay local by default. Set MEDIA_STORAGE_DRIVER=s3 only after applying the S3 upload patch and configuring backend-only AWS envs.
++MEDIA_STORAGE_DRIVER=local
++AWS_REGION=eu-west-3
++MEDIA_S3_BUCKET=
++MEDIA_S3_PREFIX=uploads
++MEDIA_PUBLIC_BASE_URL=
++# Backend-only AWS credentials for later S3 upload support. Never expose these through NEXT_PUBLIC_* or EXPO_PUBLIC_*.
++AWS_ACCESS_KEY_ID=
++AWS_SECRET_ACCESS_KEY=
+ NEXT_PUBLIC_API_URL=http://localhost:4000
+ NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED=true
+ EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED=true
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index f09dbe2..de7f3c1 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -31,6 +31,7 @@ const moneyProviders = new Set(['none', 'stripe', 'airwallex']);
+ const adsProviders = new Set(['none', 'adsense', 'admob']);
+ const aiProviders = new Set(['none', 'openai', 'gemini', 'groq']);
+ const moderationProviders = new Set(['none', 'mock', 'openai', 'aws_rekognition', 'google_vision', 'azure_content_safety', 'human_review']);
++const mediaStorageDrivers = new Set(['local', 's3']);
+ const airwallexEnvironments = new Set(['demo', 'production']);
+ 
+ function parseMoneyProvider(value: string | undefined) {
+@@ -58,6 +59,11 @@ function parseModerationProvider(value: string | undefined) {
+   return moderationProviders.has(raw) ? raw as 'none' | 'mock' | 'openai' | 'aws_rekognition' | 'google_vision' | 'azure_content_safety' | 'human_review' : 'none';
+ }
+ 
++function parseMediaStorageDriver(value: string | undefined) {
++  const raw = String(value ?? 'local').trim().toLowerCase();
++  return mediaStorageDrivers.has(raw) ? raw as 'local' | 's3' : 'local';
++}
++
+ function parseModerationTextFailMode(value: string | undefined) {
+   const raw = String(value ?? 'allow_with_case').trim().toLowerCase();
+   if (raw === 'hold_pending' || raw === 'reject') return raw as 'hold_pending' | 'reject';
+@@ -72,6 +78,11 @@ export const env = {
+   webOrigin: process.env.WEB_ORIGIN ?? 'http://localhost:3000',
+   mobileOrigin: process.env.MOBILE_ORIGIN ?? 'exp://127.0.0.1:8081',
+   uploadDir: process.env.UPLOAD_DIR ?? path.resolve(process.cwd(), 'uploads'),
++  mediaStorageDriver: parseMediaStorageDriver(process.env.MEDIA_STORAGE_DRIVER),
++  awsRegion: process.env.AWS_REGION ?? '',
++  mediaS3Bucket: process.env.MEDIA_S3_BUCKET ?? '',
++  mediaS3Prefix: process.env.MEDIA_S3_PREFIX ?? 'uploads',
++  mediaPublicBaseUrl: (process.env.MEDIA_PUBLIC_BASE_URL ?? '').replace(/\/+$/, ''),
+   moneyProvider: parseMoneyProvider(process.env.MONEY_PROVIDER),
+   moneyProviderSandboxOnly: (process.env.MONEY_PROVIDER_SANDBOX_ONLY ?? 'true').toLowerCase() !== 'false',
+   moneyProviderAccountCreationEnabled: (process.env.MONEY_PROVIDER_ACCOUNT_CREATION_ENABLED ?? 'false').toLowerCase() === 'true',
+@@ -651,6 +662,12 @@ export function validateProductionEnv() {
+   if (env.moderationProvider === 'openai' && !hasConfiguredValue(env.moderationProviderApiKey)) errors.push('MODERATION_PROVIDER=openai requires MODERATION_PROVIDER_API_KEY to be set.');
+   if (env.moderationProvider === 'openai' && env.moderationImageEnabled) errors.push('SAFETY9 OpenAI moderation adapter is text-only; keep MODERATION_IMAGE_ENABLED=false until an image provider patch is added.');
+   if (env.publicImageReviewEnabled && !env.moderationEnabled) errors.push('PUBLIC_IMAGE_REVIEW_ENABLED=true requires MODERATION_ENABLED=true so image review cases are explicit and auditable.');
++  if (env.mediaStorageDriver === 's3') {
++    if (!env.awsRegion) errors.push('MEDIA_STORAGE_DRIVER=s3 requires AWS_REGION.');
++    if (!env.mediaS3Bucket) errors.push('MEDIA_STORAGE_DRIVER=s3 requires MEDIA_S3_BUCKET.');
++    if (!env.mediaPublicBaseUrl) errors.push('MEDIA_STORAGE_DRIVER=s3 requires MEDIA_PUBLIC_BASE_URL.');
++    if (env.mediaPublicBaseUrl && !isHttpsUrl(env.mediaPublicBaseUrl)) errors.push('MEDIA_PUBLIC_BASE_URL must use https:// in production.');
++  }
+ 
+   const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.plusAiAssistEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiModerationSuggestionsEnabled || env.aiDebugPlaceholders;
+   const aiSecretsConfigured = hasConfiguredValue(env.openaiApiKey) || hasConfiguredValue(env.geminiApiKey) || hasConfiguredValue(env.groqApiKey);
+diff --git a/apps/api/src/modules/media/media.routes.ts b/apps/api/src/modules/media/media.routes.ts
+index 836254c..4742cae 100644
+--- a/apps/api/src/modules/media/media.routes.ts
++++ b/apps/api/src/modules/media/media.routes.ts
+@@ -7,11 +7,12 @@ import type { NextFunction, Request, Response } from 'express';
+ import multer from 'multer';
+ import sharp from 'sharp';
+ import { listMyMediaQuerySchema } from '@hellowhen/contracts';
+-import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { createRateLimiter } from '../../middleware/rateLimit.js';
++import { getLocalMediaStorageProvider, getMediaStorageProvider } from './storage/mediaStorageProvider.js';
++import type { MediaStorageImageExtension } from './storage/mediaStorage.types.js';
+ 
+ const maxImageBytes = 5 * 1024 * 1024;
+ const maxOptimizedImageDimension = 1600;
+@@ -25,17 +26,8 @@ const supportedImageMimeTypes = ['image/jpeg', 'image/png', 'image/webp'] as con
+ type SupportedImageMimeType = typeof supportedImageMimeTypes[number];
+ const supportedImageMimeTypeSet = new Set<string>(supportedImageMimeTypes);
+ 
+-fs.mkdirSync(env.uploadDir, { recursive: true });
+-
+-const storage = multer.diskStorage({
+-  destination: (_req, _file, callback) => callback(null, env.uploadDir),
+-  filename: (_req, _file, callback) => {
+-    callback(null, `${Date.now()}-${crypto.randomUUID()}.upload`);
+-  }
+-});
+-
+ const upload = multer({
+-  storage,
++  storage: multer.memoryStorage(),
+   limits: { fileSize: maxImageBytes, files: 1 },
+   fileFilter: (_req, file, callback) => {
+     if (!isSupportedImageMimeType(file.mimetype)) return callback(new Error('unsupported_image_type'));
+@@ -66,7 +58,8 @@ function uploadImage(req: Request, res: Response, next: NextFunction) {
+ 
+ 
+ type VerifiedUpload = {
+-  filename: string;
++  buffer: Buffer;
++  extension: MediaStorageImageExtension;
+   mimeType: SupportedImageMimeType;
+   sizeBytes: number;
+ };
+@@ -75,17 +68,13 @@ function isSupportedImageMimeType(value: string): value is SupportedImageMimeTyp
+   return supportedImageMimeTypeSet.has(value);
+ }
+ 
+-function detectImageType(buffer: Buffer): Pick<VerifiedUpload, 'mimeType'> & { extension: '.jpg' | '.png' | '.webp' } | null {
++function detectImageType(buffer: Buffer): Pick<VerifiedUpload, 'mimeType' | 'extension'> | null {
+   if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return { mimeType: 'image/jpeg', extension: '.jpg' };
+   if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return { mimeType: 'image/png', extension: '.png' };
+   if (buffer.length >= 12 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') return { mimeType: 'image/webp', extension: '.webp' };
+   return null;
+ }
+ 
+-async function removeUploadedFile(filePath: string) {
+-  await fsp.rm(filePath, { force: true }).catch(() => undefined);
+-}
+-
+ async function optimizeUploadedImage(buffer: Buffer, mimeType: SupportedImageMimeType): Promise<Buffer | null> {
+   try {
+     const pipeline = sharp(buffer, { failOn: 'none', animated: false })
+@@ -110,10 +99,9 @@ async function optimizeUploadedImage(buffer: Buffer, mimeType: SupportedImageMim
+ }
+ 
+ async function verifyUploadedImage(file: Express.Multer.File): Promise<VerifiedUpload | null> {
+-  const buffer = await fsp.readFile(file.path);
++  const buffer = file.buffer;
+   const detected = detectImageType(buffer);
+   if (!detected || detected.mimeType !== file.mimetype) {
+-    await removeUploadedFile(file.path);
+     return null;
+   }
+ 
+@@ -128,20 +116,16 @@ async function verifyUploadedImage(file: Express.Multer.File): Promise<VerifiedU
+   );
+ 
+   const finalBuffer = shouldUseOptimized ? optimizedBuffer! : buffer;
+-  const safeBase = path.basename(file.filename, path.extname(file.filename));
+-  const verifiedFilename = `${safeBase}${detected.extension}`;
+-  const verifiedPath = path.join(env.uploadDir, verifiedFilename);
+-  await fsp.writeFile(verifiedPath, finalBuffer);
+-  if (verifiedPath !== file.path) await removeUploadedFile(file.path);
+-  return { filename: verifiedFilename, mimeType: detected.mimeType, sizeBytes: finalBuffer.length };
++  return {
++    buffer: finalBuffer,
++    extension: detected.extension,
++    mimeType: detected.mimeType,
++    sizeBytes: finalBuffer.length
++  };
+ }
+ 
+-function resolveUploadPath(storageKey: string) {
+-  const uploadRoot = path.resolve(env.uploadDir);
+-  const filePath = path.resolve(uploadRoot, storageKey);
+-  if (filePath !== path.join(uploadRoot, path.basename(storageKey))) return null;
+-  if (!filePath.startsWith(`${uploadRoot}${path.sep}`)) return null;
+-  return filePath;
++function createUploadFilenameBase() {
++  return `${Date.now()}-${crypto.randomUUID()}`;
+ }
+ 
+ function headerSafeFilename(value: string) {
+@@ -203,7 +187,9 @@ export async function serveUploadedMedia(req: Request, res: Response, next: Next
+     return res.status(404).json({ error: 'not_found' });
+   }
+ 
+-  const filePath = resolveUploadPath(media.storageKey);
++  // /uploads remains the compatibility path for existing local media even when
++  // new uploads are later routed to object storage/CDN through MEDIA_STORAGE_DRIVER=s3.
++  const filePath = getLocalMediaStorageProvider().resolveLocalPath(media.storageKey);
+   if (!filePath) return res.status(404).json({ error: 'not_found' });
+ 
+   const stat = await fsp.stat(filePath).catch(() => null);
+@@ -233,15 +219,21 @@ mediaRoutes.post('/image', requireActiveAccount, uploadImageRateLimit, asyncRout
+   const verified = await verifyUploadedImage(req.file);
+   if (!verified) return res.status(415).json({ error: 'unsupported_image_type', message: 'Upload a valid JPEG, PNG, or WEBP image.' });
+ 
+-  const url = `/uploads/${verified.filename}`;
++  const stored = await getMediaStorageProvider().storeImage({
++    buffer: verified.buffer,
++    filenameBase: createUploadFilenameBase(),
++    extension: verified.extension,
++    mimeType: verified.mimeType
++  });
++
+   const media = await prisma.mediaAsset.create({
+     data: {
+       ownerId: req.user!.id,
+-      url,
+-      storageKey: verified.filename,
+-      filename: req.file.originalname || verified.filename,
++      url: stored.url,
++      storageKey: stored.storageKey,
++      filename: req.file.originalname || stored.storageKey,
+       mimeType: verified.mimeType,
+-      sizeBytes: verified.sizeBytes,
++      sizeBytes: stored.sizeBytes || verified.sizeBytes,
+       status: 'active'
+     }
+   });
+diff --git a/apps/api/src/modules/media/storage/localMediaStorage.ts b/apps/api/src/modules/media/storage/localMediaStorage.ts
+new file mode 100644
+index 0000000..0fe8c1d
+--- /dev/null
++++ b/apps/api/src/modules/media/storage/localMediaStorage.ts
+@@ -0,0 +1,47 @@
++import fs from 'node:fs';
++import { promises as fsp } from 'node:fs';
++import path from 'node:path';
++import type { MediaStorageProvider, StoreMediaImageInput, StoredMediaImage } from './mediaStorage.types.js';
++
++const localUploadNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:jpg|jpeg|png|webp)$/i;
++
++function normalizeFilenameBase(value: string) {
++  const safeBase = path.basename(value, path.extname(value)).replace(/[^A-Za-z0-9._-]/g, '-');
++  return safeBase || `${Date.now()}-upload`;
++}
++
++export class LocalMediaStorageProvider implements MediaStorageProvider {
++  readonly driver = 'local' as const;
++
++  constructor(private readonly uploadDir: string) {
++    fs.mkdirSync(this.uploadDir, { recursive: true });
++  }
++
++  async storeImage(input: StoreMediaImageInput): Promise<StoredMediaImage> {
++    const storageKey = `${normalizeFilenameBase(input.filenameBase)}${input.extension}`;
++    const filePath = this.resolveLocalPath(storageKey);
++    if (!filePath) {
++      throw Object.assign(new Error('Invalid local media storage key.'), {
++        statusCode: 400,
++        code: 'invalid_media_storage_key',
++        publicMessage: 'Image upload failed. Try uploading the image again.'
++      });
++    }
++
++    await fsp.writeFile(filePath, input.buffer);
++    return {
++      storageKey,
++      url: `/uploads/${storageKey}`,
++      sizeBytes: input.buffer.length
++    };
++  }
++
++  resolveLocalPath(storageKey: string) {
++    if (!storageKey || !localUploadNamePattern.test(storageKey)) return null;
++    const uploadRoot = path.resolve(this.uploadDir);
++    const filePath = path.resolve(uploadRoot, storageKey);
++    if (filePath !== path.join(uploadRoot, path.basename(storageKey))) return null;
++    if (!filePath.startsWith(`${uploadRoot}${path.sep}`)) return null;
++    return filePath;
++  }
++}
+diff --git a/apps/api/src/modules/media/storage/mediaStorage.types.ts b/apps/api/src/modules/media/storage/mediaStorage.types.ts
+new file mode 100644
+index 0000000..6131517
+--- /dev/null
++++ b/apps/api/src/modules/media/storage/mediaStorage.types.ts
+@@ -0,0 +1,21 @@
++export type MediaStorageDriver = 'local' | 's3';
++
++export type MediaStorageImageExtension = '.jpg' | '.png' | '.webp';
++
++export type StoreMediaImageInput = {
++  buffer: Buffer;
++  filenameBase: string;
++  extension: MediaStorageImageExtension;
++  mimeType: string;
++};
++
++export type StoredMediaImage = {
++  storageKey: string;
++  url: string;
++  sizeBytes: number;
++};
++
++export interface MediaStorageProvider {
++  readonly driver: MediaStorageDriver;
++  storeImage(input: StoreMediaImageInput): Promise<StoredMediaImage>;
++}
+diff --git a/apps/api/src/modules/media/storage/mediaStorageProvider.ts b/apps/api/src/modules/media/storage/mediaStorageProvider.ts
+new file mode 100644
+index 0000000..5873534
+--- /dev/null
++++ b/apps/api/src/modules/media/storage/mediaStorageProvider.ts
+@@ -0,0 +1,29 @@
++import { env } from '../../../config/env.js';
++import { LocalMediaStorageProvider } from './localMediaStorage.js';
++import { S3MediaStorageProvider } from './s3MediaStorage.js';
++import type { MediaStorageProvider } from './mediaStorage.types.js';
++
++const localMediaStorageProvider = new LocalMediaStorageProvider(env.uploadDir);
++
++let writeProvider: MediaStorageProvider | null = null;
++
++export function getLocalMediaStorageProvider() {
++  return localMediaStorageProvider;
++}
++
++export function getMediaStorageProvider() {
++  if (writeProvider) return writeProvider;
++
++  if (env.mediaStorageDriver === 's3') {
++    writeProvider = new S3MediaStorageProvider({
++      region: env.awsRegion,
++      bucket: env.mediaS3Bucket,
++      prefix: env.mediaS3Prefix,
++      publicBaseUrl: env.mediaPublicBaseUrl
++    });
++    return writeProvider;
++  }
++
++  writeProvider = localMediaStorageProvider;
++  return writeProvider;
++}
+diff --git a/apps/api/src/modules/media/storage/s3MediaStorage.ts b/apps/api/src/modules/media/storage/s3MediaStorage.ts
+new file mode 100644
+index 0000000..e88e417
+--- /dev/null
++++ b/apps/api/src/modules/media/storage/s3MediaStorage.ts
+@@ -0,0 +1,22 @@
++import type { MediaStorageProvider, StoreMediaImageInput, StoredMediaImage } from './mediaStorage.types.js';
++
++export type S3MediaStorageConfig = {
++  region: string;
++  bucket: string;
++  prefix: string;
++  publicBaseUrl: string;
++};
++
++export class S3MediaStorageProvider implements MediaStorageProvider {
++  readonly driver = 's3' as const;
++
++  constructor(readonly config: S3MediaStorageConfig) {}
++
++  async storeImage(_input: StoreMediaImageInput): Promise<StoredMediaImage> {
++    throw Object.assign(new Error('S3 media storage is configured, but upload support has not been enabled yet.'), {
++      statusCode: 503,
++      code: 'media_s3_not_enabled',
++      publicMessage: 'S3 media storage is configured, but uploads are not enabled yet. Switch MEDIA_STORAGE_DRIVER=local or apply the S3 upload patch.'
++    });
++  }
++}

@@ -1,4 +1,4 @@
-import type { PlanDto, PlanParticipantStatus } from '@hellowhen/contracts';
+import type { MediaAssetDto, PlanDto, PlanParticipantStatus } from '@hellowhen/contracts';
 import { resolveWebAssetUrl } from '../../lib/api';
 import { formatWebDateTime } from '../../lib/webFormat';
 
@@ -44,6 +44,9 @@ export function planMetadata(plan: PlanDto) {
     .join(' · ');
 }
 
-export function planMediaSrc(media?: { url?: string | null; storageKey?: string | null } | null) {
-  return resolveWebAssetUrl(media?.url, media?.storageKey);
+export function planMediaSrc(media?: MediaAssetDto | null, preferredVariant: 'thumb' | 'card' | 'full' = 'full') {
+  if (!media) return '';
+  const variant = media.variants?.[preferredVariant] ?? (preferredVariant !== 'full' ? media.variants?.full : undefined);
+  if (variant) return resolveWebAssetUrl(variant.url, variant.storageKey);
+  return resolveWebAssetUrl(media.url, media.storageKey);
 }

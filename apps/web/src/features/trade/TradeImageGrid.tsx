@@ -3,7 +3,7 @@
 import type { MediaAssetDto, PublicMediaAccessDto } from '@hellowhen/contracts';
 import { useState } from 'react';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
-import { resolveTradeMediaUrl } from './tradePresentation';
+import { resolveTradeMediaVariantUrl } from './tradePresentation';
 
 type TradeImageGridProps = {
   images: MediaAssetDto[];
@@ -29,7 +29,7 @@ function fallbackBody(status: MediaAssetDto['status'] | undefined, t: (key: stri
 
 function TradeImageGridItem({ image, index, title, badge, kind = 'offer', extra }: { image: MediaAssetDto; index: number; title: string; badge?: string; kind?: 'need' | 'offer'; extra: number }) {
   const { t } = useWebTranslation();
-  const src = resolveTradeMediaUrl(image.url, image.storageKey);
+  const src = resolveTradeMediaVariantUrl(image, 'full');
   const [hasError, setHasError] = useState(!src);
   const imageStatusLabel = statusLabel(image.status, t);
 

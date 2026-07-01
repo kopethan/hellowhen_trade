@@ -54,7 +54,7 @@ export function resolvePlaceVisual({
   staticMap?: PlaceStaticMapDto | null;
   themeMode?: PlaceVisualThemeMode;
 }): PlaceVisual {
-  const mediaUrl = planMediaSrc(media ?? null);
+  const mediaUrl = planMediaSrc(media ?? null, 'card');
   if (mediaUrl) return { url: mediaUrl, kind: 'media' };
 
   const staticMapUrl = staticMapUrlForTheme(staticMap, themeMode ?? 'light');

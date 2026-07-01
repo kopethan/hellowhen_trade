@@ -7,11 +7,15 @@ import type { NextFunction, Request, Response } from 'express';
 import multer from 'multer';
 import sharp from 'sharp';
 import { listMyMediaQuerySchema } from '@hellowhen/contracts';
-import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { createRateLimiter } from '../../middleware/rateLimit.js';
+import { getLocalMediaStorageProvider, getMediaStorageProvider } from './storage/mediaStorageProvider.js';
+import { generateUploadVariants, readImageDimensions, storeGeneratedMediaVariants } from './media.variants.js';
+import { toMediaAssetDto } from './media.helpers.js';
+import { cleanupRemovedMediaStorageBestEffort } from './media.cleanup.js';
+import type { MediaStorageImageExtension } from './storage/mediaStorage.types.js';
 
 const maxImageBytes = 5 * 1024 * 1024;
 const maxOptimizedImageDimension = 1600;
@@ -25,17 +29,8 @@ const supportedImageMimeTypes = ['image/jpeg', 'image/png', 'image/webp'] as con
 type SupportedImageMimeType = typeof supportedImageMimeTypes[number];
 const supportedImageMimeTypeSet = new Set<string>(supportedImageMimeTypes);
 
-fs.mkdirSync(env.uploadDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, callback) => callback(null, env.uploadDir),
-  filename: (_req, _file, callback) => {
-    callback(null, `${Date.now()}-${crypto.randomUUID()}.upload`);
-  }
-});
-
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: maxImageBytes, files: 1 },
   fileFilter: (_req, file, callback) => {
     if (!isSupportedImageMimeType(file.mimetype)) return callback(new Error('unsupported_image_type'));
@@ -66,7 +61,8 @@ function uploadImage(req: Request, res: Response, next: NextFunction) {
 
 
 type VerifiedUpload = {
-  filename: string;
+  buffer: Buffer;
+  extension: MediaStorageImageExtension;
   mimeType: SupportedImageMimeType;
   sizeBytes: number;
 };
@@ -75,15 +71,11 @@ function isSupportedImageMimeType(value: string): value is SupportedImageMimeTyp
   return supportedImageMimeTypeSet.has(value);
 }
 
-function detectImageType(buffer: Buffer): Pick<VerifiedUpload, 'mimeType'> & { extension: '.jpg' | '.png' | '.webp' } | null {
+function detectImageType(buffer: Buffer): Pick<VerifiedUpload, 'mimeType' | 'extension'> | null {
   if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return { mimeType: 'image/jpeg', extension: '.jpg' };
   if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return { mimeType: 'image/png', extension: '.png' };
   if (buffer.length >= 12 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') return { mimeType: 'image/webp', extension: '.webp' };
   return null;
-}
-
-async function removeUploadedFile(filePath: string) {
-  await fsp.rm(filePath, { force: true }).catch(() => undefined);
 }
 
 async function optimizeUploadedImage(buffer: Buffer, mimeType: SupportedImageMimeType): Promise<Buffer | null> {
@@ -110,10 +102,9 @@ async function optimizeUploadedImage(buffer: Buffer, mimeType: SupportedImageMim
 }
 
 async function verifyUploadedImage(file: Express.Multer.File): Promise<VerifiedUpload | null> {
-  const buffer = await fsp.readFile(file.path);
+  const buffer = file.buffer;
   const detected = detectImageType(buffer);
   if (!detected || detected.mimeType !== file.mimetype) {
-    await removeUploadedFile(file.path);
     return null;
   }
 
@@ -128,20 +119,16 @@ async function verifyUploadedImage(file: Express.Multer.File): Promise<VerifiedU
   );
 
   const finalBuffer = shouldUseOptimized ? optimizedBuffer! : buffer;
-  const safeBase = path.basename(file.filename, path.extname(file.filename));
-  const verifiedFilename = `${safeBase}${detected.extension}`;
-  const verifiedPath = path.join(env.uploadDir, verifiedFilename);
-  await fsp.writeFile(verifiedPath, finalBuffer);
-  if (verifiedPath !== file.path) await removeUploadedFile(file.path);
-  return { filename: verifiedFilename, mimeType: detected.mimeType, sizeBytes: finalBuffer.length };
+  return {
+    buffer: finalBuffer,
+    extension: detected.extension,
+    mimeType: detected.mimeType,
+    sizeBytes: finalBuffer.length
+  };
 }
 
-function resolveUploadPath(storageKey: string) {
-  const uploadRoot = path.resolve(env.uploadDir);
-  const filePath = path.resolve(uploadRoot, storageKey);
-  if (filePath !== path.join(uploadRoot, path.basename(storageKey))) return null;
-  if (!filePath.startsWith(`${uploadRoot}${path.sep}`)) return null;
-  return filePath;
+function createUploadFilenameBase() {
+  return `${Date.now()}-${crypto.randomUUID()}`;
 }
 
 function headerSafeFilename(value: string) {
@@ -203,7 +190,9 @@ export async function serveUploadedMedia(req: Request, res: Response, next: Next
     return res.status(404).json({ error: 'not_found' });
   }
 
-  const filePath = resolveUploadPath(media.storageKey);
+  // /uploads remains the compatibility path for existing local media even when
+  // new uploads are later routed to object storage/CDN through MEDIA_STORAGE_DRIVER=s3.
+  const filePath = getLocalMediaStorageProvider().resolveLocalPath(media.storageKey);
   if (!filePath) return res.status(404).json({ error: 'not_found' });
 
   const stat = await fsp.stat(filePath).catch(() => null);
@@ -233,20 +222,42 @@ mediaRoutes.post('/image', requireActiveAccount, uploadImageRateLimit, asyncRout
   const verified = await verifyUploadedImage(req.file);
   if (!verified) return res.status(415).json({ error: 'unsupported_image_type', message: 'Upload a valid JPEG, PNG, or WEBP image.' });
 
-  const url = `/uploads/${verified.filename}`;
+  const provider = getMediaStorageProvider();
+  const filenameBase = createUploadFilenameBase();
+  const [dimensions, generatedVariants] = await Promise.all([
+    readImageDimensions(verified.buffer),
+    generateUploadVariants(verified.buffer)
+  ]);
+  const stored = await provider.storeImage({
+    buffer: verified.buffer,
+    filenameBase,
+    extension: verified.extension,
+    mimeType: verified.mimeType
+  });
+  const variantsJson = await storeGeneratedMediaVariants({
+    provider,
+    filenameBase,
+    full: stored,
+    fullMimeType: verified.mimeType,
+    fullWidth: dimensions.width,
+    fullHeight: dimensions.height,
+    generated: generatedVariants,
+  });
+
   const media = await prisma.mediaAsset.create({
     data: {
       ownerId: req.user!.id,
-      url,
-      storageKey: verified.filename,
-      filename: req.file.originalname || verified.filename,
+      url: stored.url,
+      storageKey: stored.storageKey,
+      filename: req.file.originalname || stored.storageKey,
       mimeType: verified.mimeType,
-      sizeBytes: verified.sizeBytes,
+      sizeBytes: stored.sizeBytes || verified.sizeBytes,
+      variantsJson,
       status: 'active'
     }
   });
 
-  res.status(201).json({ media });
+  res.status(201).json({ media: toMediaAssetDto(media) });
 }));
 
 mediaRoutes.get('/mine', asyncRoute(async (req, res) => {
@@ -263,12 +274,13 @@ mediaRoutes.get('/mine', asyncRoute(async (req, res) => {
     take: input.take ?? 100
   });
 
-  res.json({ media });
+  res.json({ media: media.map(toMediaAssetDto) });
 }));
 
 mediaRoutes.delete('/:mediaId', asyncRoute(async (req, res) => {
   const media = await prisma.mediaAsset.findFirst({ where: { id: req.params.mediaId, ownerId: req.user!.id, status: { not: 'removed' } } });
   if (!media) return res.status(404).json({ error: 'not_found' });
   const removed = await prisma.mediaAsset.update({ where: { id: media.id }, data: { status: 'removed' } });
-  res.json({ media: removed });
+  await cleanupRemovedMediaStorageBestEffort(removed, 'media.delete');
+  res.json({ media: toMediaAssetDto(removed) });
 }));

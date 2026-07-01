@@ -1,0 +1,304 @@
+diff --git a/apps/api/src/modules/media/media.cleanup.ts b/apps/api/src/modules/media/media.cleanup.ts
+new file mode 100644
+index 0000000..5c45b9b
+--- /dev/null
++++ b/apps/api/src/modules/media/media.cleanup.ts
+@@ -0,0 +1,81 @@
++import { env } from '../../config/env.js';
++import { getMediaStorageProvider } from './storage/mediaStorageProvider.js';
++import { normalizeMediaVariants } from './media.variants.js';
++
++export type MediaCleanupAsset = {
++  id: string;
++  url: string;
++  storageKey: string;
++  variantsJson?: unknown;
++};
++
++function normalizeBaseUrl(value: string) {
++  return value.trim().replace(/\/+$/, '');
++}
++
++function keyFromPublicUrl(value: string, publicBaseUrl: string) {
++  const normalizedBase = normalizeBaseUrl(publicBaseUrl);
++  if (!normalizedBase) return '';
++
++  try {
++    const candidate = new URL(value);
++    const base = new URL(normalizedBase);
++    if (candidate.protocol !== base.protocol || candidate.host !== base.host) return '';
++
++    const basePath = base.pathname.replace(/\/+$/, '');
++    if (basePath && !candidate.pathname.startsWith(`${basePath}/`)) return '';
++
++    const rawKey = basePath
++      ? candidate.pathname.slice(basePath.length + 1)
++      : candidate.pathname.replace(/^\/+/, '');
++    return rawKey.split('/').map((part) => decodeURIComponent(part)).filter(Boolean).join('/');
++  } catch {
++    return '';
++  }
++}
++
++function cleanupKeyFromCandidate(input: { url?: string; storageKey?: string }, publicBaseUrl: string) {
++  if (input.url) {
++    const key = keyFromPublicUrl(input.url, publicBaseUrl);
++    if (key) return key;
++  }
++  return '';
++}
++
++export function collectS3CleanupStorageKeys(media: MediaCleanupAsset, publicBaseUrl = env.mediaPublicBaseUrl) {
++  const keys = new Set<string>();
++  const fullKey = cleanupKeyFromCandidate({ url: media.url, storageKey: media.storageKey }, publicBaseUrl);
++  if (fullKey) keys.add(fullKey);
++
++  const variants = normalizeMediaVariants(media.variantsJson);
++  if (variants) {
++    for (const variant of Object.values(variants)) {
++      if (!variant) continue;
++      const key = cleanupKeyFromCandidate(variant, publicBaseUrl);
++      if (key) keys.add(key);
++    }
++  }
++
++  return Array.from(keys);
++}
++
++export async function cleanupRemovedMediaStorage(media: MediaCleanupAsset, source: string) {
++  const storageKeys = collectS3CleanupStorageKeys(media);
++  if (!storageKeys.length) return { requested: 0, deleted: 0, skipped: 0 };
++
++  const provider = getMediaStorageProvider();
++  const result = await provider.deleteImages({ storageKeys });
++  if (result.deleted > 0) {
++    console.info(`[media] cleaned ${result.deleted}/${result.requested} object(s) for removed media ${media.id} from ${source}.`);
++  }
++  return result;
++}
++
++export async function cleanupRemovedMediaStorageBestEffort(media: MediaCleanupAsset, source: string) {
++  try {
++    return await cleanupRemovedMediaStorage(media, source);
++  } catch (error) {
++    console.warn(`[media] could not clean object storage for removed media ${media.id} from ${source}.`, error);
++    return { requested: 0, deleted: 0, skipped: 0 };
++  }
++}
+diff --git a/apps/api/src/modules/media/media.routes.ts b/apps/api/src/modules/media/media.routes.ts
+index c299f68..9fb5606 100644
+--- a/apps/api/src/modules/media/media.routes.ts
++++ b/apps/api/src/modules/media/media.routes.ts
+@@ -14,6 +14,7 @@ import { createRateLimiter } from '../../middleware/rateLimit.js';
+ import { getLocalMediaStorageProvider, getMediaStorageProvider } from './storage/mediaStorageProvider.js';
+ import { generateUploadVariants, readImageDimensions, storeGeneratedMediaVariants } from './media.variants.js';
+ import { toMediaAssetDto } from './media.helpers.js';
++import { cleanupRemovedMediaStorageBestEffort } from './media.cleanup.js';
+ import type { MediaStorageImageExtension } from './storage/mediaStorage.types.js';
+ 
+ const maxImageBytes = 5 * 1024 * 1024;
+@@ -280,5 +281,6 @@ mediaRoutes.delete('/:mediaId', asyncRoute(async (req, res) => {
+   const media = await prisma.mediaAsset.findFirst({ where: { id: req.params.mediaId, ownerId: req.user!.id, status: { not: 'removed' } } });
+   if (!media) return res.status(404).json({ error: 'not_found' });
+   const removed = await prisma.mediaAsset.update({ where: { id: media.id }, data: { status: 'removed' } });
++  await cleanupRemovedMediaStorageBestEffort(removed, 'media.delete');
+   res.json({ media: toMediaAssetDto(removed) });
+ }));
+diff --git a/apps/api/src/modules/media/storage/localMediaStorage.ts b/apps/api/src/modules/media/storage/localMediaStorage.ts
+index 0fe8c1d..7bea47b 100644
+--- a/apps/api/src/modules/media/storage/localMediaStorage.ts
++++ b/apps/api/src/modules/media/storage/localMediaStorage.ts
+@@ -1,7 +1,7 @@
+ import fs from 'node:fs';
+ import { promises as fsp } from 'node:fs';
+ import path from 'node:path';
+-import type { MediaStorageProvider, StoreMediaImageInput, StoredMediaImage } from './mediaStorage.types.js';
++import type { DeleteStoredMediaImagesInput, DeleteStoredMediaImagesResult, MediaStorageProvider, StoreMediaImageInput, StoredMediaImage } from './mediaStorage.types.js';
+ 
+ const localUploadNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:jpg|jpeg|png|webp)$/i;
+ 
+@@ -36,6 +36,14 @@ export class LocalMediaStorageProvider implements MediaStorageProvider {
+     };
+   }
+ 
++  async deleteImages(input: DeleteStoredMediaImagesInput): Promise<DeleteStoredMediaImagesResult> {
++    // Local media cleanup is intentionally a no-op for now: existing Lightsail/local
++    // files may still be useful for development, rollback, or old records. S3 cleanup
++    // is handled by the S3 provider when object storage is enabled.
++    const requested = Array.from(new Set(input.storageKeys.filter(Boolean))).length;
++    return { requested, deleted: 0, skipped: requested };
++  }
++
+   resolveLocalPath(storageKey: string) {
+     if (!storageKey || !localUploadNamePattern.test(storageKey)) return null;
+     const uploadRoot = path.resolve(this.uploadDir);
+diff --git a/apps/api/src/modules/media/storage/mediaStorage.types.ts b/apps/api/src/modules/media/storage/mediaStorage.types.ts
+index 6131517..370d54f 100644
+--- a/apps/api/src/modules/media/storage/mediaStorage.types.ts
++++ b/apps/api/src/modules/media/storage/mediaStorage.types.ts
+@@ -15,7 +15,18 @@ export type StoredMediaImage = {
+   sizeBytes: number;
+ };
+ 
++export type DeleteStoredMediaImagesInput = {
++  storageKeys: string[];
++};
++
++export type DeleteStoredMediaImagesResult = {
++  requested: number;
++  deleted: number;
++  skipped: number;
++};
++
+ export interface MediaStorageProvider {
+   readonly driver: MediaStorageDriver;
+   storeImage(input: StoreMediaImageInput): Promise<StoredMediaImage>;
++  deleteImages(input: DeleteStoredMediaImagesInput): Promise<DeleteStoredMediaImagesResult>;
+ }
+diff --git a/apps/api/src/modules/media/storage/s3MediaStorage.ts b/apps/api/src/modules/media/storage/s3MediaStorage.ts
+index b0a0bb5..8bfecbf 100644
+--- a/apps/api/src/modules/media/storage/s3MediaStorage.ts
++++ b/apps/api/src/modules/media/storage/s3MediaStorage.ts
+@@ -1,5 +1,5 @@
+-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+-import type { MediaStorageProvider, StoreMediaImageInput, StoredMediaImage } from './mediaStorage.types.js';
++import { DeleteObjectsCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
++import type { DeleteStoredMediaImagesInput, DeleteStoredMediaImagesResult, MediaStorageProvider, StoreMediaImageInput, StoredMediaImage } from './mediaStorage.types.js';
+ 
+ export type S3MediaStorageConfig = {
+   region: string;
+@@ -9,6 +9,7 @@ export type S3MediaStorageConfig = {
+ };
+ 
+ const uploadedImageCacheControl = 'public, max-age=31536000, immutable';
++const maxDeleteObjectsBatchSize = 1000;
+ 
+ function sanitizeKeySegment(value: string) {
+   return value
+@@ -118,4 +119,24 @@ export class S3MediaStorageProvider implements MediaStorageProvider {
+       sizeBytes: input.buffer.length
+     };
+   }
++
++  async deleteImages(input: DeleteStoredMediaImagesInput): Promise<DeleteStoredMediaImagesResult> {
++    const normalizedKeys = Array.from(new Set(input.storageKeys.map((key) => key.trim()).filter(Boolean)));
++    if (!normalizedKeys.length) return { requested: 0, deleted: 0, skipped: 0 };
++
++    let deleted = 0;
++    for (let index = 0; index < normalizedKeys.length; index += maxDeleteObjectsBatchSize) {
++      const batch = normalizedKeys.slice(index, index + maxDeleteObjectsBatchSize);
++      await this.client.send(new DeleteObjectsCommand({
++        Bucket: this.config.bucket,
++        Delete: {
++          Quiet: true,
++          Objects: batch.map((Key) => ({ Key })),
++        },
++      }));
++      deleted += batch.length;
++    }
++
++    return { requested: normalizedKeys.length, deleted, skipped: 0 };
++  }
+ }
+diff --git a/apps/api/src/modules/profile/profile.routes.ts b/apps/api/src/modules/profile/profile.routes.ts
+index 3163ca6..a9101eb 100644
+--- a/apps/api/src/modules/profile/profile.routes.ts
++++ b/apps/api/src/modules/profile/profile.routes.ts
+@@ -3,6 +3,7 @@ import { updateProfileRequestSchema } from '@hellowhen/contracts';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
++import { cleanupRemovedMediaStorageBestEffort } from '../media/media.cleanup.js';
+ import { enqueuePublicImageReview } from '../moderation/moderation.mediaPipeline.js';
+ import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
+ import { buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
+@@ -118,10 +119,16 @@ profileRoutes.patch('/me', asyncRoute(async (req, res) => {
+ 
+   if (input.removeAvatar) {
+     if (profile.avatarMediaId) {
+-      await prisma.mediaAsset.updateMany({
+-        where: { id: profile.avatarMediaId, ownerId: userId, entityType: 'profile', entityId: profile.id, status: { not: 'removed' } },
+-        data: { status: 'removed', reviewNote: 'Removed by profile owner.', reviewedAt: new Date() }
++      const avatarMedia = await prisma.mediaAsset.findFirst({
++        where: { id: profile.avatarMediaId, ownerId: userId, entityType: 'profile', entityId: profile.id, status: { not: 'removed' } }
+       });
++      if (avatarMedia) {
++        const removedAvatar = await prisma.mediaAsset.update({
++          where: { id: avatarMedia.id },
++          data: { status: 'removed', reviewNote: 'Removed by profile owner.', reviewedAt: new Date() }
++        });
++        await cleanupRemovedMediaStorageBestEffort(removedAvatar, 'profile.removeAvatar');
++      }
+     }
+ 
+     profile = await prisma.profile.update({ where: { id: profile.id }, data: { avatarUrl: null, avatarMediaId: null } });
+diff --git a/docs/media-s3-migration.md b/docs/media-s3-migration.md
+index 3bd5ba6..eb2221b 100644
+--- a/docs/media-s3-migration.md
++++ b/docs/media-s3-migration.md
+@@ -53,3 +53,18 @@ npm run media:s3-migrate -- --apply --status=active
+ ## After migration
+ 
+ Keep the local uploads directory until you have verified production image rendering from CloudFront. Deleting old local files should happen only in a later cleanup process.
++
++
++## S3 cleanup after user deletion
++
++`MEDIA-S3-CLEANUP1` adds best-effort object cleanup for explicit user media deletion paths.
++
++When a user deletes an uploaded media item, the API keeps the database row as `removed` for audit/history but deletes the matching S3 objects when the media URL belongs to `MEDIA_PUBLIC_BASE_URL`. This includes generated variant objects such as `thumb`, `card`, and `full`.
++
++Local development files are not deleted by this cleanup path. Admin moderation status changes remain reversible and should not be treated as local disk cleanup.
++
++Smoke check:
++
++```powershell
++npm run media:s3-cleanup-smoke
++```
+diff --git a/package.json b/package.json
+index 34c8446..b5d2396 100644
+--- a/package.json
++++ b/package.json
+@@ -33,6 +33,7 @@
+     "media:cdn-smoke": "node scripts/media-cdn-smoke.mjs",
+     "language:audit": "node scripts/language-consistency-audit.mjs",
+     "media:variants-smoke": "node scripts/media-variants-smoke.mjs",
++    "media:s3-cleanup-smoke": "node scripts/media-s3-cleanup-smoke.mjs",
+     "media:s3-migrate": "npm run media:s3-migrate -w @hellowhen/api --"
+   },
+   "devDependencies": {
+diff --git a/scripts/media-s3-cleanup-smoke.mjs b/scripts/media-s3-cleanup-smoke.mjs
+new file mode 100644
+index 0000000..2dc9a88
+--- /dev/null
++++ b/scripts/media-s3-cleanup-smoke.mjs
+@@ -0,0 +1,29 @@
++import fs from 'node:fs';
++import path from 'node:path';
++
++const repoRoot = process.cwd();
++
++function assert(condition, message) {
++  if (!condition) {
++    console.error(`media-s3-cleanup-smoke failed: ${message}`);
++    process.exitCode = 1;
++  }
++}
++
++const cleanupSource = fs.readFileSync(path.join(repoRoot, 'apps/api/src/modules/media/media.cleanup.ts'), 'utf8');
++const s3ProviderSource = fs.readFileSync(path.join(repoRoot, 'apps/api/src/modules/media/storage/s3MediaStorage.ts'), 'utf8');
++const localProviderSource = fs.readFileSync(path.join(repoRoot, 'apps/api/src/modules/media/storage/localMediaStorage.ts'), 'utf8');
++const mediaRoutesSource = fs.readFileSync(path.join(repoRoot, 'apps/api/src/modules/media/media.routes.ts'), 'utf8');
++const profileRoutesSource = fs.readFileSync(path.join(repoRoot, 'apps/api/src/modules/profile/profile.routes.ts'), 'utf8');
++
++assert(s3ProviderSource.includes('DeleteObjectsCommand'), 'S3 provider should use DeleteObjectsCommand for object cleanup');
++assert(s3ProviderSource.includes('async deleteImages'), 'S3 provider should implement deleteImages');
++assert(localProviderSource.includes('async deleteImages'), 'local provider should implement no-op deleteImages');
++assert(cleanupSource.includes('collectS3CleanupStorageKeys'), 'cleanup helper should collect S3/CDN storage keys');
++assert(cleanupSource.includes('MEDIA_PUBLIC_BASE_URL') || cleanupSource.includes('env.mediaPublicBaseUrl'), 'cleanup helper should scope cleanup to the configured public media base URL');
++assert(mediaRoutesSource.includes('cleanupRemovedMediaStorageBestEffort(removed, \'media.delete\')'), 'owner media DELETE endpoint should run best-effort object cleanup');
++assert(profileRoutesSource.includes('cleanupRemovedMediaStorageBestEffort(removedAvatar, \'profile.removeAvatar\')'), 'profile avatar removal should run best-effort object cleanup');
++assert(!/^NEXT_PUBLIC_AWS_/m.test(fs.readFileSync(path.join(repoRoot, '.env.example'), 'utf8')), 'AWS envs must not be exposed with NEXT_PUBLIC_*');
++assert(!/^EXPO_PUBLIC_AWS_/m.test(fs.readFileSync(path.join(repoRoot, '.env.example'), 'utf8')), 'AWS envs must not be exposed with EXPO_PUBLIC_*');
++
++if (!process.exitCode) console.log('media-s3-cleanup-smoke passed');

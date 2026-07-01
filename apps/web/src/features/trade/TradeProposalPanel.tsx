@@ -9,7 +9,7 @@ import { WebIcon, type WebIconName } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { formatWebMoney } from '../../lib/webFormat';
 import { betaFeatures } from '../../lib/betaFeatures';
-import { getStatusLabel, getTradePostType, getTradeProposalCopy, type TradeI18n } from './tradePresentation';
+import { getStatusLabel, getTradePostType, getTradeProposalCopy, resolveTradeMediaVariantUrl, type TradeI18n } from './tradePresentation';
 import { ProTradePackagePrototype } from './ProTradePackagePrototype';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { UserIdentityLink } from '../users/UserIdentityLink';
@@ -110,7 +110,8 @@ function proposalChooseHref(tradeId: string, side: 'need' | 'offer', currentNeed
 }
 
 function firstMediaUrl(item: NeedDto | OfferDto) {
-  return item.media?.find((media) => typeof media.url === 'string' && media.url.length > 0)?.url ?? null;
+  const media = item.media?.find((asset) => Boolean(asset.url || asset.storageKey));
+  return media ? resolveTradeMediaVariantUrl(media, 'thumb') : null;
 }
 
 function parseProposalCashAmountCents(value: string) {

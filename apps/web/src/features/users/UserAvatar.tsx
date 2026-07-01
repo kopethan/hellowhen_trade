@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { getWebApiBaseUrl } from '../../lib/api';
+import { resolveWebAssetUrl } from '../../lib/api';
 
 export type UserAvatarSize = 'xs' | 'sm' | 'md' | 'lg';
 
@@ -26,20 +26,11 @@ function resolveStoredAvatarUrl(src?: string | null, storageKey?: string | null)
   const raw = (src ?? storageKey ?? '').trim();
   if (!raw) return '';
 
-  // Profile avatars may come from server-owned uploads or trusted OAuth HTTPS
-  // providers. Do not render data:, blob:, file:, javascript:, or other active
-  // schemes from persisted profile data.
-  if (/^https?:\/\//i.test(raw)) return raw;
-  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return '';
-
-  const normalized = raw.replace(/^\.\//, '').replace(/^\/+/, '');
-  const path = raw.startsWith('/')
-    ? raw
-    : normalized.startsWith('uploads/')
-      ? `/${normalized}`
-      : `/uploads/${normalized}`;
-
-  return `${getWebApiBaseUrl().replace(/\/$/, '')}${path}`;
+  // Profile avatars may come from server-owned uploads, S3/CloudFront HTTPS
+  // media URLs, or trusted OAuth HTTPS providers. Do not render data:, blob:,
+  // file:, javascript:, or other active schemes from persisted profile data.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw) && !/^https?:\/\//i.test(raw)) return '';
+  return resolveWebAssetUrl(src, storageKey);
 }
 
 export function getUserDisplayName(displayName?: string | null, handle?: string | null, fallback = 'Hellowhen member') {

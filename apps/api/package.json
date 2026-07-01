@@ -12,9 +12,11 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:validate": "prisma validate",
-    "prisma:seed": "prisma db seed"
+    "prisma:seed": "prisma db seed",
+    "media:s3-migrate": "tsx src/scripts/migrateLocalMediaToS3.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1077.0",
     "@hellowhen/contracts": "file:../../packages/contracts",
     "@hellowhen/shared": "file:../../packages/shared",
     "@hellowhen/trade-domain": "file:../../packages/trade-domain",

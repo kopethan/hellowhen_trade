@@ -6,7 +6,7 @@ import { useTranslation } from '../../../providers/MobileI18nProvider';
 import { AppText } from '../../../components/AppText';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { TradeExchangeIcon } from './TradeExchangeIcon';
-import { resolveMediaUrl } from '../mediaUrls';
+import { resolveMediaVariantUrl } from '../mediaUrls';
 import type { NeedItem, OfferItem, TradeDeckItem } from '../types';
 import { TradePosterCard, type TradePosterCardStatusTone } from './TradePosterCard';
 import { durationPresetLabel } from './InventoryFormFields';
@@ -32,7 +32,7 @@ function deckMedia(media: MediaAssetDto[] | undefined) {
 
 function activeMediaUrl(media?: MediaAssetDto | null) {
   if (!media?.url || media.status !== 'active') return null;
-  return resolveMediaUrl(media.url);
+  return resolveMediaVariantUrl(media, 'card');
 }
 
 function hiddenMediaCount(side: { mediaAccess?: { requiresAuth?: boolean; hiddenCount?: number } } | null | undefined) {

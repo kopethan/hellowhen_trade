@@ -75,6 +75,13 @@ export function resolveTradeMediaUrl(value?: string | null, storageKey?: string 
   return resolveWebAssetUrl(value, storageKey);
 }
 
+export function resolveTradeMediaVariantUrl(media?: MediaAssetDto | null, preferredVariant: 'thumb' | 'card' | 'full' = 'full') {
+  if (!media) return '';
+  const variant = media.variants?.[preferredVariant] ?? (preferredVariant !== 'full' ? media.variants?.full : undefined);
+  if (variant) return resolveWebAssetUrl(variant.url, variant.storageKey);
+  return resolveWebAssetUrl(media.url, media.storageKey);
+}
+
 function deckMedia(media: MediaAssetDto[] | undefined) {
   return (media ?? []).filter((asset) => asset.status !== 'removed' && Boolean(asset.url || asset.storageKey));
 }
@@ -278,7 +285,7 @@ export function getDeckImages(trade: TradeDto, i18n?: TradeI18n): DeckImage[] {
   const offerFallback = tr(i18n, 'inventory.labels.offer', 'Offer');
   const needImages: DeckImage[] = deckMedia(trade.need?.media).map((media, index) => ({
     id: `need-${media.id}`,
-    url: resolveTradeMediaUrl(media.url, media.storageKey),
+    url: resolveTradeMediaVariantUrl(media, 'card'),
     alt: `${trade.need?.title ?? needFallback} ${needBadge.toLowerCase()} ${index + 1}`,
     badge: needBadge,
     kind: 'need' as const,
@@ -286,7 +293,7 @@ export function getDeckImages(trade: TradeDto, i18n?: TradeI18n): DeckImage[] {
   }));
   const offerImages: DeckImage[] = deckMedia(trade.offer?.media).map((media, index) => ({
     id: `offer-${media.id}`,
-    url: resolveTradeMediaUrl(media.url, media.storageKey),
+    url: resolveTradeMediaVariantUrl(media, 'card'),
     alt: `${trade.offer?.title ?? offerFallback} ${offerBadge.toLowerCase()} ${index + 1}`,
     badge: offerBadge,
     kind: 'offer' as const,

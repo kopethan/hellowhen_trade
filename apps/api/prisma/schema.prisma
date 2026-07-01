@@ -1894,6 +1894,7 @@ model MediaAsset {
   filename    String
   mimeType    String
   sizeBytes   Int
+  variantsJson Json?
   sortOrder   Int              @default(0)
   isCover     Boolean          @default(false)
   status      MediaAssetStatus @default(active)

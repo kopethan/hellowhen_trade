@@ -3,6 +3,21 @@ import { z } from 'zod';
 export const mediaEntityTypeSchema = z.enum(['need', 'offer', 'trade', 'inventory_template', 'profile', 'support_ticket', 'support_message', 'place', 'plan', 'plan_place']);
 export const mediaAssetStatusSchema = z.enum(['active', 'flagged', 'removed', 'pending_review']);
 
+export const mediaVariantKindSchema = z.enum(['thumb', 'card', 'full']);
+export const mediaVariantSchema = z.object({
+  url: z.string().optional().default(''),
+  storageKey: z.string().optional().default(''),
+  mimeType: z.string().optional().default('image/webp'),
+  sizeBytes: z.number().int().nonnegative().optional().default(0),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+});
+export const mediaVariantsSchema = z.object({
+  thumb: mediaVariantSchema.optional(),
+  card: mediaVariantSchema.optional(),
+  full: mediaVariantSchema.optional(),
+}).partial();
+
 export const publicMediaAccessSchema = z.object({
   requiresAuth: z.boolean(),
   hiddenCount: z.number().int().nonnegative(),
@@ -19,6 +34,7 @@ export const mediaAssetSchema = z.object({
   filename: z.string(),
   mimeType: z.string(),
   sizeBytes: z.number().int(),
+  variants: mediaVariantsSchema.optional(),
   sortOrder: z.number().int().optional().default(0),
   isCover: z.boolean().optional().default(false),
   status: mediaAssetStatusSchema,
@@ -56,6 +72,9 @@ export const updateMediaStatusRequestSchema = z.object({
 
 export type MediaEntityType = z.infer<typeof mediaEntityTypeSchema>;
 export type MediaAssetStatus = z.infer<typeof mediaAssetStatusSchema>;
+export type MediaVariantKind = z.infer<typeof mediaVariantKindSchema>;
+export type MediaVariantDto = z.infer<typeof mediaVariantSchema>;
+export type MediaVariantsDto = z.infer<typeof mediaVariantsSchema>;
 export type PublicMediaAccessDto = z.infer<typeof publicMediaAccessSchema>;
 export type MediaAssetDto = z.infer<typeof mediaAssetSchema>;
 export type ListMyMediaQuery = z.infer<typeof listMyMediaQuerySchema>;

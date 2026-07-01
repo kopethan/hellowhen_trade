@@ -1,7 +1,9 @@
 import type { MediaAsset, MediaEntityType } from '@prisma/client';
+import type { MediaAssetDto } from '@hellowhen/contracts';
 import { env } from '../../config/env.js';
 import { prisma } from '../../lib/prisma.js';
 import { enqueuePublicImageReviews } from '../moderation/moderation.mediaPipeline.js';
+import { normalizeMediaVariants } from './media.variants.js';
 
 export type EntityWithId = { id: string };
 export type PublicMediaAccess = {
@@ -9,11 +11,22 @@ export type PublicMediaAccess = {
   hiddenCount: number;
   reason?: 'auth_required';
 };
-export type EntityWithMedia<T extends EntityWithId> = T & { media: MediaAsset[]; mediaAccess?: PublicMediaAccess };
+export type EntityWithMedia<T extends EntityWithId> = T & { media: MediaAssetDto[]; mediaAccess?: PublicMediaAccess };
 export type MediaVisibility = 'owner' | 'public' | 'trade_public' | 'public_anonymous' | 'admin';
 
 function createMediaRequestError(code: string, publicMessage: string, statusCode = 400) {
   return Object.assign(new Error(publicMessage), { code, publicMessage, statusCode });
+}
+
+type MediaAssetWithVariantsJson = MediaAsset & { variantsJson?: unknown };
+
+export function toMediaAssetDto<T extends MediaAssetWithVariantsJson>(media: T): Omit<T, 'variantsJson'> & MediaAssetDto {
+  const { variantsJson, ...rest } = media;
+  const variants = normalizeMediaVariants(variantsJson);
+  return {
+    ...rest,
+    ...(variants ? { variants } : {}),
+  } as Omit<T, 'variantsJson'> & MediaAssetDto;
 }
 
 export function shouldHidePublicMediaForAnonymous(visibility: MediaVisibility) {
@@ -107,8 +120,8 @@ export async function attachUploadedMediaToEntity(
 
 export async function loadMediaByEntityIds(entityType: MediaEntityType, entityIds: string[], visibility: MediaVisibility = 'owner') {
   const ids = Array.from(new Set(entityIds.filter(Boolean)));
-  if (ids.length === 0) return new Map<string, MediaAsset[]>();
-  if (shouldHidePublicMediaForAnonymous(visibility)) return new Map<string, MediaAsset[]>();
+  if (ids.length === 0) return new Map<string, MediaAssetDto[]>();
+  if (shouldHidePublicMediaForAnonymous(visibility)) return new Map<string, MediaAssetDto[]>();
 
   const statusWhere = visibility === 'admin'
     ? {}
@@ -124,8 +137,8 @@ export async function loadMediaByEntityIds(entityType: MediaEntityType, entityId
   // images stay visible to owners/admins as moderation state, but are hidden
   // from public decks and details until reviewed. When PUBLIC_MEDIA_REQUIRES_AUTH
   // is enabled, anonymous public reads receive no image URLs at all.
-  const visibleMedia = media;
-  const byEntity = new Map<string, MediaAsset[]>();
+  const visibleMedia = media.map(toMediaAssetDto);
+  const byEntity = new Map<string, MediaAssetDto[]>();
   for (const item of visibleMedia) {
     if (!item.entityId) continue;
     const current = byEntity.get(item.entityId) ?? [];

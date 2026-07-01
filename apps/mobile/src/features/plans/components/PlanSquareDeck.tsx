@@ -9,7 +9,7 @@ import { PosterCardFooter } from '../../../components/PosterCardFooter';
 import { SemanticBadge } from '../../../components/SemanticUI';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { ContinuousSquareStackDeck, type SquareStackDeckCard } from '../../trade/deck';
-import { resolveMediaUrl } from '../../trade/mediaUrls';
+import { resolveMediaVariantUrl } from '../../trade/mediaUrls';
 
 const MOBILE_PLAN_DECK_AVAILABLE_HEIGHT = 404;
 const MOBILE_PLAN_DECK_MAX_CARD_SIZE = 348;
@@ -41,7 +41,7 @@ function activeMedia(media: MediaAssetDto[] | undefined) {
 
 function activeMediaUrl(media?: MediaAssetDto | null) {
   if (!media?.url || media.status !== 'active') return null;
-  return resolveMediaUrl(media.url);
+  return resolveMediaVariantUrl(media, 'card');
 }
 
 function staticMapUrlForTheme(staticMap?: PlaceStaticMapDto | null, themeMode: 'light' | 'dark' = 'light') {

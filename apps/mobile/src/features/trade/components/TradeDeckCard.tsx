@@ -6,7 +6,7 @@ import { useTranslation } from '../../../providers/MobileI18nProvider';
 import { AppText } from '../../../components/AppText';
 import { MoneyPill, SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
 import type { TradeDeckItem } from '../types';
-import { resolveMediaUrl } from '../mediaUrls';
+import { resolveMediaVariantUrl } from '../mediaUrls';
 
 type TFunction = ReturnType<typeof useTranslation>['t'];
 
@@ -43,7 +43,7 @@ export function TradeDeckCard({ trade, index, total, saved, onOpen, onPass, onSa
         <SemanticBadge label={kind.label} tone={kind.tone} />
         <AppText style={styles.counter}>{index + 1}/{total}</AppText>
       </View>
-      {trade.media?.[0] ? <Image source={{ uri: resolveMediaUrl(trade.media[0].url) }} style={styles.heroImage} /> : null}
+      {trade.media?.[0] ? <Image source={{ uri: resolveMediaVariantUrl(trade.media[0], 'card') }} style={styles.heroImage} /> : null}
       <View style={styles.mainContent}>
         <StatusBadge status={trade.status} size="sm" />
         <AppText style={styles.title}>{trade.title}</AppText>

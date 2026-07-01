@@ -16,6 +16,25 @@ export declare const mediaAssetStatusSchema: z.ZodEnum<{
     removed: "removed";
     pending_review: "pending_review";
 }>;
+
+export declare const mediaVariantKindSchema: z.ZodEnum<{
+    thumb: "thumb";
+    card: "card";
+    full: "full";
+}>;
+export declare const mediaVariantSchema: z.ZodObject<{
+    url: z.ZodDefault<z.ZodOptional<z.ZodString>>;
+    storageKey: z.ZodDefault<z.ZodOptional<z.ZodString>>;
+    mimeType: z.ZodDefault<z.ZodOptional<z.ZodString>>;
+    sizeBytes: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+    width: z.ZodOptional<z.ZodNumber>;
+    height: z.ZodOptional<z.ZodNumber>;
+}, z.core.$strip>;
+export declare const mediaVariantsSchema: z.ZodObject<{
+    thumb: z.ZodOptional<typeof mediaVariantSchema>;
+    card: z.ZodOptional<typeof mediaVariantSchema>;
+    full: z.ZodOptional<typeof mediaVariantSchema>;
+}, z.core.$strip>;
 export declare const mediaAssetSchema: z.ZodObject<{
     id: z.ZodString;
     ownerId: z.ZodString;
@@ -36,6 +55,7 @@ export declare const mediaAssetSchema: z.ZodObject<{
     filename: z.ZodString;
     mimeType: z.ZodString;
     sizeBytes: z.ZodNumber;
+    variants: z.ZodOptional<typeof mediaVariantsSchema>;
     status: z.ZodEnum<{
         active: "active";
         flagged: "flagged";
@@ -104,6 +124,9 @@ export declare const updateMediaStatusRequestSchema: z.ZodObject<{
 }, z.core.$strip>;
 export type MediaEntityType = z.infer<typeof mediaEntityTypeSchema>;
 export type MediaAssetStatus = z.infer<typeof mediaAssetStatusSchema>;
+export type MediaVariantKind = z.infer<typeof mediaVariantKindSchema>;
+export type MediaVariantDto = z.infer<typeof mediaVariantSchema>;
+export type MediaVariantsDto = z.infer<typeof mediaVariantsSchema>;
 export type MediaAssetDto = z.infer<typeof mediaAssetSchema>;
 export type ListMyMediaQuery = z.infer<typeof listMyMediaQuerySchema>;
 export type AdminListMediaQuery = z.infer<typeof adminListMediaQuerySchema>;

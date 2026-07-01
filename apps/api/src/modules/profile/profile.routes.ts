@@ -3,6 +3,7 @@ import { updateProfileRequestSchema } from '@hellowhen/contracts';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { cleanupRemovedMediaStorageBestEffort } from '../media/media.cleanup.js';
 import { enqueuePublicImageReview } from '../moderation/moderation.mediaPipeline.js';
 import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
 import { buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
@@ -118,10 +119,16 @@ profileRoutes.patch('/me', asyncRoute(async (req, res) => {
 
   if (input.removeAvatar) {
     if (profile.avatarMediaId) {
-      await prisma.mediaAsset.updateMany({
-        where: { id: profile.avatarMediaId, ownerId: userId, entityType: 'profile', entityId: profile.id, status: { not: 'removed' } },
-        data: { status: 'removed', reviewNote: 'Removed by profile owner.', reviewedAt: new Date() }
+      const avatarMedia = await prisma.mediaAsset.findFirst({
+        where: { id: profile.avatarMediaId, ownerId: userId, entityType: 'profile', entityId: profile.id, status: { not: 'removed' } }
       });
+      if (avatarMedia) {
+        const removedAvatar = await prisma.mediaAsset.update({
+          where: { id: avatarMedia.id },
+          data: { status: 'removed', reviewNote: 'Removed by profile owner.', reviewedAt: new Date() }
+        });
+        await cleanupRemovedMediaStorageBestEffort(removedAvatar, 'profile.removeAvatar');
+      }
     }
 
     profile = await prisma.profile.update({ where: { id: profile.id }, data: { avatarUrl: null, avatarMediaId: null } });

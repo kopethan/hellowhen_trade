@@ -31,6 +31,7 @@ const moneyProviders = new Set(['none', 'stripe', 'airwallex']);
 const adsProviders = new Set(['none', 'adsense', 'admob']);
 const aiProviders = new Set(['none', 'openai', 'gemini', 'groq']);
 const moderationProviders = new Set(['none', 'mock', 'openai', 'aws_rekognition', 'google_vision', 'azure_content_safety', 'human_review']);
+const mediaStorageDrivers = new Set(['local', 's3']);
 const airwallexEnvironments = new Set(['demo', 'production']);
 
 function parseMoneyProvider(value: string | undefined) {
@@ -58,6 +59,11 @@ function parseModerationProvider(value: string | undefined) {
   return moderationProviders.has(raw) ? raw as 'none' | 'mock' | 'openai' | 'aws_rekognition' | 'google_vision' | 'azure_content_safety' | 'human_review' : 'none';
 }
 
+function parseMediaStorageDriver(value: string | undefined) {
+  const raw = String(value ?? 'local').trim().toLowerCase();
+  return mediaStorageDrivers.has(raw) ? raw as 'local' | 's3' : 'local';
+}
+
 function parseModerationTextFailMode(value: string | undefined) {
   const raw = String(value ?? 'allow_with_case').trim().toLowerCase();
   if (raw === 'hold_pending' || raw === 'reject') return raw as 'hold_pending' | 'reject';
@@ -72,6 +78,11 @@ export const env = {
   webOrigin: process.env.WEB_ORIGIN ?? 'http://localhost:3000',
   mobileOrigin: process.env.MOBILE_ORIGIN ?? 'exp://127.0.0.1:8081',
   uploadDir: process.env.UPLOAD_DIR ?? path.resolve(process.cwd(), 'uploads'),
+  mediaStorageDriver: parseMediaStorageDriver(process.env.MEDIA_STORAGE_DRIVER),
+  awsRegion: process.env.AWS_REGION ?? '',
+  mediaS3Bucket: process.env.MEDIA_S3_BUCKET ?? '',
+  mediaS3Prefix: process.env.MEDIA_S3_PREFIX ?? 'uploads',
+  mediaPublicBaseUrl: (process.env.MEDIA_PUBLIC_BASE_URL ?? '').replace(/\/+$/, ''),
   moneyProvider: parseMoneyProvider(process.env.MONEY_PROVIDER),
   moneyProviderSandboxOnly: (process.env.MONEY_PROVIDER_SANDBOX_ONLY ?? 'true').toLowerCase() !== 'false',
   moneyProviderAccountCreationEnabled: (process.env.MONEY_PROVIDER_ACCOUNT_CREATION_ENABLED ?? 'false').toLowerCase() === 'true',
@@ -651,6 +662,12 @@ export function validateProductionEnv() {
   if (env.moderationProvider === 'openai' && !hasConfiguredValue(env.moderationProviderApiKey)) errors.push('MODERATION_PROVIDER=openai requires MODERATION_PROVIDER_API_KEY to be set.');
   if (env.moderationProvider === 'openai' && env.moderationImageEnabled) errors.push('SAFETY9 OpenAI moderation adapter is text-only; keep MODERATION_IMAGE_ENABLED=false until an image provider patch is added.');
   if (env.publicImageReviewEnabled && !env.moderationEnabled) errors.push('PUBLIC_IMAGE_REVIEW_ENABLED=true requires MODERATION_ENABLED=true so image review cases are explicit and auditable.');
+  if (env.mediaStorageDriver === 's3') {
+    if (!env.awsRegion) errors.push('MEDIA_STORAGE_DRIVER=s3 requires AWS_REGION.');
+    if (!env.mediaS3Bucket) errors.push('MEDIA_STORAGE_DRIVER=s3 requires MEDIA_S3_BUCKET.');
+    if (!env.mediaPublicBaseUrl) errors.push('MEDIA_STORAGE_DRIVER=s3 requires MEDIA_PUBLIC_BASE_URL.');
+    if (env.mediaPublicBaseUrl && !isHttpsUrl(env.mediaPublicBaseUrl)) errors.push('MEDIA_PUBLIC_BASE_URL must use https:// in production.');
+  }
 
   const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.plusAiAssistEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiModerationSuggestionsEnabled || env.aiDebugPlaceholders;
   const aiSecretsConfigured = hasConfiguredValue(env.openaiApiKey) || hasConfiguredValue(env.geminiApiKey) || hasConfiguredValue(env.groqApiKey);

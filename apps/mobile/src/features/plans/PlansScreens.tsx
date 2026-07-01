@@ -22,7 +22,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
-import { resolveMediaUrl } from '../trade/mediaUrls';
+import { resolveMediaVariantUrl } from '../trade/mediaUrls';
 import { ImagePickerField } from '../trade/components/ImagePickerField';
 import type { SelectedLocalImage, SelectedImageUploadProgress } from '../trade/mediaUpload';
 import { SelectedImageUploadError, uploadSelectedImages } from '../trade/mediaUpload';
@@ -656,7 +656,7 @@ function activeMedia(media: MediaAssetDto[] | undefined) {
 
 function activeMediaUrl(media?: MediaAssetDto | null) {
   if (!media?.url || media.status !== 'active') return null;
-  return resolveMediaUrl(media.url);
+  return resolveMediaVariantUrl(media, 'card');
 }
 
 function staticMapUrlForTheme(staticMap?: PlaceStaticMapDto | null, themeMode: 'light' | 'dark' = 'light') {

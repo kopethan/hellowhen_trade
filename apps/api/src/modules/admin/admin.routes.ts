@@ -8,7 +8,7 @@ import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireBusinessAccountsEnabled, requireBusinessBudgetsEnabled, requireBusinessCampaignsEnabled, requireBusinessSponsoredContentEnabled, requireMoneyFeaturesVisible, requirePayoutsVisible, requirePlusAdminGrantsEnabled } from '../../middleware/featureGates.js';
-import { attachUploadedMediaToEntity, loadMediaByEntityIds, withMedia, withOneMedia } from '../media/media.helpers.js';
+import { attachUploadedMediaToEntity, loadMediaByEntityIds, toMediaAssetDto, withMedia, withOneMedia } from '../media/media.helpers.js';
 import { buildLaunchLimits } from '../limits/launchLimits.js';
 import { buildAdminMoneySafetySummary, buildGlobalMoneySafetyConfig } from '../money/moneySafety.js';
 import { mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
@@ -107,17 +107,18 @@ async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' |
   const placesById = new Map(places.map((place) => [place.id, place]));
 
   return media.map((item) => {
-    if (item.entityType === 'need' && item.entityId) return { ...item, entity: needsById.get(item.entityId) ?? null };
-    if (item.entityType === 'offer' && item.entityId) return { ...item, entity: offersById.get(item.entityId) ?? null };
-    if (item.entityType === 'trade' && item.entityId) return { ...item, entity: tradesById.get(item.entityId) ?? null };
-    if (item.entityType === 'inventory_template' && item.entityId) return { ...item, entity: inventoryTemplatesById.get(item.entityId) ?? null };
-    if (item.entityType === 'profile' && item.entityId) return { ...item, entity: profilesById.get(item.entityId) ?? null };
-    if (item.entityType === 'support_ticket' && item.entityId) return { ...item, entity: supportTicketsById.get(item.entityId) ?? null };
-    if (item.entityType === 'support_message' && item.entityId) return { ...item, entity: supportMessagesById.get(item.entityId) ?? null };
-    if (item.entityType === 'plan' && item.entityId) return { ...item, entity: plansById.get(item.entityId) ?? null };
-    if (item.entityType === 'plan_place' && item.entityId) return { ...item, entity: planPlacesById.get(item.entityId) ?? null };
-    if (item.entityType === 'place' && item.entityId) return { ...item, entity: placesById.get(item.entityId) ?? null };
-    return { ...item, entity: null };
+    const mediaItem = toMediaAssetDto(item as any);
+    if (item.entityType === 'need' && item.entityId) return { ...mediaItem, entity: needsById.get(item.entityId) ?? null };
+    if (item.entityType === 'offer' && item.entityId) return { ...mediaItem, entity: offersById.get(item.entityId) ?? null };
+    if (item.entityType === 'trade' && item.entityId) return { ...mediaItem, entity: tradesById.get(item.entityId) ?? null };
+    if (item.entityType === 'inventory_template' && item.entityId) return { ...mediaItem, entity: inventoryTemplatesById.get(item.entityId) ?? null };
+    if (item.entityType === 'profile' && item.entityId) return { ...mediaItem, entity: profilesById.get(item.entityId) ?? null };
+    if (item.entityType === 'support_ticket' && item.entityId) return { ...mediaItem, entity: supportTicketsById.get(item.entityId) ?? null };
+    if (item.entityType === 'support_message' && item.entityId) return { ...mediaItem, entity: supportMessagesById.get(item.entityId) ?? null };
+    if (item.entityType === 'plan' && item.entityId) return { ...mediaItem, entity: plansById.get(item.entityId) ?? null };
+    if (item.entityType === 'plan_place' && item.entityId) return { ...mediaItem, entity: planPlacesById.get(item.entityId) ?? null };
+    if (item.entityType === 'place' && item.entityId) return { ...mediaItem, entity: placesById.get(item.entityId) ?? null };
+    return { ...mediaItem, entity: null };
   });
 }
 

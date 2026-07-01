@@ -6,14 +6,14 @@ import { MobileIcon } from '../../../components/MobileIcon';
 import { SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { useTranslation } from '../../../providers/MobileI18nProvider';
-import { resolveMediaUrl } from '../mediaUrls';
+import { resolveMediaVariantUrl } from '../mediaUrls';
 import type { NeedItem, OfferItem } from '../types';
 
 type TFunction = ReturnType<typeof useTranslation>['t'];
 type InventoryCompactRowProps = { kind: 'need' | 'offer'; item: NeedItem | OfferItem };
 
 function visibleMedia(media?: MediaAssetDto[]) { return (media ?? []).filter((asset) => asset.status !== 'removed'); }
-function firstMediaUrl(media?: MediaAssetDto[]) { const first = visibleMedia(media)[0]; return first?.url ? resolveMediaUrl(first.url) : ''; }
+function firstMediaUrl(media?: MediaAssetDto[]) { const first = visibleMedia(media)[0]; return first ? resolveMediaVariantUrl(first, 'thumb') : ''; }
 function labelize(value: string) { return value.replaceAll('_', ' ').replaceAll('-', ' ').trim(); }
 function modeLabel(mode: string | null | undefined, t: TFunction) { if (mode === 'remote') return t('trade.modes.remote'); if (mode === 'local') return t('trade.modes.local'); if (mode === 'hybrid') return t('trade.modes.hybrid'); return null; }
 function typeLabel(itemType: string | undefined, t: TFunction) { if (itemType === 'goods') return t('inventory.itemTypes.goods'); if (itemType === 'other') return t('inventory.itemTypes.other'); return t('inventory.itemTypes.service'); }

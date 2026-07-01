@@ -1,0 +1,218 @@
+diff --git a/apps/mobile/src/features/trade/mediaUrls.ts b/apps/mobile/src/features/trade/mediaUrls.ts
+index d792b22..988ff67 100644
+--- a/apps/mobile/src/features/trade/mediaUrls.ts
++++ b/apps/mobile/src/features/trade/mediaUrls.ts
+@@ -1,8 +1,19 @@
+ import { API_URL } from '../../lib/api';
+ 
+-export function resolveMediaUrl(url?: string | null) {
+-  if (!url) return '';
+-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+-  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return '';
+-  return `${API_URL.replace(/\/$/, '')}${url.startsWith('/') ? url : `/${url}`}`;
++export function resolveMediaUrl(url?: string | null, storageKey?: string | null) {
++  const raw = (url ?? storageKey ?? '').trim();
++  if (!raw) return '';
++  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
++  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return '';
++
++  const normalized = raw.replace(/^\.\//, '').replace(/^\/+/, '');
++  const path = raw.startsWith('/')
++    ? raw
++    : normalized.startsWith('uploads/')
++      ? `/${normalized}`
++      : normalized.includes('/')
++        ? `/${normalized}`
++        : `/uploads/${normalized}`;
++
++  return `${API_URL.replace(/\/$/, '')}${path}`;
+ }
+diff --git a/apps/web/src/features/trade/ProposalConversationClient.tsx b/apps/web/src/features/trade/ProposalConversationClient.tsx
+index 1b4ec8e..1772513 100644
+--- a/apps/web/src/features/trade/ProposalConversationClient.tsx
++++ b/apps/web/src/features/trade/ProposalConversationClient.tsx
+@@ -21,7 +21,7 @@ import { formatWebDateTime, formatWebMoney } from "../../lib/webFormat";
+ import { useWebAuth } from "../../providers/WebAuthProvider";
+ import { useWebTranslation } from "../../providers/WebI18nProvider";
+ import { UserIdentityLink } from "../users/UserIdentityLink";
+-import { getStatusLabel, type TradeI18n } from "./tradePresentation";
++import { getStatusLabel, resolveTradeMediaUrl, type TradeI18n } from "./tradePresentation";
+ 
+ const THREAD_REFRESH_INTERVAL_MS = 7000;
+ const PRIVATE_REPLY_COMPOSER_MAX_HEIGHT_PX = 144;
+@@ -225,11 +225,8 @@ function proposalStatusIcon(status: TradeProposalDto["status"]): WebIconName {
+ }
+ 
+ function firstMediaUrl(item: NeedDto | OfferDto) {
+-  return (
+-    item.media?.find(
+-      (media) => typeof media.url === "string" && media.url.length > 0,
+-    )?.url ?? null
+-  );
++  const media = item.media?.find((asset) => Boolean(asset.url || asset.storageKey));
++  return media ? resolveTradeMediaUrl(media.url, media.storageKey) : null;
+ }
+ 
+ function sideMeta(item: NeedDto | OfferDto, i18n?: TradeI18n) {
+@@ -280,7 +277,7 @@ function ProposalSideDetails({
+     kind === "need" ? (item as NeedDto).timing : (item as OfferDto).availability;
+   const includes = kind === "offer" ? compactList((item as OfferDto).includes) : [];
+   const tags = compactList(item.tags);
+-  const media = item.media?.filter((asset) => Boolean(asset.url)) ?? [];
++  const media = item.media?.filter((asset) => Boolean(asset.url || asset.storageKey)) ?? [];
+   const rows = [
+     { label: tr(i18n, "trade.labels.category", "Category"), value: item.category },
+     { label: tr(i18n, "trade.labels.mode", "Mode"), value: formatMode(item.mode, i18n) },
+@@ -338,7 +335,7 @@ function ProposalSideDetails({
+         {media.length ? (
+           <div className="proposal-side-details__media-grid">
+             {media.map((asset) => (
+-              <img key={asset.id} src={asset.url} alt="" />
++              <img key={asset.id} src={resolveTradeMediaUrl(asset.url, asset.storageKey)} alt="" />
+             ))}
+           </div>
+         ) : (
+diff --git a/apps/web/src/features/trade/TradeProposalPanel.tsx b/apps/web/src/features/trade/TradeProposalPanel.tsx
+index 99f93f7..fa8cf98 100644
+--- a/apps/web/src/features/trade/TradeProposalPanel.tsx
++++ b/apps/web/src/features/trade/TradeProposalPanel.tsx
+@@ -9,7 +9,7 @@ import { WebIcon, type WebIconName } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
+ import { formatWebMoney } from '../../lib/webFormat';
+ import { betaFeatures } from '../../lib/betaFeatures';
+-import { getStatusLabel, getTradePostType, getTradeProposalCopy, type TradeI18n } from './tradePresentation';
++import { getStatusLabel, getTradePostType, getTradeProposalCopy, resolveTradeMediaUrl, type TradeI18n } from './tradePresentation';
+ import { ProTradePackagePrototype } from './ProTradePackagePrototype';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { UserIdentityLink } from '../users/UserIdentityLink';
+@@ -110,7 +110,8 @@ function proposalChooseHref(tradeId: string, side: 'need' | 'offer', currentNeed
+ }
+ 
+ function firstMediaUrl(item: NeedDto | OfferDto) {
+-  return item.media?.find((media) => typeof media.url === 'string' && media.url.length > 0)?.url ?? null;
++  const media = item.media?.find((asset) => Boolean(asset.url || asset.storageKey));
++  return media ? resolveTradeMediaUrl(media.url, media.storageKey) : null;
+ }
+ 
+ function parseProposalCashAmountCents(value: string) {
+diff --git a/apps/web/src/features/users/UserAvatar.tsx b/apps/web/src/features/users/UserAvatar.tsx
+index 04a4912..ce93691 100644
+--- a/apps/web/src/features/users/UserAvatar.tsx
++++ b/apps/web/src/features/users/UserAvatar.tsx
+@@ -2,7 +2,7 @@
+ 
+ import type { CSSProperties } from 'react';
+ import { useEffect, useMemo, useState } from 'react';
+-import { getWebApiBaseUrl } from '../../lib/api';
++import { resolveWebAssetUrl } from '../../lib/api';
+ 
+ export type UserAvatarSize = 'xs' | 'sm' | 'md' | 'lg';
+ 
+@@ -26,20 +26,11 @@ function resolveStoredAvatarUrl(src?: string | null, storageKey?: string | null)
+   const raw = (src ?? storageKey ?? '').trim();
+   if (!raw) return '';
+ 
+-  // Profile avatars may come from server-owned uploads or trusted OAuth HTTPS
+-  // providers. Do not render data:, blob:, file:, javascript:, or other active
+-  // schemes from persisted profile data.
+-  if (/^https?:\/\//i.test(raw)) return raw;
+-  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return '';
+-
+-  const normalized = raw.replace(/^\.\//, '').replace(/^\/+/, '');
+-  const path = raw.startsWith('/')
+-    ? raw
+-    : normalized.startsWith('uploads/')
+-      ? `/${normalized}`
+-      : `/uploads/${normalized}`;
+-
+-  return `${getWebApiBaseUrl().replace(/\/$/, '')}${path}`;
++  // Profile avatars may come from server-owned uploads, S3/CloudFront HTTPS
++  // media URLs, or trusted OAuth HTTPS providers. Do not render data:, blob:,
++  // file:, javascript:, or other active schemes from persisted profile data.
++  if (/^[a-z][a-z0-9+.-]*:/i.test(raw) && !/^https?:\/\//i.test(raw)) return '';
++  return resolveWebAssetUrl(src, storageKey);
+ }
+ 
+ export function getUserDisplayName(displayName?: string | null, handle?: string | null, fallback = 'Hellowhen member') {
+diff --git a/package.json b/package.json
+index 770d433..7d4399c 100644
+--- a/package.json
++++ b/package.json
+@@ -30,6 +30,7 @@
+     "cash-promise:safety-smoke": "node scripts/cash-promise-safety-smoke.mjs",
+     "starter-library:qa": "node scripts/starter-library-qa.mjs",
+     "places:smoke": "node scripts/place-library-hidden-smoke.mjs",
++    "media:cdn-smoke": "node scripts/media-cdn-smoke.mjs",
+     "language:audit": "node scripts/language-consistency-audit.mjs"
+   },
+   "devDependencies": {
+diff --git a/scripts/media-cdn-smoke.mjs b/scripts/media-cdn-smoke.mjs
+new file mode 100644
+index 0000000..8cc92b9
+--- /dev/null
++++ b/scripts/media-cdn-smoke.mjs
+@@ -0,0 +1,64 @@
++import fs from 'node:fs';
++import path from 'node:path';
++
++const repoRoot = process.cwd();
++const apiBase = 'https://api.hellowhen.example';
++const cdnUrl = 'https://media.hellowhen.example/uploads/2026/07/image.jpg';
++
++function assert(condition, message) {
++  if (!condition) {
++    console.error(`media-cdn-smoke failed: ${message}`);
++    process.exitCode = 1;
++  }
++}
++
++function resolveBrowserAssetUrl(value, storageKey) {
++  const raw = String(value ?? storageKey ?? '').trim();
++  if (!raw) return '';
++  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
++
++  const normalized = raw.replace(/^\.\//, '').replace(/^\/+/, '');
++  const resolvedPath = raw.startsWith('/')
++    ? raw
++    : normalized.startsWith('uploads/')
++      ? `/${normalized}`
++      : normalized.includes('/')
++        ? `/${normalized}`
++        : `/uploads/${normalized}`;
++
++  return `${apiBase}${resolvedPath}`;
++}
++
++function resolveNativeAssetUrl(value, storageKey) {
++  const raw = String(value ?? storageKey ?? '').trim();
++  if (!raw) return '';
++  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
++  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return '';
++
++  const normalized = raw.replace(/^\.\//, '').replace(/^\/+/, '');
++  const resolvedPath = raw.startsWith('/')
++    ? raw
++    : normalized.startsWith('uploads/')
++      ? `/${normalized}`
++      : normalized.includes('/')
++        ? `/${normalized}`
++        : `/uploads/${normalized}`;
++
++  return `${apiBase}${resolvedPath}`;
++}
++
++assert(resolveBrowserAssetUrl(cdnUrl) === cdnUrl, 'web resolver should keep CloudFront HTTPS media URLs unchanged');
++assert(resolveNativeAssetUrl(cdnUrl) === cdnUrl, 'native resolver should keep CloudFront HTTPS media URLs unchanged');
++assert(resolveBrowserAssetUrl('/uploads/local.jpg') === `${apiBase}/uploads/local.jpg`, 'web resolver should keep existing local /uploads URLs API-relative');
++assert(resolveNativeAssetUrl('/uploads/local.jpg') === `${apiBase}/uploads/local.jpg`, 'native resolver should keep existing local /uploads URLs API-relative');
++assert(resolveBrowserAssetUrl(null, 'local.jpg') === `${apiBase}/uploads/local.jpg`, 'web resolver should map old local storage keys to /uploads');
++assert(resolveNativeAssetUrl(null, 'local.jpg') === `${apiBase}/uploads/local.jpg`, 'native resolver should map old local storage keys to /uploads');
++assert(resolveBrowserAssetUrl(null, 'uploads/local.jpg') === `${apiBase}/uploads/local.jpg`, 'web resolver should accept uploads-prefixed storage keys');
++assert(resolveNativeAssetUrl(null, 'uploads/local.jpg') === `${apiBase}/uploads/local.jpg`, 'native resolver should accept uploads-prefixed storage keys');
++
++const envExample = fs.readFileSync(path.join(repoRoot, '.env.example'), 'utf8');
++assert(!/^NEXT_PUBLIC_AWS_/m.test(envExample), '.env.example must not expose AWS envs with NEXT_PUBLIC_*');
++assert(!/^EXPO_PUBLIC_AWS_/m.test(envExample), '.env.example must not expose AWS envs with EXPO_PUBLIC_*');
++assert(envExample.includes('MEDIA_PUBLIC_BASE_URL='), '.env.example should include MEDIA_PUBLIC_BASE_URL for CDN/CloudFront URLs');
++
++if (!process.exitCode) console.log('media-cdn-smoke passed');

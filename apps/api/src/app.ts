@@ -70,10 +70,15 @@ export function createApp() {
     if (err instanceof Error && 'statusCode' in err) {
       const statusCode = Number((err as Error & { statusCode?: unknown }).statusCode);
       const error = 'code' in err ? String((err as Error & { code?: unknown }).code) : 'request_error';
-      const message = 'publicMessage' in err
+      const hasPublicMessage = 'publicMessage' in err;
+      const message = hasPublicMessage
         ? String((err as Error & { publicMessage?: unknown }).publicMessage)
         : err.message;
       if (Number.isInteger(statusCode) && statusCode >= 400 && statusCode < 500) return res.status(statusCode).json({ error, message });
+      if (Number.isInteger(statusCode) && statusCode >= 500 && statusCode < 600 && hasPublicMessage) {
+        console.error(err);
+        return res.status(statusCode).json({ error, message });
+      }
     }
     if (err instanceof Error && err.message === 'unsupported_image_type') return res.status(400).json({ error: 'unsupported_image_type', message: 'Upload a JPEG, PNG, or WEBP image.' });
     if (err instanceof Error && err.name === 'MulterError') return res.status(400).json({ error: 'upload_error', message: 'Image upload failed. Check file size and try again.' });

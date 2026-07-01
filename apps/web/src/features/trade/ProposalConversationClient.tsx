@@ -21,7 +21,7 @@ import { formatWebDateTime, formatWebMoney } from "../../lib/webFormat";
 import { useWebAuth } from "../../providers/WebAuthProvider";
 import { useWebTranslation } from "../../providers/WebI18nProvider";
 import { UserIdentityLink } from "../users/UserIdentityLink";
-import { getStatusLabel, type TradeI18n } from "./tradePresentation";
+import { getStatusLabel, resolveTradeMediaVariantUrl, type TradeI18n } from "./tradePresentation";
 
 const THREAD_REFRESH_INTERVAL_MS = 7000;
 const PRIVATE_REPLY_COMPOSER_MAX_HEIGHT_PX = 144;
@@ -225,11 +225,8 @@ function proposalStatusIcon(status: TradeProposalDto["status"]): WebIconName {
 }
 
 function firstMediaUrl(item: NeedDto | OfferDto) {
-  return (
-    item.media?.find(
-      (media) => typeof media.url === "string" && media.url.length > 0,
-    )?.url ?? null
-  );
+  const media = item.media?.find((asset) => Boolean(asset.url || asset.storageKey));
+  return media ? resolveTradeMediaVariantUrl(media, 'thumb') : null;
 }
 
 function sideMeta(item: NeedDto | OfferDto, i18n?: TradeI18n) {
@@ -280,7 +277,7 @@ function ProposalSideDetails({
     kind === "need" ? (item as NeedDto).timing : (item as OfferDto).availability;
   const includes = kind === "offer" ? compactList((item as OfferDto).includes) : [];
   const tags = compactList(item.tags);
-  const media = item.media?.filter((asset) => Boolean(asset.url)) ?? [];
+  const media = item.media?.filter((asset) => Boolean(asset.url || asset.storageKey)) ?? [];
   const rows = [
     { label: tr(i18n, "trade.labels.category", "Category"), value: item.category },
     { label: tr(i18n, "trade.labels.mode", "Mode"), value: formatMode(item.mode, i18n) },
@@ -338,7 +335,7 @@ function ProposalSideDetails({
         {media.length ? (
           <div className="proposal-side-details__media-grid">
             {media.map((asset) => (
-              <img key={asset.id} src={asset.url} alt="" />
+              <img key={asset.id} src={resolveTradeMediaVariantUrl(asset, 'thumb')} alt="" />
             ))}
           </div>
         ) : (

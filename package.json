@@ -30,7 +30,11 @@
     "cash-promise:safety-smoke": "node scripts/cash-promise-safety-smoke.mjs",
     "starter-library:qa": "node scripts/starter-library-qa.mjs",
     "places:smoke": "node scripts/place-library-hidden-smoke.mjs",
-    "language:audit": "node scripts/language-consistency-audit.mjs"
+    "media:cdn-smoke": "node scripts/media-cdn-smoke.mjs",
+    "language:audit": "node scripts/language-consistency-audit.mjs",
+    "media:variants-smoke": "node scripts/media-variants-smoke.mjs",
+    "media:s3-cleanup-smoke": "node scripts/media-s3-cleanup-smoke.mjs",
+    "media:s3-migrate": "npm run media:s3-migrate -w @hellowhen/api --"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

@@ -1,0 +1,667 @@
+diff --git a/.env.example b/.env.example
+index efb50b0..cfac1a6 100644
+--- a/.env.example
++++ b/.env.example
+@@ -8,13 +8,14 @@ JWT_SECRET=dev-change-me
+ WEB_ORIGIN=http://localhost:3000
+ MOBILE_ORIGIN=exp://127.0.0.1:8081
+ UPLOAD_DIR=./uploads
+-# Media uploads stay local by default. Set MEDIA_STORAGE_DRIVER=s3 only after applying the S3 upload patch and configuring backend-only AWS envs.
++# Media uploads stay local by default. Set MEDIA_STORAGE_DRIVER=s3 after configuring backend-only AWS envs.
++# MEDIA_PUBLIC_BASE_URL should be your public CDN/CloudFront base URL, not an S3 secret URL.
+ MEDIA_STORAGE_DRIVER=local
+ AWS_REGION=eu-west-3
+ MEDIA_S3_BUCKET=
+ MEDIA_S3_PREFIX=uploads
+ MEDIA_PUBLIC_BASE_URL=
+-# Backend-only AWS credentials for later S3 upload support. Never expose these through NEXT_PUBLIC_* or EXPO_PUBLIC_*.
++# Backend-only AWS credentials. Never expose these through NEXT_PUBLIC_* or EXPO_PUBLIC_*.
+ AWS_ACCESS_KEY_ID=
+ AWS_SECRET_ACCESS_KEY=
+ NEXT_PUBLIC_API_URL=http://localhost:4000
+diff --git a/apps/api/package.json b/apps/api/package.json
+index 826eb50..d943a53 100644
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -15,6 +15,7 @@
+     "prisma:seed": "prisma db seed"
+   },
+   "dependencies": {
++    "@aws-sdk/client-s3": "^3.1077.0",
+     "@hellowhen/contracts": "file:../../packages/contracts",
+     "@hellowhen/shared": "file:../../packages/shared",
+     "@hellowhen/trade-domain": "file:../../packages/trade-domain",
+diff --git a/apps/api/src/app.ts b/apps/api/src/app.ts
+index 0301a8c..abc3864 100644
+--- a/apps/api/src/app.ts
++++ b/apps/api/src/app.ts
+@@ -70,10 +70,15 @@ export function createApp() {
+     if (err instanceof Error && 'statusCode' in err) {
+       const statusCode = Number((err as Error & { statusCode?: unknown }).statusCode);
+       const error = 'code' in err ? String((err as Error & { code?: unknown }).code) : 'request_error';
+-      const message = 'publicMessage' in err
++      const hasPublicMessage = 'publicMessage' in err;
++      const message = hasPublicMessage
+         ? String((err as Error & { publicMessage?: unknown }).publicMessage)
+         : err.message;
+       if (Number.isInteger(statusCode) && statusCode >= 400 && statusCode < 500) return res.status(statusCode).json({ error, message });
++      if (Number.isInteger(statusCode) && statusCode >= 500 && statusCode < 600 && hasPublicMessage) {
++        console.error(err);
++        return res.status(statusCode).json({ error, message });
++      }
+     }
+     if (err instanceof Error && err.message === 'unsupported_image_type') return res.status(400).json({ error: 'unsupported_image_type', message: 'Upload a JPEG, PNG, or WEBP image.' });
+     if (err instanceof Error && err.name === 'MulterError') return res.status(400).json({ error: 'upload_error', message: 'Image upload failed. Check file size and try again.' });
+diff --git a/apps/api/src/modules/media/storage/mediaStorageProvider.ts b/apps/api/src/modules/media/storage/mediaStorageProvider.ts
+index 5873534..80b9bd5 100644
+--- a/apps/api/src/modules/media/storage/mediaStorageProvider.ts
++++ b/apps/api/src/modules/media/storage/mediaStorageProvider.ts
+@@ -1,26 +1,45 @@
+ import { env } from '../../../config/env.js';
+ import { LocalMediaStorageProvider } from './localMediaStorage.js';
+-import { S3MediaStorageProvider } from './s3MediaStorage.js';
++import { getMissingS3MediaStorageConfigValues, S3MediaStorageProvider } from './s3MediaStorage.js';
+ import type { MediaStorageProvider } from './mediaStorage.types.js';
+ 
+ const localMediaStorageProvider = new LocalMediaStorageProvider(env.uploadDir);
+ 
+ let writeProvider: MediaStorageProvider | null = null;
++let warnedAboutS3Fallback = false;
+ 
+ export function getLocalMediaStorageProvider() {
+   return localMediaStorageProvider;
+ }
+ 
++function getS3Config() {
++  return {
++    region: env.awsRegion,
++    bucket: env.mediaS3Bucket,
++    prefix: env.mediaS3Prefix,
++    publicBaseUrl: env.mediaPublicBaseUrl
++  };
++}
++
++function warnAboutS3Fallback(missing: string[]) {
++  if (warnedAboutS3Fallback) return;
++  warnedAboutS3Fallback = true;
++  console.warn(`[media] MEDIA_STORAGE_DRIVER=s3 is set, but S3 media storage is missing configuration (${missing.join(', ')}). Falling back to local uploads.`);
++}
++
+ export function getMediaStorageProvider() {
+   if (writeProvider) return writeProvider;
+ 
+   if (env.mediaStorageDriver === 's3') {
+-    writeProvider = new S3MediaStorageProvider({
+-      region: env.awsRegion,
+-      bucket: env.mediaS3Bucket,
+-      prefix: env.mediaS3Prefix,
+-      publicBaseUrl: env.mediaPublicBaseUrl
+-    });
++    const config = getS3Config();
++    const missing = getMissingS3MediaStorageConfigValues(config);
++    if (missing.length) {
++      warnAboutS3Fallback(missing);
++      writeProvider = localMediaStorageProvider;
++      return writeProvider;
++    }
++
++    writeProvider = new S3MediaStorageProvider(config);
+     return writeProvider;
+   }
+ 
+diff --git a/apps/api/src/modules/media/storage/s3MediaStorage.ts b/apps/api/src/modules/media/storage/s3MediaStorage.ts
+index e88e417..b0a0bb5 100644
+--- a/apps/api/src/modules/media/storage/s3MediaStorage.ts
++++ b/apps/api/src/modules/media/storage/s3MediaStorage.ts
+@@ -1,3 +1,4 @@
++import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+ import type { MediaStorageProvider, StoreMediaImageInput, StoredMediaImage } from './mediaStorage.types.js';
+ 
+ export type S3MediaStorageConfig = {
+@@ -7,16 +8,114 @@ export type S3MediaStorageConfig = {
+   publicBaseUrl: string;
+ };
+ 
++const uploadedImageCacheControl = 'public, max-age=31536000, immutable';
++
++function sanitizeKeySegment(value: string) {
++  return value
++    .trim()
++    .replace(/[^A-Za-z0-9._-]/g, '-')
++    .replace(/-+/g, '-')
++    .replace(/^-+|-+$/g, '')
++    .slice(0, 180);
++}
++
++function normalizeFilenameBase(value: string) {
++  return sanitizeKeySegment(value.replace(/\.[A-Za-z0-9]+$/, '')) || `${Date.now()}-upload`;
++}
++
++function normalizePrefix(value: string) {
++  return value
++    .split('/')
++    .map((part) => sanitizeKeySegment(part))
++    .filter(Boolean)
++    .join('/');
++}
++
++function normalizePublicBaseUrl(value: string) {
++  const trimmed = value.trim().replace(/\/+$/, '');
++  if (!trimmed) return '';
++
++  try {
++    const url = new URL(trimmed);
++    if (url.protocol !== 'https:' && url.protocol !== 'http:') return '';
++    return trimmed;
++  } catch {
++    return '';
++  }
++}
++
++function normalizeConfig(config: S3MediaStorageConfig): S3MediaStorageConfig {
++  return {
++    region: config.region.trim(),
++    bucket: config.bucket.trim(),
++    prefix: normalizePrefix(config.prefix),
++    publicBaseUrl: normalizePublicBaseUrl(config.publicBaseUrl)
++  };
++}
++
++export function getMissingS3MediaStorageConfigValues(config: S3MediaStorageConfig) {
++  const normalized = normalizeConfig(config);
++  const missing: string[] = [];
++  if (!normalized.region) missing.push('AWS_REGION');
++  if (!normalized.bucket) missing.push('MEDIA_S3_BUCKET');
++  if (!normalized.publicBaseUrl) missing.push('MEDIA_PUBLIC_BASE_URL');
++  return missing;
++}
++
++function createPublicUrl(publicBaseUrl: string, storageKey: string) {
++  const encodedKey = storageKey.split('/').map((part) => encodeURIComponent(part)).join('/');
++  return `${publicBaseUrl}/${encodedKey}`;
++}
++
++function createS3UploadError() {
++  return Object.assign(new Error('Could not upload image to S3 media storage.'), {
++    statusCode: 502,
++    code: 'media_s3_upload_failed',
++    publicMessage: 'Image upload failed. Try again in a moment.'
++  });
++}
++
+ export class S3MediaStorageProvider implements MediaStorageProvider {
+   readonly driver = 's3' as const;
+ 
+-  constructor(readonly config: S3MediaStorageConfig) {}
++  private readonly client: S3Client;
++  private readonly config: S3MediaStorageConfig;
++
++  constructor(config: S3MediaStorageConfig) {
++    const missing = getMissingS3MediaStorageConfigValues(config);
++    if (missing.length) {
++      throw Object.assign(new Error(`Missing S3 media storage configuration: ${missing.join(', ')}`), {
++        statusCode: 500,
++        code: 'media_s3_config_missing',
++        publicMessage: 'Image storage is not configured correctly.'
++      });
++    }
++
++    this.config = normalizeConfig(config);
++    this.client = new S3Client({ region: this.config.region });
++  }
++
++  async storeImage(input: StoreMediaImageInput): Promise<StoredMediaImage> {
++    const filename = `${normalizeFilenameBase(input.filenameBase)}${input.extension}`;
++    const storageKey = this.config.prefix ? `${this.config.prefix}/${filename}` : filename;
++
++    try {
++      await this.client.send(new PutObjectCommand({
++        Bucket: this.config.bucket,
++        Key: storageKey,
++        Body: input.buffer,
++        ContentLength: input.buffer.length,
++        ContentType: input.mimeType,
++        CacheControl: uploadedImageCacheControl
++      }));
++    } catch {
++      throw createS3UploadError();
++    }
+ 
+-  async storeImage(_input: StoreMediaImageInput): Promise<StoredMediaImage> {
+-    throw Object.assign(new Error('S3 media storage is configured, but upload support has not been enabled yet.'), {
+-      statusCode: 503,
+-      code: 'media_s3_not_enabled',
+-      publicMessage: 'S3 media storage is configured, but uploads are not enabled yet. Switch MEDIA_STORAGE_DRIVER=local or apply the S3 upload patch.'
+-    });
++    return {
++      storageKey,
++      url: createPublicUrl(this.config.publicBaseUrl, storageKey),
++      sizeBytes: input.buffer.length
++    };
+   }
+ }
+diff --git a/package-lock.json b/package-lock.json
+index 79741ac..1a98b00 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -22,6 +22,7 @@
+       "name": "@hellowhen/api",
+       "version": "0.1.0",
+       "dependencies": {
++        "@aws-sdk/client-s3": "^3.1077.0",
+         "@hellowhen/contracts": "file:../../packages/contracts",
+         "@hellowhen/shared": "file:../../packages/shared",
+         "@hellowhen/trade-domain": "file:../../packages/trade-domain",
+@@ -335,6 +336,311 @@
+         "react": "^19.1.0"
+       }
+     },
++    "node_modules/@aws-sdk/checksums": {
++      "version": "3.1000.10",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/checksums/-/checksums-3.1000.10.tgz",
++      "integrity": "sha512-OUNjNcyA8Ai2OdlRUxW5jHUf6XJmqqZk3UddL+mDiUCtXrVqdmIHHkdDFWBlBRjhore/3ZBMgRXgcS0ggtvD0Q==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.974.25",
++        "@aws-sdk/types": "^3.973.14",
++        "@smithy/core": "^3.28.0",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/client-s3": {
++      "version": "3.1077.0",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/client-s3/-/client-s3-3.1077.0.tgz",
++      "integrity": "sha512-yWK6jOMrMUgGarXlrQaAopWXva20NaOqTPApuE68SzsBFQ57fQ5E13BKUPLwtPgymk+8L6vG/O4h7Q30IBYr2w==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/checksums": "^3.1000.10",
++        "@aws-sdk/core": "^3.974.25",
++        "@aws-sdk/credential-provider-node": "^3.972.60",
++        "@aws-sdk/middleware-sdk-s3": "^3.972.56",
++        "@aws-sdk/signature-v4-multi-region": "^3.996.37",
++        "@aws-sdk/types": "^3.973.14",
++        "@smithy/core": "^3.28.0",
++        "@smithy/fetch-http-handler": "^5.6.1",
++        "@smithy/node-http-handler": "^4.9.1",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/core": {
++      "version": "3.974.25",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/core/-/core-3.974.25.tgz",
++      "integrity": "sha512-fJFkx6u6wCqGMV/v6EAxiwa2UzEukbvr1hNPv4MrD3yj4IFz011jZg42/eSTOP/u5kJ0tlILqEjCWtT8GiKZvA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/types": "^3.973.14",
++        "@aws-sdk/xml-builder": "^3.972.32",
++        "@aws/lambda-invoke-store": "^0.2.2",
++        "@smithy/core": "^3.28.0",
++        "@smithy/signature-v4": "^5.6.0",
++        "@smithy/types": "^4.15.0",
++        "bowser": "^2.11.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-env": {
++      "version": "3.972.51",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-env/-/credential-provider-env-3.972.51.tgz",
++      "integrity": "sha512-Xo+/zf5k5pZdo53X8aVXN4MJGfU/M1P7yMM/GbNY/x9fyRZGEzjhKqW38GA0FSQQ9TYKs+bfPyz5ja4bi6pjTQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.974.25",
++        "@aws-sdk/types": "^3.973.14",
++        "@smithy/core": "^3.28.0",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-http": {
++      "version": "3.972.53",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-http/-/credential-provider-http-3.972.53.tgz",
++      "integrity": "sha512-7E9oFUcf9YWe+ttGiWhe/cCSI+pswwelzgQMoKXgPJi1AIfS27TK6et5ZULqEqHu30zbN+jh1RqlwcXqY/aXyg==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.974.25",
++        "@aws-sdk/types": "^3.973.14",
++        "@smithy/core": "^3.28.0",
++        "@smithy/fetch-http-handler": "^5.6.1",
++        "@smithy/node-http-handler": "^4.9.1",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-ini": {
++      "version": "3.972.58",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-ini/-/credential-provider-ini-3.972.58.tgz",
++      "integrity": "sha512-MPr0hD8pyDGfF3dWXvFOILhcKTB9ptqJOJK9JEuDQzpc2HgKisY16eR7IrKUXxSbz8LZj+LHz/CS8Y5G1ai7yw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.974.25",
++        "@aws-sdk/credential-provider-env": "^3.972.51",
++        "@aws-sdk/credential-provider-http": "^3.972.53",
++        "@aws-sdk/credential-provider-login": "^3.972.57",
++        "@aws-sdk/credential-provider-process": "^3.972.51",
++        "@aws-sdk/credential-provider-sso": "^3.972.57",
++        "@aws-sdk/credential-provider-web-identity": "^3.972.57",
++        "@aws-sdk/nested-clients": "^3.997.25",
++        "@aws-sdk/types": "^3.973.14",
++        "@smithy/core": "^3.28.0",
++        "@smithy/credential-provider-imds": "^4.4.4",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-login": {
++      "version": "3.972.57",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-login/-/credential-provider-login-3.972.57.tgz",
++      "integrity": "sha512-kPWc/SCrl9agKeywxKwPEoQHanWag0LcNQrcZpEQpjNifkxq6tQENhgrrS9al317CF6yytyihlX+FhPHlk0QjA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.974.25",
++        "@aws-sdk/nested-clients": "^3.997.25",
++        "@aws-sdk/types": "^3.973.14",
++        "@smithy/core": "^3.28.0",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-node": {
++      "version": "3.972.60",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-node/-/credential-provider-node-3.972.60.tgz",
++      "integrity": "sha512-hE2hIBJQjCDRx8TbSqpVQ+/o2mIrJZQZbQ3LlwE2bJf7z47x5GmhcvGwZPqJH7Oq//SzTXEBGSZ4qSpK3yPbhw==",
++      "dependencies": {
++        "@aws-sdk/credential-provider-env": "^3.972.51",
++        "@aws-sdk/credential-provider-http": "^3.972.53",
++        "@aws-sdk/credential-provider-ini": "^3.972.58",
++        "@aws-sdk/credential-provider-process": "^3.972.51",
++        "@aws-sdk/credential-provider-sso": "^3.972.57",
++        "@aws-sdk/credential-provider-web-identity": "^3.972.57",
++        "@aws-sdk/types": "^3.973.14",
++        "@smithy/core": "^3.28.0",
++        "@smithy/credential-provider-imds": "^4.4.4",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-process": {
++      "version": "3.972.51",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-process/-/credential-provider-process-3.972.51.tgz",
++      "integrity": "sha512-081dD2RlnmY+G05v6E73KfACvDjPjnttrLjGHE2SSglbID25UcuijbWpL4g+XR5T2Kl4oIJoVBXi64s+2f009Q==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.974.25",
++        "@aws-sdk/types": "^3.973.14",
++        "@smithy/core": "^3.28.0",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-sso": {
++      "version": "3.972.57",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-sso/-/credential-provider-sso-3.972.57.tgz",
++      "integrity": "sha512-dC7ZyX3EHKHLOeVUEDzzGvk0L1s6N06YDrau7P0rGXL/j1cO+DzN2w1x9vcEh7zljVCR3019f5mi1Th+GGTURw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.974.25",
++        "@aws-sdk/nested-clients": "^3.997.25",
++        "@aws-sdk/token-providers": "3.1077.0",
++        "@aws-sdk/types": "^3.973.14",
++        "@smithy/core": "^3.28.0",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-web-identity": {
++      "version": "3.972.57",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-web-identity/-/credential-provider-web-identity-3.972.57.tgz",
++      "integrity": "sha512-HtWM3FV2o7NJFJSUqFLBlxmV9RxQRHpzCvQaP1n1Qo4CxQSvwpJ8ERWHiLqXMFDgDXyELt+EZNFcpG6XQRcJbQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.974.25",
++        "@aws-sdk/nested-clients": "^3.997.25",
++        "@aws-sdk/types": "^3.973.14",
++        "@smithy/core": "^3.28.0",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/middleware-sdk-s3": {
++      "version": "3.972.56",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/middleware-sdk-s3/-/middleware-sdk-s3-3.972.56.tgz",
++      "integrity": "sha512-VFLd7bT8ef48H2n2iDrY/w9EPpXLmC0v4NEriXy2vuTgEP/FrKqrcwi7eobhcOrdO37uLbMt5AWZlY55R2/xqg==",
++      "dependencies": {
++        "@aws-sdk/core": "^3.974.25",
++        "@aws-sdk/signature-v4-multi-region": "^3.996.37",
++        "@aws-sdk/types": "^3.973.14",
++        "@smithy/core": "^3.28.0",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/nested-clients": {
++      "version": "3.997.25",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/nested-clients/-/nested-clients-3.997.25.tgz",
++      "integrity": "sha512-VpRQ3wR6l+fwRHV5veJL2ehtyQFrGyH/2CJG9DVtb8H3xyqqnZWSTSrq/CJJ7DvDlDgrPRiW2SkYA8pN6VWCFQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.974.25",
++        "@aws-sdk/signature-v4-multi-region": "^3.996.37",
++        "@aws-sdk/types": "^3.973.14",
++        "@smithy/core": "^3.28.0",
++        "@smithy/fetch-http-handler": "^5.6.1",
++        "@smithy/node-http-handler": "^4.9.1",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/signature-v4-multi-region": {
++      "version": "3.996.37",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/signature-v4-multi-region/-/signature-v4-multi-region-3.996.37.tgz",
++      "integrity": "sha512-u8qd064XsHzM0Mk+yH4IPKn/ZC9rdniEKs+neBHNlsPZirw3rcLvmrH4ImoKC4yF7A0I/MbcC3dseARnJLiAhg==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/types": "^3.973.14",
++        "@smithy/signature-v4": "^5.6.0",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/token-providers": {
++      "version": "3.1077.0",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/token-providers/-/token-providers-3.1077.0.tgz",
++      "integrity": "sha512-sRUkfZ3fpOco95jZHsQUQiXvuIVLvCmWVclFg6dRFDyfsYs6Pdr/NuZ2+yJxeHN+6WAfDh2aZ8nlZntnvuhZUQ==",
++      "dependencies": {
++        "@aws-sdk/core": "^3.974.25",
++        "@aws-sdk/nested-clients": "^3.997.25",
++        "@aws-sdk/types": "^3.973.14",
++        "@smithy/core": "^3.28.0",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/types": {
++      "version": "3.973.14",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/types/-/types-3.973.14.tgz",
++      "integrity": "sha512-vH4pEu9YBEwr67yT+GVcmKX0GzfIrIYUn+MF5vXg9OspouVnAekuyVyawFvZHEK7WlcwVDwNrqI3ZBDUAiyu9A==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/xml-builder": {
++      "version": "3.972.32",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/xml-builder/-/xml-builder-3.972.32.tgz",
++      "integrity": "sha512-2loKuOMRFDg1nwdni5AtJ9S5juVbRNPNsPC7tWTfkHyycPwACMhxepspUHi8GhvfNlL2cQo3sPMod1uib+KZ0w==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws/lambda-invoke-store": {
++      "version": "0.2.4",
++      "resolved": "https://registry.npmjs.org/@aws/lambda-invoke-store/-/lambda-invoke-store-0.2.4.tgz",
++      "integrity": "sha512-iY8yvjE0y651BixKNPgmv1WrQc+GZ142sb0z4gYnChDDY2YqI4P/jsSopBWrKfAt7LOJAkOXt7rC/hms+WclQQ==",
++      "license": "Apache-2.0",
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
+     "node_modules/@babel/code-frame": {
+       "version": "7.10.4",
+       "resolved": "https://registry.npmjs.org/@babel/code-frame/-/code-frame-7.10.4.tgz",
+@@ -6489,6 +6795,87 @@
+         "@sinonjs/commons": "^3.0.0"
+       }
+     },
++    "node_modules/@smithy/core": {
++      "version": "3.28.0",
++      "resolved": "https://registry.npmjs.org/@smithy/core/-/core-3.28.0.tgz",
++      "integrity": "sha512-N/LoLG8pZ1zv5cIWpdF6vmSjtZtXKK9G0OqT5yYCOZU+CzPq1+nYA95VoKJBGWRScs7YbMugZ7lZx8Fj1vdHoA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@smithy/credential-provider-imds": {
++      "version": "4.4.4",
++      "resolved": "https://registry.npmjs.org/@smithy/credential-provider-imds/-/credential-provider-imds-4.4.4.tgz",
++      "integrity": "sha512-jT0WrDaM88L5na9FX1xRNywCS3B1n75wPY5Ksasjo0PHUtuI7d8FclksN1BbOSYTiaiKxUDqU23nUymH/V+AaQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/core": "^3.28.0",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@smithy/fetch-http-handler": {
++      "version": "5.6.1",
++      "resolved": "https://registry.npmjs.org/@smithy/fetch-http-handler/-/fetch-http-handler-5.6.1.tgz",
++      "integrity": "sha512-fW6l9rWoyk1iyzfuZaERnZLNjB6WIojgGm6Bo9Hpfpy3RUpltjLikNlxTsS/YtxVobcfbCGBuAncREYqT4hvqQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/core": "^3.28.0",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@smithy/node-http-handler": {
++      "version": "4.9.1",
++      "resolved": "https://registry.npmjs.org/@smithy/node-http-handler/-/node-http-handler-4.9.1.tgz",
++      "integrity": "sha512-m/f15di58P6NtLQ7eVEb5N19NdJWn+4c7zfkFHMT/i3JH7U8UtknpPoy8o2tm2R3OdliYvsvQhZHIfACQDqT+Q==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/core": "^3.28.0",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@smithy/signature-v4": {
++      "version": "5.6.0",
++      "resolved": "https://registry.npmjs.org/@smithy/signature-v4/-/signature-v4-5.6.0.tgz",
++      "integrity": "sha512-IkPHQdbyoebSwBCuMTzJ/2oIhKVqiZZAZxQYSlpDZqq/WhJUpmdgbHvP7ItddxsPzcDUJeI0V4PNMSNtlZ0aqA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/core": "^3.28.0",
++        "@smithy/types": "^4.15.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@smithy/types": {
++      "version": "4.15.0",
++      "resolved": "https://registry.npmjs.org/@smithy/types/-/types-4.15.0.tgz",
++      "integrity": "sha512-Z5TAOxygoFvybJV3igo5SloFflSokHx2hu1eFA+DxDTcn+FtKxUSui+rbTRG1pAafMA888Z3MVvCWUuvCrTXjg==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
+     "node_modules/@swc/helpers": {
+       "version": "0.5.15",
+       "resolved": "https://registry.npmjs.org/@swc/helpers/-/helpers-0.5.15.tgz",
+@@ -7423,6 +7810,12 @@
+       "integrity": "sha512-JZOSA7Mo9sNGB8+UjSgzdLtokWAky1zbztM3WRLCbZ70/3cTANmQmOdR7y2g+J0e2WXywy1yS468tY+IruqEww==",
+       "license": "ISC"
+     },
++    "node_modules/bowser": {
++      "version": "2.14.1",
++      "resolved": "https://registry.npmjs.org/bowser/-/bowser-2.14.1.tgz",
++      "integrity": "sha512-tzPjzCxygAKWFOJP011oxFHs57HzIhOEracIgAePE4pqB3LikALKnSzUyU4MGs9/iCEUuHlAJTjTc5M+u7YEGg==",
++      "license": "MIT"
++    },
+     "node_modules/bplist-creator": {
+       "version": "0.0.7",
+       "resolved": "https://registry.npmjs.org/bplist-creator/-/bplist-creator-0.0.7.tgz",
