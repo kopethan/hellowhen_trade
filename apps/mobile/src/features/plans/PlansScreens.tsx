@@ -724,10 +724,11 @@ function getPlanPlaceMapsQuery(place: PlanPlaceDto) {
 }
 
 function buildGoogleMapsDirectionsUrl(queries: string[]) {
-  if (queries.length <= 1) return buildMapsSearchUrl(queries[0] ?? '');
-  const [origin, ...rest] = queries;
-  const destination = rest[rest.length - 1];
-  const waypoints = rest.slice(0, -1);
+  const origin = queries[0];
+  if (queries.length <= 1 || !origin) return buildMapsSearchUrl(origin ?? '');
+  const destination = queries[queries.length - 1];
+  if (!destination) return buildMapsSearchUrl(origin);
+  const waypoints = queries.slice(1, -1);
   const params = [
     'api=1',
     `origin=${encodeURIComponent(origin)}`,
@@ -1380,6 +1381,10 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
 
   function openWorkspaceItem(itemId: string) {
     setMenuOpen(false);
+    if (itemId === 'plan_guide') {
+      navigation.navigate('OnboardingGuide', { guide: 'plans', replay: true });
+      return;
+    }
     if (itemId === 'my_plans') {
       navigation.navigate('MyPlans');
       return;
@@ -1531,12 +1536,13 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
 
 function MenuItem({ item, onPress }: { item: NormalWorkspaceMenuItem; onPress: () => void }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.menuItem, { borderBottomColor: theme.color.border }, pressed && styles.pressed]}>
       <View style={[styles.menuIcon, { backgroundColor: theme.semantic[item.tone].softBg, borderColor: theme.semantic[item.tone].border }]}><MobileIcon name={item.icon} size={17} color={theme.semantic[item.tone].text} /></View>
       <View style={styles.menuCopy}>
-        <AppText style={styles.menuTitle}>{item.title}</AppText>
-        <AppText style={[styles.menuBody, { color: theme.color.muted }]}>{item.body}</AppText>
+        <AppText style={styles.menuTitle}>{item.titleKey ? t(item.titleKey) : item.title}</AppText>
+        <AppText style={[styles.menuBody, { color: theme.color.muted }]}>{item.bodyKey ? t(item.bodyKey) : item.body}</AppText>
       </View>
       <MobileIcon name="chevron-right" size={20} color={theme.color.muted} />
     </Pressable>

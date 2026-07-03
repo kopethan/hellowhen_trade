@@ -28,6 +28,7 @@ export type WebIconName =
   | 'settings'
   | 'share'
   | 'trade'
+  | 'verified'
   | 'warning';
 
 type WebIconProps = {

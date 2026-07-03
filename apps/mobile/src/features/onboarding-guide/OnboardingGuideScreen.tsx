@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,7 +13,7 @@ import { useTranslation } from '../../providers/MobileI18nProvider';
 import { getOnboardingImageBackground, OnboardingSlideIllustration } from './OnboardingSlideIllustration';
 import { markOnboardingGuideCompleted } from './onboardingGuideStorage';
 import type { OnboardingGuideSlide } from './onboardingGuide.slides';
-import { ONBOARDING_GUIDE_SLIDES } from './onboardingGuide.slides';
+import { getOnboardingGuidePack } from './onboardingGuide.slides';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'OnboardingGuide'>;
 type AppearancePreference = AppSettings['appearance'];
@@ -36,7 +36,7 @@ const appearanceOptions: Array<PreferenceOption<AppearancePreference>> = [
   { value: 'dark', labelKey: 'onboarding.preferences.appearanceOptions.dark' },
 ];
 
-const fallbackSlide = ONBOARDING_GUIDE_SLIDES[0] as OnboardingGuideSlide;
+const fallbackSlide = getOnboardingGuidePack('trade').slides[0] as OnboardingGuideSlide;
 const defaultLanguageLabelKey = 'onboarding.preferences.languageOptions.system';
 const defaultAppearanceLabelKey = 'onboarding.preferences.appearanceOptions.system';
 
@@ -47,14 +47,16 @@ export function OnboardingGuideScreen({ navigation, route }: Props) {
   const { width, height } = useWindowDimensions();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
-  const slide = ONBOARDING_GUIDE_SLIDES[currentIndex] ?? fallbackSlide;
+  const guidePack = getOnboardingGuidePack(route.params?.guide);
+  const guideSlides = guidePack.slides;
+  const slide = guideSlides[currentIndex] ?? fallbackSlide;
   const isCompactHeight = height < 700;
   const imageMode = theme.mode;
   const onboardingBackground = getOnboardingImageBackground(imageMode, slide.illustrationKey);
   const surfaceForPrimaryText = imageMode === 'dark' ? '#050506' : '#FFFFFF';
-  const isLastSlide = currentIndex === ONBOARDING_GUIDE_SLIDES.length - 1;
+  const isLastSlide = currentIndex === guideSlides.length - 1;
   const isReplay = route.params?.replay === true;
-  const progressLabel = t('onboarding.progress', { current: currentIndex + 1, total: ONBOARDING_GUIDE_SLIDES.length });
+  const progressLabel = t('onboarding.progress', { current: currentIndex + 1, total: guideSlides.length });
   const currentLanguageLabel = t(languageOptions.find((option) => option.value === settings.language)?.labelKey ?? defaultLanguageLabelKey);
   const currentAppearanceLabel = t(appearanceOptions.find((option) => option.value === settings.appearance)?.labelKey ?? defaultAppearanceLabelKey);
   const preferencesSummary = t('onboarding.preferences.summary', { language: currentLanguageLabel, appearance: currentAppearanceLabel });
@@ -63,9 +65,13 @@ export function OnboardingGuideScreen({ navigation, route }: Props) {
     [height, isCompactHeight, width]
   );
 
+  useEffect(() => {
+    setCurrentIndex(0);
+  }, [guidePack.type]);
+
   async function closeGuide() {
     if (!isReplay) {
-      await markOnboardingGuideCompleted().catch(() => undefined);
+      await markOnboardingGuideCompleted(guidePack.type).catch(() => undefined);
     }
 
     if (navigation.canGoBack()) {
@@ -81,7 +87,7 @@ export function OnboardingGuideScreen({ navigation, route }: Props) {
       void closeGuide();
       return;
     }
-    setCurrentIndex((value) => Math.min(value + 1, ONBOARDING_GUIDE_SLIDES.length - 1));
+    setCurrentIndex((value) => Math.min(value + 1, guideSlides.length - 1));
   }
 
   function goBack() {
@@ -158,7 +164,7 @@ export function OnboardingGuideScreen({ navigation, route }: Props) {
           <Text style={[styles.body, { color: theme.color.muted }]}>{t(slide.bodyKey)}</Text>
 
           <View accessibilityLabel={progressLabel} style={styles.dotsRow}>
-            {ONBOARDING_GUIDE_SLIDES.map((item, index) => {
+            {guideSlides.map((item, index) => {
               const active = index === currentIndex;
               return (
                 <View

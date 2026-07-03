@@ -9,7 +9,7 @@ import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { useWebAppSettings } from '../../providers/WebAppSettingsProvider';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { getOnboardingImageBackground, getOnboardingImageDescriptor } from './onboardingGuideAssets';
-import { ONBOARDING_GUIDE_SLIDES } from './onboardingGuide.slides';
+import { getOnboardingGuidePack, type OnboardingGuideType } from './onboardingGuide.slides';
 import { markWebOnboardingGuideCompletedForVisitor } from './onboardingGuideStorage';
 
 type ResolvedMode = 'light' | 'dark';
@@ -53,9 +53,26 @@ function resolveInitialOnboardingMode(appearance: string | undefined, settingsHy
   return resolveOnboardingMode(appearance);
 }
 
-function sanitizeNext(value: string | null) {
-  if (!value || !value.startsWith('/') || value.startsWith('//')) return '/trades';
-  if (value.startsWith('/onboarding-guide')) return '/trades';
+function isGuideType(value: string | null): value is OnboardingGuideType {
+  return value === 'global' || value === 'trade' || value === 'plans';
+}
+
+function resolveGuideType(guideParam: string | null, nextParam: string | null): OnboardingGuideType {
+  if (isGuideType(guideParam)) return guideParam;
+  if (nextParam?.startsWith('/plans') || nextParam?.startsWith('/places')) return 'plans';
+  if (nextParam?.startsWith('/trades') || nextParam?.startsWith('/needs') || nextParam?.startsWith('/offers')) return 'trade';
+  return 'global';
+}
+
+function getDefaultNextHref(guideType: OnboardingGuideType) {
+  if (guideType === 'plans') return '/plans';
+  if (guideType === 'trade') return '/trades';
+  return '/';
+}
+
+function sanitizeNext(value: string | null, fallback: string) {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return fallback;
+  if (value.startsWith('/onboarding-guide')) return fallback;
   return value;
 }
 
@@ -69,11 +86,14 @@ export function OnboardingGuideClient() {
   const [resolvedMode, setResolvedMode] = useState<ResolvedMode>('light');
   const [isAppearanceReady, setIsAppearanceReady] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
-  const slide = ONBOARDING_GUIDE_SLIDES[currentIndex] ?? ONBOARDING_GUIDE_SLIDES[0]!;
-  const isLastSlide = currentIndex === ONBOARDING_GUIDE_SLIDES.length - 1;
+  const guideType = resolveGuideType(searchParams.get('guide'), searchParams.get('next'));
+  const guidePack = getOnboardingGuidePack(guideType);
+  const guideSlides = guidePack.slides;
+  const slide = guideSlides[currentIndex] ?? guideSlides[0]!;
+  const isLastSlide = currentIndex === guideSlides.length - 1;
   const isReplay = searchParams.get('replay') === '1' || searchParams.get('replay') === 'true';
-  const nextHref = useMemo(() => sanitizeNext(searchParams.get('next')), [searchParams]);
-  const progressLabel = t('onboarding.progress', { current: currentIndex + 1, total: ONBOARDING_GUIDE_SLIDES.length });
+  const nextHref = useMemo(() => sanitizeNext(searchParams.get('next'), getDefaultNextHref(guideType)), [guideType, searchParams]);
+  const progressLabel = t('onboarding.progress', { current: currentIndex + 1, total: guideSlides.length });
   const backgroundColor = getOnboardingImageBackground(resolvedMode, slide.illustrationKey);
   const imageDescriptor = isAppearanceReady ? getOnboardingImageDescriptor(resolvedMode, slide.illustrationKey) : null;
   const shouldPrioritizeImage = currentIndex === 0;
@@ -81,6 +101,10 @@ export function OnboardingGuideClient() {
   const currentLanguageLabel = t(languageOptions.find((option) => option.value === settings.language)?.labelKey ?? defaultLanguageLabelKey);
   const currentAppearanceLabel = t(appearanceOptions.find((option) => option.value === settings.appearance)?.labelKey ?? defaultAppearanceLabelKey);
   const preferencesSummary = t('onboarding.preferences.summary', { language: currentLanguageLabel, appearance: currentAppearanceLabel });
+
+  useEffect(() => {
+    setCurrentIndex(0);
+  }, [guidePack.type]);
 
   useEffect(() => {
     setResolvedMode(resolveInitialOnboardingMode(settings.appearance, settingsHydrated));
@@ -96,16 +120,16 @@ export function OnboardingGuideClient() {
   }, [settings.appearance, settingsHydrated]);
 
   const closeGuide = useCallback(() => {
-    if (!isReplay) markWebOnboardingGuideCompletedForVisitor(auth.user?.id);
+    if (!isReplay) markWebOnboardingGuideCompletedForVisitor(auth.user?.id, guidePack.type);
     router.push(nextHref);
-  }, [auth.user?.id, isReplay, nextHref, router]);
+  }, [auth.user?.id, guidePack.type, isReplay, nextHref, router]);
 
   function goNext() {
     if (isLastSlide) {
       closeGuide();
       return;
     }
-    setCurrentIndex((value) => Math.min(value + 1, ONBOARDING_GUIDE_SLIDES.length - 1));
+    setCurrentIndex((value) => Math.min(value + 1, guideSlides.length - 1));
   }
 
   function goBack() {
@@ -160,7 +184,7 @@ export function OnboardingGuideClient() {
         <p className="onboarding-guide-body">{t(slide.bodyKey)}</p>
 
         <div className="onboarding-guide-dots" aria-label={progressLabel}>
-          {ONBOARDING_GUIDE_SLIDES.map((item, index) => (
+          {guideSlides.map((item, index) => (
             <span key={item.id} className={index === currentIndex ? 'is-active' : ''} />
           ))}
         </div>

@@ -1,4 +1,4 @@
-import { formatLocalizedDate, formatLocalizedDateTime, formatLocalizedMoney, formatLocalizedShortDate, getLocaleForLanguage, type SupportedLanguage } from '@hellowhen/i18n';
+import { formatLocalizedDate, formatLocalizedDateTime, formatLocalizedMoney, formatLocalizedShortDate, getLocaleForLanguage, isSupportedLanguage, type SupportedLanguage } from '@hellowhen/i18n';
 
 const WEB_LOCALE = 'en-US';
 const WEB_TIME_ZONE = 'UTC';
@@ -6,7 +6,7 @@ const WEB_TIME_ZONE = 'UTC';
 type LocaleInput = SupportedLanguage | string | undefined | null;
 
 function normalizeLocale(locale?: LocaleInput) {
-  if (locale === 'en' || locale === 'fr') return getLocaleForLanguage(locale);
+  if (isSupportedLanguage(locale)) return getLocaleForLanguage(locale);
   return locale || WEB_LOCALE;
 }
 
@@ -16,12 +16,12 @@ function toValidDate(value?: string | null) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-export function formatWebDate(value?: string | null, fallback = 'No date set', language?: SupportedLanguage) {
-  if (language) return formatLocalizedDate(value, language, fallback);
+export function formatWebDate(value?: string | null, fallback = 'No date set', language?: LocaleInput) {
+  if (isSupportedLanguage(language)) return formatLocalizedDate(value, language, fallback);
   const date = toValidDate(value);
   if (!date) return fallback;
   try {
-    return new Intl.DateTimeFormat(WEB_LOCALE, {
+    return new Intl.DateTimeFormat(normalizeLocale(language), {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -32,12 +32,12 @@ export function formatWebDate(value?: string | null, fallback = 'No date set', l
   }
 }
 
-export function formatWebShortDate(value?: string | null, fallback = 'No date set', language?: SupportedLanguage) {
-  if (language) return formatLocalizedShortDate(value, language, fallback);
+export function formatWebShortDate(value?: string | null, fallback = 'No date set', language?: LocaleInput) {
+  if (isSupportedLanguage(language)) return formatLocalizedShortDate(value, language, fallback);
   const date = toValidDate(value);
   if (!date) return fallback;
   try {
-    return new Intl.DateTimeFormat(WEB_LOCALE, {
+    return new Intl.DateTimeFormat(normalizeLocale(language), {
       month: 'short',
       day: 'numeric',
       timeZone: WEB_TIME_ZONE,
@@ -47,12 +47,12 @@ export function formatWebShortDate(value?: string | null, fallback = 'No date se
   }
 }
 
-export function formatWebDateTime(value?: string | null, fallback = '—', language?: SupportedLanguage) {
-  if (language) return formatLocalizedDateTime(value, language, fallback);
+export function formatWebDateTime(value?: string | null, fallback = '—', language?: LocaleInput) {
+  if (isSupportedLanguage(language)) return formatLocalizedDateTime(value, language, fallback);
   const date = toValidDate(value);
   if (!date) return fallback;
   try {
-    return new Intl.DateTimeFormat(WEB_LOCALE, {
+    return new Intl.DateTimeFormat(normalizeLocale(language), {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -65,8 +65,8 @@ export function formatWebDateTime(value?: string | null, fallback = '—', langu
   }
 }
 
-export function formatWebMoney(cents = 0, currency = 'eur', language?: SupportedLanguage) {
-  if (language) return formatLocalizedMoney(cents, currency, language);
+export function formatWebMoney(cents = 0, currency = 'eur', language?: LocaleInput) {
+  if (isSupportedLanguage(language)) return formatLocalizedMoney(cents, currency, language);
   try {
     return new Intl.NumberFormat(normalizeLocale(language), {
       style: 'currency',

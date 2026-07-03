@@ -489,7 +489,7 @@ function HomeTradeIntroBanner({ onDismiss }: HomeTradeIntroBannerProps) {
         <p>{t('trade.homeIntro.guideBody')}</p>
       </div>
       <div className="home-guide-entry__actions">
-        <Link href="/onboarding-guide?replay=1&next=/trades" className="button primary">{t('trade.homeIntro.guideAction')}</Link>
+        <Link href="/onboarding-guide?guide=trade&replay=1&next=/trades" className="button primary">{t('trade.homeIntro.guideAction')}</Link>
         <button type="button" className="button secondary" onClick={onDismiss}>{t('trade.homeIntro.dismissShort')}</button>
       </div>
     </section>
@@ -545,6 +545,7 @@ function TradeWizardPanel({ onClose, onOpenActivity, onOpenStarterIdeas }: Trade
         <WebIcon name="arrow-right" size={16} decorative />
       </>
     );
+    if (item.id === 'trade_guide') return <Link key={item.id} href="/onboarding-guide?guide=trade&replay=1&next=/trades" className="plans-workspace-menu__item" onClick={onClose}>{content}</Link>;
     if (item.id === 'my_needs') return <Link key={item.id} href="/needs" className="plans-workspace-menu__item" onClick={onClose}>{content}</Link>;
     if (item.id === 'my_offers') return <Link key={item.id} href="/offers" className="plans-workspace-menu__item" onClick={onClose}>{content}</Link>;
     return <button key={item.id} type="button" className="plans-workspace-menu__item" onClick={() => selectItem(item)}>{content}</button>;

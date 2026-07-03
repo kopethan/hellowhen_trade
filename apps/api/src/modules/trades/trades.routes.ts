@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import type { MediaAsset, Prisma } from '@prisma/client';
-import { createTradeProposalRequestSchema, createTradePublicMessageRequestSchema, createTradeRequestSchema, listTradePublicMessagesQuerySchema, listTradesFeedQuerySchema, renewTradeRequestSchema, updateTradePublicMessageRequestSchema, updateTradeStatusRequestSchema, type ListTradesFeedQuery } from '@hellowhen/contracts';
+import type { Prisma } from '@prisma/client';
+import { createTradeProposalRequestSchema, createTradePublicMessageRequestSchema, createTradeRequestSchema, listTradePublicMessagesQuerySchema, listTradesFeedQuerySchema, renewTradeRequestSchema, updateTradePublicMessageRequestSchema, updateTradeStatusRequestSchema, type ListTradesFeedQuery, type MediaAssetDto } from '@hellowhen/contracts';
 import { buildGeneratedTradeDisplay, normalizeContentLanguageOrder, type ContentLanguageCode, type InventoryTranslationLike } from '@hellowhen/shared';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
@@ -38,10 +38,10 @@ export const proposalInclude = { applicant: { select: publicUserPreviewSelect },
 type DeckRelatedEntity = { id: string } | null | undefined;
 type TradeWithDeckRelations = { id: string; ownerId?: string; need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
 type TradeDeckHydrated<T extends TradeWithDeckRelations> = Omit<T, 'need' | 'offer'> & {
-  media: MediaAsset[];
+  media: MediaAssetDto[];
   mediaAccess?: PublicMediaAccess;
-  need: (NonNullable<T['need']> & { media: MediaAsset[]; mediaAccess?: PublicMediaAccess; translations?: InventoryTranslationLike[] }) | null;
-  offer: (NonNullable<T['offer']> & { media: MediaAsset[]; mediaAccess?: PublicMediaAccess; translations?: InventoryTranslationLike[] }) | null;
+  need: (NonNullable<T['need']> & { media: MediaAssetDto[]; mediaAccess?: PublicMediaAccess; translations?: InventoryTranslationLike[] }) | null;
+  offer: (NonNullable<T['offer']> & { media: MediaAssetDto[]; mediaAccess?: PublicMediaAccess; translations?: InventoryTranslationLike[] }) | null;
 };
 type ProposalPackageItemWithDeckRelations = { need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
 type ProposalWithTrade = { trade?: TradeWithDeckRelations | null; proposedNeed?: DeckRelatedEntity; proposedOffer?: DeckRelatedEntity; packageItems?: ProposalPackageItemWithDeckRelations[] };

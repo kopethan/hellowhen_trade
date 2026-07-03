@@ -38,6 +38,7 @@ export type MobileIconName =
   | 'share'
   | 'settings'
   | 'trade'
+  | 'verified'
   | 'wallet'
   | 'warning';
 
@@ -126,6 +127,8 @@ function IconPaths({ name, color }: { name: MobileIconName; color: string }) {
       return <><Path d="M4 8.5H20" strokeWidth={1.8} {...strokeProps} /><Path d="M16.5 5L20 8.5L16.5 12" strokeWidth={1.8} {...strokeProps} /><Path d="M20 15.5H4" strokeWidth={1.8} {...strokeProps} /><Path d="M7.5 12L4 15.5L7.5 19" strokeWidth={1.8} {...strokeProps} /></>;
     case 'wallet':
       return <><Path d="M4 7.5C4 6.4 4.9 5.5 6 5.5H18C19.1 5.5 20 6.4 20 7.5V17C20 18.1 19.1 19 18 19H6C4.9 19 4 18.1 4 17V7.5Z" strokeWidth={1.8} {...strokeProps} /><Path d="M16 12H20" strokeWidth={1.8} {...strokeProps} /><Circle cx={16.5} cy={12} r={0.9} fill={color} /></>;
+    case 'verified':
+      return <><Path d="M12 3.5L19 6.5V11.5C19 15.8 16.3 19.2 12 20.5C7.7 19.2 5 15.8 5 11.5V6.5L12 3.5Z" stroke={color} strokeWidth={1.7} fill="none" strokeLinecap="round" strokeLinejoin="round" /><Path d="M8.6 12.1L10.8 14.25L15.4 9.75" stroke={color} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" /></>;
     case 'warning':
       return <><Path d="M12 14.3636V8.00001" strokeWidth={2} {...strokeProps} /><Circle cx={12} cy={17} r={1} fill={color} /><Path d="M11.1143 3.84668C11.4886 3.13202 12.5114 3.13202 12.8857 3.84668L20.5801 18.5361C20.9288 19.202 20.446 20 19.6943 20H4.30566C3.55402 20 3.07115 19.202 3.41992 18.5361L11.1143 3.84668Z" stroke={color} strokeWidth={2} fill="none" /></>;
     default:

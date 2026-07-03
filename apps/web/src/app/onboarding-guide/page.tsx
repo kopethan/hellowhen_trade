@@ -3,8 +3,8 @@ import { OnboardingGuideClient } from '../../features/onboarding-guide/Onboardin
 import { publicPageMetadata } from '../../lib/seo';
 
 export const metadata = publicPageMetadata({
-  title: 'Hellowhen Trade — Guide',
-  description: 'Learn the basics of Hellowhen Trade: create needs, create offers, discover trades, send proposals, and stay safe.',
+  title: 'Hellowhen — Guide',
+  description: 'Learn the basics of Hellowhen guides for global onboarding, Trade, and Plans.',
   pathname: '/onboarding-guide',
 });
 

@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { WebIcon } from '../../components/WebIcon';
 import { PlansFeatureGate } from './PlansFeatureGate';
 import { PlanDtoPreviewDeck, PlanPreviewDeck } from './PlanPreviewDeck';
@@ -109,6 +110,7 @@ function readAnonymousPlanIdeaKey() {
 
 export function PlansListClient({ plansEnabled }: PlansListClientProps) {
   const auth = useWebAuth();
+  const { t } = useWebTranslation();
   const router = useRouter();
   const [view, setView] = useState<PlansView>('feed');
   const [plans, setPlans] = useState<PlanDto[]>([]);
@@ -204,8 +206,12 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
 
   function openWorkspaceItem(item: NormalWorkspaceMenuItem) {
     setMenuOpen(false);
-    if (!canLoadPrivateViews && item.id !== 'plan_ideas') {
+    if (!canLoadPrivateViews && item.id !== 'plan_ideas' && item.id !== 'plan_guide') {
       router.push(nextAuthHref('/plans'));
+      return;
+    }
+    if (item.id === 'plan_guide') {
+      router.push('/onboarding-guide?guide=plans&replay=1&next=/plans');
       return;
     }
     if (item.id === 'my_plans') {
@@ -255,11 +261,11 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
           {menuOpen ? (
             <section className="plans-feed-menu plans-workspace-menu normal-workspace-menu normal-workspace-menu--plans" aria-label="Plans workspace menu">
               {workspaceItems.map((item) => (
-                <button key={item.id} type="button" className="plans-workspace-menu__item" onClick={() => openWorkspaceItem(item)} disabled={!canLoadPrivateViews && item.id !== 'plan_ideas'}>
+                <button key={item.id} type="button" className="plans-workspace-menu__item" onClick={() => openWorkspaceItem(item)} disabled={!canLoadPrivateViews && item.id !== 'plan_ideas' && item.id !== 'plan_guide'}>
                   <span className={`plans-workspace-menu__icon plans-workspace-menu__icon--${item.tone}`}><WebIcon name={item.icon} size={17} decorative /></span>
                   <span>
-                    <strong>{item.title}</strong>
-                    <small>{item.body}</small>
+                    <strong>{item.titleKey ? t(item.titleKey) : item.title}</strong>
+                    <small>{item.bodyKey ? t(item.bodyKey) : item.body}</small>
                   </span>
                   <WebIcon name="arrow-right" size={16} decorative />
                 </button>

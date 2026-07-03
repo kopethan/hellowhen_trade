@@ -1,0 +1,115 @@
+diff --git a/apps/web/src/features/onboarding-guide/OnboardingGuideClient.tsx b/apps/web/src/features/onboarding-guide/OnboardingGuideClient.tsx
+index 8e3a04d..2284f41 100644
+--- a/apps/web/src/features/onboarding-guide/OnboardingGuideClient.tsx
++++ b/apps/web/src/features/onboarding-guide/OnboardingGuideClient.tsx
+@@ -64,9 +64,15 @@ function resolveGuideType(guideParam: string | null, nextParam: string | null):
+   return 'global';
+ }
+ 
+-function sanitizeNext(value: string | null) {
+-  if (!value || !value.startsWith('/') || value.startsWith('//')) return '/trades';
+-  if (value.startsWith('/onboarding-guide')) return '/trades';
++function getDefaultNextHref(guideType: OnboardingGuideType) {
++  if (guideType === 'plans') return '/plans';
++  if (guideType === 'trade') return '/trades';
++  return '/';
++}
++
++function sanitizeNext(value: string | null, fallback: string) {
++  if (!value || !value.startsWith('/') || value.startsWith('//')) return fallback;
++  if (value.startsWith('/onboarding-guide')) return fallback;
+   return value;
+ }
+ 
+@@ -86,7 +92,7 @@ export function OnboardingGuideClient() {
+   const slide = guideSlides[currentIndex] ?? guideSlides[0]!;
+   const isLastSlide = currentIndex === guideSlides.length - 1;
+   const isReplay = searchParams.get('replay') === '1' || searchParams.get('replay') === 'true';
+-  const nextHref = useMemo(() => sanitizeNext(searchParams.get('next')), [searchParams]);
++  const nextHref = useMemo(() => sanitizeNext(searchParams.get('next'), getDefaultNextHref(guideType)), [guideType, searchParams]);
+   const progressLabel = t('onboarding.progress', { current: currentIndex + 1, total: guideSlides.length });
+   const backgroundColor = getOnboardingImageBackground(resolvedMode, slide.illustrationKey);
+   const imageDescriptor = isAppearanceReady ? getOnboardingImageDescriptor(resolvedMode, slide.illustrationKey) : null;
+diff --git a/apps/web/src/features/onboarding-guide/onboardingGuideStorage.ts b/apps/web/src/features/onboarding-guide/onboardingGuideStorage.ts
+index 3f63d5a..1ef0f63 100644
+--- a/apps/web/src/features/onboarding-guide/onboardingGuideStorage.ts
++++ b/apps/web/src/features/onboarding-guide/onboardingGuideStorage.ts
+@@ -42,7 +42,7 @@ function hasCookie(name: string) {
+ function hasCompletedCookie(guideType?: OnboardingGuideType | string | null) {
+   const normalizedGuideType = normalizeGuideType(guideType);
+   if (hasCookie(getCompletedCookieName(normalizedGuideType))) return true;
+-  return normalizedGuideType === 'trade' && hasCookie(WEB_ONBOARDING_GUIDE_COMPLETED_COOKIE);
++  return (normalizedGuideType === 'global' || normalizedGuideType === 'trade') && hasCookie(WEB_ONBOARDING_GUIDE_COMPLETED_COOKIE);
+ }
+ 
+ function markCookie(name: string) {
+@@ -71,7 +71,7 @@ export function hasCompletedWebOnboardingGuide(userId?: string | null, guideType
+   if (typeof window === 'undefined') return true;
+   const normalizedGuideType = normalizeGuideType(guideType);
+   if (window.localStorage.getItem(getCompletedKey(userId, normalizedGuideType)) === 'true') return true;
+-  if (normalizedGuideType === 'trade' && hasLegacyCompletedWebOnboardingGuide(userId)) return true;
++  if ((normalizedGuideType === 'global' || normalizedGuideType === 'trade') && hasLegacyCompletedWebOnboardingGuide(userId)) return true;
+   return !userId && hasCompletedCookie(normalizedGuideType);
+ }
+ 
+diff --git a/apps/web/src/providers/WebOnboardingGate.tsx b/apps/web/src/providers/WebOnboardingGate.tsx
+index 023c5fd..98f3b49 100644
+--- a/apps/web/src/providers/WebOnboardingGate.tsx
++++ b/apps/web/src/providers/WebOnboardingGate.tsx
+@@ -1,5 +1,56 @@
+ 'use client';
+ 
++import { usePathname, useRouter, useSearchParams } from 'next/navigation';
++import { useEffect, useRef } from 'react';
++import { hasCompletedWebOnboardingGuideForVisitor } from '../features/onboarding-guide/onboardingGuideStorage';
++import { useWebAuth } from './WebAuthProvider';
++
++const GLOBAL_ONBOARDING_EXCLUDED_PREFIXES = [
++  '/onboarding-guide',
++  '/auth',
++  '/admin',
++  '/legal',
++  '/support',
++  '/account/support',
++  '/reset-password',
++  '/credits',
++  '/api',
++];
++
++const PUBLIC_FILE_PATTERN = /\.(?:avif|ico|jpg|jpeg|png|svg|webp|gif|css|js|map|txt|xml|json|woff2?)$/i;
++
++function isGlobalOnboardingExcludedRoute(pathname: string) {
++  if (pathname === '/robots.txt' || pathname === '/sitemap.xml' || pathname === '/favicon.ico') return true;
++  if (PUBLIC_FILE_PATTERN.test(pathname)) return true;
++  return GLOBAL_ONBOARDING_EXCLUDED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
++}
++
++function buildCurrentPath(pathname: string, search: string) {
++  const query = search ? `?${search}` : '';
++  const hash = typeof window !== 'undefined' ? window.location.hash : '';
++  return `${pathname}${query}${hash}`;
++}
++
+ export function WebOnboardingGate() {
++  const router = useRouter();
++  const pathname = usePathname() || '/';
++  const searchParams = useSearchParams();
++  const auth = useWebAuth();
++  const userId = auth.user?.id;
++  const lastRedirectTarget = useRef<string | null>(null);
++
++  useEffect(() => {
++    if (!auth.hydrated) return;
++    if (isGlobalOnboardingExcludedRoute(pathname)) return;
++    if (hasCompletedWebOnboardingGuideForVisitor(userId, 'global')) return;
++
++    const currentPath = buildCurrentPath(pathname, searchParams.toString());
++    const target = `/onboarding-guide?guide=global&next=${encodeURIComponent(currentPath)}`;
++    if (lastRedirectTarget.current === target) return;
++
++    lastRedirectTarget.current = target;
++    router.replace(target);
++  }, [auth.hydrated, pathname, router, searchParams, userId]);
++
+   return null;
+ }

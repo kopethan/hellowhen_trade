@@ -1,0 +1,144 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index aa23a68..d89cfbd 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1380,6 +1380,10 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
+ 
+   function openWorkspaceItem(itemId: string) {
+     setMenuOpen(false);
++    if (itemId === 'plan_guide') {
++      navigation.navigate('OnboardingGuide', { guide: 'plans', replay: true });
++      return;
++    }
+     if (itemId === 'my_plans') {
+       navigation.navigate('MyPlans');
+       return;
+@@ -1531,12 +1535,13 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
+ 
+ function MenuItem({ item, onPress }: { item: NormalWorkspaceMenuItem; onPress: () => void }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   return (
+     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.menuItem, { borderBottomColor: theme.color.border }, pressed && styles.pressed]}>
+       <View style={[styles.menuIcon, { backgroundColor: theme.semantic[item.tone].softBg, borderColor: theme.semantic[item.tone].border }]}><MobileIcon name={item.icon} size={17} color={theme.semantic[item.tone].text} /></View>
+       <View style={styles.menuCopy}>
+-        <AppText style={styles.menuTitle}>{item.title}</AppText>
+-        <AppText style={[styles.menuBody, { color: theme.color.muted }]}>{item.body}</AppText>
++        <AppText style={styles.menuTitle}>{item.titleKey ? t(item.titleKey) : item.title}</AppText>
++        <AppText style={[styles.menuBody, { color: theme.color.muted }]}>{item.bodyKey ? t(item.bodyKey) : item.body}</AppText>
+       </View>
+       <MobileIcon name="chevron-right" size={20} color={theme.color.muted} />
+     </Pressable>
+diff --git a/apps/web/src/features/plans/PlansListClient.tsx b/apps/web/src/features/plans/PlansListClient.tsx
+index be0ec90..d7152f0 100644
+--- a/apps/web/src/features/plans/PlansListClient.tsx
++++ b/apps/web/src/features/plans/PlansListClient.tsx
+@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
++import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { WebIcon } from '../../components/WebIcon';
+ import { PlansFeatureGate } from './PlansFeatureGate';
+ import { PlanDtoPreviewDeck, PlanPreviewDeck } from './PlanPreviewDeck';
+@@ -109,6 +110,7 @@ function readAnonymousPlanIdeaKey() {
+ 
+ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   const auth = useWebAuth();
++  const { t } = useWebTranslation();
+   const router = useRouter();
+   const [view, setView] = useState<PlansView>('feed');
+   const [plans, setPlans] = useState<PlanDto[]>([]);
+@@ -204,10 +206,14 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+ 
+   function openWorkspaceItem(item: NormalWorkspaceMenuItem) {
+     setMenuOpen(false);
+-    if (!canLoadPrivateViews && item.id !== 'plan_ideas') {
++    if (!canLoadPrivateViews && item.id !== 'plan_ideas' && item.id !== 'plan_guide') {
+       router.push(nextAuthHref('/plans'));
+       return;
+     }
++    if (item.id === 'plan_guide') {
++      router.push('/onboarding-guide?guide=plans&replay=1&next=/plans');
++      return;
++    }
+     if (item.id === 'my_plans') {
+       setView('mine');
+       return;
+@@ -255,11 +261,11 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+           {menuOpen ? (
+             <section className="plans-feed-menu plans-workspace-menu normal-workspace-menu normal-workspace-menu--plans" aria-label="Plans workspace menu">
+               {workspaceItems.map((item) => (
+-                <button key={item.id} type="button" className="plans-workspace-menu__item" onClick={() => openWorkspaceItem(item)} disabled={!canLoadPrivateViews && item.id !== 'plan_ideas'}>
++                <button key={item.id} type="button" className="plans-workspace-menu__item" onClick={() => openWorkspaceItem(item)} disabled={!canLoadPrivateViews && item.id !== 'plan_ideas' && item.id !== 'plan_guide'}>
+                   <span className={`plans-workspace-menu__icon plans-workspace-menu__icon--${item.tone}`}><WebIcon name={item.icon} size={17} decorative /></span>
+                   <span>
+-                    <strong>{item.title}</strong>
+-                    <small>{item.body}</small>
++                    <strong>{item.titleKey ? t(item.titleKey) : item.title}</strong>
++                    <small>{item.bodyKey ? t(item.bodyKey) : item.body}</small>
+                   </span>
+                   <WebIcon name="arrow-right" size={16} decorative />
+                 </button>
+diff --git a/packages/i18n/src/locales/en/navigation.ts b/packages/i18n/src/locales/en/navigation.ts
+index 36b6331..17ea9cb 100644
+--- a/packages/i18n/src/locales/en/navigation.ts
++++ b/packages/i18n/src/locales/en/navigation.ts
+@@ -11,6 +11,11 @@ export const navigation = {
+     me: 'Me',
+     trade: 'Trade',
+   },
++  workspace: {
++    plans: {
++      planGuide: { title: 'Plan Guide', body: 'Learn how Plans, Places, joining, creating, and safety work.' },
++    },
++  },
+   routes: {
+     trades: 'Trades',
+     needs: 'Needs',
+diff --git a/packages/i18n/src/locales/es/navigation.ts b/packages/i18n/src/locales/es/navigation.ts
+index d08561d..47a698b 100644
+--- a/packages/i18n/src/locales/es/navigation.ts
++++ b/packages/i18n/src/locales/es/navigation.ts
+@@ -14,6 +14,13 @@ export const navigation = {
+     me: 'Yo',
+     trade: 'Intercambio',
+   },
++  workspace: {
++    ...enNavigation.workspace,
++    plans: {
++      ...enNavigation.workspace.plans,
++      planGuide: { title: 'Guía de Planes', body: 'Aprende cómo funcionan los Planes, lugares, unirse, crear y la seguridad.' },
++    },
++  },
+   routes: {
+     ...enNavigation.routes,
+     trades: 'Intercambios',
+diff --git a/packages/i18n/src/locales/fr/navigation.ts b/packages/i18n/src/locales/fr/navigation.ts
+index 16368b7..becf2fb 100644
+--- a/packages/i18n/src/locales/fr/navigation.ts
++++ b/packages/i18n/src/locales/fr/navigation.ts
+@@ -11,6 +11,11 @@ export const navigation = {
+     me: 'Moi',
+     trade: 'Échange',
+   },
++  workspace: {
++    plans: {
++      planGuide: { title: 'Guide Plans', body: 'Comprendre les Plans, les lieux, la participation, la création et la sécurité.' },
++    },
++  },
+   routes: {
+     trades: 'Échanges',
+     needs: 'Besoins',
+diff --git a/packages/shared/src/appNavigation.ts b/packages/shared/src/appNavigation.ts
+index 16fecf2..bc5d022 100644
+--- a/packages/shared/src/appNavigation.ts
++++ b/packages/shared/src/appNavigation.ts
+@@ -72,6 +72,7 @@ export type NormalWorkspaceMenuItem = {
+ 
+ export const normalWorkspaceMenus = {
+   plans: [
++    { id: 'plan_guide', title: 'Plan Guide', body: 'Learn how Plans, Places, joining, creating, and safety work.', titleKey: 'navigation.workspace.plans.planGuide.title', bodyKey: 'navigation.workspace.plans.planGuide.body', icon: 'help', tone: 'info' },
+     { id: 'my_plans', title: 'My plans', body: 'Plans you created.', icon: 'plan', tone: 'plan' },
+     { id: 'joined_plans', title: 'Joined plans', body: 'Plans you joined freely.', icon: 'activity', tone: 'info' },
+     { id: 'my_places', title: 'My places', body: 'Reusable offline or online places.', icon: 'location-on', tone: 'plan' },

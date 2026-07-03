@@ -19,6 +19,7 @@ import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
 import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
 import { LoginScreen } from '../features/auth/LoginScreen';
 import { OnboardingGuideScreen } from '../features/onboarding-guide/OnboardingGuideScreen';
+import type { OnboardingGuideType } from '../features/onboarding-guide/onboardingGuide.slides';
 import { LegalPolicyScreen } from '../features/legal/LegalPolicyScreen';
 import { ProfileScreen } from '../features/me/MeScreen';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
@@ -113,7 +114,7 @@ export type RootStackParamList = {
   TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null; selectedProposalSide?: TradeCreateSideSelection; selectedProposalNeedId?: string; selectedProposalOfferId?: string };
   TradeIdeaDetail: { ideaId: string };
   UserProfile: { userId: string; displayName?: string };
-  OnboardingGuide: { replay?: boolean } | undefined;
+  OnboardingGuide: { replay?: boolean; guide?: OnboardingGuideType } | undefined;
   Login: undefined;
 };
 

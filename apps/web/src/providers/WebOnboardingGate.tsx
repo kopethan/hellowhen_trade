@@ -5,20 +5,24 @@ import { useEffect, useRef } from 'react';
 import { hasCompletedWebOnboardingGuideForVisitor } from '../features/onboarding-guide/onboardingGuideStorage';
 import { useWebAuth } from './WebAuthProvider';
 
-const ONBOARDING_EXCLUDED_PREFIXES = [
+const GLOBAL_ONBOARDING_EXCLUDED_PREFIXES = [
   '/onboarding-guide',
   '/auth',
   '/admin',
+  '/legal',
+  '/support',
+  '/account/support',
   '/reset-password',
   '/credits',
+  '/api',
 ];
 
-function isOnboardingExcludedRoute(pathname: string) {
-  return ONBOARDING_EXCLUDED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-}
+const PUBLIC_FILE_PATTERN = /\.(?:avif|ico|jpg|jpeg|png|svg|webp|gif|css|js|map|txt|xml|json|woff2?)$/i;
 
-function isTradeFeedGuideTriggerRoute(pathname: string) {
-  return pathname === '/trades';
+function isGlobalOnboardingExcludedRoute(pathname: string) {
+  if (pathname === '/robots.txt' || pathname === '/sitemap.xml' || pathname === '/favicon.ico') return true;
+  if (PUBLIC_FILE_PATTERN.test(pathname)) return true;
+  return GLOBAL_ONBOARDING_EXCLUDED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
 function buildCurrentPath(pathname: string, search: string) {
@@ -37,12 +41,11 @@ export function WebOnboardingGate() {
 
   useEffect(() => {
     if (!auth.hydrated) return;
-    if (!isTradeFeedGuideTriggerRoute(pathname)) return;
-    if (isOnboardingExcludedRoute(pathname)) return;
-    if (hasCompletedWebOnboardingGuideForVisitor(userId)) return;
+    if (isGlobalOnboardingExcludedRoute(pathname)) return;
+    if (hasCompletedWebOnboardingGuideForVisitor(userId, 'global')) return;
 
     const currentPath = buildCurrentPath(pathname, searchParams.toString());
-    const target = `/onboarding-guide?next=${encodeURIComponent(currentPath)}`;
+    const target = `/onboarding-guide?guide=global&next=${encodeURIComponent(currentPath)}`;
     if (lastRedirectTarget.current === target) return;
 
     lastRedirectTarget.current = target;

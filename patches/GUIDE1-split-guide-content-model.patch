@@ -1,0 +1,700 @@
+diff --git a/apps/mobile/src/features/onboarding-guide/onboardingGuide.slides.ts b/apps/mobile/src/features/onboarding-guide/onboardingGuide.slides.ts
+index d5c9aae..7a96910 100644
+--- a/apps/mobile/src/features/onboarding-guide/onboardingGuide.slides.ts
++++ b/apps/mobile/src/features/onboarding-guide/onboardingGuide.slides.ts
+@@ -1,3 +1,5 @@
++export type OnboardingGuideType = 'global' | 'trade' | 'plans';
++
+ export type OnboardingGuideSlideKey =
+   | 'welcome'
+   | 'createNeed'
+@@ -15,54 +17,155 @@ export type OnboardingGuideSlide = {
+   illustrationCaptionKey: string;
+ };
+ 
+-export const ONBOARDING_GUIDE_SLIDES: OnboardingGuideSlide[] = [
+-  {
+-    id: 'welcome-trade-match',
+-    illustrationKey: 'welcome',
+-    titleKey: 'onboarding.slides.welcome.title',
+-    bodyKey: 'onboarding.slides.welcome.body',
+-    illustrationCaptionKey: 'onboarding.slides.welcome.caption',
+-  },
+-  {
+-    id: 'create-need',
+-    illustrationKey: 'createNeed',
+-    titleKey: 'onboarding.slides.createNeed.title',
+-    bodyKey: 'onboarding.slides.createNeed.body',
+-    illustrationCaptionKey: 'onboarding.slides.createNeed.caption',
+-  },
+-  {
+-    id: 'create-offer',
+-    illustrationKey: 'createOffer',
+-    titleKey: 'onboarding.slides.createOffer.title',
+-    bodyKey: 'onboarding.slides.createOffer.body',
+-    illustrationCaptionKey: 'onboarding.slides.createOffer.caption',
+-  },
+-  {
+-    id: 'discover-trades',
+-    illustrationKey: 'discoverTrades',
+-    titleKey: 'onboarding.slides.discoverTrades.title',
+-    bodyKey: 'onboarding.slides.discoverTrades.body',
+-    illustrationCaptionKey: 'onboarding.slides.discoverTrades.caption',
+-  },
+-  {
+-    id: 'send-proposal',
+-    illustrationKey: 'sendProposal',
+-    titleKey: 'onboarding.slides.sendProposal.title',
+-    bodyKey: 'onboarding.slides.sendProposal.body',
+-    illustrationCaptionKey: 'onboarding.slides.sendProposal.caption',
++export type OnboardingGuidePack = {
++  type: OnboardingGuideType;
++  titleKey: string;
++  summaryKey: string;
++  slides: OnboardingGuideSlide[];
++};
++
++export const ONBOARDING_GUIDE_PACKS: Record<OnboardingGuideType, OnboardingGuidePack> = {
++  global: {
++    type: 'global',
++    titleKey: 'onboarding.guides.global.title',
++    summaryKey: 'onboarding.guides.global.summary',
++    slides: [
++      {
++        id: 'global-welcome',
++        illustrationKey: 'welcome',
++        titleKey: 'onboarding.slides.globalWelcome.title',
++        bodyKey: 'onboarding.slides.globalWelcome.body',
++        illustrationCaptionKey: 'onboarding.slides.globalWelcome.caption',
++      },
++      {
++        id: 'global-worlds',
++        illustrationKey: 'discoverTrades',
++        titleKey: 'onboarding.slides.globalWorlds.title',
++        bodyKey: 'onboarding.slides.globalWorlds.body',
++        illustrationCaptionKey: 'onboarding.slides.globalWorlds.caption',
++      },
++      {
++        id: 'global-me-hub',
++        illustrationKey: 'accountGuide',
++        titleKey: 'onboarding.slides.globalMeHub.title',
++        bodyKey: 'onboarding.slides.globalMeHub.body',
++        illustrationCaptionKey: 'onboarding.slides.globalMeHub.caption',
++      },
++      {
++        id: 'global-safety',
++        illustrationKey: 'staySafe',
++        titleKey: 'onboarding.slides.globalSafety.title',
++        bodyKey: 'onboarding.slides.globalSafety.body',
++        illustrationCaptionKey: 'onboarding.slides.globalSafety.caption',
++      },
++    ],
+   },
+-  {
+-    id: 'stay-safe',
+-    illustrationKey: 'staySafe',
+-    titleKey: 'onboarding.slides.staySafe.title',
+-    bodyKey: 'onboarding.slides.staySafe.body',
+-    illustrationCaptionKey: 'onboarding.slides.staySafe.caption',
++  trade: {
++    type: 'trade',
++    titleKey: 'onboarding.guides.trade.title',
++    summaryKey: 'onboarding.guides.trade.summary',
++    slides: [
++      {
++        id: 'welcome-trade-match',
++        illustrationKey: 'welcome',
++        titleKey: 'onboarding.slides.welcome.title',
++        bodyKey: 'onboarding.slides.welcome.body',
++        illustrationCaptionKey: 'onboarding.slides.welcome.caption',
++      },
++      {
++        id: 'create-need',
++        illustrationKey: 'createNeed',
++        titleKey: 'onboarding.slides.createNeed.title',
++        bodyKey: 'onboarding.slides.createNeed.body',
++        illustrationCaptionKey: 'onboarding.slides.createNeed.caption',
++      },
++      {
++        id: 'create-offer',
++        illustrationKey: 'createOffer',
++        titleKey: 'onboarding.slides.createOffer.title',
++        bodyKey: 'onboarding.slides.createOffer.body',
++        illustrationCaptionKey: 'onboarding.slides.createOffer.caption',
++      },
++      {
++        id: 'discover-trades',
++        illustrationKey: 'discoverTrades',
++        titleKey: 'onboarding.slides.discoverTrades.title',
++        bodyKey: 'onboarding.slides.discoverTrades.body',
++        illustrationCaptionKey: 'onboarding.slides.discoverTrades.caption',
++      },
++      {
++        id: 'send-proposal',
++        illustrationKey: 'sendProposal',
++        titleKey: 'onboarding.slides.sendProposal.title',
++        bodyKey: 'onboarding.slides.sendProposal.body',
++        illustrationCaptionKey: 'onboarding.slides.sendProposal.caption',
++      },
++      {
++        id: 'stay-safe',
++        illustrationKey: 'staySafe',
++        titleKey: 'onboarding.slides.staySafe.title',
++        bodyKey: 'onboarding.slides.staySafe.body',
++        illustrationCaptionKey: 'onboarding.slides.staySafe.caption',
++      },
++      {
++        id: 'account-guide',
++        illustrationKey: 'accountGuide',
++        titleKey: 'onboarding.slides.accountGuide.title',
++        bodyKey: 'onboarding.slides.accountGuide.body',
++        illustrationCaptionKey: 'onboarding.slides.accountGuide.caption',
++      },
++    ],
+   },
+-  {
+-    id: 'account-guide',
+-    illustrationKey: 'accountGuide',
+-    titleKey: 'onboarding.slides.accountGuide.title',
+-    bodyKey: 'onboarding.slides.accountGuide.body',
+-    illustrationCaptionKey: 'onboarding.slides.accountGuide.caption',
++  plans: {
++    type: 'plans',
++    titleKey: 'onboarding.guides.plans.title',
++    summaryKey: 'onboarding.guides.plans.summary',
++    slides: [
++      {
++        id: 'plans-welcome',
++        illustrationKey: 'welcome',
++        titleKey: 'onboarding.slides.plansWelcome.title',
++        bodyKey: 'onboarding.slides.plansWelcome.body',
++        illustrationCaptionKey: 'onboarding.slides.plansWelcome.caption',
++      },
++      {
++        id: 'plans-discover',
++        illustrationKey: 'discoverTrades',
++        titleKey: 'onboarding.slides.plansDiscover.title',
++        bodyKey: 'onboarding.slides.plansDiscover.body',
++        illustrationCaptionKey: 'onboarding.slides.plansDiscover.caption',
++      },
++      {
++        id: 'plans-places',
++        illustrationKey: 'createNeed',
++        titleKey: 'onboarding.slides.plansPlaces.title',
++        bodyKey: 'onboarding.slides.plansPlaces.body',
++        illustrationCaptionKey: 'onboarding.slides.plansPlaces.caption',
++      },
++      {
++        id: 'plans-create-join',
++        illustrationKey: 'sendProposal',
++        titleKey: 'onboarding.slides.plansCreateJoin.title',
++        bodyKey: 'onboarding.slides.plansCreateJoin.body',
++        illustrationCaptionKey: 'onboarding.slides.plansCreateJoin.caption',
++      },
++      {
++        id: 'plans-safety',
++        illustrationKey: 'staySafe',
++        titleKey: 'onboarding.slides.plansSafety.title',
++        bodyKey: 'onboarding.slides.plansSafety.body',
++        illustrationCaptionKey: 'onboarding.slides.plansSafety.caption',
++      },
++    ],
+   },
+-];
++};
++
++export const DEFAULT_ONBOARDING_GUIDE_TYPE: OnboardingGuideType = 'trade';
++
++export const ONBOARDING_GUIDE_SLIDES = ONBOARDING_GUIDE_PACKS[DEFAULT_ONBOARDING_GUIDE_TYPE].slides;
++
++export function getOnboardingGuidePack(type: string | null | undefined): OnboardingGuidePack {
++  return type === 'global' || type === 'trade' || type === 'plans'
++    ? ONBOARDING_GUIDE_PACKS[type]
++    : ONBOARDING_GUIDE_PACKS[DEFAULT_ONBOARDING_GUIDE_TYPE];
++}
+diff --git a/apps/web/src/features/onboarding-guide/onboardingGuide.slides.ts b/apps/web/src/features/onboarding-guide/onboardingGuide.slides.ts
+index d5c9aae..7a96910 100644
+--- a/apps/web/src/features/onboarding-guide/onboardingGuide.slides.ts
++++ b/apps/web/src/features/onboarding-guide/onboardingGuide.slides.ts
+@@ -1,3 +1,5 @@
++export type OnboardingGuideType = 'global' | 'trade' | 'plans';
++
+ export type OnboardingGuideSlideKey =
+   | 'welcome'
+   | 'createNeed'
+@@ -15,54 +17,155 @@ export type OnboardingGuideSlide = {
+   illustrationCaptionKey: string;
+ };
+ 
+-export const ONBOARDING_GUIDE_SLIDES: OnboardingGuideSlide[] = [
+-  {
+-    id: 'welcome-trade-match',
+-    illustrationKey: 'welcome',
+-    titleKey: 'onboarding.slides.welcome.title',
+-    bodyKey: 'onboarding.slides.welcome.body',
+-    illustrationCaptionKey: 'onboarding.slides.welcome.caption',
+-  },
+-  {
+-    id: 'create-need',
+-    illustrationKey: 'createNeed',
+-    titleKey: 'onboarding.slides.createNeed.title',
+-    bodyKey: 'onboarding.slides.createNeed.body',
+-    illustrationCaptionKey: 'onboarding.slides.createNeed.caption',
+-  },
+-  {
+-    id: 'create-offer',
+-    illustrationKey: 'createOffer',
+-    titleKey: 'onboarding.slides.createOffer.title',
+-    bodyKey: 'onboarding.slides.createOffer.body',
+-    illustrationCaptionKey: 'onboarding.slides.createOffer.caption',
+-  },
+-  {
+-    id: 'discover-trades',
+-    illustrationKey: 'discoverTrades',
+-    titleKey: 'onboarding.slides.discoverTrades.title',
+-    bodyKey: 'onboarding.slides.discoverTrades.body',
+-    illustrationCaptionKey: 'onboarding.slides.discoverTrades.caption',
+-  },
+-  {
+-    id: 'send-proposal',
+-    illustrationKey: 'sendProposal',
+-    titleKey: 'onboarding.slides.sendProposal.title',
+-    bodyKey: 'onboarding.slides.sendProposal.body',
+-    illustrationCaptionKey: 'onboarding.slides.sendProposal.caption',
++export type OnboardingGuidePack = {
++  type: OnboardingGuideType;
++  titleKey: string;
++  summaryKey: string;
++  slides: OnboardingGuideSlide[];
++};
++
++export const ONBOARDING_GUIDE_PACKS: Record<OnboardingGuideType, OnboardingGuidePack> = {
++  global: {
++    type: 'global',
++    titleKey: 'onboarding.guides.global.title',
++    summaryKey: 'onboarding.guides.global.summary',
++    slides: [
++      {
++        id: 'global-welcome',
++        illustrationKey: 'welcome',
++        titleKey: 'onboarding.slides.globalWelcome.title',
++        bodyKey: 'onboarding.slides.globalWelcome.body',
++        illustrationCaptionKey: 'onboarding.slides.globalWelcome.caption',
++      },
++      {
++        id: 'global-worlds',
++        illustrationKey: 'discoverTrades',
++        titleKey: 'onboarding.slides.globalWorlds.title',
++        bodyKey: 'onboarding.slides.globalWorlds.body',
++        illustrationCaptionKey: 'onboarding.slides.globalWorlds.caption',
++      },
++      {
++        id: 'global-me-hub',
++        illustrationKey: 'accountGuide',
++        titleKey: 'onboarding.slides.globalMeHub.title',
++        bodyKey: 'onboarding.slides.globalMeHub.body',
++        illustrationCaptionKey: 'onboarding.slides.globalMeHub.caption',
++      },
++      {
++        id: 'global-safety',
++        illustrationKey: 'staySafe',
++        titleKey: 'onboarding.slides.globalSafety.title',
++        bodyKey: 'onboarding.slides.globalSafety.body',
++        illustrationCaptionKey: 'onboarding.slides.globalSafety.caption',
++      },
++    ],
+   },
+-  {
+-    id: 'stay-safe',
+-    illustrationKey: 'staySafe',
+-    titleKey: 'onboarding.slides.staySafe.title',
+-    bodyKey: 'onboarding.slides.staySafe.body',
+-    illustrationCaptionKey: 'onboarding.slides.staySafe.caption',
++  trade: {
++    type: 'trade',
++    titleKey: 'onboarding.guides.trade.title',
++    summaryKey: 'onboarding.guides.trade.summary',
++    slides: [
++      {
++        id: 'welcome-trade-match',
++        illustrationKey: 'welcome',
++        titleKey: 'onboarding.slides.welcome.title',
++        bodyKey: 'onboarding.slides.welcome.body',
++        illustrationCaptionKey: 'onboarding.slides.welcome.caption',
++      },
++      {
++        id: 'create-need',
++        illustrationKey: 'createNeed',
++        titleKey: 'onboarding.slides.createNeed.title',
++        bodyKey: 'onboarding.slides.createNeed.body',
++        illustrationCaptionKey: 'onboarding.slides.createNeed.caption',
++      },
++      {
++        id: 'create-offer',
++        illustrationKey: 'createOffer',
++        titleKey: 'onboarding.slides.createOffer.title',
++        bodyKey: 'onboarding.slides.createOffer.body',
++        illustrationCaptionKey: 'onboarding.slides.createOffer.caption',
++      },
++      {
++        id: 'discover-trades',
++        illustrationKey: 'discoverTrades',
++        titleKey: 'onboarding.slides.discoverTrades.title',
++        bodyKey: 'onboarding.slides.discoverTrades.body',
++        illustrationCaptionKey: 'onboarding.slides.discoverTrades.caption',
++      },
++      {
++        id: 'send-proposal',
++        illustrationKey: 'sendProposal',
++        titleKey: 'onboarding.slides.sendProposal.title',
++        bodyKey: 'onboarding.slides.sendProposal.body',
++        illustrationCaptionKey: 'onboarding.slides.sendProposal.caption',
++      },
++      {
++        id: 'stay-safe',
++        illustrationKey: 'staySafe',
++        titleKey: 'onboarding.slides.staySafe.title',
++        bodyKey: 'onboarding.slides.staySafe.body',
++        illustrationCaptionKey: 'onboarding.slides.staySafe.caption',
++      },
++      {
++        id: 'account-guide',
++        illustrationKey: 'accountGuide',
++        titleKey: 'onboarding.slides.accountGuide.title',
++        bodyKey: 'onboarding.slides.accountGuide.body',
++        illustrationCaptionKey: 'onboarding.slides.accountGuide.caption',
++      },
++    ],
+   },
+-  {
+-    id: 'account-guide',
+-    illustrationKey: 'accountGuide',
+-    titleKey: 'onboarding.slides.accountGuide.title',
+-    bodyKey: 'onboarding.slides.accountGuide.body',
+-    illustrationCaptionKey: 'onboarding.slides.accountGuide.caption',
++  plans: {
++    type: 'plans',
++    titleKey: 'onboarding.guides.plans.title',
++    summaryKey: 'onboarding.guides.plans.summary',
++    slides: [
++      {
++        id: 'plans-welcome',
++        illustrationKey: 'welcome',
++        titleKey: 'onboarding.slides.plansWelcome.title',
++        bodyKey: 'onboarding.slides.plansWelcome.body',
++        illustrationCaptionKey: 'onboarding.slides.plansWelcome.caption',
++      },
++      {
++        id: 'plans-discover',
++        illustrationKey: 'discoverTrades',
++        titleKey: 'onboarding.slides.plansDiscover.title',
++        bodyKey: 'onboarding.slides.plansDiscover.body',
++        illustrationCaptionKey: 'onboarding.slides.plansDiscover.caption',
++      },
++      {
++        id: 'plans-places',
++        illustrationKey: 'createNeed',
++        titleKey: 'onboarding.slides.plansPlaces.title',
++        bodyKey: 'onboarding.slides.plansPlaces.body',
++        illustrationCaptionKey: 'onboarding.slides.plansPlaces.caption',
++      },
++      {
++        id: 'plans-create-join',
++        illustrationKey: 'sendProposal',
++        titleKey: 'onboarding.slides.plansCreateJoin.title',
++        bodyKey: 'onboarding.slides.plansCreateJoin.body',
++        illustrationCaptionKey: 'onboarding.slides.plansCreateJoin.caption',
++      },
++      {
++        id: 'plans-safety',
++        illustrationKey: 'staySafe',
++        titleKey: 'onboarding.slides.plansSafety.title',
++        bodyKey: 'onboarding.slides.plansSafety.body',
++        illustrationCaptionKey: 'onboarding.slides.plansSafety.caption',
++      },
++    ],
+   },
+-];
++};
++
++export const DEFAULT_ONBOARDING_GUIDE_TYPE: OnboardingGuideType = 'trade';
++
++export const ONBOARDING_GUIDE_SLIDES = ONBOARDING_GUIDE_PACKS[DEFAULT_ONBOARDING_GUIDE_TYPE].slides;
++
++export function getOnboardingGuidePack(type: string | null | undefined): OnboardingGuidePack {
++  return type === 'global' || type === 'trade' || type === 'plans'
++    ? ONBOARDING_GUIDE_PACKS[type]
++    : ONBOARDING_GUIDE_PACKS[DEFAULT_ONBOARDING_GUIDE_TYPE];
++}
+diff --git a/packages/i18n/src/locales/en/onboarding.ts b/packages/i18n/src/locales/en/onboarding.ts
+index 1de93e1..e459271 100644
+--- a/packages/i18n/src/locales/en/onboarding.ts
++++ b/packages/i18n/src/locales/en/onboarding.ts
+@@ -7,6 +7,20 @@ export const onboarding = {
+     next: 'Next',
+     getStarted: 'Get started',
+   },
++  guides: {
++    global: {
++      title: 'Hellowhen Guide',
++      summary: 'A quick overview of Trade, Plans, Me, and safety.',
++    },
++    trade: {
++      title: 'Trade Guide',
++      summary: 'Learn how Needs, Offers, trade cards, and proposals work.',
++    },
++    plans: {
++      title: 'Plan Guide',
++      summary: 'Learn how Plans, places, joining, creating, and safety work.',
++    },
++  },
+   preferences: {
+     title: 'Preferences',
+     body: 'Choose the language and appearance before you continue.',
+@@ -28,8 +42,28 @@ export const onboarding = {
+     },
+   },
+   slides: {
+-    welcome: {
++    globalWelcome: {
+       title: 'Welcome to Hellowhen',
++      body: 'Hellowhen helps people connect around clear needs, offers, plans, and safe conversations.',
++      caption: 'Start with the big picture, then explore each area when you need it.',
++    },
++    globalWorlds: {
++      title: 'Trade, Plans, and Me',
++      body: 'Use Trade for one exchange, Plans for bigger goals or routes, and Me for your activity, tools, and profile.',
++      caption: 'Three main areas keep the app simple.',
++    },
++    globalMeHub: {
++      title: 'Your activity lives in Me',
++      body: 'Find your trades, proposals, plans, saved items, Agenda, notifications, settings, and support from Me.',
++      caption: 'Me is your personal hub.',
++    },
++    globalSafety: {
++      title: 'Keep agreements clear',
++      body: 'Use the app to keep important details visible, avoid sensitive information, and report anything suspicious.',
++      caption: 'Safety guidance appears again inside each feature guide.',
++    },
++    welcome: {
++      title: 'Welcome to Trade',
+       body: 'Post what you need and what you can offer, then connect around clear trades.',
+       caption: 'Need + Offer can become a trade.',
+     },
+@@ -63,5 +97,30 @@ export const onboarding = {
+       body: 'Manage your profile, settings, support, and user guide from the Account area.',
+       caption: 'You can replay this guide later from Account.',
+     },
++    plansWelcome: {
++      title: 'Welcome to Plans',
++      body: 'A Plan is a bigger goal or route that can include places, people, needs, offers, and later discussions.',
++      caption: 'Plans give context around a bigger activity.',
++    },
++    plansDiscover: {
++      title: 'Discover public Plans',
++      body: 'Browse Plans to understand what someone wants to do, where it happens, and how you might join or help.',
++      caption: 'Plans are goal-based, not only one exchange card.',
++    },
++    plansPlaces: {
++      title: 'Places inside Plans',
++      body: 'Plans can include offline addresses and online places, so users can understand the route or activity clearly.',
++      caption: 'Places help make a Plan concrete.',
++    },
++    plansCreateJoin: {
++      title: 'Create or join',
++      body: 'Create your own Plan, save useful places, or join a public Plan when you are interested.',
++      caption: 'Plans can grow from one idea into many useful steps.',
++    },
++    plansSafety: {
++      title: 'Plan safely',
++      body: 'Check location details, keep public information appropriate, and report anything that looks suspicious.',
++      caption: 'Plan safety is especially important around places and meetups.',
++    },
+   },
+ } as const;
+diff --git a/packages/i18n/src/locales/es/onboarding.ts b/packages/i18n/src/locales/es/onboarding.ts
+index 870f968..f2b7882 100644
+--- a/packages/i18n/src/locales/es/onboarding.ts
++++ b/packages/i18n/src/locales/es/onboarding.ts
+@@ -10,6 +10,24 @@ export const onboarding = {
+     next: 'Siguiente',
+     getStarted: 'Empezar',
+   },
++  guides: {
++    ...enOnboarding.guides,
++    global: {
++      ...enOnboarding.guides.global,
++      title: 'Guía de Hellowhen',
++      summary: 'Una vista rápida de Trade, Plans, Me y seguridad.',
++    },
++    trade: {
++      ...enOnboarding.guides.trade,
++      title: 'Guía de Trade',
++      summary: 'Aprende cómo funcionan Necesidades, Ofertas, tarjetas de intercambio y propuestas.',
++    },
++    plans: {
++      ...enOnboarding.guides.plans,
++      title: 'Guía de Plans',
++      summary: 'Aprende cómo funcionan Plans, lugares, unirse, crear y la seguridad.',
++    },
++  },
+   preferences: {
+     ...enOnboarding.preferences,
+     title: 'Preferencias',
+@@ -32,9 +50,33 @@ export const onboarding = {
+   },
+   slides: {
+     ...enOnboarding.slides,
++    globalWelcome: {
++      ...enOnboarding.slides.globalWelcome,
++      title: 'Bienvenido a Hellowhen',
++      body: 'Hellowhen ayuda a las personas a conectar alrededor de necesidades, ofertas, planes y conversaciones más seguras.',
++      caption: 'Empieza con la idea general y luego explora cada área cuando lo necesites.',
++    },
++    globalWorlds: {
++      ...enOnboarding.slides.globalWorlds,
++      title: 'Trade, Plans y Me',
++      body: 'Usa Trade para un intercambio, Plans para objetivos o rutas más grandes, y Me para tu actividad, herramientas y perfil.',
++      caption: 'Tres áreas principales mantienen la app simple.',
++    },
++    globalMeHub: {
++      ...enOnboarding.slides.globalMeHub,
++      title: 'Tu actividad vive en Me',
++      body: 'Encuentra tus intercambios, propuestas, planes, elementos guardados, Agenda, notificaciones, ajustes y soporte desde Me.',
++      caption: 'Me es tu centro personal.',
++    },
++    globalSafety: {
++      ...enOnboarding.slides.globalSafety,
++      title: 'Mantén claros los acuerdos',
++      body: 'Usa la app para conservar detalles importantes, evitar información sensible y reportar cualquier cosa sospechosa.',
++      caption: 'La guía de seguridad aparece de nuevo dentro de cada función.',
++    },
+     welcome: {
+       ...enOnboarding.slides.welcome,
+-      title: 'Bienvenido a Hellowhen',
++      title: 'Bienvenido a Trade',
+       body: 'Publica lo que necesitas y lo que puedes ofrecer, y conecta alrededor de intercambios claros.',
+       caption: 'Necesidad + Oferta puede convertirse en un intercambio.',
+     },
+@@ -68,5 +110,35 @@ export const onboarding = {
+       title: 'Cuenta y guía',
+       body: 'Gestiona tu perfil, ajustes, soporte y guía de usuario desde el área Cuenta.',
+     },
++    plansWelcome: {
++      ...enOnboarding.slides.plansWelcome,
++      title: 'Bienvenido a Plans',
++      body: 'Un Plan es un objetivo o una ruta más grande que puede incluir lugares, personas, necesidades, ofertas y más adelante discusiones.',
++      caption: 'Plans da contexto alrededor de una actividad más grande.',
++    },
++    plansDiscover: {
++      ...enOnboarding.slides.plansDiscover,
++      title: 'Descubre Plans públicos',
++      body: 'Explora Plans para entender qué quiere hacer alguien, dónde ocurre y cómo podrías unirte o ayudar.',
++      caption: 'Plans se basa en objetivos, no solo en una tarjeta de intercambio.',
++    },
++    plansPlaces: {
++      ...enOnboarding.slides.plansPlaces,
++      title: 'Lugares dentro de Plans',
++      body: 'Plans puede incluir direcciones offline y lugares online para que los usuarios entiendan claramente la ruta o actividad.',
++      caption: 'Los lugares hacen que un Plan sea concreto.',
++    },
++    plansCreateJoin: {
++      ...enOnboarding.slides.plansCreateJoin,
++      title: 'Crea o únete',
++      body: 'Crea tu propio Plan, guarda lugares útiles o únete a un Plan público cuando te interese.',
++      caption: 'Plans puede crecer desde una idea hasta varios pasos útiles.',
++    },
++    plansSafety: {
++      ...enOnboarding.slides.plansSafety,
++      title: 'Usa Plans con seguridad',
++      body: 'Revisa detalles de ubicación, mantén apropiada la información pública y reporta cualquier cosa sospechosa.',
++      caption: 'La seguridad de Plans es importante alrededor de lugares y encuentros.',
++    },
+   },
+ } as const;
+diff --git a/packages/i18n/src/locales/fr/onboarding.ts b/packages/i18n/src/locales/fr/onboarding.ts
+index 2a2b2a4..4d0ca99 100644
+--- a/packages/i18n/src/locales/fr/onboarding.ts
++++ b/packages/i18n/src/locales/fr/onboarding.ts
+@@ -7,6 +7,20 @@ export const onboarding = {
+     next: 'Suivant',
+     getStarted: 'Commencer',
+   },
++  guides: {
++    global: {
++      title: 'Guide Hellowhen',
++      summary: 'Un aperçu rapide des échanges, des plans, de Me et de la sécurité.',
++    },
++    trade: {
++      title: 'Guide Trade',
++      summary: 'Comprendre les besoins, les offres, les cartes d’échange et les propositions.',
++    },
++    plans: {
++      title: 'Guide Plans',
++      summary: 'Comprendre les plans, les lieux, l’inscription, la création et la sécurité.',
++    },
++  },
+   preferences: {
+     title: 'Préférences',
+     body: 'Choisissez la langue et l’apparence avant de continuer.',
+@@ -28,8 +42,28 @@ export const onboarding = {
+     },
+   },
+   slides: {
+-    welcome: {
++    globalWelcome: {
+       title: 'Bienvenue sur Hellowhen',
++      body: 'Hellowhen aide les personnes à se connecter autour de besoins, d’offres, de plans et de conversations plus sûres.',
++      caption: 'Commencez par la vision globale, puis explorez chaque espace quand vous en avez besoin.',
++    },
++    globalWorlds: {
++      title: 'Trade, Plans et Me',
++      body: 'Utilisez Trade pour un échange, Plans pour des objectifs ou trajets plus grands, et Me pour votre activité, vos outils et votre profil.',
++      caption: 'Trois espaces principaux gardent l’app simple.',
++    },
++    globalMeHub: {
++      title: 'Votre activité vit dans Me',
++      body: 'Retrouvez vos échanges, propositions, plans, éléments enregistrés, Agenda, notifications, paramètres et assistance dans Me.',
++      caption: 'Me est votre hub personnel.',
++    },
++    globalSafety: {
++      title: 'Gardez les accords clairs',
++      body: 'Utilisez l’app pour conserver les détails importants, éviter les informations sensibles et signaler tout comportement suspect.',
++      caption: 'Les conseils de sécurité reviennent dans chaque guide de fonctionnalité.',
++    },
++    welcome: {
++      title: 'Bienvenue dans Trade',
+       body: 'Publiez ce dont vous avez besoin et ce que vous pouvez offrir, puis échangez autour de propositions claires.',
+       caption: 'Un besoin + une offre peuvent devenir un échange.',
+     },
+@@ -63,5 +97,30 @@ export const onboarding = {
+       body: 'Gérez votre profil, vos paramètres, l’assistance et le guide depuis l’espace Compte.',
+       caption: 'Vous pouvez revoir ce guide plus tard depuis Compte.',
+     },
++    plansWelcome: {
++      title: 'Bienvenue dans Plans',
++      body: 'Un Plan est un objectif ou un trajet plus grand qui peut inclure des lieux, des personnes, des besoins, des offres et plus tard des discussions.',
++      caption: 'Les Plans donnent du contexte autour d’une activité plus grande.',
++    },
++    plansDiscover: {
++      title: 'Découvrir les Plans publics',
++      body: 'Parcourez les Plans pour comprendre ce qu’une personne veut faire, où cela se passe et comment vous pouvez rejoindre ou aider.',
++      caption: 'Les Plans sont centrés sur un objectif, pas seulement sur une carte d’échange.',
++    },
++    plansPlaces: {
++      title: 'Les lieux dans les Plans',
++      body: 'Les Plans peuvent inclure des adresses hors ligne et des lieux en ligne pour rendre le trajet ou l’activité plus clair.',
++      caption: 'Les lieux rendent un Plan plus concret.',
++    },
++    plansCreateJoin: {
++      title: 'Créer ou rejoindre',
++      body: 'Créez votre propre Plan, enregistrez des lieux utiles ou rejoignez un Plan public quand il vous intéresse.',
++      caption: 'Un Plan peut partir d’une idée et devenir plusieurs étapes utiles.',
++    },
++    plansSafety: {
++      title: 'Utiliser Plans en sécurité',
++      body: 'Vérifiez les détails des lieux, gardez les informations publiques appropriées et signalez tout comportement suspect.',
++      caption: 'La sécurité des Plans est importante autour des lieux et des rencontres.',
++    },
+   },
+ } as const;

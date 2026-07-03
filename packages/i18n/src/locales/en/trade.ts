@@ -732,6 +732,7 @@ export const trade = {
       myTrades: { title: 'My trades', body: 'Manage trades you created.' },
       involvedTrades: { title: 'Involved trades', body: 'Follow trades where you sent or accepted proposals.' },
       proposals: { title: 'Proposals', body: 'Open your proposal/deal activity.' },
+      tradeGuide: { title: 'Trade Guide', body: 'Learn how Needs, Offers, trade cards, proposals, and safety work.' },
       starterIdeas: { title: 'Starter ideas', body: 'Open creative starter ideas you can turn into trades.' },
       myNeeds: { title: 'My needs', body: 'Manage reusable needs.' },
       createNeed: { title: 'Create need', body: 'Create a reusable need for future trades.' },

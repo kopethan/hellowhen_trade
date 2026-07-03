@@ -11,6 +11,11 @@ export const navigation = {
     me: 'Moi',
     trade: 'Échange',
   },
+  workspace: {
+    plans: {
+      planGuide: { title: 'Guide Plans', body: 'Comprendre les Plans, les lieux, la participation, la création et la sécurité.' },
+    },
+  },
   routes: {
     trades: 'Échanges',
     needs: 'Besoins',

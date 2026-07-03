@@ -120,10 +120,11 @@ function buildMapsSearchUrl(value: string) {
 }
 
 function buildGoogleMapsDirectionsUrl(queries: string[]) {
-  if (queries.length <= 1) return buildMapsSearchUrl(queries[0] ?? '');
-  const [origin, ...rest] = queries;
-  const destination = rest[rest.length - 1];
-  const waypoints = rest.slice(0, -1);
+  const origin = queries[0];
+  if (queries.length <= 1 || !origin) return buildMapsSearchUrl(origin ?? '');
+  const destination = queries[queries.length - 1];
+  if (!destination) return buildMapsSearchUrl(origin);
+  const waypoints = queries.slice(1, -1);
   const params = [
     'api=1',
     `origin=${encodeURIComponent(origin)}`,

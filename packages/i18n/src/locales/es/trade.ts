@@ -741,6 +741,7 @@ export const trade = {
       myTrades: { title: 'Mis intercambios', body: 'Gestiona los intercambios que creaste.' },
       involvedTrades: { title: 'Intercambios implicados', body: 'Sigue intercambios donde enviaste o aceptaste propuestas.' },
       proposals: { title: 'Propuestas', body: 'Abre tu actividad de propuestas/deals.' },
+      tradeGuide: { title: 'Guía de Trade', body: 'Aprende cómo funcionan necesidades, ofertas, tarjetas Trade, propuestas y seguridad.' },
       starterIdeas: { title: 'Ideas starter', body: 'Abre ideas starter creativas que puedes convertir en intercambios.' },
       myNeeds: { title: 'Mis necesidades', body: 'Gestiona necesidades reutilizables.' },
       createNeed: { title: 'Crear necesidad', body: 'Crea una necesidad reutilizable para futuros intercambios.' },

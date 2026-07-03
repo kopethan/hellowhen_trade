@@ -57,7 +57,7 @@ export function getNormalAppNavItemByMobileTabName(tabName: string | null | unde
 }
 
 export type NormalWorkspaceMenuId = 'plans' | 'trade';
-export type NormalWorkspaceMenuIcon = 'activity' | 'location-on' | 'need' | 'offer' | 'plan' | 'proposal-accepted' | 'save' | 'search' | 'trade';
+export type NormalWorkspaceMenuIcon = 'activity' | 'help' | 'location-on' | 'need' | 'offer' | 'plan' | 'proposal-accepted' | 'save' | 'search' | 'trade';
 export type NormalWorkspaceMenuTone = 'info' | 'need' | 'offer' | 'plan' | 'trade';
 
 export type NormalWorkspaceMenuItem = {
@@ -72,12 +72,14 @@ export type NormalWorkspaceMenuItem = {
 
 export const normalWorkspaceMenus = {
   plans: [
+    { id: 'plan_guide', title: 'Plan Guide', body: 'Learn how Plans, Places, joining, creating, and safety work.', titleKey: 'navigation.workspace.plans.planGuide.title', bodyKey: 'navigation.workspace.plans.planGuide.body', icon: 'help', tone: 'info' },
     { id: 'my_plans', title: 'My plans', body: 'Plans you created.', icon: 'plan', tone: 'plan' },
     { id: 'joined_plans', title: 'Joined plans', body: 'Plans you joined freely.', icon: 'activity', tone: 'info' },
     { id: 'my_places', title: 'My places', body: 'Reusable offline or online places.', icon: 'location-on', tone: 'plan' },
     { id: 'plan_ideas', title: 'Plan ideas', body: 'Starter Plan ideas you can review and customize.', icon: 'search', tone: 'info' },
   ],
   trade: [
+    { id: 'trade_guide', title: 'Trade Guide', body: 'Learn how Needs, Offers, trade cards, proposals, and safety work.', titleKey: 'trade.wizard.actions.tradeGuide.title', bodyKey: 'trade.wizard.actions.tradeGuide.body', icon: 'help', tone: 'info' },
     { id: 'my_trades', title: 'My trades', body: 'Manage trades you created.', titleKey: 'trade.wizard.actions.myTrades.title', bodyKey: 'trade.wizard.actions.myTrades.body', icon: 'trade', tone: 'trade' },
     { id: 'proposals', title: 'Proposals', body: 'Open your proposal/deal activity.', titleKey: 'trade.wizard.actions.proposals.title', bodyKey: 'trade.wizard.actions.proposals.body', icon: 'proposal-accepted', tone: 'info' },
     { id: 'my_needs', title: 'My needs', body: 'Manage reusable needs.', titleKey: 'trade.wizard.actions.myNeeds.title', bodyKey: 'trade.wizard.actions.myNeeds.body', icon: 'need', tone: 'need' },

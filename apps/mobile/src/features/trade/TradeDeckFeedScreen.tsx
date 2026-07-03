@@ -18,7 +18,6 @@ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
-import { hasCompletedOnboardingGuide } from '../onboarding-guide/onboardingGuideStorage';
 import { TradeSquareDeck } from './components/TradeSquareDeck';
 import { TradeExchangeIcon } from './components/TradeExchangeIcon';
 import { TradePosterCard } from './components/TradePosterCard';
@@ -117,7 +116,6 @@ export function TradeDeckFeedScreen() {
   const [seenTradeIds, setSeenTradeIds] = useState<string[]>([]);
   const loadRequestIdRef = useRef(0);
   const pendingSearchRecordRef = useRef<{ q: string; source: TradeSearchKeywordSource } | null>(null);
-  const tradeGuideCheckStartedRef = useRef(false);
 
   const feedQuery = useMemo(() => buildFeedQuery(query, modeFilter, postTypeFilter, category, imagesOnly, moneyOnly, refreshSeed, seenTradeIds, language, auth.user?.profile?.countryCode), [auth.user?.profile?.countryCode, category, imagesOnly, language, modeFilter, moneyOnly, postTypeFilter, query, refreshSeed, seenTradeIds]);
   const activeFilterCount = useMemo(() => [feedQuery.q, feedQuery.mode, feedQuery.postType, feedQuery.category, feedQuery.hasImages, betaFeatures.moneyTradesEnabled ? feedQuery.hasMoney : undefined].filter(Boolean).length, [feedQuery]);
@@ -161,23 +159,6 @@ export function TradeDeckFeedScreen() {
       if (requestId === loadRequestIdRef.current) setLoading(false);
     }
   }, [feedQuery, recordSearchKeyword]);
-
-  useFocusEffect(useCallback(() => {
-    let active = true;
-
-    async function openTradeGuideIfNeeded() {
-      if (tradeGuideCheckStartedRef.current) return;
-      tradeGuideCheckStartedRef.current = true;
-
-      const completed = await hasCompletedOnboardingGuide().catch(() => true);
-      if (!active || completed) return;
-
-      navigation.navigate('OnboardingGuide', { replay: false });
-    }
-
-    void openTradeGuideIfNeeded();
-    return () => { active = false; };
-  }, [navigation]));
 
   useFocusEffect(useCallback(() => { void loadFeed(); }, [loadFeed]));
 
@@ -246,6 +227,11 @@ export function TradeDeckFeedScreen() {
   }, [auth.isAuthenticated, navigation]);
 
   const openTradeWizardAction = useCallback((action: TradeWizardAction) => {
+    if (action === 'trade_guide') {
+      setWizardModalVisible(false);
+      navigation.navigate('OnboardingGuide', { guide: 'trade', replay: true });
+      return;
+    }
     if (action === 'my_trades' || action === 'proposals') {
       setActivityTab(action === 'my_trades' ? 'mine' : 'involved');
       setWizardModalVisible(false);
