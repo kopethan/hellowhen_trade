@@ -1198,11 +1198,11 @@ export const account = {
       badge: 'Boîte',
     },
     guide: {
-      title: 'Guide',
-      body: 'Revoir le court guide de démarrage Hellowhen, avec les sept slides, la langue et l’apparence.',
-      bodyNative: 'Revoir le guide de démarrage à tout moment.',
-      badge: 'Guide',
-      action: 'Revoir',
+      title: 'Guides',
+      body: 'Revoir les guides App, Plans ou Trade à tout moment.',
+      bodyNative: 'Revoir les guides App, Plans ou Trade à tout moment.',
+      badge: 'Guides',
+      action: 'Ouvrir',
     },
     settings: {
       title: 'Paramètres',

@@ -80,7 +80,7 @@ export function AccountHubClient() {
     ...(betaFeatures.agendaEnabled ? [{ href: '/account/agenda', titleKey: 'account.items.agenda.title', bodyKey: 'account.items.agenda.body', icon: 'calendar' as WebIconName, tone: 'info' as AccountHubTone }] : []),
     { href: '/account/notifications', titleKey: 'account.items.notifications.title', bodyKey: 'account.items.notifications.body', icon: 'bell', count: notificationUnreadCount > 0 ? notificationUnreadCount : undefined, tone: 'proposal' },
     {
-      href: '/onboarding-guide?guide=global&replay=1&next=/account',
+      href: '/guide',
       titleKey: 'account.items.guide.title',
       bodyKey: 'account.items.guide.body',
       icon: 'help',

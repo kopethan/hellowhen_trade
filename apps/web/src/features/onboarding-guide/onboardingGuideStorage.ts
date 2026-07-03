@@ -27,6 +27,25 @@ function getLegacyCompletedKey(userId?: string | null) {
   return normalizedUserId ? `${WEB_ONBOARDING_GUIDE_COMPLETED_STORAGE_KEY}:${normalizedUserId}` : WEB_ONBOARDING_GUIDE_COMPLETED_STORAGE_KEY;
 }
 
+
+function readLocalStorageItem(key: string) {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalStorageItem(key: string, value: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Ignore storage failures so guide replay remains usable in private/restricted browsers.
+  }
+}
+
 function getCompletedCookieName(guideType?: OnboardingGuideType | string | null) {
   return `${WEB_ONBOARDING_GUIDE_COMPLETED_COOKIE_PREFIX}${normalizeGuideType(guideType)}`;
 }
@@ -42,7 +61,7 @@ function hasCookie(name: string) {
 function hasCompletedCookie(guideType?: OnboardingGuideType | string | null) {
   const normalizedGuideType = normalizeGuideType(guideType);
   if (hasCookie(getCompletedCookieName(normalizedGuideType))) return true;
-  return (normalizedGuideType === 'global' || normalizedGuideType === 'trade') && hasCookie(WEB_ONBOARDING_GUIDE_COMPLETED_COOKIE);
+  return normalizedGuideType === 'global' && hasCookie(WEB_ONBOARDING_GUIDE_COMPLETED_COOKIE);
 }
 
 function markCookie(name: string) {
@@ -54,32 +73,32 @@ function markCookie(name: string) {
 function markCompletedCookie(guideType?: OnboardingGuideType | string | null) {
   const normalizedGuideType = normalizeGuideType(guideType);
   markCookie(getCompletedCookieName(normalizedGuideType));
-  if (normalizedGuideType === 'trade') markCookie(WEB_ONBOARDING_GUIDE_COMPLETED_COOKIE);
+  if (normalizedGuideType === 'global') markCookie(WEB_ONBOARDING_GUIDE_COMPLETED_COOKIE);
 }
 
 function hasLegacyCompletedWebOnboardingGuide(userId?: string | null) {
   if (typeof window === 'undefined') return true;
-  return window.localStorage.getItem(getLegacyCompletedKey(userId)) === 'true';
+  return readLocalStorageItem(getLegacyCompletedKey(userId)) === 'true';
 }
 
 function markLegacyCompletedWebOnboardingGuide(userId?: string | null) {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(getLegacyCompletedKey(userId), 'true');
+  writeLocalStorageItem(getLegacyCompletedKey(userId), 'true');
 }
 
 export function hasCompletedWebOnboardingGuide(userId?: string | null, guideType?: OnboardingGuideType | string | null) {
   if (typeof window === 'undefined') return true;
   const normalizedGuideType = normalizeGuideType(guideType);
-  if (window.localStorage.getItem(getCompletedKey(userId, normalizedGuideType)) === 'true') return true;
-  if ((normalizedGuideType === 'global' || normalizedGuideType === 'trade') && hasLegacyCompletedWebOnboardingGuide(userId)) return true;
+  if (readLocalStorageItem(getCompletedKey(userId, normalizedGuideType)) === 'true') return true;
+  if (normalizedGuideType === 'global' && hasLegacyCompletedWebOnboardingGuide(userId)) return true;
   return !userId && hasCompletedCookie(normalizedGuideType);
 }
 
 export function markWebOnboardingGuideCompleted(userId?: string | null, guideType?: OnboardingGuideType | string | null) {
   if (typeof window === 'undefined') return;
   const normalizedGuideType = normalizeGuideType(guideType);
-  window.localStorage.setItem(getCompletedKey(userId, normalizedGuideType), 'true');
-  if (normalizedGuideType === 'trade') markLegacyCompletedWebOnboardingGuide(userId);
+  writeLocalStorageItem(getCompletedKey(userId, normalizedGuideType), 'true');
+  if (normalizedGuideType === 'global') markLegacyCompletedWebOnboardingGuide(userId);
   if (!userId) markCompletedCookie(normalizedGuideType);
 }
 

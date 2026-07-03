@@ -3855,7 +3855,8 @@ html.dark .pro-package-prototype__item.selected {
 .guide-hub-card__icon { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--app-border); border-radius: 8px; background: var(--app-surface-soft); }
 .guide-hub-card__copy { display: grid; gap: 8px; min-width: 0; }
 .guide-hub-card__copy strong { font-size: 18px; line-height: 1.1; }
-.guide-hub-card__copy > span:last-child { color: var(--app-text-muted); font-size: 13px; font-weight: 760; line-height: 1.4; }
+.guide-hub-card__copy > span:not(.semantic-badge):not(.guide-hub-card__action) { color: var(--app-text-muted); font-size: 13px; font-weight: 760; line-height: 1.4; }
+.guide-hub-card__action { display: inline-flex; align-items: center; justify-content: center; width: fit-content; min-height: 32px; margin-top: 2px; border: 1px solid color-mix(in srgb, var(--app-text) 18%, var(--app-border)); border-radius: 999px; background: color-mix(in srgb, var(--app-text) 7%, transparent); padding: 0 12px; color: var(--app-text); font-size: 12px; font-weight: 900; line-height: 1; }
 
 @media (max-width: 700px) {
   .home-guide-entry { grid-template-columns: auto minmax(0, 1fr); align-items: start; width: 100%; }

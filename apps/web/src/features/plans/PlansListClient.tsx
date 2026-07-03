@@ -10,6 +10,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { WebIcon } from '../../components/WebIcon';
+import { hasCompletedWebOnboardingGuideForVisitor } from '../onboarding-guide/onboardingGuideStorage';
 import { PlansFeatureGate } from './PlansFeatureGate';
 import { PlanDtoPreviewDeck, PlanPreviewDeck } from './PlanPreviewDeck';
 import { planOwnerName } from './plansPresentation';
@@ -132,7 +133,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
   const filterHref = useMemo(() => buildPlanFilterHref('/plans/filter', activeFilters, activeSearchQuery), [activeFilters, activeSearchQuery]);
 
   const canLoadPrivateViews = auth.hydrated && auth.isAuthenticated;
-  const shouldShowGuideIntro = guideIntroReady && auth.hydrated && !auth.isAuthenticated && !guideIntroDismissed;
+  const shouldShowGuideIntro = guideIntroReady && auth.hydrated && !guideIntroDismissed;
   const activeView = view !== 'feed' && !canLoadPrivateViews ? 'feed' : view;
   const createPlanHref = auth.isAuthenticated ? '/plans/new' : nextAuthHref('/plans/new');
   const workspaceItems = getNormalWorkspaceMenuItems('plans');
@@ -144,14 +145,16 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
   }, []);
 
   useEffect(() => {
+    if (!auth.hydrated) return;
     try {
-      setGuideIntroDismissed(window.localStorage.getItem(plansGuideIntroSeenKey) === '1');
+      const dismissed = window.localStorage.getItem(plansGuideIntroSeenKey) === '1';
+      setGuideIntroDismissed(dismissed || hasCompletedWebOnboardingGuideForVisitor(auth.user?.id, 'plans'));
     } catch {
-      setGuideIntroDismissed(false);
+      setGuideIntroDismissed(hasCompletedWebOnboardingGuideForVisitor(auth.user?.id, 'plans'));
     } finally {
       setGuideIntroReady(true);
     }
-  }, []);
+  }, [auth.hydrated, auth.user?.id]);
 
   useEffect(() => {
     const requestedView = searchParams.get('view');
@@ -338,10 +341,10 @@ function PlansGuideIntroBanner({ onDismiss }: { onDismiss: () => void }) {
       <div className="home-guide-entry__copy">
         <span className="semantic-badge instruction">Plans guide</span>
         <h2 id="plans-guide-entry-title">New to Plans?</h2>
-        <p>Take a quick tour of Plans, Places, joining, creating, and safety.</p>
+        <p>Learn how plans, places, joining, creating, and safety work.</p>
       </div>
       <div className="home-guide-entry__actions">
-        <Link href="/onboarding-guide?guide=plans&replay=1&next=/plans" className="button primary">Open guide</Link>
+        <Link href="/onboarding-guide?guide=plans&replay=1&next=/plans" className="button primary">Start guide</Link>
         <button type="button" className="button secondary" onClick={onDismiss}>Dismiss</button>
       </div>
     </section>

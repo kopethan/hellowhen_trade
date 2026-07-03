@@ -119,14 +119,19 @@ export function OnboardingGuideClient() {
     return () => media.removeEventListener('change', listener);
   }, [settings.appearance, settingsHydrated]);
 
-  const closeGuide = useCallback(() => {
+  const skipGuide = useCallback(() => {
     if (!isReplay) markWebOnboardingGuideCompletedForVisitor(auth.user?.id, guidePack.type);
     router.push(nextHref);
   }, [auth.user?.id, guidePack.type, isReplay, nextHref, router]);
 
+  const completeGuide = useCallback(() => {
+    markWebOnboardingGuideCompletedForVisitor(auth.user?.id, guidePack.type);
+    router.push(nextHref);
+  }, [auth.user?.id, guidePack.type, nextHref, router]);
+
   function goNext() {
     if (isLastSlide) {
-      closeGuide();
+      completeGuide();
       return;
     }
     setCurrentIndex((value) => Math.min(value + 1, guideSlides.length - 1));
@@ -144,7 +149,7 @@ export function OnboardingGuideClient() {
     <section className="onboarding-guide-shell" style={backgroundStyle} aria-label={t('onboarding.ariaLabel')}>
       <header className="onboarding-guide-topbar" style={backgroundStyle}>
         <strong className="onboarding-guide-brand">Hellowhen</strong>
-        <button type="button" className="onboarding-guide-skip" onClick={closeGuide}>{t('onboarding.actions.skip')}</button>
+        <button type="button" className="onboarding-guide-skip" onClick={skipGuide}>{t('onboarding.actions.skip')}</button>
       </header>
 
       <div className="onboarding-guide-preference-bar" style={backgroundStyle}>

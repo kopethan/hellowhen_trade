@@ -18,6 +18,7 @@ import { createFeedIdeaTradeHref, emptyFeedStarterIdeaPlacement, feedTradeIdeaHa
 import { getExchangeLabel, getStatusLabel, getTradeHeadline } from './tradePresentation';
 import { TradePosterCard } from './TradePosterCard';
 import { activeTradeFilterCount, buildTradeFilterHref, tradeFiltersFromSearchParams, tradeFilterSummary, type TradeFeedFilters } from './tradeFilters';
+import { hasCompletedWebOnboardingGuideForVisitor } from '../onboarding-guide/onboardingGuideStorage';
 
 type TradeActivityTab = 'mine' | 'involved';
 type TradeWithCounts = TradeDto & { _count?: { proposals?: number } };
@@ -108,7 +109,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   const filterHref = useMemo(() => buildTradeFilterHref('/trades/filter', appliedFilters), [appliedFilters]);
   const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
   const createTradeIdeaHref = useCallback((ideaKey: FeedTradeIdeaKey) => createFeedIdeaTradeHref(ideaKey), []);
-  const shouldShowHomeIntro = showHomeIntro && homeIntroReady && auth.hydrated && !auth.isAuthenticated && !homeIntroDismissed;
+  const shouldShowHomeIntro = showHomeIntro && homeIntroReady && auth.hydrated && !homeIntroDismissed;
 
   const recordSearchKeyword = useCallback(async (pending: { q: string; source: TradeSearchKeywordSource }, resultCount: number) => {
     const normalized = normalizeSearchText(pending.q);
@@ -125,16 +126,18 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
       setHomeIntroReady(false);
       return;
     }
+    if (!auth.hydrated) return;
 
     try {
-      setHomeIntroDismissed(window.localStorage.getItem(homeTradeIntroSeenKey) === '1');
+      const dismissed = window.localStorage.getItem(homeTradeIntroSeenKey) === '1';
+      setHomeIntroDismissed(dismissed || hasCompletedWebOnboardingGuideForVisitor(auth.user?.id, 'trade'));
     } catch {
-      // Keep the intro eligible for logged-out visitors when storage is unavailable.
-      setHomeIntroDismissed(false);
+      // Keep the intro eligible unless this visitor has already completed the Trade guide.
+      setHomeIntroDismissed(hasCompletedWebOnboardingGuideForVisitor(auth.user?.id, 'trade'));
     } finally {
       setHomeIntroReady(true);
     }
-  }, [showHomeIntro]);
+  }, [auth.hydrated, auth.user?.id, showHomeIntro]);
 
   function dismissHomeIntro() {
     setHomeIntroDismissed(true);

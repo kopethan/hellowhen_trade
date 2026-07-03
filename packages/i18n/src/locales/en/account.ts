@@ -1198,11 +1198,11 @@ export const account = {
       badge: 'Inbox',
     },
     guide: {
-      title: 'Guide',
-      body: 'Replay the short Hellowhen onboarding guide, including the seven intro slides, language, and appearance controls.',
-      bodyNative: 'Replay the onboarding guide anytime.',
-      badge: 'Guide',
-      action: 'Replay',
+      title: 'Guides',
+      body: 'Replay app, Plans, or Trade guides anytime.',
+      bodyNative: 'Replay app, Plans, or Trade guides anytime.',
+      badge: 'Guides',
+      action: 'Open',
     },
     settings: {
       title: 'Settings',
