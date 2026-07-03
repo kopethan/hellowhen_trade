@@ -1,0 +1,50 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index bbad6c6..ca53ccd 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -27,7 +27,7 @@
+ 
+   --need-bg: #DBEAFE; --need-text: #1E3A8A; --need-border: #93C5FD;
+   --offer-bg: #DCFCE7; --offer-text: #166534; --offer-border: #86EFAC;
+-  --trade-bg: #EDE9FE; --trade-text: #5B21B6; --trade-border: #C4B5FD;
++  --trade-bg: #F1F5F9; --trade-text: #111827; --trade-border: #CBD5E1; --trade-solid: #111827; --trade-solid-text: #FFFFFF;
+   --proposal-bg: #CCFBF1; --proposal-text: #115E59; --proposal-border: #5EEAD4;
+   --plan-bg: #EDE9FE; --plan-text: #5B21B6; --plan-border: #C4B5FD;
+   --place-bg: #F3E8FF; --place-text: #6B21A8; --place-border: #D8B4FE;
+@@ -62,7 +62,7 @@
+     --onboarding-guide-bg: #0A1224;
+     --need-bg: #172554; --need-text: #BFDBFE; --need-border: #1D4ED8;
+     --offer-bg: #052E16; --offer-text: #BBF7D0; --offer-border: #15803D;
+-    --trade-bg: #2E1065; --trade-text: #DDD6FE; --trade-border: #6D28D9;
++    --trade-bg: #1F2937; --trade-text: #F8FAFC; --trade-border: #475569; --trade-solid: #F8FAFC; --trade-solid-text: #0F172A;
+     --proposal-bg: #042F2E; --proposal-text: #99F6E4; --proposal-border: #0F766E;
+     --plan-bg: #2E1065; --plan-text: #DDD6FE; --plan-border: #6D28D9;
+     --place-bg: #3B0764; --place-text: #F3E8FF; --place-border: #7E22CE;
+@@ -97,7 +97,7 @@ html[data-theme="dark"] {
+   --onboarding-guide-bg: #0A1224;
+   --need-bg: #172554; --need-text: #BFDBFE; --need-border: #1D4ED8;
+   --offer-bg: #052E16; --offer-text: #BBF7D0; --offer-border: #15803D;
+-  --trade-bg: #2E1065; --trade-text: #DDD6FE; --trade-border: #6D28D9;
++  --trade-bg: #1F2937; --trade-text: #F8FAFC; --trade-border: #475569; --trade-solid: #F8FAFC; --trade-solid-text: #0F172A;
+   --proposal-bg: #042F2E; --proposal-text: #99F6E4; --proposal-border: #0F766E;
+   --plan-bg: #2E1065; --plan-text: #DDD6FE; --plan-border: #6D28D9;
+   --place-bg: #3B0764; --place-text: #F3E8FF; --place-border: #7E22CE;
+@@ -140,6 +140,9 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom:
+ .web-tab:focus-visible { outline: 3px solid color-mix(in srgb, var(--instruction-border) 68%, transparent); outline-offset: 3px; }
+ .web-tab__icon { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 999px; color: inherit; line-height: 1; transition: background 160ms ease, color 160ms ease, transform 160ms ease; }
+ .web-tab--active { background: var(--app-surface); color: var(--app-text); box-shadow: var(--app-control-shadow); }
++.web-bottom-tabs[data-nav-mode="plans-me-trade"] .web-tab--active[data-tab-key="plans"] { background: color-mix(in srgb, var(--plan-bg) 76%, var(--app-surface)); color: var(--plan-text); }
++.web-bottom-tabs[data-nav-mode="plans-me-trade"] .web-tab--active[data-tab-key="me"] { background: color-mix(in srgb, var(--app-surface) 88%, var(--app-text) 12%); color: var(--app-text); }
++.web-bottom-tabs[data-nav-mode="plans-me-trade"] .web-tab--active[data-tab-key="trade"] { background: var(--trade-solid); color: var(--trade-solid-text); }
+ 
+ .web-scroll-top-button { position: fixed; z-index: 70; right: max(18px, calc((100vw - var(--app-shell-width)) / 2 + 18px)); bottom: calc(var(--app-tab-height) + env(safe-area-inset-bottom) + 18px); display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid color-mix(in srgb, var(--app-border-strong) 78%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--app-surface) 94%, transparent); color: var(--app-text); padding: 0; font-size: 22px; font-weight: 950; line-height: 1; box-shadow: var(--app-control-shadow); opacity: 0; pointer-events: none; transform: translateY(10px) scale(0.96); transition: opacity 160ms ease, transform 160ms ease; backdrop-filter: blur(18px); }
+ .web-scroll-top-button.is-visible { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
+@@ -3058,7 +3061,7 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ .plans-feed-icon-button:hover { border-color: var(--app-border-strong); transform: translateY(-1px); }
+ .plans-feed-icon-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--proposal-border) 42%, transparent); outline-offset: 3px; }
+ .plans-feed-icon-button[aria-expanded="true"] { background: var(--app-text); color: var(--app-bg); border-color: var(--app-text); }
+-.plans-feed-icon-button--primary { background: var(--trade-bg); color: var(--trade-text); border-color: transparent; }
++.plans-feed-icon-button--primary { background: var(--plan-bg); color: var(--plan-text); border-color: transparent; }
+ .plans-feed-popover, .plans-feed-menu { display: grid; gap: 6px; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface); padding: 8px; box-shadow: var(--app-card-shadow); }
+ .plans-feed-popover { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+ .plans-feed-filter-note { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; color: var(--app-text); }

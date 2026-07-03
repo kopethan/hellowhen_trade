@@ -2,12 +2,19 @@ export type OnboardingGuideType = 'global' | 'trade' | 'plans';
 
 export type OnboardingGuideSlideKey =
   | 'welcome'
+  | 'globalWelcome'
+  | 'globalMeHub'
   | 'createNeed'
   | 'createOffer'
   | 'discoverTrades'
   | 'sendProposal'
   | 'staySafe'
-  | 'accountGuide';
+  | 'accountGuide'
+  | 'plansWelcome'
+  | 'plansDiscover'
+  | 'plansPlaces'
+  | 'plansCreateJoin'
+  | 'plansSafety';
 
 export type OnboardingGuideSlide = {
   id: string;
@@ -32,7 +39,7 @@ export const ONBOARDING_GUIDE_PACKS: Record<OnboardingGuideType, OnboardingGuide
     slides: [
       {
         id: 'global-welcome',
-        illustrationKey: 'welcome',
+        illustrationKey: 'globalWelcome',
         titleKey: 'onboarding.slides.globalWelcome.title',
         bodyKey: 'onboarding.slides.globalWelcome.body',
         illustrationCaptionKey: 'onboarding.slides.globalWelcome.caption',
@@ -46,7 +53,7 @@ export const ONBOARDING_GUIDE_PACKS: Record<OnboardingGuideType, OnboardingGuide
       },
       {
         id: 'global-me-hub',
-        illustrationKey: 'accountGuide',
+        illustrationKey: 'globalMeHub',
         titleKey: 'onboarding.slides.globalMeHub.title',
         bodyKey: 'onboarding.slides.globalMeHub.body',
         illustrationCaptionKey: 'onboarding.slides.globalMeHub.caption',
@@ -123,35 +130,35 @@ export const ONBOARDING_GUIDE_PACKS: Record<OnboardingGuideType, OnboardingGuide
     slides: [
       {
         id: 'plans-welcome',
-        illustrationKey: 'welcome',
+        illustrationKey: 'plansWelcome',
         titleKey: 'onboarding.slides.plansWelcome.title',
         bodyKey: 'onboarding.slides.plansWelcome.body',
         illustrationCaptionKey: 'onboarding.slides.plansWelcome.caption',
       },
       {
         id: 'plans-discover',
-        illustrationKey: 'discoverTrades',
+        illustrationKey: 'plansDiscover',
         titleKey: 'onboarding.slides.plansDiscover.title',
         bodyKey: 'onboarding.slides.plansDiscover.body',
         illustrationCaptionKey: 'onboarding.slides.plansDiscover.caption',
       },
       {
         id: 'plans-places',
-        illustrationKey: 'createNeed',
+        illustrationKey: 'plansPlaces',
         titleKey: 'onboarding.slides.plansPlaces.title',
         bodyKey: 'onboarding.slides.plansPlaces.body',
         illustrationCaptionKey: 'onboarding.slides.plansPlaces.caption',
       },
       {
         id: 'plans-create-join',
-        illustrationKey: 'sendProposal',
+        illustrationKey: 'plansCreateJoin',
         titleKey: 'onboarding.slides.plansCreateJoin.title',
         bodyKey: 'onboarding.slides.plansCreateJoin.body',
         illustrationCaptionKey: 'onboarding.slides.plansCreateJoin.caption',
       },
       {
         id: 'plans-safety',
-        illustrationKey: 'staySafe',
+        illustrationKey: 'plansSafety',
         titleKey: 'onboarding.slides.plansSafety.title',
         bodyKey: 'onboarding.slides.plansSafety.body',
         illustrationCaptionKey: 'onboarding.slides.plansSafety.caption',
