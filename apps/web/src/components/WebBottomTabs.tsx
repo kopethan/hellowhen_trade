@@ -21,8 +21,8 @@ export function WebBottomTabs() {
     <nav className={className} data-nav-mode={navMode} aria-label={t('navigation.primary')} style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
       {tabs.map((tab) => {
         const active = tab.match(pathname);
-        const publicTradeTab = tab.key === 'trades' || tab.key === 'trade';
-        const shouldGate = !publicTradeTab && (!auth.hydrated || !auth.isAuthenticated);
+        const publicTab = tab.key === 'trades' || tab.key === 'trade' || tab.key === 'plans';
+        const shouldGate = !publicTab && (!auth.hydrated || !auth.isAuthenticated);
         const href = shouldGate ? `/auth?next=${encodeURIComponent(tab.href)}` : tab.href;
         return (
           <Link

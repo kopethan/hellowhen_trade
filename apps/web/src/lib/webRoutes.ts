@@ -60,7 +60,7 @@ export function getWebTabs(usePlansMeTradeNav = false) {
   return usePlansMeTradeNav ? plansMeTradeWebTabs : webTabs;
 }
 
-export const utilityRoutePrefixes = ['/auth', '/admin', '/reset-password', '/credits', '/onboarding-guide'];
+export const utilityRoutePrefixes = ['/auth', '/admin', '/reset-password', '/credits', '/onboarding-guide', '/guide'];
 
 
 export function isWebThreadRoute(pathname: string) {
@@ -98,6 +98,7 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; titleKey: strin
   { match: (pathname) => pathname === '/account/profile', titleKey: 'navigation.routes.profile', backHref: '/account' },
   { match: (pathname) => pathname === '/account/settings', titleKey: 'navigation.routes.settings', backHref: '/account' },
   { match: (pathname) => pathname === '/onboarding-guide', titleKey: 'navigation.routes.onboardingGuide', backHref: '/account' },
+  { match: (pathname) => pathname === '/guide', titleKey: 'navigation.routes.onboardingGuide', backHref: '/account' },
   { match: (pathname) => pathname === '/account/wallet', titleKey: 'navigation.routes.account', backHref: '/account' },
   { match: (pathname) => pathname === '/account/wallet/add', titleKey: 'navigation.routes.account', backHref: '/account' },
   { match: (pathname) => pathname === '/account/payouts', titleKey: 'navigation.routes.account', backHref: '/account' },

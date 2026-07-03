@@ -7,6 +7,7 @@ import { useWebAuth } from './WebAuthProvider';
 
 const GLOBAL_ONBOARDING_EXCLUDED_PREFIXES = [
   '/onboarding-guide',
+  '/guide',
   '/auth',
   '/admin',
   '/legal',
@@ -17,11 +18,14 @@ const GLOBAL_ONBOARDING_EXCLUDED_PREFIXES = [
   '/api',
 ];
 
+const GLOBAL_ONBOARDING_PUBLIC_FEED_PATHS = new Set(['/plans', '/trades']);
+
 const PUBLIC_FILE_PATTERN = /\.(?:avif|ico|jpg|jpeg|png|svg|webp|gif|css|js|map|txt|xml|json|woff2?)$/i;
 
 function isGlobalOnboardingExcludedRoute(pathname: string) {
   if (pathname === '/robots.txt' || pathname === '/sitemap.xml' || pathname === '/favicon.ico') return true;
   if (PUBLIC_FILE_PATTERN.test(pathname)) return true;
+  if (GLOBAL_ONBOARDING_PUBLIC_FEED_PATHS.has(pathname)) return true;
   return GLOBAL_ONBOARDING_EXCLUDED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 

@@ -3,6 +3,7 @@ export type OnboardingGuideType = 'global' | 'trade' | 'plans';
 export type OnboardingGuideSlideKey =
   | 'welcome'
   | 'globalWelcome'
+  | 'globalWorlds'
   | 'globalMeHub'
   | 'createNeed'
   | 'createOffer'
@@ -46,7 +47,7 @@ export const ONBOARDING_GUIDE_PACKS: Record<OnboardingGuideType, OnboardingGuide
       },
       {
         id: 'global-worlds',
-        illustrationKey: 'discoverTrades',
+        illustrationKey: 'globalWorlds',
         titleKey: 'onboarding.slides.globalWorlds.title',
         bodyKey: 'onboarding.slides.globalWorlds.body',
         illustrationCaptionKey: 'onboarding.slides.globalWorlds.caption',

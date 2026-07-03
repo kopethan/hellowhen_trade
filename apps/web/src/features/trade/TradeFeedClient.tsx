@@ -136,15 +136,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
     }
   }, [showHomeIntro]);
 
-  useEffect(() => {
-    if (!showHomeIntro || !auth.hydrated || auth.isAuthenticated) return;
-    try {
-      window.localStorage.setItem(homeTradeIntroSeenKey, '1');
-    } catch {
-      // The dismiss button still works for this page view if storage is unavailable.
-    }
-  }, [auth.hydrated, auth.isAuthenticated, showHomeIntro]);
-
   function dismissHomeIntro() {
     setHomeIntroDismissed(true);
     try {

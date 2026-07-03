@@ -12,6 +12,7 @@ const ONBOARDING_IMAGE_PATHS: Record<OnboardingImageMode, Partial<Record<Onboard
   light: {
     welcome: { src: '/onboarding/light/welcome-trade-match-light.webp', width: 960, height: 960 },
     globalWelcome: { src: '/images/guides/light/global-welcome-light.webp', width: 960, height: 960 },
+    globalWorlds: { src: '/images/guides/light/global-welcome-light.webp', width: 960, height: 960 },
     globalMeHub: { src: '/images/guides/light/global-me-hub-light.webp', width: 960, height: 960 },
     createNeed: { src: '/onboarding/light/create-need-light.webp', width: 960, height: 960 },
     createOffer: { src: '/onboarding/light/create-offer-light.webp', width: 960, height: 960 },
@@ -28,6 +29,7 @@ const ONBOARDING_IMAGE_PATHS: Record<OnboardingImageMode, Partial<Record<Onboard
   dark: {
     welcome: { src: '/onboarding/dark/welcome-trade-match-dark.webp', width: 960, height: 960 },
     globalWelcome: { src: '/images/guides/dark/global-welcome-dark.webp', width: 960, height: 960 },
+    globalWorlds: { src: '/images/guides/dark/global-welcome-dark.webp', width: 960, height: 960 },
     globalMeHub: { src: '/images/guides/dark/global-me-hub-dark.webp', width: 960, height: 960 },
     createNeed: { src: '/onboarding/dark/create-need-dark.webp', width: 960, height: 960 },
     createOffer: { src: '/onboarding/dark/create-offer-dark.webp', width: 960, height: 960 },
@@ -47,6 +49,7 @@ const ONBOARDING_IMAGE_BACKGROUNDS: Record<OnboardingImageMode, Partial<Record<O
   light: {
     welcome: '#FEFEFE',
     globalWelcome: '#FEFEFE',
+    globalWorlds: '#FEFEFE',
     globalMeHub: '#FEFEFE',
     createNeed: '#FEFEFE',
     createOffer: '#FAF8F7',
@@ -63,6 +66,7 @@ const ONBOARDING_IMAGE_BACKGROUNDS: Record<OnboardingImageMode, Partial<Record<O
   dark: {
     welcome: '#0A1224',
     globalWelcome: '#050B18',
+    globalWorlds: '#050B18',
     globalMeHub: '#050B18',
     createNeed: '#0B0F18',
     createOffer: '#030A15',

@@ -83,6 +83,7 @@ function nextAuthHref(path: string) {
 
 const recentPlanIdeaStorageKey = 'hellowhen_recent_plan_ideas_v1';
 const anonymousPlanIdeaStorageKey = 'hellowhen_plan_idea_anon_key_v1';
+const plansGuideIntroSeenKey = 'hellowhen.plans.guideIntro.seen.v1';
 
 function createAnonymousPlanIdeaKey() {
   return `anon-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -120,6 +121,8 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
   const [recentStarterIdeaIds, setRecentStarterIdeaIds] = useState<string[]>([]);
   const [anonymousStarterKey, setAnonymousStarterKey] = useState('anonymous');
   const [starterRefreshKey, setStarterRefreshKey] = useState('stable-plan-ideas');
+  const [guideIntroDismissed, setGuideIntroDismissed] = useState(false);
+  const [guideIntroReady, setGuideIntroReady] = useState(false);
   const searchParams = useSearchParams();
   const searchParamKey = searchParams.toString();
   const activeFilters = useMemo(() => planFiltersFromSearchParams(searchParams), [searchParamKey, searchParams]);
@@ -129,6 +132,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
   const filterHref = useMemo(() => buildPlanFilterHref('/plans/filter', activeFilters, activeSearchQuery), [activeFilters, activeSearchQuery]);
 
   const canLoadPrivateViews = auth.hydrated && auth.isAuthenticated;
+  const shouldShowGuideIntro = guideIntroReady && auth.hydrated && !auth.isAuthenticated && !guideIntroDismissed;
   const activeView = view !== 'feed' && !canLoadPrivateViews ? 'feed' : view;
   const createPlanHref = auth.isAuthenticated ? '/plans/new' : nextAuthHref('/plans/new');
   const workspaceItems = getNormalWorkspaceMenuItems('plans');
@@ -137,6 +141,16 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
     setRecentStarterIdeaIds(readRecentPlanIdeaIds());
     setAnonymousStarterKey(readAnonymousPlanIdeaKey());
     setStarterRefreshKey(`plan-refresh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+  }, []);
+
+  useEffect(() => {
+    try {
+      setGuideIntroDismissed(window.localStorage.getItem(plansGuideIntroSeenKey) === '1');
+    } catch {
+      setGuideIntroDismissed(false);
+    } finally {
+      setGuideIntroReady(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -230,6 +244,15 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
     router.push('/plans');
   }
 
+  function dismissGuideIntro() {
+    setGuideIntroDismissed(true);
+    try {
+      window.localStorage.setItem(plansGuideIntroSeenKey, '1');
+    } catch {
+      // Ignore storage failures.
+    }
+  }
+
   return (
     <PlansFeatureGate plansEnabled={plansEnabled}>
       <main className="mobile-page plans-page plans-feed-page web-app-page web-app-page--feed web-app-page--plans">
@@ -275,6 +298,8 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
 
         </section>
 
+        {shouldShowGuideIntro ? <PlansGuideIntroBanner onDismiss={dismissGuideIntro} /> : null}
+
         {activeView === 'feed' && activeFilterCount ? (
           <section className="plans-active-filter-card" aria-label="Active Plan filters">
             <div>
@@ -303,5 +328,22 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
         </section>
       </main>
     </PlansFeatureGate>
+  );
+}
+
+function PlansGuideIntroBanner({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <section className="home-guide-entry home-guide-entry--plans" aria-labelledby="plans-guide-entry-title">
+      <span className="home-guide-entry__icon" aria-hidden="true"><WebIcon name="plan" size={18} decorative /></span>
+      <div className="home-guide-entry__copy">
+        <span className="semantic-badge instruction">Plans guide</span>
+        <h2 id="plans-guide-entry-title">New to Plans?</h2>
+        <p>Take a quick tour of Plans, Places, joining, creating, and safety.</p>
+      </div>
+      <div className="home-guide-entry__actions">
+        <Link href="/onboarding-guide?guide=plans&replay=1&next=/plans" className="button primary">Open guide</Link>
+        <button type="button" className="button secondary" onClick={onDismiss}>Dismiss</button>
+      </div>
+    </section>
   );
 }

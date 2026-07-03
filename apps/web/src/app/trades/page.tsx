@@ -8,5 +8,5 @@ export const metadata = publicPageMetadata({
 });
 
 export default function TradeFeedPage() {
-  return <TradeFeedClient />;
+  return <TradeFeedClient showHomeIntro />;
 }

@@ -3842,11 +3842,27 @@ html.dark .pro-package-prototype__item.selected {
 .home-guide-entry p { margin: 0; color: var(--app-text-muted); font-size: 12px; font-weight: 760; line-height: 1.35; }
 .home-guide-entry__actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .home-guide-entry__actions .button { min-height: 34px; justify-content: center; padding: 0 12px; font-size: 12px; white-space: nowrap; }
+.home-guide-entry--plans { width: min(var(--web-app-page-toolbar-max, 880px), 100%); margin-top: 10px; margin-bottom: 4px; }
+.home-guide-entry--plans .home-guide-entry__icon { background: color-mix(in srgb, var(--plan-accent, #2563EB) 14%, var(--app-surface-soft)); }
+
+.guide-hub-page { display: grid; align-content: start; gap: 18px; width: min(920px, 100%); min-height: 100dvh; margin: 0 auto; padding: max(24px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom)); color: var(--app-text); }
+.guide-hub-hero { display: grid; justify-items: start; gap: 10px; padding-top: clamp(18px, 6vh, 54px); }
+.guide-hub-hero h1 { margin: 0; font-size: clamp(34px, 7vw, 58px); line-height: 0.98; letter-spacing: 0; }
+.guide-hub-hero p { max-width: 620px; margin: 0; color: var(--app-text-muted); font-size: 16px; font-weight: 760; line-height: 1.5; }
+.guide-hub-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.guide-hub-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 13px; min-height: 146px; border: 1px solid var(--app-border); border-radius: 8px; background: var(--app-surface); padding: 16px; color: inherit; text-decoration: none; box-shadow: var(--app-card-shadow); }
+.guide-hub-card:hover { border-color: color-mix(in srgb, var(--app-text) 22%, var(--app-border)); transform: translateY(-1px); }
+.guide-hub-card__icon { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--app-border); border-radius: 8px; background: var(--app-surface-soft); }
+.guide-hub-card__copy { display: grid; gap: 8px; min-width: 0; }
+.guide-hub-card__copy strong { font-size: 18px; line-height: 1.1; }
+.guide-hub-card__copy > span:last-child { color: var(--app-text-muted); font-size: 13px; font-weight: 760; line-height: 1.4; }
 
 @media (max-width: 700px) {
   .home-guide-entry { grid-template-columns: auto minmax(0, 1fr); align-items: start; width: 100%; }
   .home-guide-entry__actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
   .home-guide-entry__actions .button { width: 100%; }
+  .guide-hub-grid { grid-template-columns: 1fr; }
+  .guide-hub-card { min-height: 116px; }
 }
 
 .notifications-panel { display: grid; gap: 14px; }

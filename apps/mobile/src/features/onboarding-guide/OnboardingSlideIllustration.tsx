@@ -16,6 +16,7 @@ const ONBOARDING_IMAGE_ASSETS: Record<OnboardingImageMode, Partial<Record<Onboar
   light: {
     welcome: require('../../../assets/onboarding/light/welcome-trade-match-light.jpg'),
     globalWelcome: require('../../../assets/guides/light/global-welcome-light.png'),
+    globalWorlds: require('../../../assets/guides/light/global-welcome-light.png'),
     globalMeHub: require('../../../assets/guides/light/global-me-hub-light.png'),
     createNeed: require('../../../assets/onboarding/light/create-need-light.jpg'),
     createOffer: require('../../../assets/onboarding/light/create-offer-light.jpg'),
@@ -32,6 +33,7 @@ const ONBOARDING_IMAGE_ASSETS: Record<OnboardingImageMode, Partial<Record<Onboar
   dark: {
     welcome: require('../../../assets/onboarding/dark/welcome-trade-match-dark.jpg'),
     globalWelcome: require('../../../assets/guides/dark/global-welcome-dark.png'),
+    globalWorlds: require('../../../assets/guides/dark/global-welcome-dark.png'),
     globalMeHub: require('../../../assets/guides/dark/global-me-hub-dark.png'),
     createNeed: require('../../../assets/onboarding/dark/create-need-dark.jpg'),
     createOffer: require('../../../assets/onboarding/dark/create-offer-dark.jpg'),
@@ -51,6 +53,7 @@ const ONBOARDING_IMAGE_BACKGROUNDS: Record<OnboardingImageMode, Partial<Record<O
   light: {
     welcome: '#FEFEFE',
     globalWelcome: '#FEFEFE',
+    globalWorlds: '#FEFEFE',
     globalMeHub: '#FEFEFE',
     createNeed: '#FEFEFE',
     createOffer: '#FAF8F7',
@@ -67,6 +70,7 @@ const ONBOARDING_IMAGE_BACKGROUNDS: Record<OnboardingImageMode, Partial<Record<O
   dark: {
     welcome: '#0A1224',
     globalWelcome: '#050B18',
+    globalWorlds: '#050B18',
     globalMeHub: '#050B18',
     createNeed: '#0B0F18',
     createOffer: '#030A15',
