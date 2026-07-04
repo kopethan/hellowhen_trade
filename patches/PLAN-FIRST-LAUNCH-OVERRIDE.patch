@@ -1,0 +1,127 @@
+diff --git a/.env.example b/.env.example
+index cfac1a6..09e1e23 100644
+--- a/.env.example
++++ b/.env.example
+@@ -440,6 +440,11 @@ EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED=false
+ EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED=false
+ 
+ # Hidden Plans foundation. Keep disabled/hidden for the first public launch.
++# To launch only Plans while keeping all other first-launch safety guards enabled, set
++# PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS=true and its public web/native mirrors.
++PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS=false
++NEXT_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS=false
++EXPO_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS=false
+ PLANS_ENABLED=false
+ PLANS_VISIBLE=false
+ NEXT_PUBLIC_PLANS_ENABLED=false
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index de7f3c1..4637b7f 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -78,6 +78,7 @@ export const env = {
+   webOrigin: process.env.WEB_ORIGIN ?? 'http://localhost:3000',
+   mobileOrigin: process.env.MOBILE_ORIGIN ?? 'exp://127.0.0.1:8081',
+   uploadDir: process.env.UPLOAD_DIR ?? path.resolve(process.cwd(), 'uploads'),
++  plansAllowWithFirstLaunchGuards: enabled(process.env.PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS),
+   mediaStorageDriver: parseMediaStorageDriver(process.env.MEDIA_STORAGE_DRIVER),
+   awsRegion: process.env.AWS_REGION ?? '',
+   mediaS3Bucket: process.env.MEDIA_S3_BUCKET ?? '',
+@@ -539,8 +540,14 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
+     errors.push('Ads must stay disabled and ADS_PROVIDER must stay none for first launch.');
+   }
+ 
+-  if (env.plansEnabled || env.plansVisible || publicFlagEnabled('NEXT_PUBLIC_PLANS_ENABLED') || publicFlagEnabled('NEXT_PUBLIC_PLANS_VISIBLE') || publicFlagEnabled('EXPO_PUBLIC_PLANS_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_PLANS_VISIBLE')) {
+-    errors.push('Plans must stay disabled and hidden for first launch.');
++  const plansRequested = env.plansEnabled
++    || env.plansVisible
++    || publicFlagEnabled('NEXT_PUBLIC_PLANS_ENABLED')
++    || publicFlagEnabled('NEXT_PUBLIC_PLANS_VISIBLE')
++    || publicFlagEnabled('EXPO_PUBLIC_PLANS_ENABLED')
++    || publicFlagEnabled('EXPO_PUBLIC_PLANS_VISIBLE');
++  if (plansRequested && !env.plansAllowWithFirstLaunchGuards) {
++    errors.push('Plans must stay disabled and hidden for first launch unless PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS=true.');
+   }
+ 
+   const contentReviewGateRuntimeEnabled = env.contentReviewGateEnabled
+diff --git a/apps/mobile/src/env.d.ts b/apps/mobile/src/env.d.ts
+index c58af39..127617d 100644
+--- a/apps/mobile/src/env.d.ts
++++ b/apps/mobile/src/env.d.ts
+@@ -5,6 +5,7 @@ declare const process: {
+     EXPO_PUBLIC_API_URL?: string;
+     EXPO_PUBLIC_WEB_URL?: string;
+     EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED?: string;
++    EXPO_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS?: string;
+     EXPO_PUBLIC_MONEY_PROVIDER?: string;
+     EXPO_PUBLIC_MONEY_FEATURES_VISIBLE?: string;
+     EXPO_PUBLIC_WALLET_VISIBLE?: string;
+@@ -22,6 +23,7 @@ declare const process: {
+     EXPO_PUBLIC_PLANS_VISIBLE?: string;
+     EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE?: string;
+     NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED?: string;
++    NEXT_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS?: string;
+     NEXT_PUBLIC_PLANS_ENABLED?: string;
+     NEXT_PUBLIC_PLANS_VISIBLE?: string;
+     NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE?: string;
+diff --git a/apps/mobile/src/lib/betaFeatures.ts b/apps/mobile/src/lib/betaFeatures.ts
+index 3859a7d..56f11fa 100644
+--- a/apps/mobile/src/lib/betaFeatures.ts
++++ b/apps/mobile/src/lib/betaFeatures.ts
+@@ -10,6 +10,8 @@ function publicEnv(suffix: string) {
+ 
+ const firstLaunchGuardsEnabled = !disabled(publicEnv('FIRST_LAUNCH_GUARDS_ENABLED'));
+ const forceFirstLaunchSafeFlags = process.env.NODE_ENV === 'production' && firstLaunchGuardsEnabled;
++const plansAllowWithFirstLaunchGuards = enabled(publicEnv('PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS'));
++const forcePlansFirstLaunchSafeFlags = forceFirstLaunchSafeFlags && !plansAllowWithFirstLaunchGuards;
+ 
+ const rawMoneyProvider = (process.env.EXPO_PUBLIC_MONEY_PROVIDER ?? 'none').toLowerCase() as 'none' | 'stripe' | 'airwallex';
+ const rawAdsProviderValue = (process.env.EXPO_PUBLIC_ADS_PROVIDER ?? 'none').toLowerCase();
+@@ -77,7 +79,7 @@ const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.en
+ // Plans are now the default native app surface. Keep them visible unless a
+ // native bundle explicitly sets the plan flags to false. This prevents the
+ // old hidden-route placeholder when Expo did not load a local .env file.
+-const plansEnabled = !forceFirstLaunchSafeFlags && enabledUnlessExplicitlyFalse(publicEnv('PLANS_ENABLED'));
++const plansEnabled = !forcePlansFirstLaunchSafeFlags && enabledUnlessExplicitlyFalse(publicEnv('PLANS_ENABLED'));
+ const plansVisible = plansEnabled && enabledUnlessExplicitlyFalse(publicEnv('PLANS_VISIBLE'));
+ const mainNavPlansMeTrade = plansVisible && !disabled(publicEnv('MAIN_NAV_PLANS_ME_TRADE'));
+ const mobileMembershipVisible = !forceFirstLaunchSafeFlags && (
+diff --git a/apps/web/src/lib/betaFeatures.tsx b/apps/web/src/lib/betaFeatures.tsx
+index 19fea2f..808e82a 100644
+--- a/apps/web/src/lib/betaFeatures.tsx
++++ b/apps/web/src/lib/betaFeatures.tsx
+@@ -3,6 +3,8 @@ const enabled = (value: string | undefined) => value?.toLowerCase() === 'true';
+ const disabled = (value: string | undefined) => value?.toLowerCase() === 'false';
+ const firstLaunchGuardsEnabled = !disabled(process.env.NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED);
+ const forceFirstLaunchSafeFlags = process.env.NODE_ENV === 'production' && firstLaunchGuardsEnabled;
++const plansAllowWithFirstLaunchGuards = enabled(process.env.NEXT_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS);
++const forcePlansFirstLaunchSafeFlags = forceFirstLaunchSafeFlags && !plansAllowWithFirstLaunchGuards;
+ 
+ const rawMoneyProvider = (process.env.NEXT_PUBLIC_MONEY_PROVIDER ?? 'none').toLowerCase() as 'none' | 'stripe' | 'airwallex';
+ const rawAdsProviderValue = (process.env.NEXT_PUBLIC_ADS_PROVIDER ?? 'none').toLowerCase();
+@@ -69,7 +71,7 @@ const proTradePackageFeatures = {
+ } as const;
+ const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE);
+ const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED);
+-const plansEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_PLANS_ENABLED);
++const plansEnabled = !forcePlansFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_PLANS_ENABLED);
+ const plansVisible = plansEnabled && enabled(process.env.NEXT_PUBLIC_PLANS_VISIBLE);
+ const mainNavPlansMeTrade = plansVisible && !disabled(process.env.NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE);
+ 
+diff --git a/apps/web/src/lib/serverFeatureFlags.ts b/apps/web/src/lib/serverFeatureFlags.ts
+index def628a..a24c9f1 100644
+--- a/apps/web/src/lib/serverFeatureFlags.ts
++++ b/apps/web/src/lib/serverFeatureFlags.ts
+@@ -55,8 +55,12 @@ function forceFirstLaunchSafeFlags() {
+   return process.env.NODE_ENV === 'production' && !disabled(rootEnvValue('NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED'));
+ }
+ 
++function plansAllowWithFirstLaunchGuards() {
++  return enabled(rootEnvValue('NEXT_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS'));
++}
++
+ export function getPlansWebFlags() {
+-  if (forceFirstLaunchSafeFlags()) {
++  if (forceFirstLaunchSafeFlags() && !plansAllowWithFirstLaunchGuards()) {
+     return { plansEnabled: false, plansVisible: false };
+   }
+ 

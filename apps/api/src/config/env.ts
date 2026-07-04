@@ -78,6 +78,7 @@ export const env = {
   webOrigin: process.env.WEB_ORIGIN ?? 'http://localhost:3000',
   mobileOrigin: process.env.MOBILE_ORIGIN ?? 'exp://127.0.0.1:8081',
   uploadDir: process.env.UPLOAD_DIR ?? path.resolve(process.cwd(), 'uploads'),
+  plansAllowWithFirstLaunchGuards: enabled(process.env.PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS),
   mediaStorageDriver: parseMediaStorageDriver(process.env.MEDIA_STORAGE_DRIVER),
   awsRegion: process.env.AWS_REGION ?? '',
   mediaS3Bucket: process.env.MEDIA_S3_BUCKET ?? '',
@@ -539,8 +540,14 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     errors.push('Ads must stay disabled and ADS_PROVIDER must stay none for first launch.');
   }
 
-  if (env.plansEnabled || env.plansVisible || publicFlagEnabled('NEXT_PUBLIC_PLANS_ENABLED') || publicFlagEnabled('NEXT_PUBLIC_PLANS_VISIBLE') || publicFlagEnabled('EXPO_PUBLIC_PLANS_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_PLANS_VISIBLE')) {
-    errors.push('Plans must stay disabled and hidden for first launch.');
+  const plansRequested = env.plansEnabled
+    || env.plansVisible
+    || publicFlagEnabled('NEXT_PUBLIC_PLANS_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_PLANS_VISIBLE')
+    || publicFlagEnabled('EXPO_PUBLIC_PLANS_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_PLANS_VISIBLE');
+  if (plansRequested && !env.plansAllowWithFirstLaunchGuards) {
+    errors.push('Plans must stay disabled and hidden for first launch unless PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS=true.');
   }
 
   const contentReviewGateRuntimeEnabled = env.contentReviewGateEnabled

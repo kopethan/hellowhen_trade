@@ -10,6 +10,8 @@ function publicEnv(suffix: string) {
 
 const firstLaunchGuardsEnabled = !disabled(publicEnv('FIRST_LAUNCH_GUARDS_ENABLED'));
 const forceFirstLaunchSafeFlags = process.env.NODE_ENV === 'production' && firstLaunchGuardsEnabled;
+const plansAllowWithFirstLaunchGuards = enabled(publicEnv('PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS'));
+const forcePlansFirstLaunchSafeFlags = forceFirstLaunchSafeFlags && !plansAllowWithFirstLaunchGuards;
 
 const rawMoneyProvider = (process.env.EXPO_PUBLIC_MONEY_PROVIDER ?? 'none').toLowerCase() as 'none' | 'stripe' | 'airwallex';
 const rawAdsProviderValue = (process.env.EXPO_PUBLIC_ADS_PROVIDER ?? 'none').toLowerCase();
@@ -77,7 +79,7 @@ const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.en
 // Plans are now the default native app surface. Keep them visible unless a
 // native bundle explicitly sets the plan flags to false. This prevents the
 // old hidden-route placeholder when Expo did not load a local .env file.
-const plansEnabled = !forceFirstLaunchSafeFlags && enabledUnlessExplicitlyFalse(publicEnv('PLANS_ENABLED'));
+const plansEnabled = !forcePlansFirstLaunchSafeFlags && enabledUnlessExplicitlyFalse(publicEnv('PLANS_ENABLED'));
 const plansVisible = plansEnabled && enabledUnlessExplicitlyFalse(publicEnv('PLANS_VISIBLE'));
 const mainNavPlansMeTrade = plansVisible && !disabled(publicEnv('MAIN_NAV_PLANS_ME_TRADE'));
 const mobileMembershipVisible = !forceFirstLaunchSafeFlags && (

@@ -55,8 +55,12 @@ function forceFirstLaunchSafeFlags() {
   return process.env.NODE_ENV === 'production' && !disabled(rootEnvValue('NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED'));
 }
 
+function plansAllowWithFirstLaunchGuards() {
+  return enabled(rootEnvValue('NEXT_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS'));
+}
+
 export function getPlansWebFlags() {
-  if (forceFirstLaunchSafeFlags()) {
+  if (forceFirstLaunchSafeFlags() && !plansAllowWithFirstLaunchGuards()) {
     return { plansEnabled: false, plansVisible: false };
   }
 

@@ -3,6 +3,8 @@ const enabled = (value: string | undefined) => value?.toLowerCase() === 'true';
 const disabled = (value: string | undefined) => value?.toLowerCase() === 'false';
 const firstLaunchGuardsEnabled = !disabled(process.env.NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED);
 const forceFirstLaunchSafeFlags = process.env.NODE_ENV === 'production' && firstLaunchGuardsEnabled;
+const plansAllowWithFirstLaunchGuards = enabled(process.env.NEXT_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS);
+const forcePlansFirstLaunchSafeFlags = forceFirstLaunchSafeFlags && !plansAllowWithFirstLaunchGuards;
 
 const rawMoneyProvider = (process.env.NEXT_PUBLIC_MONEY_PROVIDER ?? 'none').toLowerCase() as 'none' | 'stripe' | 'airwallex';
 const rawAdsProviderValue = (process.env.NEXT_PUBLIC_ADS_PROVIDER ?? 'none').toLowerCase();
@@ -69,7 +71,7 @@ const proTradePackageFeatures = {
 } as const;
 const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE);
 const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED);
-const plansEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_PLANS_ENABLED);
+const plansEnabled = !forcePlansFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_PLANS_ENABLED);
 const plansVisible = plansEnabled && enabled(process.env.NEXT_PUBLIC_PLANS_VISIBLE);
 const mainNavPlansMeTrade = plansVisible && !disabled(process.env.NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE);
 
