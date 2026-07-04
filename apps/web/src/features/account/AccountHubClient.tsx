@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import { WebAuthPanel } from '../../components/WebAuthPanel';
 import { WebIcon, type WebIconName } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
@@ -118,6 +119,7 @@ export function AccountHubClient() {
       : null;
 
   const [primaryQuickAction, ...secondaryQuickActions] = quickActionItems;
+  const signedOut = auth.hydrated && !auth.isAuthenticated;
 
   useEffect(() => {
     let mounted = true;
@@ -187,7 +189,7 @@ export function AccountHubClient() {
             </div>
           ) : (
             <div className="me-hub-hero__actions">
-              <Link href="/auth?next=/account" className="button primary">{t('common.actions.loginOrRegister')}</Link>
+              <a href="#me-auth-panel" className="button primary">{t('common.actions.loginOrRegister')}</a>
               <Link href="/legal" className="button secondary">{t('account.items.legal.title')}</Link>
             </div>
           )
@@ -196,84 +198,90 @@ export function AccountHubClient() {
         )}
       </section>
 
-      {auth.isAuthenticated ? (
-        <section className="me-hub-overview" aria-label={t('account.sections.activity')}>
-          <div className="me-hub-stat-grid">
-            {statItems.map((item) => <MeHubStatCard key={item.href + item.titleKey} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
-          </div>
+      {signedOut ? (
+        <section id="me-auth-panel" className="me-hub-auth-card" aria-label={t('common.actions.loginOrRegister')}>
+          <WebAuthPanel redirectTo="/account" />
         </section>
       ) : null}
 
-      <div className={auth.isAuthenticated ? 'me-hub-action-zone' : 'me-hub-action-zone me-hub-action-zone--single'}>
-        {auth.isAuthenticated ? (
-          <section className="me-hub-widget-strip" aria-label={t('account.widgets.title')}>
-            <MeHubWidgetCard
-              badge={t('account.widgets.today.badge')}
-              title={t('account.widgets.today.title')}
-              body={notificationUnreadCount > 0 ? t('account.widgets.today.notificationsBody') : t('account.widgets.today.body')}
-              href={notificationUnreadCount > 0 ? '/account/notifications' : '/trades/create'}
-              action={notificationUnreadCount > 0 ? t('account.widgets.today.notificationsAction') : t('account.widgets.today.action')}
-              icon={notificationUnreadCount > 0 ? 'bell' : 'clock'}
-              metric={notificationUnreadCount > 0 ? notificationUnreadCount : undefined}
-              tone={notificationUnreadCount > 0 ? 'proposal' : 'trade'}
-            />
-            <MeHubWidgetCard
-              badge={t('account.widgets.attention.badge')}
-              title={t('account.widgets.attention.title')}
-              body={notificationUnreadCount > 0 ? t('account.widgets.attention.withNotifications') : t('account.widgets.attention.body')}
-              href={notificationUnreadCount > 0 ? '/account/notifications' : '/trades'}
-              action={t('account.widgets.attention.action')}
-              icon="activity"
-              metric={notificationUnreadCount > 0 ? notificationUnreadCount : accountCounts.trades}
-              tone={notificationUnreadCount > 0 ? 'proposal' : 'trade'}
-            />
-            {widgetToolItem ? (
-              <MeHubWidgetCard
-                badge={t('account.widgets.library.badge')}
-                title={t(widgetToolItem.titleKey)}
-                body={t(widgetToolItem.bodyKey)}
-                href={widgetToolItem.href}
-                action={widgetToolItem.actionKey ? t(widgetToolItem.actionKey) : t('account.widgets.library.savedAction')}
-                icon={widgetToolItem.icon ?? 'save'}
-                tone={widgetToolItem.tone}
-              />
-            ) : null}
-          </section>
-        ) : null}
-
-        <section className="account-hub-section me-hub-section me-hub-section--quick" aria-label={t('account.quickActions.title')}>
-          <div className="account-hub-section__header me-hub-section__header">
-            <div>
-              <span className="semantic-badge trade">{t('account.quickActions.title')}</span>
-              <h2>{t('account.quickActions.title')}</h2>
+      {auth.isAuthenticated ? (
+        <>
+          <section className="me-hub-overview" aria-label={t('account.sections.activity')}>
+            <div className="me-hub-stat-grid">
+              {statItems.map((item) => <MeHubStatCard key={item.href + item.titleKey} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />)}
             </div>
-            <p>{t('account.quickActions.body')}</p>
-          </div>
-          <div className="me-hub-quick-actions">
-            {primaryQuickAction ? (
-              <AccountHubLinkCard item={primaryQuickAction} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick quickVariant="primary" />
-            ) : null}
-            {secondaryQuickActions.length > 0 ? (
-              <div className="account-quick-action-grid me-hub-quick-grid">
-                {secondaryQuickActions.map((item) => <AccountHubLinkCard key={item.href} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick quickVariant="compact" />)}
-              </div>
-            ) : null}
-          </div>
-        </section>
-      </div>
+          </section>
 
-      <div className="me-hub-layout">
-        <div className="me-hub-layout__primary">
-          <MeHubSection title={t('account.sections.activity')} items={activityItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />
-        </div>
-        <div className="me-hub-layout__secondary">
-          {planWorkspaceItems.length > 0 ? <MeHubSection title={t('account.sections.plans')} badge={t('account.items.plansFeature.badge')} items={planWorkspaceItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} /> : null}
-          <MeHubSection title={t('account.sections.tools')} items={toolsItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />
-        </div>
-        <div className="me-hub-layout__quiet">
-          <MeHubSection title={t('account.sections.settings')} items={settingsItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quiet />
-        </div>
-      </div>
+          <div className="me-hub-action-zone">
+            <section className="me-hub-widget-strip" aria-label={t('account.widgets.title')}>
+              <MeHubWidgetCard
+                badge={t('account.widgets.today.badge')}
+                title={t('account.widgets.today.title')}
+                body={notificationUnreadCount > 0 ? t('account.widgets.today.notificationsBody') : t('account.widgets.today.body')}
+                href={notificationUnreadCount > 0 ? '/account/notifications' : '/trades/create'}
+                action={notificationUnreadCount > 0 ? t('account.widgets.today.notificationsAction') : t('account.widgets.today.action')}
+                icon={notificationUnreadCount > 0 ? 'bell' : 'clock'}
+                metric={notificationUnreadCount > 0 ? notificationUnreadCount : undefined}
+                tone={notificationUnreadCount > 0 ? 'proposal' : 'trade'}
+              />
+              <MeHubWidgetCard
+                badge={t('account.widgets.attention.badge')}
+                title={t('account.widgets.attention.title')}
+                body={notificationUnreadCount > 0 ? t('account.widgets.attention.withNotifications') : t('account.widgets.attention.body')}
+                href={notificationUnreadCount > 0 ? '/account/notifications' : '/trades'}
+                action={t('account.widgets.attention.action')}
+                icon="activity"
+                metric={notificationUnreadCount > 0 ? notificationUnreadCount : accountCounts.trades}
+                tone={notificationUnreadCount > 0 ? 'proposal' : 'trade'}
+              />
+              {widgetToolItem ? (
+                <MeHubWidgetCard
+                  badge={t('account.widgets.library.badge')}
+                  title={t(widgetToolItem.titleKey)}
+                  body={t(widgetToolItem.bodyKey)}
+                  href={widgetToolItem.href}
+                  action={widgetToolItem.actionKey ? t(widgetToolItem.actionKey) : t('account.widgets.library.savedAction')}
+                  icon={widgetToolItem.icon ?? 'save'}
+                  tone={widgetToolItem.tone}
+                />
+              ) : null}
+            </section>
+
+            <section className="account-hub-section me-hub-section me-hub-section--quick" aria-label={t('account.quickActions.title')}>
+              <div className="account-hub-section__header me-hub-section__header">
+                <div>
+                  <span className="semantic-badge trade">{t('account.quickActions.title')}</span>
+                  <h2>{t('account.quickActions.title')}</h2>
+                </div>
+                <p>{t('account.quickActions.body')}</p>
+              </div>
+              <div className="me-hub-quick-actions">
+                {primaryQuickAction ? (
+                  <AccountHubLinkCard item={primaryQuickAction} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick quickVariant="primary" />
+                ) : null}
+                {secondaryQuickActions.length > 0 ? (
+                  <div className="account-quick-action-grid me-hub-quick-grid">
+                    {secondaryQuickActions.map((item) => <AccountHubLinkCard key={item.href} item={item} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quick quickVariant="compact" />)}
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          </div>
+
+          <div className="me-hub-layout">
+            <div className="me-hub-layout__primary">
+              <MeHubSection title={t('account.sections.activity')} items={activityItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />
+            </div>
+            <div className="me-hub-layout__secondary">
+              {planWorkspaceItems.length > 0 ? <MeHubSection title={t('account.sections.plans')} badge={t('account.items.plansFeature.badge')} items={planWorkspaceItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} /> : null}
+              <MeHubSection title={t('account.sections.tools')} items={toolsItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} />
+            </div>
+            <div className="me-hub-layout__quiet">
+              <MeHubSection title={t('account.sections.settings')} items={settingsItems} authHydrated={auth.hydrated} isAuthenticated={auth.isAuthenticated} t={t} quiet />
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

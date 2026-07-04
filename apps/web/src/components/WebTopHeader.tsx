@@ -21,7 +21,7 @@ function WebDesktopNav({ pathname, authenticated, tabs }: { pathname: string; au
     <nav className="web-desktop-nav" aria-label={t('navigation.primary')}>
       {tabs.map((tab) => {
         const active = tab.match(pathname);
-        const publicTab = tab.key === 'trades' || tab.key === 'trade' || tab.key === 'plans';
+        const publicTab = tab.key === 'trades' || tab.key === 'trade' || tab.key === 'plans' || (betaFeatures.mainNavPlansMeTrade && tab.key === 'me');
         const href = !authenticated && !publicTab ? `/auth?next=${encodeURIComponent(tab.href)}` : tab.href;
         return (
           <Link

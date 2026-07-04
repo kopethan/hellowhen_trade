@@ -1,5 +1,10 @@
-import { redirect } from 'next/navigation';
+import { MobilePage } from '../../components/MobilePage';
+import { AccountHubClient } from '../../features/account/AccountHubClient';
 
 export default function MePage() {
-  redirect('/account/profile');
+  return (
+    <MobilePage className="web-app-page web-app-page--me">
+      <AccountHubClient />
+    </MobilePage>
+  );
 }

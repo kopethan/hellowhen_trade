@@ -37,14 +37,14 @@ export const webTabs: WebTab[] = [
     labelKey: 'navigation.tabs.account',
     href: '/account',
     icon: 'profile',
-    match: (pathname) => pathname.startsWith('/account') || pathname.startsWith('/legal'),
+    match: (pathname) => pathname === '/me' || pathname.startsWith('/account') || pathname.startsWith('/legal'),
   },
 ];
 
 
 const plansMeTradeMatchById: Record<NormalAppNavItemId, WebTab['match']> = {
   plans: (pathname) => pathname.startsWith('/plans'),
-  me: (pathname) => pathname.startsWith('/account') || pathname.startsWith('/legal'),
+  me: (pathname) => pathname === '/me' || pathname.startsWith('/account') || pathname.startsWith('/legal'),
   trade: (pathname) => pathname === '/' || pathname.startsWith('/trades') || pathname.startsWith('/users') || pathname.startsWith('/needs') || pathname.startsWith('/offers'),
 };
 
@@ -77,7 +77,7 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; titleKey: strin
   { match: (pathname) => pathname === '/' || pathname === '/trades', titleKey: 'navigation.routes.trades', root: true },
   { match: (pathname) => pathname === '/needs', titleKey: 'navigation.routes.needs', root: true },
   { match: (pathname) => pathname === '/offers', titleKey: 'navigation.routes.offers', root: true },
-  { match: (pathname) => pathname === '/account', titleKey: 'navigation.routes.account', root: true },
+  { match: (pathname) => pathname === '/account' || pathname === '/me', titleKey: 'navigation.routes.account', root: true },
   { match: (pathname) => pathname === '/account/membership', titleKey: 'navigation.routes.membership', backHref: '/account' },
   { match: (pathname) => pathname === '/plans', titleKey: 'navigation.routes.plans', root: true },
   { match: (pathname) => pathname === '/trades/create', titleKey: 'navigation.routes.createTrade', backHref: '/trades' },
@@ -113,7 +113,7 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; titleKey: strin
 export function getRouteHeader(pathname: string, options?: { plansMeTradeNav?: boolean }) {
   const route = routeTitles.find((candidate) => candidate.match(pathname)) ?? { titleKey: 'navigation.routes.hellowhen', root: true };
   if (!options?.plansMeTradeNav) return route;
-  if (pathname === '/account') return { ...route, titleKey: getNormalAppNavItem('me').routeTitleKey };
+  if (pathname === '/account' || pathname === '/me') return { ...route, titleKey: getNormalAppNavItem('me').routeTitleKey };
   if (pathname === '/trades') return { ...route, titleKey: getNormalAppNavItem('trade').routeTitleKey };
   return route;
 }
