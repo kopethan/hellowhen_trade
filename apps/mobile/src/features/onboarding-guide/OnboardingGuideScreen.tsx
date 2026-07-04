@@ -69,8 +69,8 @@ export function OnboardingGuideScreen({ navigation, route }: Props) {
     setCurrentIndex(0);
   }, [guidePack.type]);
 
-  async function closeGuide() {
-    if (!isReplay) {
+  async function closeGuide({ completed = false }: { completed?: boolean } = {}) {
+    if (completed || !isReplay) {
       await markOnboardingGuideCompleted(guidePack.type).catch(() => undefined);
     }
 
@@ -84,7 +84,7 @@ export function OnboardingGuideScreen({ navigation, route }: Props) {
 
   function goNext() {
     if (isLastSlide) {
-      void closeGuide();
+      void closeGuide({ completed: true });
       return;
     }
     setCurrentIndex((value) => Math.min(value + 1, guideSlides.length - 1));

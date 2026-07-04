@@ -210,7 +210,7 @@ export function AccountScreen() {
     else if (route === 'PlaceLibrary') navigation.navigate('PlaceLibrary');
     else if (route === 'CreatePlan') navigation.navigate('CreatePlan');
     else if (route === 'CreatePlace') navigation.navigate('CreatePlace');
-    else if (route === 'OnboardingGuide') navigation.navigate('OnboardingGuide', { guide: 'global', replay: true });
+    else if (route === 'OnboardingGuide') navigation.navigate('GuideHub');
     else if (route === 'Membership') navigation.navigate('Membership');
     else if (route === 'ProPlans') navigation.navigate('ProPlans');
     else if (route === 'BusinessAccounts') navigation.navigate('BusinessAccounts');

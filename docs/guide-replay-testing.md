@@ -36,3 +36,22 @@ Object.keys(localStorage)
 ```
 
 Do not add a visible production reset button unless a dev-only settings area exists.
+
+## Native mobile AsyncStorage keys
+
+Feature prompt dismissal on native mobile is separate from web localStorage:
+
+- `hellowhen_mobile.plans.guideIntro.seen.v1`
+- `hellowhen_mobile.trade.homeIntro.seen.v1`
+
+Native guide completion keys are also stored in AsyncStorage and are guide-scoped:
+
+- `hellowhen_onboarding_guide_completed_v1:global`
+- `hellowhen_onboarding_guide_completed_v1:plans`
+- `hellowhen_onboarding_guide_completed_v1:trade`
+
+The older native trade guide key is still read/written for compatibility:
+
+- `hellowhen_onboarding_guide_completed_v1`
+
+Reset only the relevant native prompt key when retesting one feature prompt.

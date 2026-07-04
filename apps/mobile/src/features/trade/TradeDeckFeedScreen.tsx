@@ -22,6 +22,8 @@ import { TradeSquareDeck } from './components/TradeSquareDeck';
 import { TradeExchangeIcon } from './components/TradeExchangeIcon';
 import { TradePosterCard } from './components/TradePosterCard';
 import { emptyFeedStarterIdeaPlacement, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedStarterIdeaPlacement, getFeedTradeIdeaMedia, getInlineFeedIdeaKey, getRandomizedFeedIdeaKeys, type FeedTradeIdeaKey, type FeedTradeIdeaVisualKey } from './tradeFeedIdeas';
+import { FeatureGuidePromptCard } from '../onboarding-guide/FeatureGuidePromptCard';
+import { useFeatureGuidePrompt } from '../onboarding-guide/onboardingGuideStorage';
 import type { TradeDeckItem } from './types';
 
 type FeedResponse = { trades: TradeDeckItem[] };
@@ -114,6 +116,7 @@ export function TradeDeckFeedScreen() {
   const [loading, setLoading] = useState(false);
   const [refreshSeed, setRefreshSeed] = useState(() => createFeedRefreshSeed());
   const [seenTradeIds, setSeenTradeIds] = useState<string[]>([]);
+  const guidePrompt = useFeatureGuidePrompt('trade');
   const loadRequestIdRef = useRef(0);
   const pendingSearchRecordRef = useRef<{ q: string; source: TradeSearchKeywordSource } | null>(null);
 
@@ -321,6 +324,22 @@ export function TradeDeckFeedScreen() {
     return <TradeFeedIdeaGroup ideaKeys={item.ideaKeys} onOpenIdea={openTradeIdea} />;
   }, [openTrade, openTradeIdea]);
 
+  const listHeader = guidePrompt.visible || error ? (
+    <View style={styles.feedIntroStack}>
+      {guidePrompt.visible ? (
+        <FeatureGuidePromptCard
+          body="Learn trade cards, needs/offers, proposals, and safe agreements."
+          icon="trade"
+          onDismiss={() => { void guidePrompt.dismiss(); }}
+          onStart={() => navigation.navigate('OnboardingGuide', { guide: 'trade', replay: true })}
+          title="New to Trade?"
+          tone="trade"
+        />
+      ) : null}
+      {error ? <InfoNotice tone="danger" title={t('trade.filters.couldNotLoadTrades')} body={error} /> : null}
+    </View>
+  ) : null;
+
   const header = (
     <View style={styles.fixedHeaderStack}>
       <View style={styles.headerRow}>
@@ -353,7 +372,7 @@ export function TradeDeckFeedScreen() {
             contentContainerStyle={[scrollProps.contentInsetStyle, styles.content, styles.feedList]}
             showsVerticalScrollIndicator={false}
             refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshDiscoveryOrder} />}
-            ListHeaderComponent={error ? <InfoNotice tone="danger" title={t('trade.filters.couldNotLoadTrades')} body={error} /> : null}
+            ListHeaderComponent={listHeader}
             ListEmptyComponent={!error ? <EmptyTradesState loading={loading} hasTrades={hasTrades} hasFilters={hasFilters} onCreate={createTrade} onRefresh={refreshDiscoveryOrder} onClear={clearFilters} /> : null}
             removeClippedSubviews={Platform.OS === 'android'}
             initialNumToRender={3}
@@ -1236,6 +1255,7 @@ const styles = StyleSheet.create({
   wizardCopy: { flex: 1, minWidth: 0, gap: 3 },
   wizardTitle: { fontSize: 15, lineHeight: 19, fontWeight: '900' },
   wizardBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
+  feedIntroStack: { gap: 10, marginBottom: 4 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },

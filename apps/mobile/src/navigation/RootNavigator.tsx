@@ -18,6 +18,7 @@ import { PlanSelectionScreen } from '../features/account/PlanSelectionScreen';
 import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
 import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
 import { LoginScreen } from '../features/auth/LoginScreen';
+import { GuideHubScreen } from '../features/onboarding-guide/GuideHubScreen';
 import { OnboardingGuideScreen } from '../features/onboarding-guide/OnboardingGuideScreen';
 import type { OnboardingGuideType } from '../features/onboarding-guide/onboardingGuide.slides';
 import { LegalPolicyScreen } from '../features/legal/LegalPolicyScreen';
@@ -114,6 +115,7 @@ export type RootStackParamList = {
   TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null; selectedProposalSide?: TradeCreateSideSelection; selectedProposalNeedId?: string; selectedProposalOfferId?: string };
   TradeIdeaDetail: { ideaId: string };
   UserProfile: { userId: string; displayName?: string };
+  GuideHub: undefined;
   OnboardingGuide: { replay?: boolean; guide?: OnboardingGuideType } | undefined;
   Login: undefined;
 };
@@ -317,6 +319,7 @@ export function RootNavigator() {
       <Stack.Screen name="MyOffers" component={ProtectedMyOffersScreen} />
       <Stack.Screen name="TradeIdeaDetail" component={TradeIdeaDetailScreen} />
       <Stack.Screen name="UserProfile" component={PublicUserProfileScreen} />
+      <Stack.Screen name="GuideHub" component={GuideHubScreen} />
       <Stack.Screen name="OnboardingGuide" component={OnboardingGuideScreen} initialParams={{ replay: false }} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />

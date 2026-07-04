@@ -26,6 +26,8 @@ import { resolveMediaVariantUrl } from '../trade/mediaUrls';
 import { ImagePickerField } from '../trade/components/ImagePickerField';
 import type { SelectedLocalImage, SelectedImageUploadProgress } from '../trade/mediaUpload';
 import { SelectedImageUploadError, uploadSelectedImages } from '../trade/mediaUpload';
+import { FeatureGuidePromptCard } from '../onboarding-guide/FeatureGuidePromptCard';
+import { useFeatureGuidePrompt } from '../onboarding-guide/onboardingGuideStorage';
 import { PlanSquareDeck } from './components/PlanSquareDeck';
 
 type PlansScreenProps = NativeStackScreenProps<RootStackParamList, 'Plans'>;
@@ -1077,6 +1079,7 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
   const [starterRefreshKey, setStarterRefreshKey] = useState(0);
   const [recentStarterIdeaIds, setRecentStarterIdeaIds] = useState<string[]>([]);
   const [anonymousStarterKey, setAnonymousStarterKey] = useState('anonymous');
+  const guidePrompt = useFeatureGuidePrompt('plans');
 
   useEffect(() => {
     let mounted = true;
@@ -1162,6 +1165,22 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
   const filterHeader = scope === 'feed' && hasActiveSearchOrFilters ? (
     <InfoNotice tone="info" title={`${activePlanFilterCount(activeFilters, activeSearchQuery)} active Plan filter${activePlanFilterCount(activeFilters, activeSearchQuery) === 1 ? '' : 's'}`} body={activeFilterSummary || 'Filtered Plan results'} />
   ) : null;
+  const guidePromptHeader = scope === 'feed' && guidePrompt.visible ? (
+    <FeatureGuidePromptCard
+      body="Learn how plans, places, joining, creating, and safety work."
+      icon="plan"
+      onDismiss={() => { void guidePrompt.dismiss(); }}
+      onStart={() => navigation.navigate('OnboardingGuide', { guide: 'plans', replay: true })}
+      title="New to Plans?"
+      tone="plan"
+    />
+  ) : null;
+  const listHeader = guidePromptHeader || filterHeader ? (
+    <View style={styles.feedIntroStack}>
+      {guidePromptHeader}
+      {filterHeader}
+    </View>
+  ) : null;
 
   if (loading) {
     return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Plans...</AppText></View>;
@@ -1190,7 +1209,7 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
       contentContainerStyle={styles.deckFeedContent}
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
-      ListHeaderComponent={filterHeader}
+      ListHeaderComponent={listHeader}
       removeClippedSubviews={Platform.OS === 'android'}
       initialNumToRender={3}
       maxToRenderPerBatch={3}
@@ -1205,7 +1224,7 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
       contentContainerStyle={styles.listContent}
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
-      ListHeaderComponent={filterHeader}
+      ListHeaderComponent={listHeader}
       removeClippedSubviews={Platform.OS === 'android'}
       initialNumToRender={8}
       maxToRenderPerBatch={8}
@@ -3510,6 +3529,7 @@ const styles = StyleSheet.create({
   largeIcon: { width: 64, height: 64, borderRadius: 32, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   centerTitle: { fontSize: 25, fontWeight: '900', textAlign: 'center', letterSpacing: -0.4 },
   centerBody: { textAlign: 'center', lineHeight: 21, fontWeight: '700' },
+  feedIntroStack: { gap: 10, marginBottom: 4 },
   feedHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   feedTitleWrap: { flex: 1, gap: 6 },
   feedTitle: { fontSize: 35, lineHeight: 40, fontWeight: '900', letterSpacing: -1 },
