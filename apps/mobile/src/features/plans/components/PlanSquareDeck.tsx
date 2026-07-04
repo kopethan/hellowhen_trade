@@ -149,6 +149,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
   const posterPillBg = hasPosterImage ? 'rgba(10,15,22,0.24)' : undefined;
   const posterPillBorder = hasPosterImage ? 'rgba(255,255,255,0.08)' : undefined;
   const posterPillText = hasPosterImage ? 'rgba(255,255,255,0.9)' : undefined;
+  const fallbackSurface = isDark ? '#241833' : '#F2E9FF';
 
   return (
     <Pressable
@@ -157,14 +158,14 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
       onPress={onOpen}
       style={({ pressed }) => [
         styles.card,
-        { backgroundColor: imageUrl ? '#0B1016' : theme.semantic.place.softBg, borderColor: imageUrl ? 'transparent' : theme.semantic.place.border, borderWidth: imageUrl ? 0 : 1 },
+        { backgroundColor: imageUrl ? '#0B1016' : fallbackSurface, borderColor: 'transparent', borderWidth: 0 },
         pressed && styles.pressed,
       ]}
     >
       {imageUrl ? (
         <Image source={{ uri: imageUrl }} resizeMode="cover" style={styles.cardImage} />
       ) : (
-        <View style={[styles.fallbackMedia, { backgroundColor: theme.semantic.place.softBg }]}>
+        <View style={[styles.fallbackMedia, { backgroundColor: fallbackSurface }]}>
           {Array.from({ length: 7 }, (_, index) => (
             <View
               key={`${card.id}:fallback-line:${index}`}
@@ -173,25 +174,25 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
                 {
                   top: 24 + index * 31,
                   left: `${8 + ((fallback.lineOffset + index * 13) % 40)}%`,
-                  backgroundColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(92,33,182,0.08)',
+                  backgroundColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.055)' : 'rgba(92,33,182,0.055)',
                 },
               ]}
             />
           ))}
-          <View style={[styles.fallbackRouteLine, { backgroundColor: theme.mode === 'dark' ? 'rgba(251,146,60,0.20)' : 'rgba(249,115,22,0.16)' }]} />
+          <View style={[styles.fallbackRouteLine, { backgroundColor: theme.mode === 'dark' ? 'rgba(251,146,60,0.16)' : 'rgba(249,115,22,0.12)' }]} />
           <View
             style={[
               styles.fallbackDot,
               {
                 backgroundColor: fallback.accent,
-                borderColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.64)',
+                borderColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.5)',
                 transform: [{ translateX: fallback.dotOffsetX }, { translateY: fallback.dotOffsetY }],
               },
             ]}
           />
         </View>
       )}
-      {imageUrl ? <LowerImageAtmosphere imageUrl={imageUrl} isDark={isDark} preset="plan" /> : <View style={[styles.fallbackScrim, { backgroundColor: theme.color.background }]} />}
+      {imageUrl ? <LowerImageAtmosphere imageUrl={imageUrl} isDark={isDark} preset="plan" /> : null}
 
       <View style={styles.cardTopRow}>
         {hasPosterImage ? (
@@ -249,12 +250,15 @@ const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
+    zIndex: 2,
+    elevation: 2,
   },
   card: {
     flex: 1,
     alignSelf: 'stretch',
     borderRadius: POSTER_CARD_GEOMETRY.cardRadius,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 0,
     overflow: 'hidden',
     padding: POSTER_CARD_GEOMETRY.contentInset,
     justifyContent: 'space-between',
@@ -296,7 +300,7 @@ const styles = StyleSheet.create({
   },
   fallbackScrim: {
     ...StyleSheet.absoluteFillObject,
-    opacity: 0.04,
+    opacity: 0.02,
   },
   cardTopRow: {
     flexDirection: 'row',

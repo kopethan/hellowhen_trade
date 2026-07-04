@@ -374,7 +374,9 @@ export function TradeDeckFeedScreen() {
             refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshDiscoveryOrder} />}
             ListHeaderComponent={listHeader}
             ListEmptyComponent={!error ? <EmptyTradesState loading={loading} hasTrades={hasTrades} hasFilters={hasFilters} onCreate={createTrade} onRefresh={refreshDiscoveryOrder} onClear={clearFilters} /> : null}
-            removeClippedSubviews={Platform.OS === 'android'}
+            // Deck cards intentionally travel diagonally left during swipe;
+            // clipped FlatList cells create the visible "invisible wall" on Android.
+            removeClippedSubviews={false}
             initialNumToRender={3}
             maxToRenderPerBatch={3}
             windowSize={5}

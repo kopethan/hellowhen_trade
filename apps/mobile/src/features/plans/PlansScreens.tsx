@@ -1210,7 +1210,9 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
       ListHeaderComponent={listHeader}
-      removeClippedSubviews={Platform.OS === 'android'}
+      // Deck cards intentionally travel diagonally left during swipe;
+      // clipped FlatList cells create the visible "invisible wall" on Android.
+      removeClippedSubviews={false}
       initialNumToRender={3}
       maxToRenderPerBatch={3}
       windowSize={5}

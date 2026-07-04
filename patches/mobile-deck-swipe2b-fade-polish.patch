@@ -1,0 +1,45 @@
+diff --git a/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx b/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
+index 654c5a0..20f89ca 100644
+--- a/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
++++ b/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
+@@ -36,11 +36,14 @@ function SquareStackLayerInner<TCard extends SquareStackDeckCard>({ card, index,
+       layerOpacity = 0;
+     }
+ 
+-    // Keep the readable card opaque while the finger is dragging. Once a
+-    // left/next release commits, let the transform opacity fade the outgoing
+-    // card instead of popping it off the stack at the end.
++    // Keep the readable card fully opaque only near center. Once it travels
++    // past the commit range, fade it even while the finger is still dragging so
++    // the outgoing card no longer looks like a solid floating block over the
++    // feed. Previous-card return still fades in from the left and stops at
++    // center.
+     const isCommittingNext = releaseDirection.value === 1 && isCommittedTopLayer;
+-    if ((isCommittedTopLayer && visualOffset < 0 && !isCommittingNext) || (isIncomingPreviousLayer && progress.value < 0 && visualOffset < 0)) {
++    const isCloseToCenter = visualOffset > -0.34;
++    if ((isCommittedTopLayer && visualOffset < 0 && isCloseToCenter && !isCommittingNext) || (isIncomingPreviousLayer && progress.value < 0 && visualOffset < 0 && isCloseToCenter)) {
+       layerOpacity = 1;
+     }
+ 
+diff --git a/apps/mobile/src/features/trade/deck/squareStackDeck.model.ts b/apps/mobile/src/features/trade/deck/squareStackDeck.model.ts
+index c3d3598..0221053 100644
+--- a/apps/mobile/src/features/trade/deck/squareStackDeck.model.ts
++++ b/apps/mobile/src/features/trade/deck/squareStackDeck.model.ts
+@@ -75,12 +75,12 @@ export function getSquareStackTransform(visualOffset: number, cardSize: number,
+   const clampedOffset = clamp(visualOffset, -SQUARE_STACK_NEXT_RELEASE_TARGET, 4);
+ 
+   if (depthEffect === 'motionOnly') {
+-    const motionInput = [-SQUARE_STACK_NEXT_RELEASE_TARGET, -1, -0.72, -0.52, -0.28, -0.08, 0, 1, 2, 3, 4];
++    const motionInput = [-SQUARE_STACK_NEXT_RELEASE_TARGET, -1, -0.72, -0.52, -0.36, -0.28, -0.08, 0, 1, 2, 3, 4];
+     return {
+-      translateX: interpolate(clampedOffset, motionInput, [-cardSize * 0.98, -cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.36, -cardSize * 0.16, 0, 0, 7, 14, 21, 28], Extrapolation.CLAMP),
+-      translateY: interpolate(clampedOffset, motionInput, [-cardSize * 0.98, -cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.36, -cardSize * 0.16, 0, 0, 7, 14, 21, 28], Extrapolation.CLAMP),
+-      scale: interpolate(clampedOffset, motionInput, [0.84, 0.88, 0.925, 0.95, 0.975, 0.998, 1, 0.988, 0.976, 0.964, 0.952], Extrapolation.CLAMP),
+-      opacity: interpolate(clampedOffset, motionInput, [0, 0.08, 0.35, 0.82, 1, 1, 1, 1, 1, 0.94, 0], Extrapolation.CLAMP),
++      translateX: interpolate(clampedOffset, motionInput, [-cardSize * 0.98, -cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.36, -cardSize * 0.24, -cardSize * 0.16, 0, 0, 7, 14, 21, 28], Extrapolation.CLAMP),
++      translateY: interpolate(clampedOffset, motionInput, [-cardSize * 0.98, -cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.36, -cardSize * 0.24, -cardSize * 0.16, 0, 0, 7, 14, 21, 28], Extrapolation.CLAMP),
++      scale: interpolate(clampedOffset, motionInput, [0.84, 0.88, 0.925, 0.95, 0.965, 0.975, 0.998, 1, 0.988, 0.976, 0.964, 0.952], Extrapolation.CLAMP),
++      opacity: interpolate(clampedOffset, motionInput, [0, 0.04, 0.18, 0.42, 0.72, 0.92, 1, 1, 1, 1, 0.94, 0], Extrapolation.CLAMP),
+     };
+   }
+ 

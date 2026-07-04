@@ -1,0 +1,52 @@
+diff --git a/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx b/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
+index d48c4a9..f07b88d 100644
+--- a/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
++++ b/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
+@@ -26,7 +26,9 @@ function SquareStackLayerInner<TCard extends SquareStackDeckCard>({ card, index,
+   const isIncomingPreviousLayer = depthOffset === -1;
+ 
+   const animatedStyle = useAnimatedStyle(() => {
+-    const visualOffset = index - baseIndex.value - progress.value;
++    const rawVisualOffset = index - baseIndex.value - progress.value;
++    const shouldHoldIncomingNext = releaseDirection.value === 1 && index > baseIndex.value;
++    const visualOffset = shouldHoldIncomingNext ? Math.max(0, rawVisualOffset) : rawVisualOffset;
+     const pose = getSquareStackTransform(visualOffset, size, depthEffect ?? 'flat');
+     let layerOpacity = pose.opacity;
+ 
+@@ -53,25 +55,28 @@ function SquareStackLayerInner<TCard extends SquareStackDeckCard>({ card, index,
+     // aggressively so backgrounds, borders, badges, and fallback media all
+     // disappear together. This only applies to center -> left next swipes; the
+     // previous card still enters from the left and stops at center.
+-    if (isCommittedTopLayer && progress.value > 0 && visualOffset < -0.28) {
+-      const edgeFade = clamp((visualOffset + 0.62) / 0.34, 0, 1);
+-      layerOpacity = Math.min(layerOpacity, edgeFade * edgeFade);
+-      if (visualOffset <= -0.62) {
++    if (isCommittedTopLayer && progress.value > 0 && visualOffset < -0.2) {
++      const edgeFade = clamp((visualOffset + 0.42) / 0.22, 0, 1);
++      layerOpacity = Math.min(layerOpacity, edgeFade * edgeFade * edgeFade);
++      if (visualOffset <= -0.42) {
+         layerOpacity = 0;
+       }
+     }
+ 
++    const hideOutgoingLayer = isCommittedTopLayer && progress.value > 0 && visualOffset <= -0.42;
++
+     return {
+-      opacity: layerOpacity,
+-      zIndex: layerOpacity <= 0.02 ? 0 : getSquareStackZIndex(visualOffset),
++      opacity: hideOutgoingLayer ? 0 : layerOpacity,
++      zIndex: hideOutgoingLayer || layerOpacity <= 0.02 ? -1 : getSquareStackZIndex(visualOffset),
+       transform: [{ translateX: pose.translateX }, { translateY: pose.translateY }, { scale: pose.scale }],
+     };
+   }, [depthEffect, index, isCommittedTopLayer, isIncomingPreviousLayer, releaseDirection, size]);
+ 
+   const shadowStyle = useAnimatedStyle(() => {
+-    const visualOffset = index - baseIndex.value - progress.value;
++    const rawVisualOffset = index - baseIndex.value - progress.value;
++    const visualOffset = releaseDirection.value === 1 && index > baseIndex.value ? Math.max(0, rawVisualOffset) : rawVisualOffset;
+     return getSquareStackShadowStyle(visualOffset, depthEffect ?? 'flat');
+-  }, [depthEffect, index]);
++  }, [depthEffect, index, releaseDirection]);
+ 
+   return (
+     <Animated.View pointerEvents="box-none" style={[styles.layer, animatedStyle]}>

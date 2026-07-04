@@ -88,6 +88,8 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
 
   const mediaSurface = isDark ? '#0c1116' : '#dfe6dc';
   const hasPosterImage = Boolean(visibleImageUrl);
+  const fallbackSurface = isDark ? '#182033' : controlledAccent ? '#F2E9FF' : '#F2E9FF';
+  const cardSurface = hasPosterImage ? mediaSurface : fallbackSurface;
   const titleColor = hasPosterImage ? '#FFFFFF' : isDark ? '#FFFFFF' : '#101010';
   const bodyColor = hasPosterImage ? 'rgba(255,255,255,0.9)' : isDark ? 'rgba(255,255,255,0.86)' : 'rgba(15,20,28,0.86)';
   const eyebrowColor = hasPosterImage ? 'rgba(255,255,255,0.94)' : isDark ? 'rgba(255,255,255,0.92)' : 'rgba(12,18,28,0.84)';
@@ -96,7 +98,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
   const topPillBorder = hasPosterImage ? 'rgba(255,255,255,0.1)' : isDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.07)';
   const lowerPillBg = hasPosterImage ? 'rgba(12,17,24,0.18)' : topPillBg;
   const lowerPillBorder = hasPosterImage ? 'rgba(255,255,255,0.08)' : topPillBorder;
-  const cardBorder = hasPosterImage ? 'transparent' : 'rgba(15,23,42,0.08)';
+  const cardBorder = 'transparent';
   const statusColor = status?.tone === 'none'
     ? (hasPosterImage ? 'rgba(255,255,255,0.9)' : isDark ? 'rgba(255,255,255,0.58)' : 'rgba(15,23,42,0.58)')
     : status?.tone === 'expired'
@@ -108,11 +110,11 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
           : (hasPosterImage ? '#FCD34D' : '#b91c1c');
 
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: controlledAccent && !visibleImageUrl ? `${controlledAccent}24` : mediaSurface, borderColor: cardBorder, borderWidth: hasPosterImage ? 0 : StyleSheet.hairlineWidth }, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: cardSurface, borderColor: cardBorder, borderWidth: 0 }, pressed && styles.pressed]}>
       {visibleImageUrl ? (
         <Image source={{ uri: visibleImageUrl }} resizeMode="cover" onError={() => setImageFailed(true)} style={StyleSheet.absoluteFillObject} />
       ) : (
-        <View style={[StyleSheet.absoluteFillObject, styles.fallbackMedia, { backgroundColor: mediaSurface }]}>
+        <View style={[StyleSheet.absoluteFillObject, styles.fallbackMedia, { backgroundColor: cardSurface }]}>
           {fallbackLines.map((line) => (
             <View
               key={`poster-fallback-line-${id}-${line}`}
@@ -121,7 +123,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
                 {
                   top: 22 + line * 29,
                   left: `${8 + ((fallback.lineOffset + line * 11) % 42)}%`,
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)',
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.055)' : 'rgba(92,33,182,0.055)',
                 },
               ]}
             />
@@ -230,7 +232,7 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
     borderRadius: POSTER_CARD_GEOMETRY.cardRadius,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 0,
   },
   fallbackMedia: {
     overflow: 'hidden',

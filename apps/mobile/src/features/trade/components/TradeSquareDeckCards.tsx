@@ -279,7 +279,7 @@ export function TradeImageCard({ trade, kind, media, hiddenImageCount, onOpen }:
 const styles = StyleSheet.create({
   summaryCard: {
     flex: 1,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 0,
     paddingHorizontal: 26,
     paddingVertical: 22,
     gap: 12,

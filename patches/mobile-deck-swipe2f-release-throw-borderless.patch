@@ -1,0 +1,158 @@
+diff --git a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+index 24f7efe..e099bd7 100644
+--- a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
++++ b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+@@ -149,6 +149,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+   const posterPillBg = hasPosterImage ? 'rgba(10,15,22,0.24)' : undefined;
+   const posterPillBorder = hasPosterImage ? 'rgba(255,255,255,0.08)' : undefined;
+   const posterPillText = hasPosterImage ? 'rgba(255,255,255,0.9)' : undefined;
++  const fallbackSurface = isDark ? 'rgba(139,92,246,0.16)' : 'rgba(139,92,246,0.08)';
+ 
+   return (
+     <Pressable
+@@ -157,14 +158,14 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+       onPress={onOpen}
+       style={({ pressed }) => [
+         styles.card,
+-        { backgroundColor: imageUrl ? '#0B1016' : theme.semantic.place.softBg, borderColor: 'transparent', borderWidth: 0 },
++        { backgroundColor: imageUrl ? '#0B1016' : fallbackSurface, borderColor: 'transparent', borderWidth: 0 },
+         pressed && styles.pressed,
+       ]}
+     >
+       {imageUrl ? (
+         <Image source={{ uri: imageUrl }} resizeMode="cover" style={styles.cardImage} />
+       ) : (
+-        <View style={[styles.fallbackMedia, { backgroundColor: theme.semantic.place.softBg }]}>
++        <View style={[styles.fallbackMedia, { backgroundColor: fallbackSurface }]}>
+           {Array.from({ length: 7 }, (_, index) => (
+             <View
+               key={`${card.id}:fallback-line:${index}`}
+@@ -299,7 +300,7 @@ const styles = StyleSheet.create({
+   },
+   fallbackScrim: {
+     ...StyleSheet.absoluteFillObject,
+-    opacity: 0.04,
++    opacity: 0.02,
+   },
+   cardTopRow: {
+     flexDirection: 'row',
+diff --git a/apps/mobile/src/features/trade/components/TradePosterCard.tsx b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+index 392f4aa..8a24d04 100644
+--- a/apps/mobile/src/features/trade/components/TradePosterCard.tsx
++++ b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+@@ -88,6 +88,8 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
+ 
+   const mediaSurface = isDark ? '#0c1116' : '#dfe6dc';
+   const hasPosterImage = Boolean(visibleImageUrl);
++  const fallbackSurface = controlledAccent ? `${controlledAccent}18` : isDark ? 'rgba(15,23,42,0.10)' : 'rgba(139,92,246,0.08)';
++  const cardSurface = hasPosterImage ? mediaSurface : fallbackSurface;
+   const titleColor = hasPosterImage ? '#FFFFFF' : isDark ? '#FFFFFF' : '#101010';
+   const bodyColor = hasPosterImage ? 'rgba(255,255,255,0.9)' : isDark ? 'rgba(255,255,255,0.86)' : 'rgba(15,20,28,0.86)';
+   const eyebrowColor = hasPosterImage ? 'rgba(255,255,255,0.94)' : isDark ? 'rgba(255,255,255,0.92)' : 'rgba(12,18,28,0.84)';
+@@ -108,11 +110,11 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
+           : (hasPosterImage ? '#FCD34D' : '#b91c1c');
+ 
+   return (
+-    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: controlledAccent && !visibleImageUrl ? `${controlledAccent}24` : mediaSurface, borderColor: cardBorder, borderWidth: 0 }, pressed && styles.pressed]}>
++    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: cardSurface, borderColor: cardBorder, borderWidth: 0 }, pressed && styles.pressed]}>
+       {visibleImageUrl ? (
+         <Image source={{ uri: visibleImageUrl }} resizeMode="cover" onError={() => setImageFailed(true)} style={StyleSheet.absoluteFillObject} />
+       ) : (
+-        <View style={[StyleSheet.absoluteFillObject, styles.fallbackMedia, { backgroundColor: mediaSurface }]}>
++        <View style={[StyleSheet.absoluteFillObject, styles.fallbackMedia, { backgroundColor: cardSurface }]}>
+           {fallbackLines.map((line) => (
+             <View
+               key={`poster-fallback-line-${id}-${line}`}
+diff --git a/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx b/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
+index e9b8b7c..779b07b 100644
+--- a/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
++++ b/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
+@@ -48,20 +48,20 @@ function SquareStackLayerInner<TCard extends SquareStackDeckCard>({ card, index,
+       layerOpacity = 1;
+     }
+ 
+-    // Only fade the outgoing card after the user releases and the swipe is
+-    // accepted. This avoids the cut-off/ghost-card feeling during drag while
+-    // still removing the layer before it can leave a thin strip over the feed.
+-    if (isCommittingNext && visualOffset < -0.28) {
+-      const releaseFade = clamp((visualOffset + 0.86) / 0.58, 0, 1);
+-      layerOpacity = Math.min(layerOpacity, releaseFade * releaseFade);
++    // Only fade after an accepted release. The drag remains readable, then the
++    // release throws the card upper-left and quickly removes the whole layer so
++    // no pale card edge is left hovering over the feed.
++    if (isCommittingNext && visualOffset < -0.12) {
++      const releaseFade = clamp((visualOffset + 0.64) / 0.52, 0, 1);
++      layerOpacity = Math.min(layerOpacity, releaseFade * releaseFade * releaseFade);
+     }
+ 
+-    const hideOutgoingLayer = isCommittingNext && visualOffset <= -0.9;
++    const hideOutgoingLayer = isCommittingNext && visualOffset <= -0.72;
+ 
+     return {
+       opacity: hideOutgoingLayer ? 0 : layerOpacity,
+       zIndex: hideOutgoingLayer || layerOpacity <= 0.02 ? -1 : getSquareStackZIndex(visualOffset),
+-      transform: [{ translateX: pose.translateX }, { translateY: pose.translateY }, { scale: pose.scale }],
++      transform: [{ translateX: pose.translateX }, { translateY: pose.translateY }, { scale: pose.scale }, { rotateZ: pose.rotateZ }],
+     };
+   }, [depthEffect, index, isCommittedTopLayer, isIncomingPreviousLayer, releaseDirection, size]);
+ 
+@@ -189,8 +189,9 @@ export function ContinuousSquareStackDeck<TCard extends SquareStackDeckCard>({
+       if (endingIntent === 'SWIPE_NEXT' && (currentProgress > SQUARE_STACK_COMMIT_THRESHOLD || velocityProgress > SQUARE_STACK_VELOCITY_THRESHOLD) && canGoNext) direction = 1;
+       if (endingIntent === 'SWIPE_PREV' && (currentProgress < -SQUARE_STACK_COMMIT_THRESHOLD || velocityProgress < -SQUARE_STACK_VELOCITY_THRESHOLD) && canGoPrev) direction = -1;
+       const targetProgress = direction === 1 ? SQUARE_STACK_NEXT_RELEASE_TARGET : direction;
++      const releaseDuration = direction === 1 ? 150 : getCommitDuration(currentProgress, targetProgress);
+       releaseDirection.value = direction;
+-      progress.value = withTiming(targetProgress, { duration: getCommitDuration(currentProgress, targetProgress), easing: Easing.out(Easing.cubic) }, (finished) => {
++      progress.value = withTiming(targetProgress, { duration: releaseDuration, easing: Easing.out(Easing.cubic) }, (finished) => {
+         if (!finished) return;
+         if (direction !== 0) {
+           baseIndex.value = baseIndex.value + direction;
+diff --git a/apps/mobile/src/features/trade/deck/squareStackDeck.model.ts b/apps/mobile/src/features/trade/deck/squareStackDeck.model.ts
+index 0221053..bfc4e4f 100644
+--- a/apps/mobile/src/features/trade/deck/squareStackDeck.model.ts
++++ b/apps/mobile/src/features/trade/deck/squareStackDeck.model.ts
+@@ -10,9 +10,9 @@ export const SQUARE_STACK_VISIBLE_BEFORE = 1;
+ export const SQUARE_STACK_VISIBLE_AFTER = 4;
+ export const SQUARE_STACK_COMMIT_THRESHOLD = 0.36;
+ export const SQUARE_STACK_VELOCITY_THRESHOLD = 1.05;
+-// The left commit animation continues a little past the drag range so the
+-// outgoing card visibly travels away and fades before the stack advances.
+-export const SQUARE_STACK_NEXT_RELEASE_TARGET = 1.16;
++// The left commit animation throws past the drag range on release so the
++// outgoing card exits clearly instead of lingering as a ghost edge.
++export const SQUARE_STACK_NEXT_RELEASE_TARGET = 1.42;
+ export const SQUARE_STACK_DEPTH_ALLOWANCE_X = 36;
+ export const SQUARE_STACK_DEPTH_ALLOWANCE_Y = 46;
+ export const SQUARE_STACK_DEFAULT_MIN_CARD_SIZE = 280;
+@@ -77,10 +77,11 @@ export function getSquareStackTransform(visualOffset: number, cardSize: number,
+   if (depthEffect === 'motionOnly') {
+     const motionInput = [-SQUARE_STACK_NEXT_RELEASE_TARGET, -1, -0.72, -0.52, -0.36, -0.28, -0.08, 0, 1, 2, 3, 4];
+     return {
+-      translateX: interpolate(clampedOffset, motionInput, [-cardSize * 0.98, -cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.36, -cardSize * 0.24, -cardSize * 0.16, 0, 0, 7, 14, 21, 28], Extrapolation.CLAMP),
+-      translateY: interpolate(clampedOffset, motionInput, [-cardSize * 0.98, -cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.36, -cardSize * 0.24, -cardSize * 0.16, 0, 0, 7, 14, 21, 28], Extrapolation.CLAMP),
+-      scale: interpolate(clampedOffset, motionInput, [0.84, 0.88, 0.925, 0.95, 0.965, 0.975, 0.998, 1, 0.988, 0.976, 0.964, 0.952], Extrapolation.CLAMP),
+-      opacity: interpolate(clampedOffset, motionInput, [0, 0.04, 0.18, 0.42, 0.72, 0.92, 1, 1, 1, 1, 0.94, 0], Extrapolation.CLAMP),
++      translateX: interpolate(clampedOffset, motionInput, [-cardSize * 1.16, -cardSize * 0.78, -cardSize * 0.54, -cardSize * 0.37, -cardSize * 0.24, -cardSize * 0.16, 0, 0, 7, 14, 21, 28], Extrapolation.CLAMP),
++      translateY: interpolate(clampedOffset, motionInput, [-cardSize * 1.08, -cardSize * 0.78, -cardSize * 0.54, -cardSize * 0.37, -cardSize * 0.24, -cardSize * 0.16, 0, 0, 7, 14, 21, 28], Extrapolation.CLAMP),
++      scale: interpolate(clampedOffset, motionInput, [0.82, 0.88, 0.925, 0.95, 0.965, 0.975, 0.998, 1, 0.988, 0.976, 0.964, 0.952], Extrapolation.CLAMP),
++      rotateZ: `${interpolate(clampedOffset, motionInput, [-9, -7, -5, -3.5, -2, -1, 0, 0, 0, 0, 0, 0], Extrapolation.CLAMP)}deg`,
++      opacity: interpolate(clampedOffset, motionInput, [0, 0.04, 0.18, 0.42, 0.72, 0.92, 1, 1, 0.82, 0.64, 0.42, 0], Extrapolation.CLAMP),
+     };
+   }
+ 
+@@ -90,6 +91,7 @@ export function getSquareStackTransform(visualOffset: number, cardSize: number,
+       translateX: interpolate(clampedOffset, flatInput, [-cardSize * 0.22, 0, 0, 4, 8, 12, 16], Extrapolation.CLAMP),
+       translateY: interpolate(clampedOffset, flatInput, [-cardSize * 0.18, 0, 0, 4, 8, 12, 16], Extrapolation.CLAMP),
+       scale: interpolate(clampedOffset, flatInput, [0.995, 0.998, 1, 0.992, 0.986, 0.98, 0.974], Extrapolation.CLAMP),
++      rotateZ: '0deg',
+       opacity: interpolate(clampedOffset, flatInput, [0, 0, 1, 0.985, 0.95, 0.88, 0], Extrapolation.CLAMP),
+     };
+   }
+@@ -99,6 +101,7 @@ export function getSquareStackTransform(visualOffset: number, cardSize: number,
+     translateX: interpolate(clampedOffset, input, [-cardSize * 0.62, 0, 7, 13, 19, 25], Extrapolation.CLAMP),
+     translateY: interpolate(clampedOffset, input, [-cardSize * 0.54, 0, 7, 13, 19, 25], Extrapolation.CLAMP),
+     scale: interpolate(clampedOffset, input, [0.985, 1, 0.988, 0.978, 0.97, 0.964], Extrapolation.CLAMP),
++    rotateZ: `${interpolate(clampedOffset, input, [-5, 0, 0, 0, 0, 0], Extrapolation.CLAMP)}deg`,
+     opacity: interpolate(clampedOffset, input, [0, 1, 0.965, 0.9, 0.78, 0], Extrapolation.CLAMP),
+   };
+ }

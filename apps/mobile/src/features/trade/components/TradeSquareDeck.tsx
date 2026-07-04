@@ -38,5 +38,8 @@ const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
+    zIndex: 2,
+    elevation: 2,
   },
 });

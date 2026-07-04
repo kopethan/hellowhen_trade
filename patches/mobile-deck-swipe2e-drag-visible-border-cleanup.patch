@@ -1,0 +1,115 @@
+diff --git a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+index e4df0ad..24f7efe 100644
+--- a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
++++ b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+@@ -157,7 +157,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+       onPress={onOpen}
+       style={({ pressed }) => [
+         styles.card,
+-        { backgroundColor: imageUrl ? '#0B1016' : theme.semantic.place.softBg, borderColor: imageUrl ? 'transparent' : theme.semantic.place.border, borderWidth: imageUrl ? 0 : 1 },
++        { backgroundColor: imageUrl ? '#0B1016' : theme.semantic.place.softBg, borderColor: 'transparent', borderWidth: 0 },
+         pressed && styles.pressed,
+       ]}
+     >
+@@ -257,7 +257,7 @@ const styles = StyleSheet.create({
+     flex: 1,
+     alignSelf: 'stretch',
+     borderRadius: POSTER_CARD_GEOMETRY.cardRadius,
+-    borderWidth: StyleSheet.hairlineWidth,
++    borderWidth: 0,
+     overflow: 'hidden',
+     padding: POSTER_CARD_GEOMETRY.contentInset,
+     justifyContent: 'space-between',
+diff --git a/apps/mobile/src/features/trade/components/TradePosterCard.tsx b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+index 00a9e49..392f4aa 100644
+--- a/apps/mobile/src/features/trade/components/TradePosterCard.tsx
++++ b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+@@ -96,7 +96,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
+   const topPillBorder = hasPosterImage ? 'rgba(255,255,255,0.1)' : isDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.07)';
+   const lowerPillBg = hasPosterImage ? 'rgba(12,17,24,0.18)' : topPillBg;
+   const lowerPillBorder = hasPosterImage ? 'rgba(255,255,255,0.08)' : topPillBorder;
+-  const cardBorder = hasPosterImage ? 'transparent' : 'rgba(15,23,42,0.08)';
++  const cardBorder = 'transparent';
+   const statusColor = status?.tone === 'none'
+     ? (hasPosterImage ? 'rgba(255,255,255,0.9)' : isDark ? 'rgba(255,255,255,0.58)' : 'rgba(15,23,42,0.58)')
+     : status?.tone === 'expired'
+@@ -108,7 +108,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
+           : (hasPosterImage ? '#FCD34D' : '#b91c1c');
+ 
+   return (
+-    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: controlledAccent && !visibleImageUrl ? `${controlledAccent}24` : mediaSurface, borderColor: cardBorder, borderWidth: hasPosterImage ? 0 : StyleSheet.hairlineWidth }, pressed && styles.pressed]}>
++    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: controlledAccent && !visibleImageUrl ? `${controlledAccent}24` : mediaSurface, borderColor: cardBorder, borderWidth: 0 }, pressed && styles.pressed]}>
+       {visibleImageUrl ? (
+         <Image source={{ uri: visibleImageUrl }} resizeMode="cover" onError={() => setImageFailed(true)} style={StyleSheet.absoluteFillObject} />
+       ) : (
+@@ -230,7 +230,7 @@ const styles = StyleSheet.create({
+     flex: 1,
+     overflow: 'hidden',
+     borderRadius: POSTER_CARD_GEOMETRY.cardRadius,
+-    borderWidth: StyleSheet.hairlineWidth,
++    borderWidth: 0,
+   },
+   fallbackMedia: {
+     overflow: 'hidden',
+diff --git a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+index 75cb0a5..f043995 100644
+--- a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
++++ b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+@@ -279,7 +279,7 @@ export function TradeImageCard({ trade, kind, media, hiddenImageCount, onOpen }:
+ const styles = StyleSheet.create({
+   summaryCard: {
+     flex: 1,
+-    borderWidth: StyleSheet.hairlineWidth,
++    borderWidth: 0,
+     paddingHorizontal: 26,
+     paddingVertical: 22,
+     gap: 12,
+diff --git a/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx b/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
+index f07b88d..e9b8b7c 100644
+--- a/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
++++ b/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
+@@ -38,32 +38,25 @@ function SquareStackLayerInner<TCard extends SquareStackDeckCard>({ card, index,
+       layerOpacity = 0;
+     }
+ 
+-    // Keep the readable card fully opaque only near center. Once it travels
+-    // past the commit range, fade it even while the finger is still dragging so
+-    // the outgoing card no longer looks like a solid floating block over the
+-    // feed. Previous-card return still fades in from the left and stops at
+-    // center.
++    // While the finger is down, keep the active card readable even when it
++    // travels far to the upper-left. The accepted release animation owns the
++    // fade-out; rejected swipes still spring back as a fully visible card.
++    const isDraggingNext = releaseDirection.value === 0 && isCommittedTopLayer && progress.value > 0 && visualOffset < 0;
+     const isCommittingNext = releaseDirection.value === 1 && isCommittedTopLayer;
+     const isCloseToCenter = visualOffset > -0.28;
+-    if ((isCommittedTopLayer && visualOffset < 0 && isCloseToCenter && !isCommittingNext) || (isIncomingPreviousLayer && progress.value < 0 && visualOffset < 0 && isCloseToCenter)) {
++    if (isDraggingNext || (isCommittedTopLayer && visualOffset < 0 && isCloseToCenter && !isCommittingNext) || (isIncomingPreviousLayer && progress.value < 0 && visualOffset < 0 && isCloseToCenter)) {
+       layerOpacity = 1;
+     }
+ 
+-    // The outgoing left-swipe card can still leave a thin fallback-card edge
+-    // over the feed if its border/content opacity lingers too long. Once the
+-    // active card has travelled past the readable range, fade the entire layer
+-    // aggressively so backgrounds, borders, badges, and fallback media all
+-    // disappear together. This only applies to center -> left next swipes; the
+-    // previous card still enters from the left and stops at center.
+-    if (isCommittedTopLayer && progress.value > 0 && visualOffset < -0.2) {
+-      const edgeFade = clamp((visualOffset + 0.42) / 0.22, 0, 1);
+-      layerOpacity = Math.min(layerOpacity, edgeFade * edgeFade * edgeFade);
+-      if (visualOffset <= -0.42) {
+-        layerOpacity = 0;
+-      }
++    // Only fade the outgoing card after the user releases and the swipe is
++    // accepted. This avoids the cut-off/ghost-card feeling during drag while
++    // still removing the layer before it can leave a thin strip over the feed.
++    if (isCommittingNext && visualOffset < -0.28) {
++      const releaseFade = clamp((visualOffset + 0.86) / 0.58, 0, 1);
++      layerOpacity = Math.min(layerOpacity, releaseFade * releaseFade);
+     }
+ 
+-    const hideOutgoingLayer = isCommittedTopLayer && progress.value > 0 && visualOffset <= -0.42;
++    const hideOutgoingLayer = isCommittingNext && visualOffset <= -0.9;
+ 
+     return {
+       opacity: hideOutgoingLayer ? 0 : layerOpacity,
