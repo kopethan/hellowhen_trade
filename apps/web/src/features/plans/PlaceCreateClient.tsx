@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ChangeEvent, FormEvent } from 'react';
 import { useEffect, useState } from 'react';
-import { PLACE_STATIC_MAP_TEMPLATE_FAMILIES, type DiscoveryLanguage, type InventoryTranslationDto, type MediaAssetDto, type PlaceStaticMapTemplateFamily, type PlanPlaceMode } from '@hellowhen/contracts';
+import type { DiscoveryLanguage, InventoryTranslationDto, MediaAssetDto, PlaceStaticMapTemplateFamily, PlanPlaceMode } from '@hellowhen/contracts';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
@@ -21,6 +21,17 @@ type PlaceCreateClientProps = {
 };
 
 type PlaceTranslationFormValue = { languageCode: DiscoveryLanguage; title: string; description: string };
+
+const PLACE_STATIC_MAP_TEMPLATE_FAMILIES = [
+  'clean_local',
+  'night_social',
+  'soft_pastel',
+  'minimal_address',
+  'city_grid',
+  'green_outdoor',
+  'warm_travel',
+  'premium_mono',
+] as const satisfies readonly PlaceStaticMapTemplateFamily[];
 type PlaceCreateStep = 'details' | 'image';
 
 type PlaceCreateFormState = {
