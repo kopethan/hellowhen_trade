@@ -81,6 +81,18 @@ check_lock_registry() {
   printf 'OK: no internal npm registry references found.\n'
 }
 
+restore_known_generated_server_files() {
+
+  cd_app || return 1
+
+  printf 'Restoring known generated server-local files before pull...\n'
+
+  git restore apps/web/next-env.d.ts apps/web/tsconfig.tsbuildinfo 2>/dev/null || true
+
+  rm -f package-lock.json.before-registry-fix
+
+}
+
 clean_generated_server_files() {
   cd_app || return 1
   printf 'This discards known generated/server-local files only.\n'
@@ -97,6 +109,7 @@ clean_generated_server_files() {
 
 pull_latest() {
   cd_app || return 1
+  restore_known_generated_server_files || return 1
   check_clean_worktree || return 1
   run_step "Fetch origin" git fetch origin
   local current_branch
