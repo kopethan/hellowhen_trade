@@ -1,6 +1,16 @@
 import { Router } from 'express';
 import type { Prisma } from '@prisma/client';
-import { evaluatePlusGate, normalizeContentLanguageOrder, type ContentLanguageCode } from '@hellowhen/shared';
+import {
+  buildMissingOfflineProviderAddressMessage,
+  buildMissingOnlineDestinationMessage,
+  evaluatePlusGate,
+  getMissingOfflineProviderAddressFields,
+  getMissingOnlineDestinationFields,
+  normalizeContentLanguageOrder,
+  PLACE_OFFLINE_MODE,
+  PLACE_ONLINE_MODE,
+  type ContentLanguageCode,
+} from '@hellowhen/shared';
 import {
   PLAN_PLACE_MEDIA_LIMITS,
   createPlaceRequestSchema,
@@ -36,10 +46,48 @@ function cleanTags(value: string[] | undefined) {
   return Array.from(new Set(value ?? [])).map((item) => item.trim()).filter(Boolean).slice(0, 8);
 }
 
-function hasLocalStaticMapCandidate(input: { mode?: string | null; latitude?: number | null; longitude?: number | null; addressPublicText?: string | null; areaLabel?: string | null; formattedAddress?: string | null; googlePlaceName?: string | null }) {
-  if (input.mode === 'remote') return false;
-  if (typeof input.latitude === 'number' && typeof input.longitude === 'number') return true;
-  return Boolean(input.addressPublicText?.trim() || input.areaLabel?.trim() || input.formattedAddress?.trim() || input.googlePlaceName?.trim());
+function hasLocalStaticMapCandidate(input: { mode?: string | null; latitude?: number | null; longitude?: number | null }) {
+  if (input.mode === PLACE_ONLINE_MODE) return false;
+  return typeof input.latitude === 'number' && typeof input.longitude === 'number';
+}
+
+function assertReusablePlaceAddressPolicy(input: ReturnType<typeof createPlaceRequestSchema.parse> | ReturnType<typeof updatePlaceRequestSchema.parse>) {
+  const mode = input.mode ?? PLACE_OFFLINE_MODE;
+  if (mode === PLACE_ONLINE_MODE) {
+    const missing = getMissingOnlineDestinationFields(input);
+    if (missing.length > 0) {
+      throw createPlaceRequestError('missing_online_place_destination', buildMissingOnlineDestinationMessage(missing));
+    }
+    return;
+  }
+
+  const missing = getMissingOfflineProviderAddressFields(input);
+  if (missing.length > 0) {
+    throw createPlaceRequestError('missing_offline_provider_address', buildMissingOfflineProviderAddressMessage(missing));
+  }
+}
+
+function mergePlaceUpdateForAddressPolicy(existing: any, input: ReturnType<typeof updatePlaceRequestSchema.parse>) {
+  const nextMode = input.mode ?? existing.mode ?? PLACE_OFFLINE_MODE;
+  if (nextMode === PLACE_ONLINE_MODE) {
+    return {
+      mode: nextMode,
+      onlineLabel: input.onlineLabel ?? existing.onlineLabel ?? null,
+      onlineUrl: input.onlineUrl ?? existing.onlineUrl ?? null,
+    };
+  }
+
+  return {
+    mode: nextMode,
+    googlePlaceId: input.googlePlaceId ?? existing.googlePlaceId ?? null,
+    googlePlaceName: input.googlePlaceName ?? existing.googlePlaceName ?? null,
+    formattedAddress: input.formattedAddress ?? existing.formattedAddress ?? null,
+    googleMapsUri: input.googleMapsUri ?? existing.googleMapsUri ?? null,
+    latitude: input.latitude ?? existing.latitude ?? null,
+    longitude: input.longitude ?? existing.longitude ?? null,
+    locationSource: input.locationSource ?? existing.locationSource ?? null,
+    addressValidationStatus: input.addressValidationStatus ?? existing.addressValidationStatus ?? null,
+  };
 }
 
 function placeStaticMapTemplateCreateData(input: ReturnType<typeof createPlaceRequestSchema.parse>, canChooseTemplate: boolean) {
@@ -198,28 +246,30 @@ function normalizeUpdateInput(input: ReturnType<typeof updatePlaceRequestSchema.
 }
 
 function createPlaceData(ownerId: string, input: ReturnType<typeof createPlaceRequestSchema.parse>, normalized: ReturnType<typeof normalizeCreateInput>, staticMapTemplateData: Record<string, unknown>) {
+  const mode = input.mode ?? PLACE_OFFLINE_MODE;
+  const isOnline = mode === PLACE_ONLINE_MODE;
   return {
     ownerId: normalized.source === 'user' ? ownerId : normalized.ownerId,
     source: normalized.source as any,
     status: normalized.status as any,
     visibility: normalized.visibility as any,
-    mode: input.mode ?? 'local',
+    mode,
     title: input.title,
     description: input.description ?? null,
     defaultLanguage: input.defaultLanguage ?? 'en',
     category: input.category ?? null,
     tags: cleanTags(input.tags),
-    areaLabel: input.areaLabel ?? null,
-    addressPublicText: input.addressPublicText ?? null,
-    addressPrivateText: input.addressPrivateText ?? null,
-    googlePlaceId: input.googlePlaceId ?? null,
-    googlePlaceName: input.googlePlaceName ?? null,
-    formattedAddress: input.formattedAddress ?? input.addressPublicText ?? null,
-    googleMapsUri: input.googleMapsUri ?? null,
-    latitude: input.latitude ?? null,
-    longitude: input.longitude ?? null,
-    locationSource: input.locationSource ?? (input.googlePlaceId ? 'google_places' : null),
-    addressValidationStatus: input.addressValidationStatus ?? (input.googlePlaceId ? 'confirmed' : null),
+    areaLabel: isOnline ? null : input.areaLabel ?? null,
+    addressPublicText: isOnline ? null : input.formattedAddress ?? null,
+    addressPrivateText: isOnline ? null : input.addressPrivateText ?? null,
+    googlePlaceId: isOnline ? null : input.googlePlaceId ?? null,
+    googlePlaceName: isOnline ? null : input.googlePlaceName ?? null,
+    formattedAddress: isOnline ? null : input.formattedAddress ?? null,
+    googleMapsUri: isOnline ? null : input.googleMapsUri ?? null,
+    latitude: isOnline ? null : input.latitude ?? null,
+    longitude: isOnline ? null : input.longitude ?? null,
+    locationSource: isOnline ? null : input.locationSource ?? null,
+    addressValidationStatus: isOnline ? null : input.addressValidationStatus ?? null,
     onlineLabel: input.onlineLabel ?? null,
     onlineUrl: input.onlineUrl ?? null,
     defaultDurationMinutes: input.defaultDurationMinutes ?? null,
@@ -229,35 +279,56 @@ function createPlaceData(ownerId: string, input: ReturnType<typeof createPlaceRe
   };
 }
 
-function updatePlaceData(input: ReturnType<typeof updatePlaceRequestSchema.parse>, normalized: ReturnType<typeof normalizeUpdateInput>, staticMapTemplateData: Record<string, unknown>) {
+function updatePlaceData(input: ReturnType<typeof updatePlaceRequestSchema.parse>, normalized: ReturnType<typeof normalizeUpdateInput>, staticMapTemplateData: Record<string, unknown>): Prisma.PlaceUpdateInput {
   const status = normalized.status;
-  return {
-    ...(input.mode !== undefined ? { mode: input.mode } : {}),
-    ...(input.title !== undefined ? { title: input.title } : {}),
-    ...(input.description !== undefined ? { description: input.description ?? null } : {}),
-    ...(input.defaultLanguage !== undefined ? { defaultLanguage: input.defaultLanguage ?? 'en' } : {}),
-    ...(input.category !== undefined ? { category: input.category ?? null } : {}),
-    ...(input.tags !== undefined ? { tags: cleanTags(input.tags) } : {}),
-    ...(input.areaLabel !== undefined ? { areaLabel: input.areaLabel ?? null } : {}),
-    ...(input.addressPublicText !== undefined ? { addressPublicText: input.addressPublicText ?? null } : {}),
-    ...(input.addressPrivateText !== undefined ? { addressPrivateText: input.addressPrivateText ?? null } : {}),
-    ...(input.googlePlaceId !== undefined ? { googlePlaceId: input.googlePlaceId ?? null } : {}),
-    ...(input.googlePlaceName !== undefined ? { googlePlaceName: input.googlePlaceName ?? null } : {}),
-    ...(input.formattedAddress !== undefined || input.addressPublicText !== undefined ? { formattedAddress: input.formattedAddress ?? input.addressPublicText ?? null } : {}),
-    ...(input.googleMapsUri !== undefined ? { googleMapsUri: input.googleMapsUri ?? null } : {}),
-    ...(input.latitude !== undefined ? { latitude: input.latitude ?? null } : {}),
-    ...(input.longitude !== undefined ? { longitude: input.longitude ?? null } : {}),
-    ...(input.locationSource !== undefined || input.googlePlaceId !== undefined ? { locationSource: input.locationSource ?? (input.googlePlaceId ? 'google_places' : null) } : {}),
-    ...(input.addressValidationStatus !== undefined || input.googlePlaceId !== undefined ? { addressValidationStatus: input.addressValidationStatus ?? (input.googlePlaceId ? 'confirmed' : null) } : {}),
-    ...(input.onlineLabel !== undefined ? { onlineLabel: input.onlineLabel ?? null } : {}),
-    ...(input.onlineUrl !== undefined ? { onlineUrl: input.onlineUrl ?? null } : {}),
-    ...(input.defaultDurationMinutes !== undefined ? { defaultDurationMinutes: input.defaultDurationMinutes ?? null } : {}),
-    ...(input.defaultNote !== undefined ? { defaultNote: input.defaultNote ?? null } : {}),
-    ...(input.defaultMeetingInstructions !== undefined ? { defaultMeetingInstructions: input.defaultMeetingInstructions ?? null } : {}),
-    ...staticMapTemplateData,
-    ...(normalized.visibility !== undefined ? { visibility: normalized.visibility as any } : {}),
-    ...(status !== undefined ? { status: status as any, archivedAt: status === 'archived' ? new Date() : null } : {}),
-  };
+  const switchesToOnline = input.mode === PLACE_ONLINE_MODE;
+  const data = { ...staticMapTemplateData } as Prisma.PlaceUpdateInput;
+
+  if (input.mode !== undefined) data.mode = input.mode as any;
+  if (input.title !== undefined) data.title = input.title;
+  if (input.description !== undefined) data.description = input.description ?? null;
+  if (input.defaultLanguage !== undefined) data.defaultLanguage = input.defaultLanguage ?? 'en';
+  if (input.category !== undefined) data.category = input.category ?? null;
+  if (input.tags !== undefined) data.tags = cleanTags(input.tags);
+
+  if (switchesToOnline) {
+    data.areaLabel = null;
+    data.addressPublicText = null;
+    data.addressPrivateText = null;
+    data.googlePlaceId = null;
+    data.googlePlaceName = null;
+    data.formattedAddress = null;
+    data.googleMapsUri = null;
+    data.latitude = null;
+    data.longitude = null;
+    data.locationSource = null;
+    data.addressValidationStatus = null;
+  } else {
+    if (input.areaLabel !== undefined) data.areaLabel = input.areaLabel ?? null;
+    if (input.formattedAddress !== undefined) data.addressPublicText = input.formattedAddress ?? null;
+    if (input.addressPrivateText !== undefined) data.addressPrivateText = input.addressPrivateText ?? null;
+    if (input.googlePlaceId !== undefined) data.googlePlaceId = input.googlePlaceId ?? null;
+    if (input.googlePlaceName !== undefined) data.googlePlaceName = input.googlePlaceName ?? null;
+    if (input.formattedAddress !== undefined) data.formattedAddress = input.formattedAddress ?? null;
+    if (input.googleMapsUri !== undefined) data.googleMapsUri = input.googleMapsUri ?? null;
+    if (input.latitude !== undefined) data.latitude = input.latitude ?? null;
+    if (input.longitude !== undefined) data.longitude = input.longitude ?? null;
+    if (input.locationSource !== undefined) data.locationSource = input.locationSource ?? null;
+    if (input.addressValidationStatus !== undefined) data.addressValidationStatus = input.addressValidationStatus ?? null;
+  }
+
+  if (input.onlineLabel !== undefined) data.onlineLabel = input.onlineLabel ?? null;
+  if (input.onlineUrl !== undefined) data.onlineUrl = input.onlineUrl ?? null;
+  if (input.defaultDurationMinutes !== undefined) data.defaultDurationMinutes = input.defaultDurationMinutes ?? null;
+  if (input.defaultNote !== undefined) data.defaultNote = input.defaultNote ?? null;
+  if (input.defaultMeetingInstructions !== undefined) data.defaultMeetingInstructions = input.defaultMeetingInstructions ?? null;
+  if (normalized.visibility !== undefined) data.visibility = normalized.visibility as any;
+  if (status !== undefined) {
+    data.status = status as any;
+    data.archivedAt = status === 'archived' ? new Date() : null;
+  }
+
+  return data;
 }
 
 
@@ -393,6 +464,7 @@ placesRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req,
     placeMediaLimitFor(actor, normalized.source),
     canChoosePlaceStaticMapTemplate(actor, normalized.source),
   ]);
+  assertReusablePlaceAddressPolicy(input);
   const staticMapTemplateData = placeStaticMapTemplateCreateData(input, canChooseTemplate);
   const place = await prisma.place.create({ data: createPlaceData(req.user!.id, input, normalized, staticMapTemplateData) as any, include: placeInclude() });
   await syncInventoryTranslations(prisma, 'place', place.id, req.user!.id, (place as any).defaultLanguage ?? input.defaultLanguage ?? 'en', input.translations ?? []);
@@ -443,6 +515,9 @@ placesRoutes.patch('/:placeId', requireAuth, requireActiveAccount, asyncRoute(as
     placeMediaLimitFor(actor, existing.source),
     canChoosePlaceStaticMapTemplate(actor, existing.source),
   ]);
+  if (!isArchiveOnlyPlaceUpdate(input)) {
+    assertReusablePlaceAddressPolicy(mergePlaceUpdateForAddressPolicy(existing, input));
+  }
   const staticMapTemplateData = placeStaticMapTemplateUpdateData(input, canChooseTemplate);
   const updated = await prisma.place.update({ where: { id: existing.id }, data: updatePlaceData(input, normalized, staticMapTemplateData) as any, include: placeInclude() });
   await syncInventoryTranslations(prisma, 'place', updated.id, req.user!.id, (updated as any).defaultLanguage ?? input.defaultLanguage ?? 'en', input.translations);

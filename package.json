@@ -34,7 +34,10 @@
     "language:audit": "node scripts/language-consistency-audit.mjs",
     "media:variants-smoke": "node scripts/media-variants-smoke.mjs",
     "media:s3-cleanup-smoke": "node scripts/media-s3-cleanup-smoke.mjs",
-    "media:s3-migrate": "npm run media:s3-migrate -w @hellowhen/api --"
+    "media:s3-migrate": "npm run media:s3-migrate -w @hellowhen/api --",
+    "places:address-audit": "npm run places:address-cleanup -w @hellowhen/api -- --dry-run",
+    "places:address-cleanup": "npm run places:address-cleanup -w @hellowhen/api --",
+    "places:address-provider-smoke": "node scripts/place-address-provider-smoke.mjs"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

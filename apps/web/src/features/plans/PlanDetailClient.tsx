@@ -316,7 +316,7 @@ function PlanDetailItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PlanRouteDesktopPreview({ places, planStartsAt }: { places: PlanPlaceDto[]; planStartsAt: string }) {
+function PlanRoutePreview({ places, planStartsAt, routeMapsLink }: { places: PlanPlaceDto[]; planStartsAt: string; routeMapsLink: PlanRouteMapsLink | null }) {
   const themeMode = useResolvedPlaceVisualTheme();
   const preview = useMemo(() => {
     const entries = places.map((place) => {
@@ -332,34 +332,44 @@ function PlanRouteDesktopPreview({ places, planStartsAt }: { places: PlanPlaceDt
 
   const location = planPlaceLocation(preview.place);
   const previewDescription = planPlaceDescription(preview.place);
+  const previewTitle = routeMapsLink ? (routeMapsLink.totalStopCount > 1 ? 'Route preview' : 'Location preview') : 'Place preview';
+  const previewBody = routeMapsLink?.body ?? `${places.length} ${places.length === 1 ? 'place' : 'places'} in this Plan.`;
 
   return (
-    <aside className="plan-route-desktop-preview" aria-label="Route visual preview">
-      <div className="plan-route-desktop-preview__media">
+    <aside className="plan-route-preview" aria-label={previewTitle}>
+      <div className="plan-route-preview__media">
         {preview.visual.url ? (
           preview.visual.kind === 'media' && preview.displayMedia ? <PlanPlaceImage media={preview.displayMedia} /> : <img src={preview.visual.url} alt="" loading="lazy" className="is-static-map" />
         ) : (
           <WebIcon name="location-on" size={34} decorative />
         )}
       </div>
-      <div className="plan-route-desktop-preview__copy">
-        <p className="eyebrow">Route preview</p>
+      <div className="plan-route-preview__copy">
+        <p className="eyebrow">{previewTitle}</p>
         <h3>{preview.place.title}</h3>
-        <p>{planPlaceTimeRange(preview.place, planStartsAt)}</p>
+        <p>{previewBody}</p>
         {location ? <small>{location.value}</small> : null}
         {previewDescription ? <span>{previewDescription}</span> : null}
+        {routeMapsLink ? (
+          <a className="plan-route-preview__action" href={routeMapsLink.href} target="_blank" rel="noreferrer">
+            <WebIcon name="location-on" size={15} decorative />
+            <span>{routeMapsLink.label}</span>
+          </a>
+        ) : null}
       </div>
-      <div className="plan-route-desktop-preview__stops" aria-label="Plan route stops">
-        {places.map((place, index) => (
-          <div key={`route-preview-stop-${place.id}`} className={`plan-route-desktop-preview__stop${place.id === preview.place.id ? ' is-active' : ''}`}>
-            <span aria-hidden="true">{index + 1}</span>
-            <div>
-              <strong>{place.title}</strong>
-              <small>{planPlaceTimeRange(place, planStartsAt)} · {planPlaceModeDisplay(place)}</small>
+      {places.length > 1 ? (
+        <div className="plan-route-preview__stops" aria-label="Plan route stops">
+          {places.map((place, index) => (
+            <div key={`route-preview-stop-${place.id}`} className={`plan-route-preview__stop${place.id === preview.place.id ? ' is-active' : ''}`}>
+              <span aria-hidden="true">{index + 1}</span>
+              <div>
+                <strong>{place.title}</strong>
+                <small>{planPlaceTimeRange(place, planStartsAt)} · {planPlaceModeDisplay(place)}</small>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : null}
     </aside>
   );
 }
@@ -747,20 +757,13 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
               </div>
             </section>
 
-            <section className="plan-social-section plan-route-section plan-route-section--desktop-split">
-              <div className="plan-section-heading plan-section-heading--with-action">
+            <section className="plan-social-section plan-route-section plan-route-section--list">
+              <div className="plan-section-heading">
                 <div>
                   <p className="eyebrow">Route</p>
                   <h2>Places and times</h2>
                 </div>
-                {routeMapsLink ? (
-                  <a className="plan-route-maps-action" href={routeMapsLink.href} target="_blank" rel="noreferrer">
-                    <WebIcon name="location-on" size={15} decorative />
-                    <span>{routeMapsLink.label}</span>
-                  </a>
-                ) : null}
               </div>
-              {routeMapsLink ? <p className="plan-route-maps-hint">{routeMapsLink.body}</p> : null}
               <div className="plan-route-shell">
                 <div className="plan-route-list">
                   {places.map((place, index) => (
@@ -778,7 +781,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
                   ))}
                   {places.length === 0 ? <p className="meta">No places added yet.</p> : null}
                 </div>
-                <PlanRouteDesktopPreview places={places} planStartsAt={plan.startsAt} />
+                <PlanRoutePreview places={places} planStartsAt={plan.startsAt} routeMapsLink={routeMapsLink} />
               </div>
             </section>
 

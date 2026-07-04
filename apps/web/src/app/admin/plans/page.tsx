@@ -52,6 +52,27 @@ type AdminPlanPublicMessage = {
   latestReportStatus?: string | null;
 };
 
+
+type AdminPlacePresenceVerification = {
+  id: string;
+  userId: string;
+  planId: string;
+  planPlaceId: string;
+  sourcePlaceId?: string | null;
+  source?: string | null;
+  status: string;
+  latitudeRounded?: number | null;
+  longitudeRounded?: number | null;
+  accuracyMeters?: number | null;
+  distanceMeters?: number | null;
+  maxDistanceMeters?: number | null;
+  rejectionReason?: string | null;
+  verifiedAt?: string | null;
+  createdAt?: string | null;
+  user?: AdminUser | null;
+  planPlace?: { id: string; title: string; mode?: string | null; addressPublicText?: string | null; formattedAddress?: string | null; onlineLabel?: string | null } | null;
+};
+
 type AdminPlan = {
   id: string;
   ownerId: string;
@@ -135,6 +156,17 @@ function messageTone(status?: string | null) {
   return 'admin';
 }
 
+
+function verificationTone(status?: string | null) {
+  if (status === 'verified') return 'success';
+  if (status === 'rejected') return 'danger';
+  return 'admin';
+}
+
+function metersLabel(value?: number | null) {
+  return typeof value === 'number' ? `${Math.round(value)}m` : 'Not measured';
+}
+
 function dateLabel(value?: string | null) {
   return value ? formatWebDateTime(value) : 'Not set';
 }
@@ -168,6 +200,9 @@ export default function AdminPlansPage() {
   const [discussionStatus, setDiscussionStatus] = useState<PlanMessageStatusFilter>('all');
   const [discussionNote, setDiscussionNote] = useState('');
   const [discussionMessages, setDiscussionMessages] = useState<AdminPlanPublicMessage[]>([]);
+  const [presenceChecks, setPresenceChecks] = useState<AdminPlacePresenceVerification[]>([]);
+  const [presenceStatus, setPresenceStatus] = useState<'all' | 'verified' | 'rejected'>('all');
+  const [presenceNote, setPresenceNote] = useState('');
   const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -176,6 +211,7 @@ export default function AdminPlansPage() {
     setPlans([]);
     setSelectedPlan(null);
     setDiscussionMessages([]);
+    setPresenceChecks([]);
     setNotice({ tone: 'info', body: 'Local admin browser session cleared.' });
   }
 
@@ -218,6 +254,7 @@ export default function AdminPlansPage() {
       setSelectedPlan(data.plan);
       setDiscussionMessages(data.plan.publicMessages ?? []);
       setPlans((current) => current.map((plan) => plan.id === data.plan.id ? data.plan : plan));
+      void loadPresenceChecks(data.plan.id);
     } catch (error) {
       setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not load Plan detail.' });
     } finally {
@@ -267,6 +304,50 @@ export default function AdminPlansPage() {
       setNotice({ tone: 'success', body: `Loaded ${data.messages.length} Plan discussion comment${data.messages.length === 1 ? '' : 's'}.` });
     } catch (error) {
       setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not load Plan discussion comments.' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+
+  async function loadPresenceChecks(planId = selectedPlan?.id) {
+    if (!token || !planId) return;
+    setLoading(true);
+    setNotice(null);
+    try {
+      const params = new URLSearchParams({ planId });
+      if (presenceStatus !== 'all') params.set('status', presenceStatus);
+      const response = await fetch(`${apiBase}/admin/place-verifications?${params.toString()}`, { headers });
+      if (!response.ok) throw new Error('Could not load Plan presence checks.');
+      const data = await response.json() as { verifications: AdminPlacePresenceVerification[] };
+      setPresenceChecks(data.verifications);
+      setNotice({ tone: 'success', body: `Loaded ${data.verifications.length} presence check${data.verifications.length === 1 ? '' : 's'} for this Plan.` });
+    } catch (error) {
+      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not load Plan presence checks.' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function markPresenceCheckReviewed(verificationId: string) {
+    if (!token) return;
+    setLoading(true);
+    setNotice(null);
+    try {
+      const response = await fetch(`${apiBase}/admin/place-verifications/${verificationId}/action`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ action: 'mark_reviewed', note: presenceNote.trim() || undefined }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { message?: string } | null;
+        throw new Error(body?.message || 'Could not mark presence check reviewed.');
+      }
+      const data = await response.json() as { verification: AdminPlacePresenceVerification };
+      setPresenceChecks((current) => current.map((item) => item.id === data.verification.id ? data.verification : item));
+      setNotice({ tone: 'success', body: 'Presence check review audit saved.' });
+    } catch (error) {
+      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not mark presence check reviewed.' });
     } finally {
       setLoading(false);
     }
@@ -423,6 +504,53 @@ export default function AdminPlansPage() {
               ))}
               {(selectedPlan.participants ?? []).length === 0 ? <p>No participants yet.</p> : null}
             </div>
+          </article>
+        </section>
+      ) : null}
+
+      {selectedPlan ? (
+        <section className="admin-detail-grid">
+          <article className="app-card admin-action-card">
+            <div className="status-row"><span className="semantic-badge warning">Presence checks</span><span className="semantic-badge admin">Admin only</span></div>
+            <h2>Offline presence verification history</h2>
+            <p>Review GPS presence attempts for this Plan. Exact rounded coordinates and rejection reasons stay admin-only and are never shown on public profiles.</p>
+            <div className="admin-trust-controls">
+              <select value={presenceStatus} onChange={(event) => setPresenceStatus(event.target.value as 'all' | 'verified' | 'rejected')}>
+                <option value="all">all checks</option>
+                <option value="verified">verified only</option>
+                <option value="rejected">rejected only</option>
+              </select>
+              <button type="button" className="secondary" onClick={() => { void loadPresenceChecks(); }} disabled={loading || !token}>Load presence checks</button>
+            </div>
+            <label>
+              Presence review note
+              <textarea value={presenceNote} onChange={(event) => setPresenceNote(event.target.value)} placeholder="Optional internal note for suspicious/rejected checks." rows={3} />
+            </label>
+            <div className="admin-audit-list">
+              {presenceChecks.map((check) => (
+                <article key={check.id} className="admin-audit-row">
+                  <span>
+                    <strong>{personLabel(check.user)} · {check.planPlace?.title ?? check.planPlaceId}</strong>
+                    <small>{labelize(check.status)} · created {dateLabel(check.createdAt)} · verified {dateLabel(check.verifiedAt)}</small>
+                    <small>Distance {metersLabel(check.distanceMeters)} / max {metersLabel(check.maxDistanceMeters)} · accuracy {metersLabel(check.accuracyMeters)}</small>
+                    {typeof check.latitudeRounded === 'number' && typeof check.longitudeRounded === 'number' ? <small>Rounded coordinates: {check.latitudeRounded.toFixed(4)}, {check.longitudeRounded.toFixed(4)}</small> : null}
+                    {check.rejectionReason ? <small>Rejection: {labelize(check.rejectionReason)}</small> : null}
+                    <small>ID: {check.id}</small>
+                  </span>
+                  <span className="status-row">
+                    <em className={`semantic-badge ${verificationTone(check.status)}`}>{labelize(check.status)}</em>
+                    <button type="button" className="ghost" onClick={() => { void markPresenceCheckReviewed(check.id); }} disabled={loading || !token}>Mark reviewed</button>
+                  </span>
+                </article>
+              ))}
+              {presenceChecks.length === 0 ? <p>No loaded presence checks yet. Use Load presence checks to inspect accepted and rejected GPS verification attempts for this Plan.</p> : null}
+            </div>
+          </article>
+
+          <article className="app-card admin-action-card">
+            <div className="status-row"><span className="semantic-badge info">Privacy rule</span></div>
+            <h2>Public profile safety</h2>
+            <p>Public profiles only show aggregate offline presence counters. Plan titles, place names, addresses, coordinates, rejection history, and admin review notes stay private/admin-only.</p>
           </article>
         </section>
       ) : null}

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
-import { adminBusinessProfileActionRequestSchema, adminBusinessBudgetActionRequestSchema, adminBusinessBudgetListQuerySchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminContentClassificationActionRequestSchema, adminContentClassificationAiSuggestionRequestSchema, adminListContentClassificationsQuerySchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminListPlansQuerySchema, adminPlanActionRequestSchema, adminListPlanPublicMessagesQuerySchema, adminPlanPublicMessageActionRequestSchema, adminListPlacesQuerySchema, adminPlaceActionRequestSchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminListModerationCasesQuerySchema, adminModerationCaseActionRequestSchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateUsernameRequestSchema, adminPlusGrantRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema, type ModerationCaseStatus, type ModerationContentType, type ReportTargetType } from '@hellowhen/contracts';
+import { adminBusinessProfileActionRequestSchema, adminBusinessBudgetActionRequestSchema, adminBusinessBudgetListQuerySchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminContentClassificationActionRequestSchema, adminContentClassificationAiSuggestionRequestSchema, adminListContentClassificationsQuerySchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminListPlansQuerySchema, adminPlanActionRequestSchema, adminListPlanPublicMessagesQuerySchema, adminPlanPublicMessageActionRequestSchema, adminListPlacePresenceVerificationsQuerySchema, adminPlacePresenceVerificationActionRequestSchema, adminListPlacesQuerySchema, adminPlaceActionRequestSchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminListModerationCasesQuerySchema, adminModerationCaseActionRequestSchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateUsernameRequestSchema, adminPlusGrantRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema, type ModerationCaseStatus, type ModerationContentType, type ReportTargetType } from '@hellowhen/contracts';
 import { AI_ASSIST_TASK_TYPES, AI_ASSIST_USAGE_STATUSES, buildAiAssistPeriodKey, evaluatePlusGate, hasProAccess } from '@hellowhen/shared';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
@@ -1049,6 +1049,84 @@ async function adminPlanRecentReports(plan: { id: string; places?: Array<{ id: s
     include: { reporter: { select: adminOverviewUserSelect }, reviewer: { select: adminOverviewUserSelect } },
   });
 }
+
+
+const adminPlacePresenceVerificationInclude = {
+  user: { select: adminOverviewUserSelect },
+  plan: { select: { id: true, title: true, status: true, startsAt: true, owner: { select: adminOverviewUserSelect } } },
+  planPlace: { select: { id: true, title: true, mode: true, addressPublicText: true, formattedAddress: true, onlineLabel: true } },
+  sourcePlace: { include: { owner: { select: adminOverviewUserSelect } } },
+} as const;
+
+function toAdminPlacePresenceVerificationDto(verification: any) {
+  return {
+    ...verification,
+    verifiedAt: verification.verifiedAt?.toISOString?.() ?? null,
+    createdAt: verification.createdAt?.toISOString?.() ?? verification.createdAt,
+    plan: verification.plan ? {
+      ...verification.plan,
+      startsAt: verification.plan.startsAt?.toISOString?.() ?? verification.plan.startsAt ?? null,
+    } : null,
+  };
+}
+
+async function getAdminPlacePresenceVerification(verificationId: string) {
+  return (prisma as any).placePresenceVerification.findUnique({
+    where: { id: verificationId },
+    include: adminPlacePresenceVerificationInclude,
+  });
+}
+
+adminRoutes.get('/place-verifications', asyncRoute(async (req, res) => {
+  const input = adminListPlacePresenceVerificationsQuerySchema.parse(req.query);
+  const verifications = await (prisma as any).placePresenceVerification.findMany({
+    where: {
+      ...(input.status && input.status !== 'all' ? { status: input.status } : {}),
+      ...(input.userId ? { userId: input.userId } : {}),
+      ...(input.planId ? { planId: input.planId } : {}),
+      ...(input.planPlaceId ? { planPlaceId: input.planPlaceId } : {}),
+      ...(input.rejectionReason ? { rejectionReason: input.rejectionReason } : {}),
+    },
+    orderBy: [{ createdAt: 'desc' }],
+    take: input.take ?? 100,
+    include: adminPlacePresenceVerificationInclude,
+  });
+  res.json({ verifications: verifications.map(toAdminPlacePresenceVerificationDto) });
+}));
+
+adminRoutes.get('/place-verifications/:verificationId', asyncRoute(async (req, res) => {
+  const verificationId = req.params.verificationId;
+  if (!verificationId) return res.status(400).json({ error: 'missing_verification_id' });
+  const verification = await getAdminPlacePresenceVerification(verificationId);
+  if (!verification) return res.status(404).json({ error: 'not_found' });
+  res.json({ verification: toAdminPlacePresenceVerificationDto(verification) });
+}));
+
+adminRoutes.patch('/place-verifications/:verificationId/action', asyncRoute(async (req, res) => {
+  const verificationId = req.params.verificationId;
+  if (!verificationId) return res.status(400).json({ error: 'missing_verification_id' });
+  const input = adminPlacePresenceVerificationActionRequestSchema.parse(req.body ?? {});
+  const verification = await getAdminPlacePresenceVerification(verificationId);
+  if (!verification) return res.status(404).json({ error: 'not_found' });
+
+  await recordAdminAuditLog(prisma, req.user!.id, {
+    action: `place_presence_verification.${input.action}`,
+    targetType: 'place_presence_verification',
+    targetId: verification.id,
+    reason: input.note?.trim() || null,
+    previousValue: { status: verification.status, rejectionReason: verification.rejectionReason, verifiedAt: verification.verifiedAt },
+    nextValue: { status: verification.status, reviewed: true },
+    metadata: {
+      userId: verification.userId,
+      planId: verification.planId,
+      planPlaceId: verification.planPlaceId,
+      distanceMeters: verification.distanceMeters,
+      maxDistanceMeters: verification.maxDistanceMeters,
+    },
+  });
+
+  res.json({ verification: toAdminPlacePresenceVerificationDto(verification) });
+}));
 
 const adminPlanPublicMessageInclude = {
   author: { select: adminOverviewUserSelect },

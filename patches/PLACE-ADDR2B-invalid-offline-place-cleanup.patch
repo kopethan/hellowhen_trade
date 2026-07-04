@@ -1,0 +1,561 @@
+diff --git a/apps/api/package.json b/apps/api/package.json
+index 5d5dc9a..1abc4d2 100644
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -13,7 +13,8 @@
+     "prisma:migrate": "prisma migrate dev",
+     "prisma:validate": "prisma validate",
+     "prisma:seed": "prisma db seed",
+-    "media:s3-migrate": "tsx src/scripts/migrateLocalMediaToS3.ts"
++    "media:s3-migrate": "tsx src/scripts/migrateLocalMediaToS3.ts",
++    "places:address-cleanup": "tsx src/scripts/cleanupInvalidOfflinePlaces.ts"
+   },
+   "dependencies": {
+     "@aws-sdk/client-s3": "^3.1077.0",
+diff --git a/apps/api/src/scripts/cleanupInvalidOfflinePlaces.ts b/apps/api/src/scripts/cleanupInvalidOfflinePlaces.ts
+new file mode 100644
+index 0000000..3a48ce4
+--- /dev/null
++++ b/apps/api/src/scripts/cleanupInvalidOfflinePlaces.ts
+@@ -0,0 +1,421 @@
++import path from 'node:path';
++import { fileURLToPath } from 'node:url';
++import dotenv from 'dotenv';
++import {
++  PlaceAddressValidationStatus,
++  PlaceLocationSource,
++  PlaceStatus,
++  PlanPlaceMode,
++  PrismaClient,
++} from '@prisma/client';
++import { getMissingOfflineProviderAddressFields, hasOnlineDestination } from '@hellowhen/shared';
++
++const repoRoot = fileURLToPath(new URL('../../../..', import.meta.url));
++dotenv.config({ path: path.resolve(repoRoot, '.env') });
++
++const prisma = new PrismaClient();
++
++const SAMPLE_LIMIT = 20;
++
++const invalidOfflineWhere = {
++  mode: PlanPlaceMode.local,
++  OR: [
++    { googlePlaceId: null },
++    { googlePlaceId: '' },
++    { formattedAddress: null },
++    { formattedAddress: '' },
++    { latitude: null },
++    { longitude: null },
++    { locationSource: null },
++    { locationSource: { not: PlaceLocationSource.google_places } },
++    { addressValidationStatus: null },
++    { addressValidationStatus: { not: PlaceAddressValidationStatus.confirmed } },
++  ],
++} as const;
++
++type Options = {
++  dryRun: boolean;
++  apply: boolean;
++  convertOnlineWhenUrl: boolean;
++  archivePlaces: boolean;
++  markPlanStopsUnsupported: boolean;
++  deleteTestOnly: boolean;
++  json: boolean;
++  limit?: number;
++};
++
++type PlaceCandidate = Awaited<ReturnType<typeof loadInvalidPlaces>>[number];
++type PlanPlaceCandidate = Awaited<ReturnType<typeof loadInvalidPlanPlaces>>[number];
++
++type CleanupAction = 'convert_online' | 'archive' | 'mark_unsupported' | 'delete_test_only' | 'skip';
++
++type CleanupRecord = {
++  id: string;
++  title: string;
++  action: CleanupAction;
++  reason: string;
++};
++
++function parseOptions(argv: string[]): Options {
++  const flags = new Set<string>();
++  let limit: number | undefined;
++
++  for (let index = 0; index < argv.length; index += 1) {
++    const arg = argv[index];
++    if (!arg.startsWith('--')) continue;
++
++    if (arg.startsWith('--limit=')) {
++      const raw = arg.slice('--limit='.length);
++      const parsed = Number(raw);
++      if (Number.isFinite(parsed) && parsed > 0) limit = Math.trunc(parsed);
++      continue;
++    }
++
++    if (arg === '--limit') {
++      const raw = argv[index + 1];
++      const parsed = Number(raw);
++      if (Number.isFinite(parsed) && parsed > 0) limit = Math.trunc(parsed);
++      index += 1;
++      continue;
++    }
++
++    flags.add(arg);
++  }
++
++  const apply = flags.has('--apply');
++  const dryRun = flags.has('--dry-run') || !apply;
++
++  return {
++    dryRun,
++    apply,
++    convertOnlineWhenUrl: flags.has('--convert-online-when-url'),
++    archivePlaces: flags.has('--archive-places'),
++    markPlanStopsUnsupported: flags.has('--mark-plan-stops-unsupported'),
++    deleteTestOnly: flags.has('--delete-test-only'),
++    json: flags.has('--json'),
++    limit,
++  };
++}
++
++function hasMutationAction(options: Options) {
++  return options.convertOnlineWhenUrl || options.archivePlaces || options.markPlanStopsUnsupported || options.deleteTestOnly;
++}
++
++function hasUsableOnlineUrl(value: string | null | undefined): boolean {
++  if (!hasOnlineDestination({ onlineUrl: value })) return false;
++  try {
++    const parsed = new URL(value ?? '');
++    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
++  } catch {
++    return false;
++  }
++}
++
++function getOfflineMissingFields(candidate: {
++  googlePlaceId: string | null;
++  formattedAddress: string | null;
++  latitude: number | null;
++  longitude: number | null;
++  locationSource: string | null;
++  addressValidationStatus: string | null;
++}) {
++  return getMissingOfflineProviderAddressFields(candidate).join(', ') || 'unknown';
++}
++
++function isProbablyTestPlace(place: PlaceCandidate): boolean {
++  const text = [
++    place.title,
++    place.description,
++    place.defaultNote,
++    place.defaultMeetingInstructions,
++    place.owner?.email,
++  ]
++    .filter(Boolean)
++    .join(' ');
++
++  return /\b(smoke|test|tests|seed|demo|fixture|dev-only|dev only)\b/i.test(text);
++}
++
++function countBy<T>(items: readonly T[], getKey: (item: T) => string | null | undefined) {
++  const counts: Record<string, number> = {};
++  for (const item of items) {
++    const key = getKey(item) || 'unknown';
++    counts[key] = (counts[key] ?? 0) + 1;
++  }
++  return counts;
++}
++
++async function loadInvalidPlaces(limit?: number) {
++  return prisma.place.findMany({
++    where: invalidOfflineWhere,
++    orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
++    take: limit,
++    select: {
++      id: true,
++      title: true,
++      description: true,
++      ownerId: true,
++      source: true,
++      status: true,
++      visibility: true,
++      mode: true,
++      googlePlaceId: true,
++      formattedAddress: true,
++      latitude: true,
++      longitude: true,
++      locationSource: true,
++      addressValidationStatus: true,
++      onlineUrl: true,
++      onlineLabel: true,
++      defaultNote: true,
++      defaultMeetingInstructions: true,
++      createdAt: true,
++      updatedAt: true,
++      archivedAt: true,
++      owner: { select: { email: true } },
++    },
++  });
++}
++
++async function loadInvalidPlanPlaces(limit?: number) {
++  return prisma.planPlace.findMany({
++    where: invalidOfflineWhere,
++    orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
++    take: limit,
++    select: {
++      id: true,
++      planId: true,
++      placeId: true,
++      order: true,
++      title: true,
++      mode: true,
++      googlePlaceId: true,
++      formattedAddress: true,
++      latitude: true,
++      longitude: true,
++      locationSource: true,
++      addressValidationStatus: true,
++      onlineUrl: true,
++      onlineLabel: true,
++      staticMapTemplateFamily: true,
++      staticMapTemplateSeed: true,
++      createdAt: true,
++      updatedAt: true,
++      plan: {
++        select: {
++          id: true,
++          title: true,
++          status: true,
++          ownerId: true,
++          owner: { select: { email: true } },
++        },
++      },
++    },
++  });
++}
++
++function samplePlaces(places: readonly PlaceCandidate[]) {
++  return places.slice(0, SAMPLE_LIMIT).map((place) => ({
++    id: place.id,
++    title: place.title,
++    source: place.source,
++    status: place.status,
++    ownerEmail: place.owner?.email ?? null,
++    onlineUrl: place.onlineUrl ?? null,
++    missing: getOfflineMissingFields(place),
++  }));
++}
++
++function samplePlanPlaces(planPlaces: readonly PlanPlaceCandidate[]) {
++  return planPlaces.slice(0, SAMPLE_LIMIT).map((planPlace) => ({
++    id: planPlace.id,
++    title: planPlace.title,
++    planId: planPlace.planId,
++    planTitle: planPlace.plan.title,
++    planStatus: planPlace.plan.status,
++    ownerEmail: planPlace.plan.owner?.email ?? null,
++    onlineUrl: planPlace.onlineUrl ?? null,
++    missing: getOfflineMissingFields(planPlace),
++  }));
++}
++
++async function cleanupPlaces(places: readonly PlaceCandidate[], options: Options) {
++  const records: CleanupRecord[] = [];
++  const now = new Date();
++
++  for (const place of places) {
++    const reason = `missing ${getOfflineMissingFields(place)}`;
++
++    if (options.convertOnlineWhenUrl && hasUsableOnlineUrl(place.onlineUrl)) {
++      records.push({ id: place.id, title: place.title, action: 'convert_online', reason });
++      if (!options.dryRun) {
++        await prisma.place.update({
++          where: { id: place.id },
++          data: {
++            mode: PlanPlaceMode.remote,
++            locationSource: null,
++            addressValidationStatus: PlaceAddressValidationStatus.unsupported,
++            staticMapTemplateFamily: null,
++            staticMapTemplateSeed: null,
++          },
++        });
++      }
++      continue;
++    }
++
++    if (options.deleteTestOnly && isProbablyTestPlace(place)) {
++      records.push({ id: place.id, title: place.title, action: 'delete_test_only', reason });
++      if (!options.dryRun) {
++        await prisma.place.delete({ where: { id: place.id } });
++      }
++      continue;
++    }
++
++    if (options.archivePlaces && place.status !== PlaceStatus.archived) {
++      records.push({ id: place.id, title: place.title, action: 'archive', reason });
++      if (!options.dryRun) {
++        await prisma.place.update({
++          where: { id: place.id },
++          data: { status: PlaceStatus.archived, archivedAt: place.archivedAt ?? now },
++        });
++      }
++      continue;
++    }
++
++    records.push({ id: place.id, title: place.title, action: 'skip', reason });
++  }
++
++  return records;
++}
++
++async function cleanupPlanPlaces(planPlaces: readonly PlanPlaceCandidate[], options: Options) {
++  const records: CleanupRecord[] = [];
++
++  for (const planPlace of planPlaces) {
++    const reason = `missing ${getOfflineMissingFields(planPlace)}`;
++
++    if (options.convertOnlineWhenUrl && hasUsableOnlineUrl(planPlace.onlineUrl)) {
++      records.push({ id: planPlace.id, title: planPlace.title, action: 'convert_online', reason });
++      if (!options.dryRun) {
++        await prisma.planPlace.update({
++          where: { id: planPlace.id },
++          data: {
++            mode: PlanPlaceMode.remote,
++            locationSource: null,
++            addressValidationStatus: PlaceAddressValidationStatus.unsupported,
++            staticMapTemplateFamily: null,
++            staticMapTemplateSeed: null,
++          },
++        });
++      }
++      continue;
++    }
++
++    if (options.markPlanStopsUnsupported) {
++      records.push({ id: planPlace.id, title: planPlace.title, action: 'mark_unsupported', reason });
++      if (!options.dryRun) {
++        await prisma.planPlace.update({
++          where: { id: planPlace.id },
++          data: {
++            addressValidationStatus: PlaceAddressValidationStatus.unsupported,
++            staticMapTemplateFamily: null,
++            staticMapTemplateSeed: null,
++          },
++        });
++      }
++      continue;
++    }
++
++    records.push({ id: planPlace.id, title: planPlace.title, action: 'skip', reason });
++  }
++
++  return records;
++}
++
++function actionCounts(records: readonly CleanupRecord[]) {
++  return countBy(records, (record) => record.action);
++}
++
++function printTextReport(input: {
++  options: Options;
++  places: readonly PlaceCandidate[];
++  planPlaces: readonly PlanPlaceCandidate[];
++  placeActions: readonly CleanupRecord[];
++  planPlaceActions: readonly CleanupRecord[];
++}) {
++  const mode = input.options.dryRun ? 'DRY RUN' : 'APPLY';
++  console.log(`Invalid offline Places audit/cleanup: ${mode}`);
++  if (input.options.limit) console.log(`Limit: ${input.options.limit}`);
++  console.log('');
++
++  console.log(`Invalid reusable Place rows: ${input.places.length}`);
++  console.log(`  by source: ${JSON.stringify(countBy(input.places, (place) => place.source))}`);
++  console.log(`  by status: ${JSON.stringify(countBy(input.places, (place) => place.status))}`);
++  console.log(`  actions: ${JSON.stringify(actionCounts(input.placeActions))}`);
++  if (input.places.length) {
++    console.log('  sample:');
++    for (const place of samplePlaces(input.places)) {
++      console.log(`    - ${place.id} | ${place.title} | ${place.source}/${place.status} | missing ${place.missing}`);
++    }
++  }
++  console.log('');
++
++  console.log(`Invalid PlanPlace rows: ${input.planPlaces.length}`);
++  console.log(`  by plan status: ${JSON.stringify(countBy(input.planPlaces, (planPlace) => planPlace.plan.status))}`);
++  console.log(`  actions: ${JSON.stringify(actionCounts(input.planPlaceActions))}`);
++  if (input.planPlaces.length) {
++    console.log('  sample:');
++    for (const planPlace of samplePlanPlaces(input.planPlaces)) {
++      console.log(`    - ${planPlace.id} | ${planPlace.title} | plan ${planPlace.planTitle} | missing ${planPlace.missing}`);
++    }
++  }
++  console.log('');
++
++  if (input.options.dryRun) {
++    console.log('No rows were changed. Add --apply with explicit action flags to mutate data.');
++  }
++}
++
++async function main() {
++  const options = parseOptions(process.argv.slice(2));
++
++  if (options.apply && !hasMutationAction(options)) {
++    throw new Error('Refusing to run --apply without at least one action flag. Add --convert-online-when-url, --archive-places, --mark-plan-stops-unsupported, or --delete-test-only.');
++  }
++
++  const [places, planPlaces] = await Promise.all([
++    loadInvalidPlaces(options.limit),
++    loadInvalidPlanPlaces(options.limit),
++  ]);
++
++  const placeActions = await cleanupPlaces(places, options);
++  const planPlaceActions = await cleanupPlanPlaces(planPlaces, options);
++
++  if (options.json) {
++    console.log(JSON.stringify({
++      dryRun: options.dryRun,
++      counts: {
++        places: places.length,
++        planPlaces: planPlaces.length,
++      },
++      placeActions: actionCounts(placeActions),
++      planPlaceActions: actionCounts(planPlaceActions),
++      samples: {
++        places: samplePlaces(places),
++        planPlaces: samplePlanPlaces(planPlaces),
++      },
++    }, null, 2));
++    return;
++  }
++
++  printTextReport({ options, places, planPlaces, placeActions, planPlaceActions });
++}
++
++main()
++  .catch((error) => {
++    console.error(error instanceof Error ? error.message : error);
++    process.exitCode = 1;
++  })
++  .finally(async () => {
++    await prisma.$disconnect();
++  });
+diff --git a/docs/plans/place-address-cleanup.md b/docs/plans/place-address-cleanup.md
+new file mode 100644
+index 0000000..14ee651
+--- /dev/null
++++ b/docs/plans/place-address-cleanup.md
+@@ -0,0 +1,75 @@
++# PLACE-ADDR2B — Invalid offline place cleanup
++
++This script audits and optionally cleans up old offline Places/Plan stops that were saved before strict provider-selected address validation.
++
++It is intentionally separate from migrations and API validation. Run it before `PLACE-ADDR3`, then again after web/native enforcement as a smoke check.
++
++## Invalid offline rule
++
++A `local` Place or PlanPlace is invalid when it is missing any of the provider-selected offline address fields:
++
++- `googlePlaceId`
++- `formattedAddress`
++- `latitude`
++- `longitude`
++- `locationSource = google_places`
++- `addressValidationStatus = confirmed`
++
++Manual `addressPublicText` or starter prompt text is not enough.
++
++## Commands
++
++Audit only. This is the default safe mode and never writes to the database:
++
++```bash
++npm run places:address-audit
++```
++
++Dry-run the intended cleanup actions:
++
++```bash
++npm run places:address-cleanup -- --dry-run --convert-online-when-url --archive-places --mark-plan-stops-unsupported
++```
++
++Apply the safe cleanup actions:
++
++```bash
++npm run places:address-cleanup -- --apply --convert-online-when-url --archive-places --mark-plan-stops-unsupported
++```
++
++Optional JSON report:
++
++```bash
++npm run places:address-cleanup -- --dry-run --json
++```
++
++Optional limit for review:
++
++```bash
++npm run places:address-cleanup -- --dry-run --limit 50
++```
++
++## Cleanup actions
++
++`--convert-online-when-url`
++
++: Converts invalid `local` rows to `remote` only when they already have a usable `http://` or `https://` `onlineUrl`. The script clears map/static-map fields so the row is no longer treated as an offline map/address candidate.
++
++`--archive-places`
++
++: Archives invalid reusable `Place` rows that cannot be fixed automatically. This does not delete the row, so owners can still be guided to recreate or edit it later.
++
++`--mark-plan-stops-unsupported`
++
++: Marks invalid `PlanPlace` rows with `addressValidationStatus = unsupported` and clears static-map fields. It does not delete plan stops, because deleting stops can damage existing plans.
++
++`--delete-test-only`
++
++: Dangerous cleanup for obvious smoke/test/demo/seed reusable `Place` rows only. It does not delete `PlanPlace` rows. Use it only with `--apply` after reviewing the dry-run sample.
++
++## Safety behavior
++
++- Dry-run is the default.
++- Mutations require `--apply` plus at least one explicit action flag.
++- Real user `PlanPlace` rows are never deleted by this script.
++- Existing invalid rows remain readable until later UI/API patches require users to select a provider address before saving them as offline places again.
+diff --git a/docs/plans/place-address-storage-audit.md b/docs/plans/place-address-storage-audit.md
+index 3a7423d..2f7800c 100644
+--- a/docs/plans/place-address-storage-audit.md
++++ b/docs/plans/place-address-storage-audit.md
+@@ -243,14 +243,16 @@ Recommended cleanup script behavior:
+ - mark invalid `PlanPlace` rows as `unsupported`/`needs_review` rather than deleting them
+ - support a dangerous delete option only for explicit test/seed data
+ 
+-Recommended command shape:
++Implemented command shape:
+ 
+ ```bash
+ npm run places:address-audit
+-npm run places:address-cleanup -- --dry-run
+-npm run places:address-cleanup -- --convert-online-when-url --archive-places --mark-plan-stops-unsupported
++npm run places:address-cleanup -- --dry-run --convert-online-when-url --archive-places --mark-plan-stops-unsupported
++npm run places:address-cleanup -- --apply --convert-online-when-url --archive-places --mark-plan-stops-unsupported
+ ```
+ 
++Full usage is documented in `docs/plans/place-address-cleanup.md`.
++
+ Plan stops should not be deleted by default because deleting stops can damage existing plans.
+ 
+ ## Starter plan ideas/templates
+diff --git a/package.json b/package.json
+index b5d2396..25c351b 100644
+--- a/package.json
++++ b/package.json
+@@ -34,7 +34,9 @@
+     "language:audit": "node scripts/language-consistency-audit.mjs",
+     "media:variants-smoke": "node scripts/media-variants-smoke.mjs",
+     "media:s3-cleanup-smoke": "node scripts/media-s3-cleanup-smoke.mjs",
+-    "media:s3-migrate": "npm run media:s3-migrate -w @hellowhen/api --"
++    "media:s3-migrate": "npm run media:s3-migrate -w @hellowhen/api --",
++    "places:address-audit": "npm run places:address-cleanup -w @hellowhen/api -- --dry-run",
++    "places:address-cleanup": "npm run places:address-cleanup -w @hellowhen/api --"
+   },
+   "devDependencies": {
+     "typescript": "^5.4.5"

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ChangeEvent, FormEvent } from 'react';
-import type { MediaAssetDto, PlaceDto, PlaceStaticMapDto, PlanPlaceMode } from '@hellowhen/contracts';
+import type { GoogleResolvedPlace, MediaAssetDto, PlaceDto, PlaceStaticMapDto, PlanPlaceMode } from '@hellowhen/contracts';
 import { buildGeneratedPlanDisplay, parseStarterPlanIdeaKey, starterPlanIdeas, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { WebIcon } from '../../components/WebIcon';
@@ -11,6 +11,7 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { GooglePlacePicker } from './GooglePlacePicker';
+import { emptyProviderAddressFormState, offlineProviderAddressError, onlineDestinationError, providerAddressFormStateFromGooglePlace, providerAddressFormStateFromStoredPlace, providerAddressPayloadFromFormState, providerAddressStatusLabel, type WebProviderAddressFormState } from './placeAddressForm';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
 import { PlanPreviewDeck } from './PlanPreviewDeck';
 import { buildPlanSchedule, toDateInputValue } from './planSchedule';
@@ -26,6 +27,7 @@ type PlaceFormState = {
   time: string;
   title: string;
   location: string;
+  providerAddress: WebProviderAddressFormState;
   onlineLabel: string;
   onlineUrl: string;
   existingMedia: MediaAssetDto | null;
@@ -43,6 +45,7 @@ function makePlace(index: number, date = toDateInputValue()): PlaceFormState {
     time: index === 0 ? '13:00' : '',
     title: '',
     location: '',
+    providerAddress: emptyProviderAddressFormState(),
     onlineLabel: '',
     onlineUrl: '',
     existingMedia: null,
@@ -60,7 +63,8 @@ function makePlaceFromPlanIdeaStop(stop: StarterPlanIdeaStop, index: number, dat
     date,
     time: stop.time,
     title: stop.title,
-    location: stop.mode === 'local' ? stop.location ?? '' : '',
+    location: '',
+    providerAddress: emptyProviderAddressFormState(),
     onlineLabel: stop.mode === 'remote' ? stop.onlineLabel ?? '' : '',
     onlineUrl: stop.mode === 'remote' ? stop.onlineUrl ?? '' : '',
     existingMedia: null,
@@ -153,6 +157,7 @@ function safeReadPlanDraft(): PlaceFormState[] {
       time: place.time || '',
       title: place.title || '',
       location: place.location || '',
+      providerAddress: place.providerAddress ?? emptyProviderAddressFormState(),
       onlineLabel: place.onlineLabel || '',
       onlineUrl: place.onlineUrl || '',
       existingMedia: place.existingMedia ?? null,
@@ -236,17 +241,59 @@ function parseOptionalPlanEnd(end: PlanEndState, fallbackStartAt: string) {
   return { endsAt: parsed.toISOString(), error: '' };
 }
 
-function parseRequiredPlanEnd(end: PlanEndState, fallbackStartAt: string) {
-  if (!end.date.trim() && !end.time.trim()) return { endsAt: '', error: 'Add an estimated end date and time so your Plans do not overlap.' };
-  const parsed = parseOptionalPlanEnd(end, fallbackStartAt);
-  if (parsed.error) return { endsAt: '', error: parsed.error.replace('or leave the end empty.', 'even if it is estimated.') };
-  return parsed;
+function parsePlanEndOverride(end: PlanEndState, fallbackStartAt: string) {
+  return parseOptionalPlanEnd(end, fallbackStartAt);
 }
 
 function rangeLabelWithEnd(schedule: ReturnType<typeof buildPlanSchedule>, end: PlanEndState) {
   if (!schedule.startsAt) return '';
   const parsedEnd = parseOptionalPlanEnd(end, schedule.startsAt);
   return rangeLabelFromSchedule({ ...schedule, endsAt: parsedEnd.endsAt || schedule.endsAt });
+}
+
+function hasPlanEndOverride(end: PlanEndState) {
+  return Boolean(end.date.trim() || end.time.trim());
+}
+
+function formatPlanDateTime(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function formatDurationMinutes(minutes?: number | null) {
+  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) return '';
+  const rounded = Math.round(minutes);
+  const hours = Math.floor(rounded / 60);
+  const remainder = rounded % 60;
+  if (hours && remainder) return `${hours}h ${remainder}m`;
+  if (hours) return `${hours}h`;
+  return `${remainder}m`;
+}
+
+function planEndSummary(schedule: ReturnType<typeof buildPlanSchedule>, end: PlanEndState) {
+  if (!schedule.startsAt) return null;
+  const parsedEnd = parseOptionalPlanEnd(end, schedule.startsAt);
+  const hasManualInput = hasPlanEndOverride(end);
+  if (hasManualInput && parsedEnd.error) return null;
+  const manual = hasManualInput && Boolean(parsedEnd.endsAt);
+  const endsAt = manual ? parsedEnd.endsAt : schedule.endsAt;
+  if (!endsAt) return null;
+  const endLabel = formatPlanDateTime(endsAt);
+  const estimatedDuration = formatDurationMinutes(schedule.estimatedFinalEnd?.roundedGapMinutes);
+  const detail = manual
+    ? 'Manual override is active. Clear it to use the automatic estimate from the place times.'
+    : schedule.estimatedFinalEnd?.placeCount === 1
+      ? `Estimated from the single-place default${estimatedDuration ? ` (${estimatedDuration})` : ''}.`
+      : `Estimated from the average gap between places${estimatedDuration ? ` (${estimatedDuration})` : ''}.`;
+  return {
+    label: manual ? 'Manual end' : 'Estimated end',
+    endsAt,
+    endLabel,
+    detail,
+    manual,
+  };
 }
 
 function placeSourceLabel(place: PlaceDto) {
@@ -258,7 +305,7 @@ function libraryPlaceSource(place: PlaceDto): PlaceFormState['sourcePlaceSource'
 }
 
 function placeLocationForForm(place: PlaceDto) {
-  return place.mode === 'remote' ? '' : place.addressPublicText ?? place.areaLabel ?? '';
+  return place.mode === 'remote' ? '' : place.formattedAddress ?? place.addressPublicText ?? place.areaLabel ?? '';
 }
 
 function placePreviewLocation(place: PlaceFormState) {
@@ -285,6 +332,7 @@ function applyReusablePlacePatch(place: PlaceDto): Partial<PlaceFormState> {
     mode: place.mode ?? 'local',
     title: place.title,
     location: placeLocationForForm(place),
+    providerAddress: place.mode === 'remote' ? emptyProviderAddressFormState() : providerAddressFormStateFromStoredPlace(place),
     onlineLabel: place.onlineLabel ?? '',
     onlineUrl: place.onlineUrl ?? '',
     existingMedia: place.media?.[0] ?? null,
@@ -300,6 +348,7 @@ function resetToCustomPatch(): Partial<PlaceFormState> {
     sourcePlaceTitle: undefined,
     existingMedia: null,
     existingStaticMap: null,
+    providerAddress: emptyProviderAddressFormState(),
   };
 }
 
@@ -359,6 +408,11 @@ function PlanPlaceTimelineButton({ place, index, onOpen }: { place: PlaceFormSta
   );
 }
 
+function reusablePlaceAddressError(place: PlaceDto) {
+  if (place.mode === 'remote') return onlineDestinationError({ onlineUrl: place.onlineUrl });
+  return offlineProviderAddressError(providerAddressFormStateFromStoredPlace(place));
+}
+
 function PlacePickerList({
   places,
   emptyLabel,
@@ -373,19 +427,20 @@ function PlacePickerList({
     <div className="plan-place-picker-list">
       {places.map((place) => {
         const media = place.media?.[0] ?? null;
-        const meta = [planPlaceModeLabel(place.mode), place.category, place.areaLabel || place.addressPublicText || place.onlineLabel]
+        const addressError = reusablePlaceAddressError(place);
+        const meta = [planPlaceModeLabel(place.mode), place.category, place.formattedAddress || place.addressPublicText || place.onlineLabel]
           .filter((value): value is string => Boolean(value && value.trim()))
           .join(' · ');
         return (
-          <button type="button" className="plan-place-picker-card" key={place.id} onClick={() => onChoose(place)}>
+          <button type="button" className="plan-place-picker-card" key={place.id} onClick={() => onChoose(place)} disabled={Boolean(addressError)}>
             <span className="plan-place-picker-card__media">
               {media ? <img src={planMediaSrc(media)} alt={media.filename ?? place.title} /> : <WebIcon name="location-on" size={20} decorative />}
             </span>
             <span className="plan-place-picker-card__body">
               <strong>{place.title}</strong>
-              <small>{meta || placeSourceLabel(place)}</small>
+              <small>{addressError || meta || placeSourceLabel(place)}</small>
             </span>
-            <span className="semantic-badge instruction">Use</span>
+            <span className="semantic-badge instruction">{addressError ? 'Fix first' : 'Use'}</span>
           </button>
         );
       })}
@@ -484,7 +539,8 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   const placesForGeneratedDisplay = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceTitle?.trim()), [places]);
   const schedulablePlaces = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceId), [places]);
   const schedule = useMemo(() => buildPlanSchedule(schedulablePlaces), [schedulablePlaces]);
-  const explicitPlanEnd = useMemo(() => parseRequiredPlanEnd(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
+  const explicitPlanEnd = useMemo(() => parsePlanEndOverride(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
+  const endSummary = useMemo(() => planEndSummary(schedule, planEnd), [schedule, planEnd]);
   const rangeLabel = rangeLabelWithEnd(schedule, planEnd);
   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
     places: placesForGeneratedDisplay,
@@ -527,7 +583,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     const date = toDateInputValue();
     handledPlanIdeaKeyRef.current = initialPlanIdeaKey;
     setPlaces(idea.stops.map((stop, index) => makePlaceFromPlanIdeaStop(stop, index, date)));
-    setMessage('Starter Plan idea loaded. Review or change the stops before publishing.');
+    setMessage('Starter Plan idea loaded. Offline stops are prompts only: select real address suggestions, and add online links before publishing.');
   }, [initialPlanIdeaKey, places.length]);
 
   useEffect(() => {
@@ -688,6 +744,8 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     if (places.length === 0) { setError('Add at least one place before preview.'); return; }
     if (schedule.error) { setError(schedule.error); return; }
     if (explicitPlanEnd.error) { setError(explicitPlanEnd.error); return; }
+    const destinationError = validatePlaceDestinations(schedulablePlaces);
+    if (destinationError) { setError(destinationError); return; }
     setStage('preview');
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
   }
@@ -712,6 +770,41 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     }
   }
 
+  function updatePlaceManualLocation(index: number, location: string) {
+    updatePlace(index, { location, providerAddress: emptyProviderAddressFormState() });
+  }
+
+  function updatePlaceResolvedAddress(index: number, place: GoogleResolvedPlace | null) {
+    updatePlace(index, {
+      location: place?.formattedAddress || places[index]?.location || '',
+      providerAddress: providerAddressFormStateFromGooglePlace(place),
+    });
+  }
+
+  function updateCustomPlaceMode(index: number, mode: PlanPlaceMode) {
+    const currentPlace = places[index];
+    updatePlace(index, {
+      mode,
+      location: mode === 'remote' ? '' : currentPlace?.location ?? '',
+      providerAddress: mode === 'remote' ? emptyProviderAddressFormState() : currentPlace?.providerAddress ?? emptyProviderAddressFormState(),
+      onlineLabel: mode === 'local' ? '' : currentPlace?.onlineLabel ?? '',
+      onlineUrl: mode === 'local' ? '' : currentPlace?.onlineUrl ?? '',
+    });
+  }
+
+  function validatePlaceDestinations(usablePlaces: PlaceFormState[]) {
+    for (const [index, place] of usablePlaces.entries()) {
+      if (place.mode === 'remote') {
+        const destinationError = onlineDestinationError({ onlineUrl: place.onlineUrl });
+        if (destinationError) return `Place ${index + 1}: ${destinationError}`;
+      } else {
+        const addressError = offlineProviderAddressError(place.providerAddress);
+        if (addressError) return `Place ${index + 1}: select a confirmed address suggestion before creating this offline stop.`;
+      }
+    }
+    return '';
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (createdPlanId) {
@@ -729,7 +822,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     const customDescription = advancedDetails.description.trim();
     const customCategory = advancedDetails.category.trim();
     const customTags = parsePlanTagsInput(advancedDetails.tags);
-    const nextExplicitEnd = parseRequiredPlanEnd(planEnd, nextSchedule.startsAt);
+    const nextExplicitEnd = parsePlanEndOverride(planEnd, nextSchedule.startsAt);
     if (nextSchedule.error || !nextSchedule.startsAt || usablePlaces.length === 0) {
       setError(nextSchedule.error || 'Add at least one place with a valid date and time.');
       return;
@@ -750,6 +843,11 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
       setError('Use up to 8 tags, each 32 characters or less.');
       return;
     }
+    const destinationError = validatePlaceDestinations(usablePlaces);
+    if (destinationError) {
+      setError(destinationError);
+      return;
+    }
     creatingPlanRef.current = true;
     setSaving(true);
     setError('');
@@ -768,20 +866,32 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
         tags: customTags.length ? customTags : undefined,
         mode: planModeFromPlaces(usablePlaces),
         startsAt: nextSchedule.startsAt,
-        endsAt: nextExplicitEnd.endsAt,
+        endsAt: nextExplicitEnd.endsAt || nextSchedule.endsAt,
         joinApprovalMode: 'automatic',
         status: 'open',
-        places: usablePlaces.map((place, index) => ({
-          placeId: place.sourcePlaceId,
-          mode: place.mode,
-          title: place.title,
-          addressPublicText: place.mode === 'local' ? place.location.trim() || undefined : undefined,
-          onlineLabel: place.mode === 'remote' ? place.onlineLabel.trim() || place.location.trim() || undefined : undefined,
-          onlineUrl: place.mode === 'remote' ? place.onlineUrl.trim() || undefined : undefined,
-          startsAt: nextSchedule.placeStartsAt[index],
-          order: index,
-          mediaIds: selectedPlanPlaceMediaIds(place),
-        })),
+        places: usablePlaces.map((place, index) => {
+          const providerAddressPayload = place.mode === 'local' ? providerAddressPayloadFromFormState(place.providerAddress) : null;
+          return {
+            placeId: place.sourcePlaceId,
+            mode: place.mode,
+            title: place.title,
+            addressPublicText: place.mode === 'local' ? providerAddressPayload?.formattedAddress : undefined,
+            googlePlaceId: providerAddressPayload?.googlePlaceId,
+            googlePlaceName: providerAddressPayload?.googlePlaceName,
+            formattedAddress: providerAddressPayload?.formattedAddress,
+            googleMapsUri: providerAddressPayload?.googleMapsUri,
+            latitude: providerAddressPayload?.latitude,
+            longitude: providerAddressPayload?.longitude,
+            locationSource: providerAddressPayload?.locationSource,
+            addressValidationStatus: providerAddressPayload?.addressValidationStatus,
+            onlineLabel: place.mode === 'remote' ? place.onlineLabel.trim() || undefined : undefined,
+            onlineUrl: place.mode === 'remote' ? place.onlineUrl.trim() || undefined : undefined,
+            startsAt: nextSchedule.placeStartsAt[index],
+            endsAt: nextSchedule.placeEndsAt[index],
+            order: index,
+            mediaIds: selectedPlanPlaceMediaIds(place),
+          };
+        }),
       });
       const nextPlanId = response.plan.id;
       setCreatedPlanId(nextPlanId);
@@ -880,19 +990,30 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                   {places.length > 0 ? (
                     <div className="plan-timeline-row plan-timeline-row--time plan-timeline-row--optional-end">
                       <div className="plan-timeline-row__main">
-                        <span className="semantic-badge time">Required</span>
+                        <span className="semantic-badge time">Optional</span>
                         <h3>Plan end time</h3>
+                        <p className="meta">Leave empty to use the estimated end from your place times.</p>
                       </div>
                       <div className="plan-timeline-row__fields">
                         <label>
                           <span>End date</span>
-                          <input type="date" value={planEnd.date} onChange={(event) => updatePlanEnd({ date: event.target.value })} required />
+                          <input type="date" value={planEnd.date} onChange={(event) => updatePlanEnd({ date: event.target.value })} />
                         </label>
                         <label>
                           <span>End time</span>
-                          <input type="time" value={planEnd.time} onChange={(event) => updatePlanEnd({ time: event.target.value })} required />
+                          <input type="time" value={planEnd.time} onChange={(event) => updatePlanEnd({ time: event.target.value })} />
                         </label>
                       </div>
+                      {endSummary ? (
+                        <div className="plan-end-summary">
+                          <div>
+                            <span className="semantic-badge time">{endSummary.label}</span>
+                            <strong>{endSummary.endLabel}</strong>
+                            <p>{endSummary.detail}</p>
+                          </div>
+                          {endSummary.manual ? <button type="button" className="button secondary" onClick={() => updatePlanEnd(EMPTY_PLAN_END_STATE)}>Use estimate</button> : null}
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </section>
@@ -911,6 +1032,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                     </div>
                     <div className="plan-preview-inline-meta" aria-label="Plan confirmation summary">
                       <span>{schedule.startsAt ? new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Start not set'}</span>
+                      {endSummary ? <span>{endSummary.label}: {endSummary.endLabel}</span> : null}
                       <span>{places.length} {places.length === 1 ? 'place' : 'places'}</span>
                       <span>Free join</span>
                       <span>Open</span>
@@ -931,6 +1053,14 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                       />
                     </div>
                   </div>
+
+                  {endSummary ? (
+                    <div className="plan-end-preview-card">
+                      <span className="semantic-badge time">{endSummary.label}</span>
+                      <strong>{endSummary.endLabel}</strong>
+                      <p>{endSummary.detail}</p>
+                    </div>
+                  ) : null}
 
                   <div className="plan-preview-itinerary" aria-label="Plan itinerary confirmation">
                     <div className="plan-preview-section-heading">
@@ -978,7 +1108,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                 </div>
                 {!detailPlace.sourcePlaceId ? (
                   <>
-                    <PlaceModeSegment value={detailPlace.mode} onChange={(mode) => updatePlace(detailPlaceIndex, { mode, location: mode === 'remote' ? '' : detailPlace.location })} />
+                    <PlaceModeSegment value={detailPlace.mode} onChange={(mode) => updateCustomPlaceMode(detailPlaceIndex, mode)} />
                     <label>
                       <span>Place name</span>
                       <input value={detailPlace.title} onChange={(event) => updatePlace(detailPlaceIndex, { title: event.target.value })} minLength={3} maxLength={120} required placeholder={detailPlace.mode === 'remote' ? 'Planning call' : 'Coffee meeting point'} />
@@ -995,14 +1125,18 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                         </label>
                       </div>
                     ) : (
-                      <GooglePlacePicker
-                        value={detailPlace.location}
-                        onValueChange={(location) => updatePlace(detailPlaceIndex, { location })}
-                        disabled={saving || detailPlace.uploading}
-                        label="Search address or place"
-                        placeholder="Café, park, address, station..."
-                        helperText="Choose a Google suggestion when possible. The confirmed public address text will be saved into this Plan stop."
-                      />
+                      <>
+                        <GooglePlacePicker
+                          value={detailPlace.location}
+                          onValueChange={(location) => updatePlaceManualLocation(detailPlaceIndex, location)}
+                          onResolvedPlace={(place) => updatePlaceResolvedAddress(detailPlaceIndex, place)}
+                          disabled={saving || detailPlace.uploading}
+                          label="Search and select address or place"
+                          placeholder="Café, park, address, station..."
+                          helperText="Select a provider suggestion. Typed text alone cannot be saved as an offline Plan stop."
+                        />
+                        {detailPlace.location.trim() && !providerAddressStatusLabel(detailPlace.providerAddress) ? <p className="form-error">Select a confirmed address suggestion before publishing.</p> : null}
+                      </>
                     )}
                   </>
                 ) : (

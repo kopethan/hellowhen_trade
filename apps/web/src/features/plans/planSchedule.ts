@@ -1,3 +1,5 @@
+import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime } from '@hellowhen/shared';
+
 export type PlanSchedulePlace = {
   id?: string;
   date: string;
@@ -35,13 +37,13 @@ function parseLocalDateTime(dateValue: string, timeValue: string) {
 
 export function buildPlanSchedule(places: PlanSchedulePlace[]) {
   if (places.length === 0) {
-    return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Add at least one place with a valid date and time.' };
+    return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: 'Add at least one place with a valid date and time.' };
   }
 
   const firstPlace = places[0];
   const firstDateTime = firstPlace ? parseLocalDateTime(firstPlace.date, firstPlace.time) : null;
   if (!firstDateTime) {
-    return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Add a valid date and time for Place 1.' };
+    return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: 'Add a valid date and time for Place 1.' };
   }
 
   let previousDateTime = firstDateTime;
@@ -53,20 +55,25 @@ export function buildPlanSchedule(places: PlanSchedulePlace[]) {
     if (!place) continue;
     const currentDateTime = parseLocalDateTime(place.date, place.time);
     if (!currentDateTime) {
-      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: `Add a valid date and time for Place ${index + 1}.` };
+      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: `Add a valid date and time for Place ${index + 1}.` };
     }
     if (currentDateTime.getTime() < previousDateTime.getTime()) {
-      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, error: 'Each place time must be at the same time or after the previous place.' };
+      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: 'Each place time must be at the same time or after the previous place.' };
     }
     placeStartsAt[index] = currentDateTime.toISOString();
     previousDateTime = currentDateTime;
     lastDateTime = currentDateTime;
   }
 
+  const placeEndsAt = buildEstimatedPlanPlaceEndTimes(placeStartsAt);
+  const estimatedFinalEnd = estimateFinalPlanPlaceEndTime(placeStartsAt);
+
   return {
     startsAt: firstDateTime.toISOString(),
-    endsAt: lastDateTime.toISOString(),
+    endsAt: placeEndsAt[placeEndsAt.length - 1] ?? lastDateTime.toISOString(),
     placeStartsAt,
+    placeEndsAt,
+    estimatedFinalEnd,
     error: '',
   };
 }

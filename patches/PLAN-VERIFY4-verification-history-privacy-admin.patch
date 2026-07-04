@@ -1,0 +1,1741 @@
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index bba393b..5a35e76 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -1,7 +1,7 @@
+ import { randomUUID } from 'node:crypto';
+ import { Router } from 'express';
+ import { z } from 'zod';
+-import { adminBusinessProfileActionRequestSchema, adminBusinessBudgetActionRequestSchema, adminBusinessBudgetListQuerySchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminContentClassificationActionRequestSchema, adminContentClassificationAiSuggestionRequestSchema, adminListContentClassificationsQuerySchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminListPlansQuerySchema, adminPlanActionRequestSchema, adminListPlanPublicMessagesQuerySchema, adminPlanPublicMessageActionRequestSchema, adminListPlacesQuerySchema, adminPlaceActionRequestSchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminListModerationCasesQuerySchema, adminModerationCaseActionRequestSchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateUsernameRequestSchema, adminPlusGrantRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema, type ModerationCaseStatus, type ModerationContentType, type ReportTargetType } from '@hellowhen/contracts';
++import { adminBusinessProfileActionRequestSchema, adminBusinessBudgetActionRequestSchema, adminBusinessBudgetListQuerySchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminContentClassificationActionRequestSchema, adminContentClassificationAiSuggestionRequestSchema, adminListContentClassificationsQuerySchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminListPlansQuerySchema, adminPlanActionRequestSchema, adminListPlanPublicMessagesQuerySchema, adminPlanPublicMessageActionRequestSchema, adminListPlacePresenceVerificationsQuerySchema, adminPlacePresenceVerificationActionRequestSchema, adminListPlacesQuerySchema, adminPlaceActionRequestSchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminListModerationCasesQuerySchema, adminModerationCaseActionRequestSchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateUsernameRequestSchema, adminPlusGrantRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema, type ModerationCaseStatus, type ModerationContentType, type ReportTargetType } from '@hellowhen/contracts';
+ import { AI_ASSIST_TASK_TYPES, AI_ASSIST_USAGE_STATUSES, buildAiAssistPeriodKey, evaluatePlusGate, hasProAccess } from '@hellowhen/shared';
+ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+@@ -1050,6 +1050,84 @@ async function adminPlanRecentReports(plan: { id: string; places?: Array<{ id: s
+   });
+ }
+ 
++
++const adminPlacePresenceVerificationInclude = {
++  user: { select: adminOverviewUserSelect },
++  plan: { select: { id: true, title: true, status: true, startsAt: true, owner: { select: adminOverviewUserSelect } } },
++  planPlace: { select: { id: true, title: true, mode: true, addressPublicText: true, formattedAddress: true, onlineLabel: true } },
++  sourcePlace: { include: { owner: { select: adminOverviewUserSelect } } },
++} as const;
++
++function toAdminPlacePresenceVerificationDto(verification: any) {
++  return {
++    ...verification,
++    verifiedAt: verification.verifiedAt?.toISOString?.() ?? null,
++    createdAt: verification.createdAt?.toISOString?.() ?? verification.createdAt,
++    plan: verification.plan ? {
++      ...verification.plan,
++      startsAt: verification.plan.startsAt?.toISOString?.() ?? verification.plan.startsAt ?? null,
++    } : null,
++  };
++}
++
++async function getAdminPlacePresenceVerification(verificationId: string) {
++  return (prisma as any).placePresenceVerification.findUnique({
++    where: { id: verificationId },
++    include: adminPlacePresenceVerificationInclude,
++  });
++}
++
++adminRoutes.get('/place-verifications', asyncRoute(async (req, res) => {
++  const input = adminListPlacePresenceVerificationsQuerySchema.parse(req.query);
++  const verifications = await (prisma as any).placePresenceVerification.findMany({
++    where: {
++      ...(input.status && input.status !== 'all' ? { status: input.status } : {}),
++      ...(input.userId ? { userId: input.userId } : {}),
++      ...(input.planId ? { planId: input.planId } : {}),
++      ...(input.planPlaceId ? { planPlaceId: input.planPlaceId } : {}),
++      ...(input.rejectionReason ? { rejectionReason: input.rejectionReason } : {}),
++    },
++    orderBy: [{ createdAt: 'desc' }],
++    take: input.take ?? 100,
++    include: adminPlacePresenceVerificationInclude,
++  });
++  res.json({ verifications: verifications.map(toAdminPlacePresenceVerificationDto) });
++}));
++
++adminRoutes.get('/place-verifications/:verificationId', asyncRoute(async (req, res) => {
++  const verificationId = req.params.verificationId;
++  if (!verificationId) return res.status(400).json({ error: 'missing_verification_id' });
++  const verification = await getAdminPlacePresenceVerification(verificationId);
++  if (!verification) return res.status(404).json({ error: 'not_found' });
++  res.json({ verification: toAdminPlacePresenceVerificationDto(verification) });
++}));
++
++adminRoutes.patch('/place-verifications/:verificationId/action', asyncRoute(async (req, res) => {
++  const verificationId = req.params.verificationId;
++  if (!verificationId) return res.status(400).json({ error: 'missing_verification_id' });
++  const input = adminPlacePresenceVerificationActionRequestSchema.parse(req.body ?? {});
++  const verification = await getAdminPlacePresenceVerification(verificationId);
++  if (!verification) return res.status(404).json({ error: 'not_found' });
++
++  await recordAdminAuditLog(prisma, req.user!.id, {
++    action: `place_presence_verification.${input.action}`,
++    targetType: 'place_presence_verification',
++    targetId: verification.id,
++    reason: input.note?.trim() || null,
++    previousValue: { status: verification.status, rejectionReason: verification.rejectionReason, verifiedAt: verification.verifiedAt },
++    nextValue: { status: verification.status, reviewed: true },
++    metadata: {
++      userId: verification.userId,
++      planId: verification.planId,
++      planPlaceId: verification.planPlaceId,
++      distanceMeters: verification.distanceMeters,
++      maxDistanceMeters: verification.maxDistanceMeters,
++    },
++  });
++
++  res.json({ verification: toAdminPlacePresenceVerificationDto(verification) });
++}));
++
+ const adminPlanPublicMessageInclude = {
+   author: { select: adminOverviewUserSelect },
+   hiddenBy: { select: adminOverviewUserSelect },
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+index 5032a80..79c6364 100644
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -7,6 +7,7 @@ import {
+   createPlanPublicMessageRequestSchema,
+   createPlanRequestSchema,
+   listPlanPublicMessagesQuerySchema,
++  listMyPlacePresenceVerificationsQuerySchema,
+   listPlansQuerySchema,
+   updateMyPlanParticipantRequestSchema,
+   updatePlanParticipantRequestSchema,
+@@ -945,6 +946,57 @@ plansRoutes.post('/:planId/places/:placeId/verify-presence', requireAuth, requir
+   return res.status(accepted ? 201 : 409).json(verificationResponse(verification, accepted));
+ }));
+ 
++
++function serializePrivatePlacePresenceVerification(verification: any) {
++  return {
++    id: verification.id,
++    userId: verification.userId,
++    planId: verification.planId,
++    planPlaceId: verification.planPlaceId,
++    sourcePlaceId: verification.sourcePlaceId ?? null,
++    source: verification.source,
++    status: verification.status,
++    distanceMeters: verification.distanceMeters ?? null,
++    maxDistanceMeters: verification.maxDistanceMeters ?? null,
++    rejectionReason: verification.rejectionReason ?? null,
++    verifiedAt: verification.verifiedAt?.toISOString?.() ?? null,
++    createdAt: verification.createdAt?.toISOString?.() ?? verification.createdAt,
++    plan: verification.plan ? {
++      id: verification.plan.id,
++      title: verification.plan.title,
++      status: verification.plan.status,
++      startsAt: verification.plan.startsAt?.toISOString?.() ?? verification.plan.startsAt ?? null,
++    } : null,
++    planPlace: verification.planPlace ? {
++      id: verification.planPlace.id,
++      title: verification.planPlace.title,
++      mode: verification.planPlace.mode ?? 'local',
++      addressPublicText: verification.planPlace.addressPublicText ?? null,
++      formattedAddress: verification.planPlace.formattedAddress ?? null,
++      onlineLabel: verification.planPlace.onlineLabel ?? null,
++    } : null,
++  };
++}
++
++
++plansRoutes.get('/place-verifications/mine', requireAuth, asyncRoute(async (req, res) => {
++  const input = listMyPlacePresenceVerificationsQuerySchema.parse(req.query);
++  const verifications = await (prisma as any).placePresenceVerification.findMany({
++    where: {
++      userId: req.user!.id,
++      ...(input.status && input.status !== 'all' ? { status: input.status } : {}),
++    },
++    orderBy: [{ createdAt: 'desc' }],
++    take: input.take ?? 50,
++    include: {
++      plan: { select: { id: true, title: true, status: true, startsAt: true } },
++      planPlace: { select: { id: true, title: true, mode: true, addressPublicText: true, formattedAddress: true, onlineLabel: true } },
++    },
++  });
++
++  res.json({ verifications: verifications.map(serializePrivatePlacePresenceVerification) });
++}));
++
+ plansRoutes.get('/place-verifications/summary', requireAuth, asyncRoute(async (req, res) => {
+   const [totalVerifiedCheckIns, lastVerified, verifiedPlaces, verifiedPlans] = await Promise.all([
+     (prisma as any).placePresenceVerification.count({ where: { userId: req.user!.id, status: 'verified' } }),
+diff --git a/apps/web/src/app/admin/plans/page.tsx b/apps/web/src/app/admin/plans/page.tsx
+index e41bce8..542b520 100644
+--- a/apps/web/src/app/admin/plans/page.tsx
++++ b/apps/web/src/app/admin/plans/page.tsx
+@@ -52,6 +52,27 @@ type AdminPlanPublicMessage = {
+   latestReportStatus?: string | null;
+ };
+ 
++
++type AdminPlacePresenceVerification = {
++  id: string;
++  userId: string;
++  planId: string;
++  planPlaceId: string;
++  sourcePlaceId?: string | null;
++  source?: string | null;
++  status: string;
++  latitudeRounded?: number | null;
++  longitudeRounded?: number | null;
++  accuracyMeters?: number | null;
++  distanceMeters?: number | null;
++  maxDistanceMeters?: number | null;
++  rejectionReason?: string | null;
++  verifiedAt?: string | null;
++  createdAt?: string | null;
++  user?: AdminUser | null;
++  planPlace?: { id: string; title: string; mode?: string | null; addressPublicText?: string | null; formattedAddress?: string | null; onlineLabel?: string | null } | null;
++};
++
+ type AdminPlan = {
+   id: string;
+   ownerId: string;
+@@ -135,6 +156,17 @@ function messageTone(status?: string | null) {
+   return 'admin';
+ }
+ 
++
++function verificationTone(status?: string | null) {
++  if (status === 'verified') return 'success';
++  if (status === 'rejected') return 'danger';
++  return 'admin';
++}
++
++function metersLabel(value?: number | null) {
++  return typeof value === 'number' ? `${Math.round(value)}m` : 'Not measured';
++}
++
+ function dateLabel(value?: string | null) {
+   return value ? formatWebDateTime(value) : 'Not set';
+ }
+@@ -168,6 +200,9 @@ export default function AdminPlansPage() {
+   const [discussionStatus, setDiscussionStatus] = useState<PlanMessageStatusFilter>('all');
+   const [discussionNote, setDiscussionNote] = useState('');
+   const [discussionMessages, setDiscussionMessages] = useState<AdminPlanPublicMessage[]>([]);
++  const [presenceChecks, setPresenceChecks] = useState<AdminPlacePresenceVerification[]>([]);
++  const [presenceStatus, setPresenceStatus] = useState<'all' | 'verified' | 'rejected'>('all');
++  const [presenceNote, setPresenceNote] = useState('');
+   const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
+   const [loading, setLoading] = useState(false);
+ 
+@@ -176,6 +211,7 @@ export default function AdminPlansPage() {
+     setPlans([]);
+     setSelectedPlan(null);
+     setDiscussionMessages([]);
++    setPresenceChecks([]);
+     setNotice({ tone: 'info', body: 'Local admin browser session cleared.' });
+   }
+ 
+@@ -218,6 +254,7 @@ export default function AdminPlansPage() {
+       setSelectedPlan(data.plan);
+       setDiscussionMessages(data.plan.publicMessages ?? []);
+       setPlans((current) => current.map((plan) => plan.id === data.plan.id ? data.plan : plan));
++      void loadPresenceChecks(data.plan.id);
+     } catch (error) {
+       setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not load Plan detail.' });
+     } finally {
+@@ -272,6 +309,50 @@ export default function AdminPlansPage() {
+     }
+   }
+ 
++
++  async function loadPresenceChecks(planId = selectedPlan?.id) {
++    if (!token || !planId) return;
++    setLoading(true);
++    setNotice(null);
++    try {
++      const params = new URLSearchParams({ planId });
++      if (presenceStatus !== 'all') params.set('status', presenceStatus);
++      const response = await fetch(`${apiBase}/admin/place-verifications?${params.toString()}`, { headers });
++      if (!response.ok) throw new Error('Could not load Plan presence checks.');
++      const data = await response.json() as { verifications: AdminPlacePresenceVerification[] };
++      setPresenceChecks(data.verifications);
++      setNotice({ tone: 'success', body: `Loaded ${data.verifications.length} presence check${data.verifications.length === 1 ? '' : 's'} for this Plan.` });
++    } catch (error) {
++      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not load Plan presence checks.' });
++    } finally {
++      setLoading(false);
++    }
++  }
++
++  async function markPresenceCheckReviewed(verificationId: string) {
++    if (!token) return;
++    setLoading(true);
++    setNotice(null);
++    try {
++      const response = await fetch(`${apiBase}/admin/place-verifications/${verificationId}/action`, {
++        method: 'PATCH',
++        headers,
++        body: JSON.stringify({ action: 'mark_reviewed', note: presenceNote.trim() || undefined }),
++      });
++      if (!response.ok) {
++        const body = await response.json().catch(() => null) as { message?: string } | null;
++        throw new Error(body?.message || 'Could not mark presence check reviewed.');
++      }
++      const data = await response.json() as { verification: AdminPlacePresenceVerification };
++      setPresenceChecks((current) => current.map((item) => item.id === data.verification.id ? data.verification : item));
++      setNotice({ tone: 'success', body: 'Presence check review audit saved.' });
++    } catch (error) {
++      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not mark presence check reviewed.' });
++    } finally {
++      setLoading(false);
++    }
++  }
++
+   async function applyDiscussionAction(messageId: string, action: PlanMessageAction) {
+     if (!token || !selectedPlan) return;
+     if (action === 'hide' && !discussionNote.trim()) {
+@@ -427,6 +508,53 @@ export default function AdminPlansPage() {
+         </section>
+       ) : null}
+ 
++      {selectedPlan ? (
++        <section className="admin-detail-grid">
++          <article className="app-card admin-action-card">
++            <div className="status-row"><span className="semantic-badge warning">Presence checks</span><span className="semantic-badge admin">Admin only</span></div>
++            <h2>Offline presence verification history</h2>
++            <p>Review GPS presence attempts for this Plan. Exact rounded coordinates and rejection reasons stay admin-only and are never shown on public profiles.</p>
++            <div className="admin-trust-controls">
++              <select value={presenceStatus} onChange={(event) => setPresenceStatus(event.target.value as 'all' | 'verified' | 'rejected')}>
++                <option value="all">all checks</option>
++                <option value="verified">verified only</option>
++                <option value="rejected">rejected only</option>
++              </select>
++              <button type="button" className="secondary" onClick={() => { void loadPresenceChecks(); }} disabled={loading || !token}>Load presence checks</button>
++            </div>
++            <label>
++              Presence review note
++              <textarea value={presenceNote} onChange={(event) => setPresenceNote(event.target.value)} placeholder="Optional internal note for suspicious/rejected checks." rows={3} />
++            </label>
++            <div className="admin-audit-list">
++              {presenceChecks.map((check) => (
++                <article key={check.id} className="admin-audit-row">
++                  <span>
++                    <strong>{personLabel(check.user)} · {check.planPlace?.title ?? check.planPlaceId}</strong>
++                    <small>{labelize(check.status)} · created {dateLabel(check.createdAt)} · verified {dateLabel(check.verifiedAt)}</small>
++                    <small>Distance {metersLabel(check.distanceMeters)} / max {metersLabel(check.maxDistanceMeters)} · accuracy {metersLabel(check.accuracyMeters)}</small>
++                    {typeof check.latitudeRounded === 'number' && typeof check.longitudeRounded === 'number' ? <small>Rounded coordinates: {check.latitudeRounded.toFixed(4)}, {check.longitudeRounded.toFixed(4)}</small> : null}
++                    {check.rejectionReason ? <small>Rejection: {labelize(check.rejectionReason)}</small> : null}
++                    <small>ID: {check.id}</small>
++                  </span>
++                  <span className="status-row">
++                    <em className={`semantic-badge ${verificationTone(check.status)}`}>{labelize(check.status)}</em>
++                    <button type="button" className="ghost" onClick={() => { void markPresenceCheckReviewed(check.id); }} disabled={loading || !token}>Mark reviewed</button>
++                  </span>
++                </article>
++              ))}
++              {presenceChecks.length === 0 ? <p>No loaded presence checks yet. Use Load presence checks to inspect accepted and rejected GPS verification attempts for this Plan.</p> : null}
++            </div>
++          </article>
++
++          <article className="app-card admin-action-card">
++            <div className="status-row"><span className="semantic-badge info">Privacy rule</span></div>
++            <h2>Public profile safety</h2>
++            <p>Public profiles only show aggregate offline presence counters. Plan titles, place names, addresses, coordinates, rejection history, and admin review notes stay private/admin-only.</p>
++          </article>
++        </section>
++      ) : null}
++
+       {selectedPlan ? (
+         <section className="admin-detail-grid">
+           <article className="app-card admin-action-card">
+diff --git a/docs/plans/place-presence-verification-audit.md b/docs/plans/place-presence-verification-audit.md
+index d17961f..744c48e 100644
+--- a/docs/plans/place-presence-verification-audit.md
++++ b/docs/plans/place-presence-verification-audit.md
+@@ -347,28 +347,38 @@ Scope completed:
+ - Keeps exact place names, Plan titles, addresses, and coordinates private.
+ ```
+ 
+-### PLAN-VERIFY4 — Verification smoke checks
++### PLAN-VERIFY4 — Verification history privacy/admin — implemented
+ 
+-Scope:
++Scope completed:
+ 
+ ```txt
+-- Add an API smoke script for disabled flag, invalid participant, too-far location, and near-location success.
+-- Add docs for local testing with PLACE_PRESENCE_VERIFICATION_ENABLED=true.
+-- Keep smoke records archived/cleaned if created in development.
++- Adds a private authenticated verification history endpoint:
++  GET /plans/place-verifications/mine
++
++- Adds admin-only verification review endpoints:
++  GET   /admin/place-verifications
++  GET   /admin/place-verifications/:verificationId
++  PATCH /admin/place-verifications/:verificationId/action
++
++- Adds an admin Plans page section for Plan-level presence checks.
++- Admins can filter verified/rejected checks and write a mark-reviewed audit entry.
++- Public profiles still expose only aggregate counters and last confirmation date.
++- Exact rounded coordinates, rejection reasons, Plan/place details, and review notes stay private/admin-only.
++- No database migration is required; mark-reviewed is stored in AdminAuditLog.
+ ```
+ 
+-### PLAN-VERIFY5 — Private/admin verification review
++### PLAN-VERIFY5 — Verification smoke checks
+ 
+ Scope:
+ 
+ ```txt
+-- Add private user history view or account summary if needed.
+-- Add admin-only suspicious/rejected verification review if needed.
+-- Keep exact coordinates hidden from public profile.
++- Add an API smoke script for disabled flag, invalid participant, too-far location, and near-location success.
++- Add docs for local testing with PLACE_PRESENCE_VERIFICATION_ENABLED=true.
++- Keep smoke records archived/cleaned if created in development.
+ ```
+ 
+ ## Recommended next command
+ 
+ ```txt
+-Go PLAN-VERIFY2 — Web geolocation + profile trust polish
++Go PLAN-VERIFY5 — Verification smoke checks
+ ```
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index c434d36..99017a5 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, ListInventoryFoldersQuery, CreateInventoryFolderRequest, UpdateInventoryFolderRequest, AddInventoryFolderItemRequest, InventoryFoldersResponse, InventoryFolderResponse, InventoryFolderItemResponse, CreateSavedItemRequest, SavedItemStatusQuery, ListSavedItemsQuery, CreateSavedCollectionRequest, UpdateSavedCollectionRequest, AddSavedCollectionItemRequest, SavedItemsResponse, SavedItemResponse, SavedItemStatusResponse, SavedCollectionsResponse, SavedCollectionResponse, SavedCollectionItemResponse, ListAgendaItemsQuery, AgendaIcsExportQuery, CreateAgendaItemRequest, UpdateAgendaItemRequest, AgendaItemsResponse, AgendaItemResponse, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, CreateDealProblemReportRequest, AdminReportActionRequest, AdminPlaceActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlaceRequest, UpdatePlaceRequest, ListPlacesQuery, PlaceResponse, PlacesResponse, GooglePlaceSearchQuery, GooglePlaceSearchResponse, GooglePlaceDetailsQuery, GooglePlaceDetailsResponse, GoogleAddressValidationRequest, GoogleAddressValidationResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, CreatePlanPublicMessageRequest, UpdatePlanPublicMessageRequest, ListPlanPublicMessagesQuery, PlanPublicMessagesResponse, PlanPublicMessageResponse, CreatePlacePresenceVerificationRequest, PlacePresenceVerificationResponse, PlacePresenceVerificationSummaryResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery, PlusSubscriptionSnapshotResponse, AdminPlusGrantRequest, AdminPlusUsersResponse, AdminPlusGrantResponse, AdminPlusAiAssistUsageResponse, AiAssistRequest, AiAssistResponse, ListTradeSearchSuggestionsQuery, RecordTradeSearchKeywordRequest, TradeSearchSuggestionsResponse, TradeSearchKeywordResponse, CreateMembershipCheckoutSessionRequest, MembershipCheckoutSessionResponse, MembershipCustomerPortalSessionResponse, SyncAppleStoreKitPurchaseRequest, AppleStoreKitSyncResponse, GooglePlayPurchaseSyncRequest, GooglePlaySyncResponse } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, ListInventoryFoldersQuery, CreateInventoryFolderRequest, UpdateInventoryFolderRequest, AddInventoryFolderItemRequest, InventoryFoldersResponse, InventoryFolderResponse, InventoryFolderItemResponse, CreateSavedItemRequest, SavedItemStatusQuery, ListSavedItemsQuery, CreateSavedCollectionRequest, UpdateSavedCollectionRequest, AddSavedCollectionItemRequest, SavedItemsResponse, SavedItemResponse, SavedItemStatusResponse, SavedCollectionsResponse, SavedCollectionResponse, SavedCollectionItemResponse, ListAgendaItemsQuery, AgendaIcsExportQuery, CreateAgendaItemRequest, UpdateAgendaItemRequest, AgendaItemsResponse, AgendaItemResponse, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, CreateDealProblemReportRequest, AdminReportActionRequest, AdminPlaceActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlaceRequest, UpdatePlaceRequest, ListPlacesQuery, PlaceResponse, PlacesResponse, GooglePlaceSearchQuery, GooglePlaceSearchResponse, GooglePlaceDetailsQuery, GooglePlaceDetailsResponse, GoogleAddressValidationRequest, GoogleAddressValidationResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, CreatePlanPublicMessageRequest, UpdatePlanPublicMessageRequest, ListPlanPublicMessagesQuery, PlanPublicMessagesResponse, PlanPublicMessageResponse, CreatePlacePresenceVerificationRequest, ListMyPlacePresenceVerificationsQuery, PlacePresenceVerificationResponse, PlacePresenceVerificationSummaryResponse, PlacePresenceVerificationHistoryResponse, AdminPlacePresenceVerificationActionRequest, AdminPlacePresenceVerificationResponse, AdminPlacePresenceVerificationsResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery, PlusSubscriptionSnapshotResponse, AdminPlusGrantRequest, AdminPlusUsersResponse, AdminPlusGrantResponse, AdminPlusAiAssistUsageResponse, AiAssistRequest, AiAssistResponse, ListTradeSearchSuggestionsQuery, RecordTradeSearchKeywordRequest, TradeSearchSuggestionsResponse, TradeSearchKeywordResponse, CreateMembershipCheckoutSessionRequest, MembershipCheckoutSessionResponse, MembershipCustomerPortalSessionResponse, SyncAppleStoreKitPurchaseRequest, AppleStoreKitSyncResponse, GooglePlayPurchaseSyncRequest, GooglePlaySyncResponse } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, requestText, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -74,7 +74,7 @@ export function createApiClient(options: ApiClientOptions) {
+     saved: { list: (query?: ListSavedItemsQuery) => requestJson<SavedItemsResponse>(options, `/saved${buildQueryString(query as Record<string, unknown> | undefined)}`), create: (body: CreateSavedItemRequest) => requestJson<SavedItemResponse>(options, '/saved', { method: 'POST', body: JSON.stringify(body) }), remove: (savedItemId: string) => requestJson<void>(options, `/saved/${savedItemId}`, { method: 'DELETE' }), status: (query: SavedItemStatusQuery) => requestJson<SavedItemStatusResponse>(options, `/saved/status${buildQueryString(query as Record<string, unknown>)}`), collections: () => requestJson<SavedCollectionsResponse>(options, '/saved/collections'), createCollection: (body: CreateSavedCollectionRequest) => requestJson<SavedCollectionResponse>(options, '/saved/collections', { method: 'POST', body: JSON.stringify(body) }), updateCollection: (collectionId: string, body: UpdateSavedCollectionRequest) => requestJson<SavedCollectionResponse>(options, `/saved/collections/${collectionId}`, { method: 'PATCH', body: JSON.stringify(body) }), removeCollection: (collectionId: string) => requestJson<void>(options, `/saved/collections/${collectionId}`, { method: 'DELETE' }), addCollectionItem: (collectionId: string, body: AddSavedCollectionItemRequest) => requestJson<SavedCollectionItemResponse>(options, `/saved/collections/${collectionId}/items`, { method: 'POST', body: JSON.stringify(body) }), removeCollectionItem: (collectionId: string, savedItemId: string) => requestJson<void>(options, `/saved/collections/${collectionId}/items/${savedItemId}`, { method: 'DELETE' }) },
+     agenda: { list: (query?: ListAgendaItemsQuery) => requestJson<AgendaItemsResponse>(options, `/agenda${buildQueryString(query as Record<string, unknown> | undefined)}`), exportIcs: (query?: AgendaIcsExportQuery) => requestText(options, `/agenda/ics${buildQueryString(query as Record<string, unknown> | undefined)}`), exportItemIcs: (itemId: string) => requestText(options, `/agenda/${itemId}/ics`), create: (body: CreateAgendaItemRequest) => requestJson<AgendaItemResponse>(options, '/agenda', { method: 'POST', body: JSON.stringify(body) }), update: (itemId: string, body: UpdateAgendaItemRequest) => requestJson<AgendaItemResponse>(options, `/agenda/${itemId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (itemId: string) => requestJson<void>(options, `/agenda/${itemId}`, { method: 'DELETE' }) },
+     users: { publicProfile: (userId: string) => requestJson<PublicProfileResponse>(options, `/users/${userId}/public-profile`), publicProfileByUsername: (username: string) => requestJson<PublicProfileResponse>(options, `/users/by-username/${encodeURIComponent(username)}/public-profile`), blocked: () => requestJson<UserBlocksResponse>(options, '/users/blocked'), block: (userId: string, body?: CreateUserBlockRequest) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'POST', body: JSON.stringify(body ?? {}) }), unblock: (userId: string) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'DELETE' }) },
+-    plans: { feed: (query?: ListPlansQuery) => requestJson<PlansResponse>(options, `/plans/feed${buildQueryString(query as Record<string, unknown> | undefined)}`), mine: () => requestJson<PlansResponse>(options, '/plans/mine'), joined: () => requestJson<PlansResponse>(options, '/plans/joined'), get: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`), create: (body: CreatePlanRequest) => requestJson<PlanResponse>(options, '/plans', { method: 'POST', body: JSON.stringify(body) }), update: (planId: string, body: UpdatePlanRequest) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'PATCH', body: JSON.stringify(body) }), createPlace: (planId: string, body: CreatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places`, { method: 'POST', body: JSON.stringify(body) }), updatePlace: (planId: string, placeId: string, body: UpdatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places/${placeId}`, { method: 'PATCH', body: JSON.stringify(body) }), join: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join`, { method: 'POST', body: JSON.stringify(body ?? {}) }), leave: (planId: string) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/leave`, { method: 'POST' }), requestJoin: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests`, { method: 'POST', body: JSON.stringify(body ?? {}) }), joinRequests: (planId: string) => requestJson<PlanParticipantsResponse>(options, `/plans/${planId}/join-requests`), updateJoinRequest: (planId: string, participantId: string, body: UpdatePlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests/${participantId}`, { method: 'PATCH', body: JSON.stringify(body) }), updateMyJoinRequest: (planId: string, body: UpdateMyPlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/my-join-request`, { method: 'PATCH', body: JSON.stringify(body) }), publicMessages: (planId: string, query?: ListPlanPublicMessagesQuery) => requestJson<PlanPublicMessagesResponse>(options, `/plans/${planId}/public-messages${buildQueryString(query as Record<string, unknown> | undefined)}`), sendPublicMessage: (planId: string, body: CreatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages`, { method: 'POST', body: JSON.stringify(body) }), updatePublicMessage: (planId: string, messageId: string, body: UpdatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePublicMessage: (planId: string, messageId: string) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'DELETE' }), verifyPlacePresence: (planId: string, planPlaceId: string, body: CreatePlacePresenceVerificationRequest) => requestJson<PlacePresenceVerificationResponse>(options, `/plans/${planId}/places/${planPlaceId}/verify-presence`, { method: 'POST', body: JSON.stringify(body) }), placeVerificationSummary: () => requestJson<PlacePresenceVerificationSummaryResponse>(options, '/plans/place-verifications/summary') },
++    plans: { feed: (query?: ListPlansQuery) => requestJson<PlansResponse>(options, `/plans/feed${buildQueryString(query as Record<string, unknown> | undefined)}`), mine: () => requestJson<PlansResponse>(options, '/plans/mine'), joined: () => requestJson<PlansResponse>(options, '/plans/joined'), get: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`), create: (body: CreatePlanRequest) => requestJson<PlanResponse>(options, '/plans', { method: 'POST', body: JSON.stringify(body) }), update: (planId: string, body: UpdatePlanRequest) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'PATCH', body: JSON.stringify(body) }), createPlace: (planId: string, body: CreatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places`, { method: 'POST', body: JSON.stringify(body) }), updatePlace: (planId: string, placeId: string, body: UpdatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places/${placeId}`, { method: 'PATCH', body: JSON.stringify(body) }), join: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join`, { method: 'POST', body: JSON.stringify(body ?? {}) }), leave: (planId: string) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/leave`, { method: 'POST' }), requestJoin: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests`, { method: 'POST', body: JSON.stringify(body ?? {}) }), joinRequests: (planId: string) => requestJson<PlanParticipantsResponse>(options, `/plans/${planId}/join-requests`), updateJoinRequest: (planId: string, participantId: string, body: UpdatePlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests/${participantId}`, { method: 'PATCH', body: JSON.stringify(body) }), updateMyJoinRequest: (planId: string, body: UpdateMyPlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/my-join-request`, { method: 'PATCH', body: JSON.stringify(body) }), publicMessages: (planId: string, query?: ListPlanPublicMessagesQuery) => requestJson<PlanPublicMessagesResponse>(options, `/plans/${planId}/public-messages${buildQueryString(query as Record<string, unknown> | undefined)}`), sendPublicMessage: (planId: string, body: CreatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages`, { method: 'POST', body: JSON.stringify(body) }), updatePublicMessage: (planId: string, messageId: string, body: UpdatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePublicMessage: (planId: string, messageId: string) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'DELETE' }), verifyPlacePresence: (planId: string, planPlaceId: string, body: CreatePlacePresenceVerificationRequest) => requestJson<PlacePresenceVerificationResponse>(options, `/plans/${planId}/places/${planPlaceId}/verify-presence`, { method: 'POST', body: JSON.stringify(body) }), placeVerificationSummary: () => requestJson<PlacePresenceVerificationSummaryResponse>(options, '/plans/place-verifications/summary'), placeVerificationHistory: (query?: ListMyPlacePresenceVerificationsQuery) => requestJson<PlacePresenceVerificationHistoryResponse>(options, `/plans/place-verifications/mine${buildQueryString(query as Record<string, unknown> | undefined)}`) },
+     reports: { create: (body: CreateReportRequest) => requestJson(options, '/reports', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/reports/mine') },
+     usage: { heartbeat: (body: UsageHeartbeatRequest) => requestJson<void>(options, '/usage/heartbeat', { method: 'POST', body: JSON.stringify(body) }) },
+ 
+@@ -85,7 +85,7 @@ export function createApiClient(options: ApiClientOptions) {
+     notifications: { mine: (query?: ListNotificationsQuery) => requestJson<NotificationsResponse>(options, `/notifications/mine${buildQueryString(query as Record<string, unknown> | undefined)}`), unreadCount: () => requestJson<NotificationUnreadCountResponse>(options, '/notifications/unread-count'), markRead: (notificationId: string) => requestJson<NotificationResponse>(options, `/notifications/${notificationId}/read`, { method: 'PATCH' }), markAllRead: () => requestJson<MarkAllNotificationsReadResponse>(options, '/notifications/mark-all-read', { method: 'PATCH' }) },
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+     places: { mine: (query?: ListPlacesQuery) => requestJson<PlacesResponse>(options, `/places/mine${buildQueryString(query as Record<string, unknown> | undefined)}`), library: (query?: ListPlacesQuery) => requestJson<PlacesResponse>(options, `/places/library${buildQueryString(query as Record<string, unknown> | undefined)}`), googleSearch: (query: GooglePlaceSearchQuery) => requestJson<GooglePlaceSearchResponse>(options, `/places/google/search${buildQueryString(query as Record<string, unknown>)}`), googleDetails: (query: GooglePlaceDetailsQuery) => requestJson<GooglePlaceDetailsResponse>(options, `/places/google/details${buildQueryString(query as Record<string, unknown>)}`), googleValidateAddress: (body: GoogleAddressValidationRequest) => requestJson<GoogleAddressValidationResponse>(options, '/places/google/validate-address', { method: 'POST', body: JSON.stringify(body) }), get: (placeId: string) => requestJson<PlaceResponse>(options, `/places/${placeId}`), create: (body: CreatePlaceRequest) => requestJson<PlaceResponse>(options, '/places', { method: 'POST', body: JSON.stringify(body) }), update: (placeId: string, body: UpdatePlaceRequest) => requestJson<PlaceResponse>(options, `/places/${placeId}`, { method: 'PATCH', body: JSON.stringify(body) }), archive: (placeId: string) => requestJson<PlaceResponse>(options, `/places/${placeId}`, { method: 'DELETE' }) },
+-    admin: { overview: () => requestJson<AdminOverviewResponse>(options, '/admin/overview'), plusUsers: (query?: string) => requestJson<AdminPlusUsersResponse>(options, `/admin/plus/users${query ?? ''}`), plusAiAssistUsage: (query?: string) => requestJson<AdminPlusAiAssistUsageResponse>(options, `/admin/plus/ai-assist-usage${query ?? ''}`), updatePlusGrant: (userId: string, body: AdminPlusGrantRequest) => requestJson<AdminPlusGrantResponse>(options, `/admin/plus/users/${userId}/grant`, { method: 'PATCH', body: JSON.stringify(body) }), reports: (query = '') => requestJson(options, `/admin/reports${query}`), updateReportAction: (reportId: string, body: AdminReportActionRequest) => requestJson(options, `/admin/reports/${reportId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), plans: (query = '') => requestJson(options, `/admin/plans${query}`), plan: (planId: string) => requestJson(options, `/admin/plans/${planId}`), planPublicMessages: (planId: string, query = '') => requestJson(options, `/admin/plans/${planId}/public-messages${query}`), updatePlanPublicMessageAction: (planId: string, messageId: string, body: { action: 'hide' | 'restore' | 'mark_reviewed'; note?: string }) => requestJson(options, `/admin/plans/${planId}/public-messages/${messageId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), updatePlanAction: (planId: string, body: { action: 'hide' | 'restore' | 'cancel' | 'mark_reviewed'; note?: string }) => requestJson(options, `/admin/plans/${planId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), adminPlaces: (query = '') => requestJson(options, `/admin/places${query}`), adminPlace: (placeId: string) => requestJson(options, `/admin/places/${placeId}`), updateAdminPlaceAction: (placeId: string, body: AdminPlaceActionRequest) => requestJson(options, `/admin/places/${placeId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), usage: () => requestJson(options, '/admin/usage'), moneySafety: () => requestJson(options, '/admin/money-safety'), businessProfiles: (query?: string) => requestJson(options, `/admin/business-profiles${query ?? ''}`), updateBusinessProfileAction: (businessProfileId: string, body: AdminBusinessProfileActionRequest) => requestJson(options, `/admin/business-profiles/${businessProfileId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), businessSponsoredPlacements: (query?: string) => requestJson(options, `/admin/business-sponsored-placements${query ?? ''}`), updateBusinessSponsoredPlacementAction: (placementId: string, body: AdminBusinessSponsoredPlacementActionRequest) => requestJson(options, `/admin/business-sponsored-placements/${placementId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), businessCampaigns: (query?: string) => requestJson(options, `/admin/business-campaigns${query ?? ''}`), updateBusinessCampaignAction: (campaignId: string, body: AdminBusinessCampaignActionRequest) => requestJson(options, `/admin/business-campaigns/${campaignId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), businessBudgets: (query?: string) => requestJson(options, `/admin/business-budgets${query ?? ''}`), updateBusinessBudgetAction: (budgetId: string, body: AdminBusinessBudgetActionRequest) => requestJson(options, `/admin/business-budgets/${budgetId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), updateLibraryTemplateAction: (templateId: string, body: { action: 'approve' | 'reject' | 'hide' | 'restore'; note?: string }) => requestJson(options, `/admin/library/${templateId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
++    admin: { overview: () => requestJson<AdminOverviewResponse>(options, '/admin/overview'), plusUsers: (query?: string) => requestJson<AdminPlusUsersResponse>(options, `/admin/plus/users${query ?? ''}`), plusAiAssistUsage: (query?: string) => requestJson<AdminPlusAiAssistUsageResponse>(options, `/admin/plus/ai-assist-usage${query ?? ''}`), updatePlusGrant: (userId: string, body: AdminPlusGrantRequest) => requestJson<AdminPlusGrantResponse>(options, `/admin/plus/users/${userId}/grant`, { method: 'PATCH', body: JSON.stringify(body) }), reports: (query = '') => requestJson(options, `/admin/reports${query}`), updateReportAction: (reportId: string, body: AdminReportActionRequest) => requestJson(options, `/admin/reports/${reportId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), plans: (query = '') => requestJson(options, `/admin/plans${query}`), plan: (planId: string) => requestJson(options, `/admin/plans/${planId}`), planPublicMessages: (planId: string, query = '') => requestJson(options, `/admin/plans/${planId}/public-messages${query}`), placeVerifications: (query = '') => requestJson<AdminPlacePresenceVerificationsResponse>(options, `/admin/place-verifications${query}`), placeVerification: (verificationId: string) => requestJson<AdminPlacePresenceVerificationResponse>(options, `/admin/place-verifications/${verificationId}`), updatePlaceVerificationAction: (verificationId: string, body: AdminPlacePresenceVerificationActionRequest) => requestJson<AdminPlacePresenceVerificationResponse>(options, `/admin/place-verifications/${verificationId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), updatePlanPublicMessageAction: (planId: string, messageId: string, body: { action: 'hide' | 'restore' | 'mark_reviewed'; note?: string }) => requestJson(options, `/admin/plans/${planId}/public-messages/${messageId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), updatePlanAction: (planId: string, body: { action: 'hide' | 'restore' | 'cancel' | 'mark_reviewed'; note?: string }) => requestJson(options, `/admin/plans/${planId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), adminPlaces: (query = '') => requestJson(options, `/admin/places${query}`), adminPlace: (placeId: string) => requestJson(options, `/admin/places/${placeId}`), updateAdminPlaceAction: (placeId: string, body: AdminPlaceActionRequest) => requestJson(options, `/admin/places/${placeId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), usage: () => requestJson(options, '/admin/usage'), moneySafety: () => requestJson(options, '/admin/money-safety'), businessProfiles: (query?: string) => requestJson(options, `/admin/business-profiles${query ?? ''}`), updateBusinessProfileAction: (businessProfileId: string, body: AdminBusinessProfileActionRequest) => requestJson(options, `/admin/business-profiles/${businessProfileId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), businessSponsoredPlacements: (query?: string) => requestJson(options, `/admin/business-sponsored-placements${query ?? ''}`), updateBusinessSponsoredPlacementAction: (placementId: string, body: AdminBusinessSponsoredPlacementActionRequest) => requestJson(options, `/admin/business-sponsored-placements/${placementId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), businessCampaigns: (query?: string) => requestJson(options, `/admin/business-campaigns${query ?? ''}`), updateBusinessCampaignAction: (campaignId: string, body: AdminBusinessCampaignActionRequest) => requestJson(options, `/admin/business-campaigns/${campaignId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), businessBudgets: (query?: string) => requestJson(options, `/admin/business-budgets${query ?? ''}`), updateBusinessBudgetAction: (budgetId: string, body: AdminBusinessBudgetActionRequest) => requestJson(options, `/admin/business-budgets/${budgetId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), updateLibraryTemplateAction: (templateId: string, body: { action: 'approve' | 'reject' | 'hide' | 'restore'; note?: string }) => requestJson(options, `/admin/library/${templateId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
+     credits: { packages: () => requestJson(options, '/credits/packages'), createCheckoutSession: (body: CreateCheckoutSessionRequest) => requestJson(options, '/credits/checkout-session', { method: 'POST', body: JSON.stringify(body) }), purchasesMine: () => requestJson(options, '/credits/purchases/mine') },
+     account: { deletionRequest: () => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request'), requestDeletion: (body?: CreateAccountDeletionRequest) => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request', { method: 'POST', body: JSON.stringify(body ?? {}) }), cancelDeletionRequest: () => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request/cancel', { method: 'PATCH' }) },
+     support: { ticketsMine: () => requestJson(options, '/support/tickets/mine'), createTicket: (body: CreateSupportTicketRequest) => requestJson(options, '/support/tickets', { method: 'POST', body: JSON.stringify(body) }), createGuestTicket: (body: CreateGuestSupportTicketRequest) => requestJson(options, '/support/guest/tickets', { method: 'POST', body: JSON.stringify(body) }), ticket: (ticketId: string) => requestJson(options, `/support/tickets/${ticketId}`), sendMessage: (ticketId: string, body: CreateSupportMessageRequest) => requestJson(options, `/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updateStatus: (ticketId: string, body: UpdateSupportTicketStatusRequest) => requestJson(options, `/support/tickets/${ticketId}/status`, { method: 'PATCH', body: JSON.stringify(body) }) },
+diff --git a/packages/contracts/src/plans.ts b/packages/contracts/src/plans.ts
+index 2a355af..aa5bddc 100644
+--- a/packages/contracts/src/plans.ts
++++ b/packages/contracts/src/plans.ts
+@@ -1,56 +1,113 @@
+-import { z } from 'zod';
+-import { mediaAssetSchema } from './media.js';
+-import { discoveryLanguageSchema, inventoryDisplayLanguageSchema, inventoryTranslationSchema, tradeExchangeModeSchema } from './trade.js';
+-
+-export const planStatusSchema = z.enum(['draft', 'open', 'full', 'started', 'completed', 'cancelled', 'expired', 'hidden']);
+-export const planPublicStatusSchema = z.enum(['open', 'full', 'started', 'cancelled']);
+-export const planJoinApprovalModeSchema = z.enum(['owner_approval', 'automatic']);
+-export const planParticipantStatusSchema = z.enum(['pending', 'accepted', 'declined', 'cancelled', 'left', 'removed']);
+-export const planPlaceModeSchema = z.enum(['local', 'remote']);
+-export const placeSourceSchema = z.enum(['user', 'hellowhen_library']);
+-export const placeStatusSchema = z.enum(['draft', 'active', 'archived', 'hidden']);
+-export const placeVisibilitySchema = z.enum(['private', 'public', 'library']);
+-export const planPlaceSourceSchema = z.enum(['custom', 'my_place', 'hellowhen_library']);
+-
+-export const placeLocationSourceSchema = z.enum(['manual', 'google_places']);
+-export const placeAddressValidationStatusSchema = z.enum(['confirmed', 'needs_review', 'unsupported']);
+-export const placePresenceVerificationSourceSchema = z.enum(['device_gps']);
+-export const placePresenceVerificationStatusSchema = z.enum(['verified', 'rejected']);
++import { z } from "zod";
++import { mediaAssetSchema } from "./media.js";
++import {
++  discoveryLanguageSchema,
++  inventoryDisplayLanguageSchema,
++  inventoryTranslationSchema,
++  tradeExchangeModeSchema,
++} from "./trade.js";
++
++export const planStatusSchema = z.enum([
++  "draft",
++  "open",
++  "full",
++  "started",
++  "completed",
++  "cancelled",
++  "expired",
++  "hidden",
++]);
++export const planPublicStatusSchema = z.enum([
++  "open",
++  "full",
++  "started",
++  "cancelled",
++]);
++export const planJoinApprovalModeSchema = z.enum([
++  "owner_approval",
++  "automatic",
++]);
++export const planParticipantStatusSchema = z.enum([
++  "pending",
++  "accepted",
++  "declined",
++  "cancelled",
++  "left",
++  "removed",
++]);
++export const planPlaceModeSchema = z.enum(["local", "remote"]);
++export const placeSourceSchema = z.enum(["user", "hellowhen_library"]);
++export const placeStatusSchema = z.enum([
++  "draft",
++  "active",
++  "archived",
++  "hidden",
++]);
++export const placeVisibilitySchema = z.enum(["private", "public", "library"]);
++export const planPlaceSourceSchema = z.enum([
++  "custom",
++  "my_place",
++  "hellowhen_library",
++]);
++
++export const placeLocationSourceSchema = z.enum(["manual", "google_places"]);
++export const placeAddressValidationStatusSchema = z.enum([
++  "confirmed",
++  "needs_review",
++  "unsupported",
++]);
++export const placePresenceVerificationSourceSchema = z.enum(["device_gps"]);
++export const placePresenceVerificationStatusSchema = z.enum([
++  "verified",
++  "rejected",
++]);
+ export const PLACE_STATIC_MAP_TEMPLATE_FAMILIES = [
+-  'clean_local',
+-  'night_social',
+-  'soft_pastel',
+-  'minimal_address',
+-  'city_grid',
+-  'green_outdoor',
+-  'warm_travel',
+-  'premium_mono',
++  "clean_local",
++  "night_social",
++  "soft_pastel",
++  "minimal_address",
++  "city_grid",
++  "green_outdoor",
++  "warm_travel",
++  "premium_mono",
+ ] as const;
+-export const placeStaticMapTemplateFamilySchema = z.enum(PLACE_STATIC_MAP_TEMPLATE_FAMILIES);
+-export const placeStaticMapSourceSchema = z.enum(['coordinates', 'address']);
+-export const placeStaticMapSchema = z.object({
+-  provider: z.literal('google_static_maps'),
+-  templateFamily: placeStaticMapTemplateFamilySchema,
+-  source: placeStaticMapSourceSchema,
+-  width: z.number().int().positive(),
+-  height: z.number().int().positive(),
+-  scale: z.number().int().min(1).max(4),
+-  zoom: z.number().int().min(1).max(22),
+-  lightUrl: z.string().url(),
+-  darkUrl: z.string().url(),
+-}).passthrough();
+-
+-export const googlePlaceValidationStatusSchema = z.enum(['confirmed', 'needs_review', 'unsupported']);
+-export const googlePlaceAddressComponentSchema = z.object({
+-  longText: z.string().nullable().optional(),
+-  shortText: z.string().nullable().optional(),
+-  types: z.array(z.string()).optional(),
+-  languageCode: z.string().nullable().optional(),
+-}).passthrough();
+-export const googlePlaceViewportSchema = z.object({
+-  low: z.object({ latitude: z.number(), longitude: z.number() }).optional(),
+-  high: z.object({ latitude: z.number(), longitude: z.number() }).optional(),
+-}).passthrough();
++export const placeStaticMapTemplateFamilySchema = z.enum(
++  PLACE_STATIC_MAP_TEMPLATE_FAMILIES,
++);
++export const placeStaticMapSourceSchema = z.enum(["coordinates", "address"]);
++export const placeStaticMapSchema = z
++  .object({
++    provider: z.literal("google_static_maps"),
++    templateFamily: placeStaticMapTemplateFamilySchema,
++    source: placeStaticMapSourceSchema,
++    width: z.number().int().positive(),
++    height: z.number().int().positive(),
++    scale: z.number().int().min(1).max(4),
++    zoom: z.number().int().min(1).max(22),
++    lightUrl: z.string().url(),
++    darkUrl: z.string().url(),
++  })
++  .passthrough();
++
++export const googlePlaceValidationStatusSchema = z.enum([
++  "confirmed",
++  "needs_review",
++  "unsupported",
++]);
++export const googlePlaceAddressComponentSchema = z
++  .object({
++    longText: z.string().nullable().optional(),
++    shortText: z.string().nullable().optional(),
++    types: z.array(z.string()).optional(),
++    languageCode: z.string().nullable().optional(),
++  })
++  .passthrough();
++export const googlePlaceViewportSchema = z
++  .object({
++    low: z.object({ latitude: z.number(), longitude: z.number() }).optional(),
++    high: z.object({ latitude: z.number(), longitude: z.number() }).optional(),
++  })
++  .passthrough();
+ export const googlePlacePredictionSchema = z.object({
+   placeId: z.string(),
+   description: z.string(),
+@@ -58,19 +115,21 @@ export const googlePlacePredictionSchema = z.object({
+   secondaryText: z.string().nullable().optional(),
+   types: z.array(z.string()).optional(),
+ });
+-export const googleResolvedPlaceSchema = z.object({
+-  source: z.literal('google_places'),
+-  placeId: z.string(),
+-  name: z.string().nullable().optional(),
+-  formattedAddress: z.string().nullable().optional(),
+-  latitude: z.number().nullable().optional(),
+-  longitude: z.number().nullable().optional(),
+-  googleMapsUri: z.string().nullable().optional(),
+-  types: z.array(z.string()).optional(),
+-  addressComponents: z.array(googlePlaceAddressComponentSchema).optional(),
+-  viewport: googlePlaceViewportSchema.nullable().optional(),
+-  validationStatus: googlePlaceValidationStatusSchema,
+-}).passthrough();
++export const googleResolvedPlaceSchema = z
++  .object({
++    source: z.literal("google_places"),
++    placeId: z.string(),
++    name: z.string().nullable().optional(),
++    formattedAddress: z.string().nullable().optional(),
++    latitude: z.number().nullable().optional(),
++    longitude: z.number().nullable().optional(),
++    googleMapsUri: z.string().nullable().optional(),
++    types: z.array(z.string()).optional(),
++    addressComponents: z.array(googlePlaceAddressComponentSchema).optional(),
++    viewport: googlePlaceViewportSchema.nullable().optional(),
++    validationStatus: googlePlaceValidationStatusSchema,
++  })
++  .passthrough();
+ export const googlePlaceSearchQuerySchema = z.object({
+   q: z.string().trim().min(2).max(160),
+   languageCode: z.string().trim().min(2).max(12).optional(),
+@@ -88,9 +147,16 @@ export const googleAddressValidationRequestSchema = z.object({
+   regionCode: z.string().trim().min(2).max(2).optional(),
+   languageCode: z.string().trim().min(2).max(12).optional(),
+ });
+-export const googlePlaceSearchResponseSchema = z.object({ predictions: z.array(googlePlacePredictionSchema) });
+-export const googlePlaceDetailsResponseSchema = z.object({ place: googleResolvedPlaceSchema });
+-export const googleAddressValidationResponseSchema = z.object({ place: googleResolvedPlaceSchema.nullable(), validationStatus: googlePlaceValidationStatusSchema });
++export const googlePlaceSearchResponseSchema = z.object({
++  predictions: z.array(googlePlacePredictionSchema),
++});
++export const googlePlaceDetailsResponseSchema = z.object({
++  place: googleResolvedPlaceSchema,
++});
++export const googleAddressValidationResponseSchema = z.object({
++  place: googleResolvedPlaceSchema.nullable(),
++  validationStatus: googlePlaceValidationStatusSchema,
++});
+ 
+ const confirmedGooglePlaceAddressInputShape = {
+   googlePlaceId: z.string().trim().min(3).max(240),
+@@ -99,24 +165,32 @@ const confirmedGooglePlaceAddressInputShape = {
+   googleMapsUri: z.string().trim().url().max(500).optional(),
+   latitude: z.number().min(-90).max(90),
+   longitude: z.number().min(-180).max(180),
+-  locationSource: z.literal('google_places'),
+-  addressValidationStatus: z.literal('confirmed'),
++  locationSource: z.literal("google_places"),
++  addressValidationStatus: z.literal("confirmed"),
+ } as const;
+ 
+-export const confirmedGooglePlaceAddressInputSchema = z.object(confirmedGooglePlaceAddressInputShape).passthrough();
+-export const offlinePlaceProviderAddressInputSchema = z.object({
+-  mode: z.literal('local').optional(),
+-  ...confirmedGooglePlaceAddressInputShape,
+-}).passthrough();
+-export const onlinePlaceDestinationInputSchema = z.object({
+-  onlineLabel: z.string().trim().min(1).max(120).optional(),
+-  onlineUrl: z.string().trim().url().max(500),
+-}).passthrough();
+-export const remotePlaceDestinationInputSchema = z.object({
+-  mode: z.literal('remote'),
+-  onlineLabel: z.string().trim().min(1).max(120).optional(),
+-  onlineUrl: z.string().trim().url().max(500),
+-}).passthrough();
++export const confirmedGooglePlaceAddressInputSchema = z
++  .object(confirmedGooglePlaceAddressInputShape)
++  .passthrough();
++export const offlinePlaceProviderAddressInputSchema = z
++  .object({
++    mode: z.literal("local").optional(),
++    ...confirmedGooglePlaceAddressInputShape,
++  })
++  .passthrough();
++export const onlinePlaceDestinationInputSchema = z
++  .object({
++    onlineLabel: z.string().trim().min(1).max(120).optional(),
++    onlineUrl: z.string().trim().url().max(500),
++  })
++  .passthrough();
++export const remotePlaceDestinationInputSchema = z
++  .object({
++    mode: z.literal("remote"),
++    onlineLabel: z.string().trim().min(1).max(120).optional(),
++    onlineUrl: z.string().trim().url().max(500),
++  })
++  .passthrough();
+ 
+ export const PLAN_PLACE_MEDIA_LIMITS = {
+   free: 1,
+@@ -124,19 +198,38 @@ export const PLAN_PLACE_MEDIA_LIMITS = {
+   adminLibrary: 6,
+ } as const;
+ 
+-export const planOwnerParticipantActionSchema = z.enum(['accepted', 'declined', 'removed']);
+-export const planSelfParticipantActionSchema = z.enum(['cancelled', 'left']);
+-
+-const planTagSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
+-const placeTagSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
+-const placeMediaIdsSchema = z.array(z.string()).max(PLAN_PLACE_MEDIA_LIMITS.adminLibrary).optional();
++export const planOwnerParticipantActionSchema = z.enum([
++  "accepted",
++  "declined",
++  "removed",
++]);
++export const planSelfParticipantActionSchema = z.enum(["cancelled", "left"]);
++
++const planTagSchema = z
++  .array(z.string().trim().min(1).max(32))
++  .max(8)
++  .optional();
++const placeTagSchema = z
++  .array(z.string().trim().min(1).max(32))
++  .max(8)
++  .optional();
++const placeMediaIdsSchema = z
++  .array(z.string())
++  .max(PLAN_PLACE_MEDIA_LIMITS.adminLibrary)
++  .optional();
+ const placeTranslationInputSchema = z.object({
+   languageCode: discoveryLanguageSchema,
+   title: z.string().trim().min(3).max(120),
+   description: z.string().trim().min(1).max(2000),
+ });
+-const placeTranslationsInputSchema = z.array(placeTranslationInputSchema).max(4).optional();
+-const planPlaceMediaIdsSchema = z.array(z.string()).max(PLAN_PLACE_MEDIA_LIMITS.plus).optional();
++const placeTranslationsInputSchema = z
++  .array(placeTranslationInputSchema)
++  .max(4)
++  .optional();
++const planPlaceMediaIdsSchema = z
++  .array(z.string())
++  .max(PLAN_PLACE_MEDIA_LIMITS.plus)
++  .optional();
+ 
+ const reusablePlaceInputBaseSchema = z.object({
+   mode: planPlaceModeSchema.optional(),
+@@ -157,10 +250,17 @@ const reusablePlaceInputBaseSchema = z.object({
+   longitude: z.number().min(-180).max(180).optional(),
+   locationSource: placeLocationSourceSchema.optional(),
+   addressValidationStatus: placeAddressValidationStatusSchema.optional(),
+-  staticMapTemplateFamily: placeStaticMapTemplateFamilySchema.nullable().optional(),
++  staticMapTemplateFamily: placeStaticMapTemplateFamilySchema
++    .nullable()
++    .optional(),
+   onlineLabel: z.string().trim().min(1).max(120).optional(),
+   onlineUrl: z.string().trim().url().max(500).optional(),
+-  defaultDurationMinutes: z.number().int().min(5).max(24 * 60).optional(),
++  defaultDurationMinutes: z
++    .number()
++    .int()
++    .min(5)
++    .max(24 * 60)
++    .optional(),
+   defaultNote: z.string().trim().min(1).max(1000).optional(),
+   defaultMeetingInstructions: z.string().trim().min(1).max(1000).optional(),
+   mediaIds: placeMediaIdsSchema,
+@@ -169,15 +269,18 @@ const reusablePlaceInputBaseSchema = z.object({
+ export const createPlaceRequestSchema = reusablePlaceInputBaseSchema.extend({
+   source: placeSourceSchema.optional(),
+   visibility: placeVisibilitySchema.optional(),
+-  status: z.enum(['draft', 'active']).optional(),
++  status: z.enum(["draft", "active"]).optional(),
+ });
+ 
+-export const updatePlaceRequestSchema = reusablePlaceInputBaseSchema.partial().extend({
+-  status: z.enum(['draft', 'active', 'archived']).optional(),
+-  visibility: placeVisibilitySchema.optional(),
+-}).refine((value) => Object.keys(value).length > 0, {
+-  message: 'Update at least one place field.',
+-});
++export const updatePlaceRequestSchema = reusablePlaceInputBaseSchema
++  .partial()
++  .extend({
++    status: z.enum(["draft", "active", "archived"]).optional(),
++    visibility: placeVisibilitySchema.optional(),
++  })
++  .refine((value) => Object.keys(value).length > 0, {
++    message: "Update at least one place field.",
++  });
+ 
+ export const listPlacesQuerySchema = z.object({
+   q: z.string().trim().min(1).max(120).optional(),
+@@ -215,64 +318,116 @@ function hasPlaceIdOrTitle(value: { placeId?: string; title?: string }) {
+   return Boolean(value.placeId || value.title);
+ }
+ 
+-export const planPlaceInputSchema = planPlaceInputBaseSchema.refine(hasPlaceIdOrTitle, {
+-  message: 'Choose a saved place or enter a place title.',
+-  path: ['title'],
+-}).refine((value) => {
+-  if (!value.startsAt || !value.endsAt) return true;
+-  return new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime();
+-}, { message: 'Place end time must be after the start time.', path: ['endsAt'] });
+-
+-export const createPlanRequestSchema = z.object({
+-  title: z.string().trim().min(3).max(120).optional(),
+-  description: z.string().trim().min(10).max(2000).optional(),
+-  category: z.string().trim().min(1).max(80).optional(),
+-  tags: planTagSchema,
+-  mode: tradeExchangeModeSchema.optional(),
+-  locationLabel: z.string().trim().min(1).max(160).optional(),
+-  startsAt: z.string().datetime(),
+-  endsAt: z.string().datetime().optional(),
+-  maxParticipants: z.number().int().min(1).max(100).optional(),
+-  joinApprovalMode: planJoinApprovalModeSchema.optional().default('automatic'),
+-  status: z.enum(['draft', 'open']).optional().default('open'),
+-  mediaIds: z.array(z.string()).max(5).optional(),
+-  places: z.array(planPlaceInputSchema).max(12).optional(),
+-}).refine((value) => {
+-  if (!value.endsAt) return true;
+-  return new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime();
+-}, { message: 'Plan end time must be after the start time.', path: ['endsAt'] });
+-
+-export const updatePlanRequestSchema = z.object({
+-  title: z.string().trim().min(3).max(120).optional(),
+-  description: z.string().trim().min(10).max(2000).optional(),
+-  category: z.string().trim().min(1).max(80).nullable().optional(),
+-  tags: planTagSchema,
+-  mode: tradeExchangeModeSchema.nullable().optional(),
+-  locationLabel: z.string().trim().min(1).max(160).nullable().optional(),
+-  startsAt: z.string().datetime().optional(),
+-  endsAt: z.string().datetime().nullable().optional(),
+-  maxParticipants: z.number().int().min(1).max(100).nullable().optional(),
+-  joinApprovalMode: planJoinApprovalModeSchema.optional(),
+-  status: z.enum(['draft', 'open', 'cancelled']).optional(),
+-  mediaIds: z.array(z.string()).max(5).optional(),
+-}).refine((value) => {
+-  if (!value.startsAt || value.endsAt === undefined || value.endsAt === null) return true;
+-  return new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime();
+-}, { message: 'Plan end time must be after the start time.', path: ['endsAt'] });
++export const planPlaceInputSchema = planPlaceInputBaseSchema
++  .refine(hasPlaceIdOrTitle, {
++    message: "Choose a saved place or enter a place title.",
++    path: ["title"],
++  })
++  .refine(
++    (value) => {
++      if (!value.startsAt || !value.endsAt) return true;
++      return (
++        new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime()
++      );
++    },
++    {
++      message: "Place end time must be after the start time.",
++      path: ["endsAt"],
++    },
++  );
++
++export const createPlanRequestSchema = z
++  .object({
++    title: z.string().trim().min(3).max(120).optional(),
++    description: z.string().trim().min(10).max(2000).optional(),
++    category: z.string().trim().min(1).max(80).optional(),
++    tags: planTagSchema,
++    mode: tradeExchangeModeSchema.optional(),
++    locationLabel: z.string().trim().min(1).max(160).optional(),
++    startsAt: z.string().datetime(),
++    endsAt: z.string().datetime().optional(),
++    maxParticipants: z.number().int().min(1).max(100).optional(),
++    joinApprovalMode: planJoinApprovalModeSchema
++      .optional()
++      .default("automatic"),
++    status: z.enum(["draft", "open"]).optional().default("open"),
++    mediaIds: z.array(z.string()).max(5).optional(),
++    places: z.array(planPlaceInputSchema).max(12).optional(),
++  })
++  .refine(
++    (value) => {
++      if (!value.endsAt) return true;
++      return (
++        new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime()
++      );
++    },
++    {
++      message: "Plan end time must be after the start time.",
++      path: ["endsAt"],
++    },
++  );
++
++export const updatePlanRequestSchema = z
++  .object({
++    title: z.string().trim().min(3).max(120).optional(),
++    description: z.string().trim().min(10).max(2000).optional(),
++    category: z.string().trim().min(1).max(80).nullable().optional(),
++    tags: planTagSchema,
++    mode: tradeExchangeModeSchema.nullable().optional(),
++    locationLabel: z.string().trim().min(1).max(160).nullable().optional(),
++    startsAt: z.string().datetime().optional(),
++    endsAt: z.string().datetime().nullable().optional(),
++    maxParticipants: z.number().int().min(1).max(100).nullable().optional(),
++    joinApprovalMode: planJoinApprovalModeSchema.optional(),
++    status: z.enum(["draft", "open", "cancelled"]).optional(),
++    mediaIds: z.array(z.string()).max(5).optional(),
++  })
++  .refine(
++    (value) => {
++      if (
++        !value.startsAt ||
++        value.endsAt === undefined ||
++        value.endsAt === null
++      )
++        return true;
++      return (
++        new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime()
++      );
++    },
++    {
++      message: "Plan end time must be after the start time.",
++      path: ["endsAt"],
++    },
++  );
+ 
+ export const createPlanPlaceRequestSchema = planPlaceInputSchema;
+-export const updatePlanPlaceRequestSchema = planPlaceInputBaseSchema.partial().refine((value) => Object.keys(value).length > 0, {
+-  message: 'Update at least one place field.',
+-}).refine((value) => {
+-  if (value.placeId === undefined && value.title === undefined) return true;
+-  return hasPlaceIdOrTitle(value);
+-}, {
+-  message: 'Choose a saved place or enter a place title.',
+-  path: ['title'],
+-}).refine((value) => {
+-  if (!value.startsAt || !value.endsAt) return true;
+-  return new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime();
+-}, { message: 'Place end time must be after the start time.', path: ['endsAt'] });
++export const updatePlanPlaceRequestSchema = planPlaceInputBaseSchema
++  .partial()
++  .refine((value) => Object.keys(value).length > 0, {
++    message: "Update at least one place field.",
++  })
++  .refine(
++    (value) => {
++      if (value.placeId === undefined && value.title === undefined) return true;
++      return hasPlaceIdOrTitle(value);
++    },
++    {
++      message: "Choose a saved place or enter a place title.",
++      path: ["title"],
++    },
++  )
++  .refine(
++    (value) => {
++      if (!value.startsAt || !value.endsAt) return true;
++      return (
++        new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime()
++      );
++    },
++    {
++      message: "Place end time must be after the start time.",
++      path: ["endsAt"],
++    },
++  );
+ 
+ export const listPlansQuerySchema = z.object({
+   q: z.string().trim().min(1).max(120).optional(),
+@@ -283,7 +438,10 @@ export const listPlansQuerySchema = z.object({
+   take: z.coerce.number().int().min(1).max(100).optional(),
+ });
+ 
+-export const adminPlanStatusFilterSchema = z.union([z.literal('all'), planStatusSchema]).optional().default('all');
++export const adminPlanStatusFilterSchema = z
++  .union([z.literal("all"), planStatusSchema])
++  .optional()
++  .default("all");
+ export const adminListPlansQuerySchema = z.object({
+   q: z.string().trim().min(1).max(120).optional(),
+   status: adminPlanStatusFilterSchema,
+@@ -291,24 +449,45 @@ export const adminListPlansQuerySchema = z.object({
+   ownerId: z.string().trim().min(1).max(120).optional(),
+   take: z.coerce.number().int().min(1).max(100).optional().default(100),
+ });
+-export const adminPlanActionSchema = z.enum(['hide', 'restore', 'cancel', 'mark_reviewed']);
++export const adminPlanActionSchema = z.enum([
++  "hide",
++  "restore",
++  "cancel",
++  "mark_reviewed",
++]);
+ export const adminPlanActionRequestSchema = z.object({
+   action: adminPlanActionSchema,
+   note: z.string().trim().min(3).max(1200).optional(),
+ });
+ export const adminListPlanPublicMessagesQuerySchema = z.object({
+-  status: z.enum(['all', 'visible', 'hidden', 'deleted']).optional().default('all'),
++  status: z
++    .enum(["all", "visible", "hidden", "deleted"])
++    .optional()
++    .default("all"),
+   take: z.coerce.number().int().min(1).max(200).optional().default(100),
+ });
+-export const adminPlanPublicMessageActionSchema = z.enum(['hide', 'restore', 'mark_reviewed']);
++export const adminPlanPublicMessageActionSchema = z.enum([
++  "hide",
++  "restore",
++  "mark_reviewed",
++]);
+ export const adminPlanPublicMessageActionRequestSchema = z.object({
+   action: adminPlanPublicMessageActionSchema,
+   note: z.string().trim().min(3).max(1200).optional(),
+ });
+ 
+-export const adminPlaceStatusFilterSchema = z.union([z.literal('all'), placeStatusSchema]).optional().default('all');
+-export const adminPlaceSourceFilterSchema = z.union([z.literal('all'), placeSourceSchema]).optional().default('all');
+-export const adminPlaceVisibilityFilterSchema = z.union([z.literal('all'), placeVisibilitySchema]).optional().default('all');
++export const adminPlaceStatusFilterSchema = z
++  .union([z.literal("all"), placeStatusSchema])
++  .optional()
++  .default("all");
++export const adminPlaceSourceFilterSchema = z
++  .union([z.literal("all"), placeSourceSchema])
++  .optional()
++  .default("all");
++export const adminPlaceVisibilityFilterSchema = z
++  .union([z.literal("all"), placeVisibilitySchema])
++  .optional()
++  .default("all");
+ export const adminListPlacesQuerySchema = z.object({
+   q: z.string().trim().min(1).max(120).optional(),
+   status: adminPlaceStatusFilterSchema,
+@@ -318,7 +497,12 @@ export const adminListPlacesQuerySchema = z.object({
+   ownerId: z.string().trim().min(1).max(120).optional(),
+   take: z.coerce.number().int().min(1).max(100).optional().default(100),
+ });
+-export const adminPlaceActionSchema = z.enum(['hide', 'restore', 'remove_media', 'mark_reviewed']);
++export const adminPlaceActionSchema = z.enum([
++  "hide",
++  "restore",
++  "remove_media",
++  "mark_reviewed",
++]);
+ export const adminPlaceActionRequestSchema = z.object({
+   action: adminPlaceActionSchema,
+   mediaId: z.string().trim().min(1).max(120).optional(),
+@@ -337,8 +521,12 @@ export const updateMyPlanParticipantRequestSchema = z.object({
+   status: planSelfParticipantActionSchema,
+ });
+ 
+-export const createPlanPublicMessageRequestSchema = z.object({ body: z.string().trim().min(1).max(2000) });
+-export const updatePlanPublicMessageRequestSchema = z.object({ body: z.string().trim().min(1).max(2000) });
++export const createPlanPublicMessageRequestSchema = z.object({
++  body: z.string().trim().min(1).max(2000),
++});
++export const updatePlanPublicMessageRequestSchema = z.object({
++  body: z.string().trim().min(1).max(2000),
++});
+ export const listPlanPublicMessagesQuerySchema = z.object({
+   take: z.coerce.number().int().min(1).max(100).optional().default(50),
+   before: z.string().datetime().optional(),
+@@ -350,139 +538,195 @@ export const createPlacePresenceVerificationRequestSchema = z.object({
+   accuracyMeters: z.number().positive().max(10_000).optional(),
+   locationCapturedAt: z.string().datetime().optional(),
+   isMockedLocation: z.boolean().optional(),
+-  platform: z.enum(['web', 'mobile_web', 'ios', 'android', 'unknown']).optional(),
+-});
+-
+-const publicUserSummarySchema = z.object({
+-  id: z.string(),
+-  profile: z.object({
+-    displayName: z.string().nullable().optional(),
+-    handle: z.string().nullable().optional(),
+-    avatarUrl: z.string().nullable().optional(),
+-    countryCode: z.string().nullable().optional(),
+-  }).nullable().optional(),
+-}).passthrough();
+-
+-export const placeSchema = z.object({
+-  id: z.string(),
+-  ownerId: z.string().nullable().optional(),
+-  source: placeSourceSchema,
+-  status: placeStatusSchema,
+-  visibility: placeVisibilitySchema,
+-  mode: planPlaceModeSchema.default('local'),
+-  title: z.string(),
+-  description: z.string().nullable().optional(),
+-  defaultLanguage: discoveryLanguageSchema.optional().default('en'),
+-  translations: z.array(inventoryTranslationSchema).optional(),
+-  category: z.string().nullable().optional(),
+-  tags: z.array(z.string()).optional(),
+-  areaLabel: z.string().nullable().optional(),
+-  addressPublicText: z.string().nullable().optional(),
+-  addressPrivateText: z.string().nullable().optional(),
+-  googlePlaceId: z.string().nullable().optional(),
+-  googlePlaceName: z.string().nullable().optional(),
+-  formattedAddress: z.string().nullable().optional(),
+-  googleMapsUri: z.string().nullable().optional(),
+-  latitude: z.number().nullable().optional(),
+-  longitude: z.number().nullable().optional(),
+-  locationSource: placeLocationSourceSchema.nullable().optional(),
+-  addressValidationStatus: placeAddressValidationStatusSchema.nullable().optional(),
+-  onlineLabel: z.string().nullable().optional(),
+-  onlineUrl: z.string().nullable().optional(),
+-  defaultDurationMinutes: z.number().int().nullable().optional(),
+-  defaultNote: z.string().nullable().optional(),
+-  defaultMeetingInstructions: z.string().nullable().optional(),
+-  staticMapTemplateFamily: placeStaticMapTemplateFamilySchema.nullable().optional(),
+-  staticMapTemplateSeed: z.string().nullable().optional(),
+-  createdAt: z.string(),
+-  updatedAt: z.string(),
+-  archivedAt: z.string().nullable().optional(),
+-  usedInPlansCount: z.number().int().nonnegative().optional(),
+-  owner: publicUserSummarySchema.nullable().optional(),
+-  media: z.array(mediaAssetSchema).optional(),
+-  staticMap: placeStaticMapSchema.nullable().optional(),
+-  displayLanguage: inventoryDisplayLanguageSchema.optional(),
+-}).passthrough();
+-
+-export const planPlaceSchema = z.object({
+-  id: z.string(),
+-  planId: z.string(),
+-  placeId: z.string().nullable().optional(),
+-  source: planPlaceSourceSchema.optional(),
+-  order: z.number().int(),
+-  mode: planPlaceModeSchema.default('local'),
+-  title: z.string(),
+-  note: z.string().nullable().optional(),
+-  addressPublicText: z.string().nullable().optional(),
+-  addressPrivateText: z.string().nullable().optional(),
+-  googlePlaceId: z.string().nullable().optional(),
+-  googlePlaceName: z.string().nullable().optional(),
+-  formattedAddress: z.string().nullable().optional(),
+-  googleMapsUri: z.string().nullable().optional(),
+-  latitude: z.number().nullable().optional(),
+-  longitude: z.number().nullable().optional(),
+-  locationSource: placeLocationSourceSchema.nullable().optional(),
+-  addressValidationStatus: placeAddressValidationStatusSchema.nullable().optional(),
+-  onlineLabel: z.string().nullable().optional(),
+-  onlineUrl: z.string().nullable().optional(),
+-  staticMapTemplateFamily: placeStaticMapTemplateFamilySchema.nullable().optional(),
+-  staticMapTemplateSeed: z.string().nullable().optional(),
+-  startsAt: z.string().nullable().optional(),
+-  endsAt: z.string().nullable().optional(),
+-  createdAt: z.string(),
+-  updatedAt: z.string(),
+-  sourcePlace: placeSchema.nullable().optional(),
+-  media: z.array(mediaAssetSchema).optional(),
+-  staticMap: placeStaticMapSchema.nullable().optional(),
+-  displayLanguage: inventoryDisplayLanguageSchema.optional(),
+-}).passthrough();
+-
+-export const planParticipantSchema = z.object({
+-  id: z.string(),
+-  planId: z.string(),
+-  userId: z.string(),
+-  message: z.string().nullable().optional(),
+-  status: planParticipantStatusSchema,
+-  decidedAt: z.string().nullable().optional(),
+-  decidedById: z.string().nullable().optional(),
+-  createdAt: z.string(),
+-  updatedAt: z.string(),
+-  user: publicUserSummarySchema.nullable().optional(),
+-}).passthrough();
+-
+-export const planPublicMessageStatusSchema = z.enum(['visible', 'hidden', 'deleted']);
+-export const planPublicMessageSchema = z.object({
+-  id: z.string(),
+-  planId: z.string(),
+-  authorId: z.string(),
+-  body: z.string(),
+-  status: planPublicMessageStatusSchema.optional().default('visible'),
+-  createdAt: z.string(),
+-  updatedAt: z.string().optional(),
+-  editedAt: z.string().nullable().optional(),
+-  editCount: z.number().int().optional().default(0),
+-  deletedAt: z.string().nullable().optional(),
+-  hiddenAt: z.string().nullable().optional(),
+-  author: publicUserSummarySchema.optional(),
+-}).passthrough();
+-
+-export const placePresenceVerificationSchema = z.object({
+-  id: z.string(),
+-  userId: z.string(),
+-  planId: z.string(),
+-  planPlaceId: z.string(),
+-  sourcePlaceId: z.string().nullable().optional(),
+-  source: placePresenceVerificationSourceSchema,
+-  status: placePresenceVerificationStatusSchema,
+-  latitudeRounded: z.number().nullable().optional(),
+-  longitudeRounded: z.number().nullable().optional(),
+-  accuracyMeters: z.number().nullable().optional(),
+-  distanceMeters: z.number().nullable().optional(),
+-  maxDistanceMeters: z.number().nullable().optional(),
+-  rejectionReason: z.string().nullable().optional(),
+-  verifiedAt: z.string().nullable().optional(),
+-  createdAt: z.string(),
+-}).passthrough();
++  platform: z
++    .enum(["web", "mobile_web", "ios", "android", "unknown"])
++    .optional(),
++});
++
++export const placePresenceVerificationListStatusFilterSchema = z
++  .enum(["all", "verified", "rejected"])
++  .optional()
++  .default("all");
++
++export const listMyPlacePresenceVerificationsQuerySchema = z.object({
++  status: placePresenceVerificationListStatusFilterSchema,
++  take: z.coerce.number().int().min(1).max(100).optional().default(50),
++});
++
++export const adminListPlacePresenceVerificationsQuerySchema = z.object({
++  status: placePresenceVerificationListStatusFilterSchema,
++  userId: z.string().trim().min(1).max(120).optional(),
++  planId: z.string().trim().min(1).max(120).optional(),
++  planPlaceId: z.string().trim().min(1).max(120).optional(),
++  rejectionReason: z.string().trim().min(1).max(120).optional(),
++  take: z.coerce.number().int().min(1).max(200).optional().default(100),
++});
++
++export const adminPlacePresenceVerificationActionSchema = z.enum([
++  "mark_reviewed",
++]);
++export const adminPlacePresenceVerificationActionRequestSchema = z.object({
++  action: adminPlacePresenceVerificationActionSchema,
++  note: z.string().trim().min(3).max(1200).optional(),
++});
++
++const publicUserSummarySchema = z
++  .object({
++    id: z.string(),
++    profile: z
++      .object({
++        displayName: z.string().nullable().optional(),
++        handle: z.string().nullable().optional(),
++        avatarUrl: z.string().nullable().optional(),
++        countryCode: z.string().nullable().optional(),
++      })
++      .nullable()
++      .optional(),
++  })
++  .passthrough();
++
++export const placeSchema = z
++  .object({
++    id: z.string(),
++    ownerId: z.string().nullable().optional(),
++    source: placeSourceSchema,
++    status: placeStatusSchema,
++    visibility: placeVisibilitySchema,
++    mode: planPlaceModeSchema.default("local"),
++    title: z.string(),
++    description: z.string().nullable().optional(),
++    defaultLanguage: discoveryLanguageSchema.optional().default("en"),
++    translations: z.array(inventoryTranslationSchema).optional(),
++    category: z.string().nullable().optional(),
++    tags: z.array(z.string()).optional(),
++    areaLabel: z.string().nullable().optional(),
++    addressPublicText: z.string().nullable().optional(),
++    addressPrivateText: z.string().nullable().optional(),
++    googlePlaceId: z.string().nullable().optional(),
++    googlePlaceName: z.string().nullable().optional(),
++    formattedAddress: z.string().nullable().optional(),
++    googleMapsUri: z.string().nullable().optional(),
++    latitude: z.number().nullable().optional(),
++    longitude: z.number().nullable().optional(),
++    locationSource: placeLocationSourceSchema.nullable().optional(),
++    addressValidationStatus: placeAddressValidationStatusSchema
++      .nullable()
++      .optional(),
++    onlineLabel: z.string().nullable().optional(),
++    onlineUrl: z.string().nullable().optional(),
++    defaultDurationMinutes: z.number().int().nullable().optional(),
++    defaultNote: z.string().nullable().optional(),
++    defaultMeetingInstructions: z.string().nullable().optional(),
++    staticMapTemplateFamily: placeStaticMapTemplateFamilySchema
++      .nullable()
++      .optional(),
++    staticMapTemplateSeed: z.string().nullable().optional(),
++    createdAt: z.string(),
++    updatedAt: z.string(),
++    archivedAt: z.string().nullable().optional(),
++    usedInPlansCount: z.number().int().nonnegative().optional(),
++    owner: publicUserSummarySchema.nullable().optional(),
++    media: z.array(mediaAssetSchema).optional(),
++    staticMap: placeStaticMapSchema.nullable().optional(),
++    displayLanguage: inventoryDisplayLanguageSchema.optional(),
++  })
++  .passthrough();
++
++export const planPlaceSchema = z
++  .object({
++    id: z.string(),
++    planId: z.string(),
++    placeId: z.string().nullable().optional(),
++    source: planPlaceSourceSchema.optional(),
++    order: z.number().int(),
++    mode: planPlaceModeSchema.default("local"),
++    title: z.string(),
++    note: z.string().nullable().optional(),
++    addressPublicText: z.string().nullable().optional(),
++    addressPrivateText: z.string().nullable().optional(),
++    googlePlaceId: z.string().nullable().optional(),
++    googlePlaceName: z.string().nullable().optional(),
++    formattedAddress: z.string().nullable().optional(),
++    googleMapsUri: z.string().nullable().optional(),
++    latitude: z.number().nullable().optional(),
++    longitude: z.number().nullable().optional(),
++    locationSource: placeLocationSourceSchema.nullable().optional(),
++    addressValidationStatus: placeAddressValidationStatusSchema
++      .nullable()
++      .optional(),
++    onlineLabel: z.string().nullable().optional(),
++    onlineUrl: z.string().nullable().optional(),
++    staticMapTemplateFamily: placeStaticMapTemplateFamilySchema
++      .nullable()
++      .optional(),
++    staticMapTemplateSeed: z.string().nullable().optional(),
++    startsAt: z.string().nullable().optional(),
++    endsAt: z.string().nullable().optional(),
++    createdAt: z.string(),
++    updatedAt: z.string(),
++    sourcePlace: placeSchema.nullable().optional(),
++    media: z.array(mediaAssetSchema).optional(),
++    staticMap: placeStaticMapSchema.nullable().optional(),
++    displayLanguage: inventoryDisplayLanguageSchema.optional(),
++  })
++  .passthrough();
++
++export const planParticipantSchema = z
++  .object({
++    id: z.string(),
++    planId: z.string(),
++    userId: z.string(),
++    message: z.string().nullable().optional(),
++    status: planParticipantStatusSchema,
++    decidedAt: z.string().nullable().optional(),
++    decidedById: z.string().nullable().optional(),
++    createdAt: z.string(),
++    updatedAt: z.string(),
++    user: publicUserSummarySchema.nullable().optional(),
++  })
++  .passthrough();
++
++export const planPublicMessageStatusSchema = z.enum([
++  "visible",
++  "hidden",
++  "deleted",
++]);
++export const planPublicMessageSchema = z
++  .object({
++    id: z.string(),
++    planId: z.string(),
++    authorId: z.string(),
++    body: z.string(),
++    status: planPublicMessageStatusSchema.optional().default("visible"),
++    createdAt: z.string(),
++    updatedAt: z.string().optional(),
++    editedAt: z.string().nullable().optional(),
++    editCount: z.number().int().optional().default(0),
++    deletedAt: z.string().nullable().optional(),
++    hiddenAt: z.string().nullable().optional(),
++    author: publicUserSummarySchema.optional(),
++  })
++  .passthrough();
++
++export const placePresenceVerificationSchema = z
++  .object({
++    id: z.string(),
++    userId: z.string(),
++    planId: z.string(),
++    planPlaceId: z.string(),
++    sourcePlaceId: z.string().nullable().optional(),
++    source: placePresenceVerificationSourceSchema,
++    status: placePresenceVerificationStatusSchema,
++    latitudeRounded: z.number().nullable().optional(),
++    longitudeRounded: z.number().nullable().optional(),
++    accuracyMeters: z.number().nullable().optional(),
++    distanceMeters: z.number().nullable().optional(),
++    maxDistanceMeters: z.number().nullable().optional(),
++    rejectionReason: z.string().nullable().optional(),
++    verifiedAt: z.string().nullable().optional(),
++    createdAt: z.string(),
++  })
++  .passthrough();
+ 
+ export const placePresenceVerificationResponseSchema = z.object({
+   verification: placePresenceVerificationSchema,
+@@ -492,6 +736,67 @@ export const placePresenceVerificationResponseSchema = z.object({
+   maxDistanceMeters: z.number().optional(),
+ });
+ 
++const placePresenceVerificationHistoryPlanSchema = z
++  .object({
++    id: z.string(),
++    title: z.string(),
++    status: planStatusSchema,
++    startsAt: z.string().nullable().optional(),
++  })
++  .passthrough();
++
++const placePresenceVerificationHistoryPlaceSchema = z
++  .object({
++    id: z.string(),
++    title: z.string(),
++    mode: planPlaceModeSchema.default("local"),
++    addressPublicText: z.string().nullable().optional(),
++    formattedAddress: z.string().nullable().optional(),
++    onlineLabel: z.string().nullable().optional(),
++  })
++  .passthrough();
++
++export const placePresenceVerificationHistoryItemSchema =
++  placePresenceVerificationSchema
++    .omit({
++      latitudeRounded: true,
++      longitudeRounded: true,
++      accuracyMeters: true,
++    })
++    .extend({
++      plan: placePresenceVerificationHistoryPlanSchema.nullable().optional(),
++      planPlace: placePresenceVerificationHistoryPlaceSchema
++        .nullable()
++        .optional(),
++    });
++
++export const placePresenceVerificationHistoryResponseSchema = z.object({
++  verifications: z.array(placePresenceVerificationHistoryItemSchema),
++});
++
++export const adminPlacePresenceVerificationSchema =
++  placePresenceVerificationSchema
++    .extend({
++      user: publicUserSummarySchema.nullable().optional(),
++      plan: placePresenceVerificationHistoryPlanSchema
++        .extend({ owner: publicUserSummarySchema.nullable().optional() })
++        .nullable()
++        .optional(),
++      planPlace: placePresenceVerificationHistoryPlaceSchema
++        .nullable()
++        .optional(),
++      sourcePlace: placeSchema.nullable().optional(),
++    })
++    .passthrough();
++
++export const adminPlacePresenceVerificationsResponseSchema = z.object({
++  verifications: z.array(adminPlacePresenceVerificationSchema),
++});
++
++export const adminPlacePresenceVerificationResponseSchema = z.object({
++  verification: adminPlacePresenceVerificationSchema,
++});
++
+ export const placePresenceVerificationSummaryResponseSchema = z.object({
+   summary: z.object({
+     verifiedPlacesCount: z.number().int().nonnegative(),
+@@ -501,42 +806,52 @@ export const placePresenceVerificationSummaryResponseSchema = z.object({
+   }),
+ });
+ 
+-export const planPublicMessagesResponseSchema = z.object({ messages: z.array(planPublicMessageSchema) });
+-export const planPublicMessageResponseSchema = z.object({ message: planPublicMessageSchema });
++export const planPublicMessagesResponseSchema = z.object({
++  messages: z.array(planPublicMessageSchema),
++});
++export const planPublicMessageResponseSchema = z.object({
++  message: planPublicMessageSchema,
++});
+ 
+-export const planSchema = z.object({
+-  id: z.string(),
+-  ownerId: z.string(),
+-  title: z.string(),
+-  description: z.string(),
+-  category: z.string().nullable().optional(),
+-  tags: z.array(z.string()).optional(),
+-  mode: tradeExchangeModeSchema.nullable().optional(),
+-  locationLabel: z.string().nullable().optional(),
+-  startsAt: z.string(),
+-  endsAt: z.string().nullable().optional(),
+-  maxParticipants: z.number().int().nullable().optional(),
+-  joinApprovalMode: planJoinApprovalModeSchema,
+-  status: planStatusSchema,
+-  createdAt: z.string(),
+-  updatedAt: z.string(),
+-  cancelledAt: z.string().nullable().optional(),
+-  owner: publicUserSummarySchema.nullable().optional(),
+-  places: z.array(planPlaceSchema).optional(),
+-  media: z.array(mediaAssetSchema).optional(),
+-  participants: z.array(planParticipantSchema).optional(),
+-  participantCount: z.number().int().optional(),
+-  pendingRequestCount: z.number().int().optional(),
+-  myParticipantStatus: planParticipantStatusSchema.nullable().optional(),
+-  canSeePrivatePlaceDetails: z.boolean().optional(),
+-}).passthrough();
++export const planSchema = z
++  .object({
++    id: z.string(),
++    ownerId: z.string(),
++    title: z.string(),
++    description: z.string(),
++    category: z.string().nullable().optional(),
++    tags: z.array(z.string()).optional(),
++    mode: tradeExchangeModeSchema.nullable().optional(),
++    locationLabel: z.string().nullable().optional(),
++    startsAt: z.string(),
++    endsAt: z.string().nullable().optional(),
++    maxParticipants: z.number().int().nullable().optional(),
++    joinApprovalMode: planJoinApprovalModeSchema,
++    status: planStatusSchema,
++    createdAt: z.string(),
++    updatedAt: z.string(),
++    cancelledAt: z.string().nullable().optional(),
++    owner: publicUserSummarySchema.nullable().optional(),
++    places: z.array(planPlaceSchema).optional(),
++    media: z.array(mediaAssetSchema).optional(),
++    participants: z.array(planParticipantSchema).optional(),
++    participantCount: z.number().int().optional(),
++    pendingRequestCount: z.number().int().optional(),
++    myParticipantStatus: planParticipantStatusSchema.nullable().optional(),
++    canSeePrivatePlaceDetails: z.boolean().optional(),
++  })
++  .passthrough();
+ 
+ export const placesResponseSchema = z.object({ places: z.array(placeSchema) });
+ export const placeResponseSchema = z.object({ place: placeSchema });
+ export const plansResponseSchema = z.object({ plans: z.array(planSchema) });
+ export const planResponseSchema = z.object({ plan: planSchema });
+-export const planParticipantResponseSchema = z.object({ participant: planParticipantSchema });
+-export const planParticipantsResponseSchema = z.object({ participants: z.array(planParticipantSchema) });
++export const planParticipantResponseSchema = z.object({
++  participant: planParticipantSchema,
++});
++export const planParticipantsResponseSchema = z.object({
++  participants: z.array(planParticipantSchema),
++});
+ 
+ export type PlanStatus = z.infer<typeof planStatusSchema>;
+ export type PlanJoinApprovalMode = z.infer<typeof planJoinApprovalModeSchema>;
+@@ -547,63 +862,162 @@ export type PlaceStatus = z.infer<typeof placeStatusSchema>;
+ export type PlaceVisibility = z.infer<typeof placeVisibilitySchema>;
+ export type PlanPlaceSource = z.infer<typeof planPlaceSourceSchema>;
+ export type PlaceLocationSource = z.infer<typeof placeLocationSourceSchema>;
+-export type PlaceAddressValidationStatus = z.infer<typeof placeAddressValidationStatusSchema>;
+-export type PlacePresenceVerificationSource = z.infer<typeof placePresenceVerificationSourceSchema>;
+-export type PlacePresenceVerificationStatus = z.infer<typeof placePresenceVerificationStatusSchema>;
+-export type PlaceStaticMapTemplateFamily = z.infer<typeof placeStaticMapTemplateFamilySchema>;
++export type PlaceAddressValidationStatus = z.infer<
++  typeof placeAddressValidationStatusSchema
++>;
++export type PlacePresenceVerificationSource = z.infer<
++  typeof placePresenceVerificationSourceSchema
++>;
++export type PlacePresenceVerificationStatus = z.infer<
++  typeof placePresenceVerificationStatusSchema
++>;
++export type PlaceStaticMapTemplateFamily = z.infer<
++  typeof placeStaticMapTemplateFamilySchema
++>;
+ export type PlaceStaticMapSource = z.infer<typeof placeStaticMapSourceSchema>;
+ export type PlaceStaticMapDto = z.infer<typeof placeStaticMapSchema>;
+-export type GooglePlaceValidationStatus = z.infer<typeof googlePlaceValidationStatusSchema>;
++export type GooglePlaceValidationStatus = z.infer<
++  typeof googlePlaceValidationStatusSchema
++>;
+ export type GooglePlacePrediction = z.infer<typeof googlePlacePredictionSchema>;
+ export type GoogleResolvedPlace = z.infer<typeof googleResolvedPlaceSchema>;
+-export type GooglePlaceSearchQuery = z.infer<typeof googlePlaceSearchQuerySchema>;
+-export type GooglePlaceDetailsQuery = z.infer<typeof googlePlaceDetailsQuerySchema>;
+-export type GoogleAddressValidationRequest = z.infer<typeof googleAddressValidationRequestSchema>;
+-export type GooglePlaceSearchResponse = z.infer<typeof googlePlaceSearchResponseSchema>;
+-export type GooglePlaceDetailsResponse = z.infer<typeof googlePlaceDetailsResponseSchema>;
+-export type GoogleAddressValidationResponse = z.infer<typeof googleAddressValidationResponseSchema>;
+-export type ConfirmedGooglePlaceAddressInput = z.infer<typeof confirmedGooglePlaceAddressInputSchema>;
+-export type OfflinePlaceProviderAddressInput = z.infer<typeof offlinePlaceProviderAddressInputSchema>;
+-export type OnlinePlaceDestinationInput = z.infer<typeof onlinePlaceDestinationInputSchema>;
+-export type RemotePlaceDestinationInput = z.infer<typeof remotePlaceDestinationInputSchema>;
++export type GooglePlaceSearchQuery = z.infer<
++  typeof googlePlaceSearchQuerySchema
++>;
++export type GooglePlaceDetailsQuery = z.infer<
++  typeof googlePlaceDetailsQuerySchema
++>;
++export type GoogleAddressValidationRequest = z.infer<
++  typeof googleAddressValidationRequestSchema
++>;
++export type GooglePlaceSearchResponse = z.infer<
++  typeof googlePlaceSearchResponseSchema
++>;
++export type GooglePlaceDetailsResponse = z.infer<
++  typeof googlePlaceDetailsResponseSchema
++>;
++export type GoogleAddressValidationResponse = z.infer<
++  typeof googleAddressValidationResponseSchema
++>;
++export type ConfirmedGooglePlaceAddressInput = z.infer<
++  typeof confirmedGooglePlaceAddressInputSchema
++>;
++export type OfflinePlaceProviderAddressInput = z.infer<
++  typeof offlinePlaceProviderAddressInputSchema
++>;
++export type OnlinePlaceDestinationInput = z.infer<
++  typeof onlinePlaceDestinationInputSchema
++>;
++export type RemotePlaceDestinationInput = z.infer<
++  typeof remotePlaceDestinationInputSchema
++>;
+ export type CreatePlaceRequest = z.infer<typeof createPlaceRequestSchema>;
+ export type UpdatePlaceRequest = z.infer<typeof updatePlaceRequestSchema>;
+ export type ListPlacesQuery = z.infer<typeof listPlacesQuerySchema>;
+ export type CreatePlanRequest = z.infer<typeof createPlanRequestSchema>;
+ export type UpdatePlanRequest = z.infer<typeof updatePlanRequestSchema>;
+-export type CreatePlanPlaceRequest = z.infer<typeof createPlanPlaceRequestSchema>;
+-export type UpdatePlanPlaceRequest = z.infer<typeof updatePlanPlaceRequestSchema>;
++export type CreatePlanPlaceRequest = z.infer<
++  typeof createPlanPlaceRequestSchema
++>;
++export type UpdatePlanPlaceRequest = z.infer<
++  typeof updatePlanPlaceRequestSchema
++>;
+ export type ListPlansQuery = z.infer<typeof listPlansQuerySchema>;
+ export type AdminListPlansQuery = z.infer<typeof adminListPlansQuerySchema>;
+ export type AdminPlanAction = z.infer<typeof adminPlanActionSchema>;
+-export type AdminPlanActionRequest = z.infer<typeof adminPlanActionRequestSchema>;
+-export type AdminListPlanPublicMessagesQuery = z.infer<typeof adminListPlanPublicMessagesQuerySchema>;
+-export type AdminPlanPublicMessageAction = z.infer<typeof adminPlanPublicMessageActionSchema>;
+-export type AdminPlanPublicMessageActionRequest = z.infer<typeof adminPlanPublicMessageActionRequestSchema>;
++export type AdminPlanActionRequest = z.infer<
++  typeof adminPlanActionRequestSchema
++>;
++export type AdminListPlanPublicMessagesQuery = z.infer<
++  typeof adminListPlanPublicMessagesQuerySchema
++>;
++export type AdminListPlacePresenceVerificationsQuery = z.infer<
++  typeof adminListPlacePresenceVerificationsQuerySchema
++>;
++export type AdminPlacePresenceVerificationAction = z.infer<
++  typeof adminPlacePresenceVerificationActionSchema
++>;
++export type AdminPlacePresenceVerificationActionRequest = z.infer<
++  typeof adminPlacePresenceVerificationActionRequestSchema
++>;
++export type AdminPlanPublicMessageAction = z.infer<
++  typeof adminPlanPublicMessageActionSchema
++>;
++export type AdminPlanPublicMessageActionRequest = z.infer<
++  typeof adminPlanPublicMessageActionRequestSchema
++>;
+ export type AdminListPlacesQuery = z.infer<typeof adminListPlacesQuerySchema>;
+ export type AdminPlaceAction = z.infer<typeof adminPlaceActionSchema>;
+-export type AdminPlaceActionRequest = z.infer<typeof adminPlaceActionRequestSchema>;
++export type AdminPlaceActionRequest = z.infer<
++  typeof adminPlaceActionRequestSchema
++>;
+ export type CreatePlanJoinRequest = z.infer<typeof createPlanJoinRequestSchema>;
+-export type UpdatePlanParticipantRequest = z.infer<typeof updatePlanParticipantRequestSchema>;
+-export type UpdateMyPlanParticipantRequest = z.infer<typeof updateMyPlanParticipantRequestSchema>;
+-export type CreatePlanPublicMessageRequest = z.infer<typeof createPlanPublicMessageRequestSchema>;
+-export type UpdatePlanPublicMessageRequest = z.infer<typeof updatePlanPublicMessageRequestSchema>;
+-export type ListPlanPublicMessagesQuery = z.infer<typeof listPlanPublicMessagesQuerySchema>;
+-export type CreatePlacePresenceVerificationRequest = z.infer<typeof createPlacePresenceVerificationRequestSchema>;
++export type UpdatePlanParticipantRequest = z.infer<
++  typeof updatePlanParticipantRequestSchema
++>;
++export type UpdateMyPlanParticipantRequest = z.infer<
++  typeof updateMyPlanParticipantRequestSchema
++>;
++export type CreatePlanPublicMessageRequest = z.infer<
++  typeof createPlanPublicMessageRequestSchema
++>;
++export type UpdatePlanPublicMessageRequest = z.infer<
++  typeof updatePlanPublicMessageRequestSchema
++>;
++export type ListPlanPublicMessagesQuery = z.infer<
++  typeof listPlanPublicMessagesQuerySchema
++>;
++export type CreatePlacePresenceVerificationRequest = z.infer<
++  typeof createPlacePresenceVerificationRequestSchema
++>;
++export type ListMyPlacePresenceVerificationsQuery = z.infer<
++  typeof listMyPlacePresenceVerificationsQuerySchema
++>;
+ export type PlaceDto = z.infer<typeof placeSchema>;
+ export type PlanDto = z.infer<typeof planSchema>;
+ export type PlanPlaceDto = z.infer<typeof planPlaceSchema>;
+ export type PlanParticipantDto = z.infer<typeof planParticipantSchema>;
+-export type PlanPublicMessageStatus = z.infer<typeof planPublicMessageStatusSchema>;
++export type PlanPublicMessageStatus = z.infer<
++  typeof planPublicMessageStatusSchema
++>;
+ export type PlanPublicMessageDto = z.infer<typeof planPublicMessageSchema>;
+-export type PlacePresenceVerificationDto = z.infer<typeof placePresenceVerificationSchema>;
++export type PlacePresenceVerificationDto = z.infer<
++  typeof placePresenceVerificationSchema
++>;
++export type PlacePresenceVerificationHistoryItem = z.infer<
++  typeof placePresenceVerificationHistoryItemSchema
++>;
++export type PlacePresenceVerificationHistoryResponse = z.infer<
++  typeof placePresenceVerificationHistoryResponseSchema
++>;
++export type AdminPlacePresenceVerificationDto = z.infer<
++  typeof adminPlacePresenceVerificationSchema
++>;
++export type AdminPlacePresenceVerificationsResponse = z.infer<
++  typeof adminPlacePresenceVerificationsResponseSchema
++>;
++export type AdminPlacePresenceVerificationResponse = z.infer<
++  typeof adminPlacePresenceVerificationResponseSchema
++>;
+ export type PlaceResponse = z.infer<typeof placeResponseSchema>;
+ export type PlacesResponse = z.infer<typeof placesResponseSchema>;
+ export type PlanResponse = z.infer<typeof planResponseSchema>;
+ export type PlansResponse = z.infer<typeof plansResponseSchema>;
+-export type PlanParticipantResponse = z.infer<typeof planParticipantResponseSchema>;
+-export type PlanParticipantsResponse = z.infer<typeof planParticipantsResponseSchema>;
+-export type PlanPublicMessagesResponse = z.infer<typeof planPublicMessagesResponseSchema>;
+-export type PlanPublicMessageResponse = z.infer<typeof planPublicMessageResponseSchema>;
+-export type PlacePresenceVerificationResponse = z.infer<typeof placePresenceVerificationResponseSchema>;
+-export type PlacePresenceVerificationSummaryResponse = z.infer<typeof placePresenceVerificationSummaryResponseSchema>;
++export type PlanParticipantResponse = z.infer<
++  typeof planParticipantResponseSchema
++>;
++export type PlanParticipantsResponse = z.infer<
++  typeof planParticipantsResponseSchema
++>;
++export type PlanPublicMessagesResponse = z.infer<
++  typeof planPublicMessagesResponseSchema
++>;
++export type PlanPublicMessageResponse = z.infer<
++  typeof planPublicMessageResponseSchema
++>;
++export type PlacePresenceVerificationResponse = z.infer<
++  typeof placePresenceVerificationResponseSchema
++>;
++export type PlacePresenceVerificationSummaryResponse = z.infer<
++  typeof placePresenceVerificationSummaryResponseSchema
++>;

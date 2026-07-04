@@ -104,6 +104,7 @@ export const publicProfileStatsSchema = z.object({
   verifiedOfflinePlacesCount: z.number().int().nonnegative().optional().default(0),
   verifiedOfflinePlansCount: z.number().int().nonnegative().optional().default(0),
   verifiedOfflineCheckInsCount: z.number().int().nonnegative().optional().default(0),
+  lastOfflinePresenceConfirmedAt: z.string().nullable().optional().default(null),
 });
 
 export const publicProfileSectionsSchema = z.object({

@@ -13,6 +13,14 @@ import { PlanPreviewDeck } from './PlanPreviewDeck';
 import { buildPlanSchedule, toDateInputValue, toTimeInputValue } from './planSchedule';
 import { planMediaSrc, planMetadata } from './plansPresentation';
 
+
+type PlanEndState = {
+  date: string;
+  time: string;
+};
+
+const EMPTY_PLAN_END_STATE: PlanEndState = { date: '', time: '' };
+
 type PlaceFormState = {
   id: string;
   placeId?: string;
@@ -48,6 +56,65 @@ function planModeFromPlaces(places: PlaceFormState[]) {
 function rangeLabelFromSchedule(schedule: ReturnType<typeof buildPlanSchedule>) {
   if (!schedule.startsAt) return '';
   return `${new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} → ${new Date(schedule.endsAt || schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
+}
+
+function parseOptionalPlanEnd(end: PlanEndState, fallbackStartAt: string) {
+  if (!end.date.trim() && !end.time.trim()) return { endsAt: '', error: '' };
+  if (!end.date.trim() || !end.time.trim()) return { endsAt: '', error: 'Add both an end date and end time, or leave the end empty.' };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(end.date.trim()) || !/^\d{2}:\d{2}$/.test(end.time.trim())) return { endsAt: '', error: 'Add a valid end date and time, or leave the end empty.' };
+  const parsed = new Date(`${end.date}T${end.time}:00`);
+  if (Number.isNaN(parsed.getTime())) return { endsAt: '', error: 'Add a valid end date and time, or leave the end empty.' };
+  if (fallbackStartAt && parsed.getTime() < new Date(fallbackStartAt).getTime()) return { endsAt: '', error: 'End time must be after the Plan start.' };
+  return { endsAt: parsed.toISOString(), error: '' };
+}
+
+function hasPlanEndOverride(end: PlanEndState) {
+  return Boolean(end.date.trim() || end.time.trim());
+}
+
+function planEndStateFromIso(value?: string | null): PlanEndState {
+  if (!value) return EMPTY_PLAN_END_STATE;
+  return { date: toDateInputValue(value), time: toTimeInputValue(value, '') };
+}
+
+function formatPlanDateTime(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function formatDurationMinutes(minutes?: number | null) {
+  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) return '';
+  const rounded = Math.round(minutes);
+  const hours = Math.floor(rounded / 60);
+  const remainder = rounded % 60;
+  if (hours && remainder) return `${hours}h ${remainder}m`;
+  if (hours) return `${hours}h`;
+  return `${remainder}m`;
+}
+
+function planEndSummary(schedule: ReturnType<typeof buildPlanSchedule>, end: PlanEndState) {
+  if (!schedule.startsAt) return null;
+  const parsedEnd = parseOptionalPlanEnd(end, schedule.startsAt);
+  const hasManualInput = hasPlanEndOverride(end);
+  if (hasManualInput && parsedEnd.error) return null;
+  const manual = hasManualInput && Boolean(parsedEnd.endsAt);
+  const endsAt = manual ? parsedEnd.endsAt : schedule.endsAt;
+  if (!endsAt) return null;
+  const estimatedDuration = formatDurationMinutes(schedule.estimatedFinalEnd?.roundedGapMinutes);
+  const detail = manual
+    ? 'Manual override is active. Clear it to use the automatic estimate from the place times.'
+    : schedule.estimatedFinalEnd?.placeCount === 1
+      ? `Estimated from the single-place default${estimatedDuration ? ` (${estimatedDuration})` : ''}.`
+      : `Estimated from the average gap between places${estimatedDuration ? ` (${estimatedDuration})` : ''}.`;
+  return {
+    label: manual ? 'Manual end' : 'Estimated end',
+    endsAt,
+    endLabel: formatPlanDateTime(endsAt),
+    detail,
+    manual,
+  };
 }
 
 function placeFormFromPlace(place: PlanPlaceDto): PlaceFormState {
@@ -129,18 +196,22 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [places, setPlaces] = useState<PlaceFormState[]>([]);
+  const [planEnd, setPlanEnd] = useState<PlanEndState>(EMPTY_PLAN_END_STATE);
 
   const isOwner = Boolean(auth.user?.id && plan?.ownerId === auth.user.id);
   const participantCount = plan?.participantCount ?? 0;
   const usablePlacesForPreview = useMemo(() => places.filter((place) => place.date.trim() && place.time.trim()), [places]);
   const schedule = useMemo(() => buildPlanSchedule(usablePlacesForPreview), [usablePlacesForPreview]);
-  const rangeLabel = rangeLabelFromSchedule(schedule);
+  const explicitPlanEnd = useMemo(() => parseOptionalPlanEnd(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
+  const endSummary = useMemo(() => planEndSummary(schedule, planEnd), [schedule, planEnd]);
+  const rangeLabel = rangeLabelFromSchedule({ ...schedule, endsAt: explicitPlanEnd.endsAt || schedule.endsAt });
 
   function hydrateForm(loadedPlan: PlanDto) {
     setPlan(loadedPlan);
     setTitle(loadedPlan.title);
     setDescription(loadedPlan.description);
     setCategory(loadedPlan.category ?? '');
+    setPlanEnd(planEndStateFromIso(loadedPlan.endsAt));
     const hydratedPlaces = (loadedPlan.places ?? []).map((place) => placeFormFromPlace(place));
     setPlaces(hydratedPlaces.length ? hydratedPlaces : [makeNewPlace(0)]);
   }
@@ -166,6 +237,11 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
 
   function updatePlace(index: number, update: Partial<PlaceFormState>) {
     setPlaces((current) => current.map((place, placeIndex) => placeIndex === index ? { ...place, ...update } : place));
+  }
+
+  function updatePlanEnd(patch: Partial<PlanEndState>) {
+    setPlanEnd((current) => ({ ...current, ...patch }));
+    setError('');
   }
 
   function addPlace() {
@@ -222,8 +298,13 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
     if (!isOwner) return;
     const usablePlaces = places.filter((place) => place.title.trim() && place.date.trim() && place.time.trim());
     const nextSchedule = buildPlanSchedule(usablePlaces);
+    const nextExplicitEnd = parseOptionalPlanEnd(planEnd, nextSchedule.startsAt);
     if (nextSchedule.error || !nextSchedule.startsAt || usablePlaces.length === 0) {
       setError(nextSchedule.error || 'Add at least one place with a valid date and time.');
+      return;
+    }
+    if (nextExplicitEnd.error) {
+      setError(nextExplicitEnd.error);
       return;
     }
     setSaving(true);
@@ -237,7 +318,7 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
         mode: planModeFromPlaces(usablePlaces),
         locationLabel: null,
         startsAt: nextSchedule.startsAt,
-        endsAt: nextSchedule.endsAt || nextSchedule.startsAt,
+        endsAt: nextExplicitEnd.endsAt || nextSchedule.endsAt || nextSchedule.startsAt,
         maxParticipants: null,
         joinApprovalMode: 'automatic',
         status: 'open',
@@ -249,6 +330,7 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
           title: place.title,
           addressPublicText: place.location.trim() || undefined,
           startsAt: nextSchedule.placeStartsAt[index],
+          endsAt: nextSchedule.placeEndsAt[index],
           order: index,
           mediaIds: selectedMediaIds(place.media),
         };
@@ -382,6 +464,34 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
 
             <button type="button" className="button secondary full" onClick={addPlace}>+ Add another place</button>
 
+            <section className="plan-edit-end-card">
+              <div>
+                <span className="semantic-badge time">Optional</span>
+                <h3>Plan end time</h3>
+                <p className="meta">Keep the saved end time, edit it manually, or clear it to use the automatic estimate from the place times.</p>
+              </div>
+              <div className="plan-timeline-row__fields">
+                <label>
+                  <span>End date</span>
+                  <input type="date" value={planEnd.date} onChange={(event) => updatePlanEnd({ date: event.target.value })} />
+                </label>
+                <label>
+                  <span>End time</span>
+                  <input type="time" value={planEnd.time} onChange={(event) => updatePlanEnd({ time: event.target.value })} />
+                </label>
+              </div>
+              {endSummary ? (
+                <div className="plan-end-summary">
+                  <div>
+                    <span className="semantic-badge time">{endSummary.label}</span>
+                    <strong>{endSummary.endLabel}</strong>
+                    <p>{endSummary.detail}</p>
+                  </div>
+                  {endSummary.manual ? <button type="button" className="button secondary" onClick={() => updatePlanEnd(EMPTY_PLAN_END_STATE)}>Use estimate</button> : null}
+                </div>
+              ) : null}
+            </section>
+
             <hr />
             <section className="plan-form__preview">
               <h3>Feed deck preview</h3>
@@ -396,6 +506,13 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
               </div>
             </section>
 
+            {endSummary ? (
+              <div className="plan-end-preview-card">
+                <span className="semantic-badge time">{endSummary.label}</span>
+                <strong>{endSummary.endLabel}</strong>
+                <p>{endSummary.detail}</p>
+              </div>
+            ) : null}
             {schedule.error ? <p className="form-error">{schedule.error}</p> : null}
             {message ? <p className="success-message">{message}</p> : null}
             {error ? <p className="form-error">{error}</p> : null}

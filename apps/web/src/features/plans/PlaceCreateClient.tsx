@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ChangeEvent, FormEvent } from 'react';
 import { useEffect, useState } from 'react';
-import type { DiscoveryLanguage, InventoryTranslationDto, MediaAssetDto, PlaceStaticMapTemplateFamily, PlanPlaceMode } from '@hellowhen/contracts';
+import type { DiscoveryLanguage, GoogleResolvedPlace, InventoryTranslationDto, MediaAssetDto, PlaceStaticMapTemplateFamily, PlanPlaceMode } from '@hellowhen/contracts';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
@@ -12,6 +12,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { mediaSrc, normalizeMediaUpload } from '../inventory/inventoryPresentation';
 import { GooglePlacePicker } from './GooglePlacePicker';
+import { emptyProviderAddressFormState, offlineProviderAddressError, onlineDestinationError, providerAddressFormStateFromGooglePlace, providerAddressFormStateFromStoredPlace, providerAddressPayloadFromFormState, providerAddressStatusLabel, type WebProviderAddressFormState } from './placeAddressForm';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
 
 type PlaceCreateClientProps = {
@@ -41,6 +42,7 @@ type PlaceCreateFormState = {
   defaultLanguage: DiscoveryLanguage;
   translations: PlaceTranslationFormValue[];
   location: string;
+  providerAddress: WebProviderAddressFormState;
   onlineLabel: string;
   onlineUrl: string;
   staticMapTemplateFamily: PlaceStaticMapTemplateFamily | '';
@@ -54,6 +56,7 @@ function makePlaceCreateForm(defaultLanguage: DiscoveryLanguage = 'en'): PlaceCr
     defaultLanguage,
     translations: [],
     location: '',
+    providerAddress: emptyProviderAddressFormState(),
     onlineLabel: '',
     onlineUrl: '',
     staticMapTemplateFamily: '',
@@ -64,7 +67,7 @@ function normalizeStaticMapTemplateFamily(value?: string | null): PlaceStaticMap
   return PLACE_STATIC_MAP_TEMPLATE_FAMILIES.includes(value as PlaceStaticMapTemplateFamily) ? value as PlaceStaticMapTemplateFamily : '';
 }
 
-function formStateFromPlace(place: { mode?: PlanPlaceMode | null; title?: string | null; description?: string | null; defaultLanguage?: string | null; translations?: InventoryTranslationDto[] | null; addressPublicText?: string | null; areaLabel?: string | null; onlineLabel?: string | null; onlineUrl?: string | null; staticMapTemplateFamily?: string | null }): PlaceCreateFormState {
+function formStateFromPlace(place: { mode?: PlanPlaceMode | null; title?: string | null; description?: string | null; defaultLanguage?: string | null; translations?: InventoryTranslationDto[] | null; addressPublicText?: string | null; areaLabel?: string | null; googlePlaceId?: string | null; googlePlaceName?: string | null; formattedAddress?: string | null; googleMapsUri?: string | null; latitude?: number | null; longitude?: number | null; locationSource?: string | null; addressValidationStatus?: string | null; onlineLabel?: string | null; onlineUrl?: string | null; staticMapTemplateFamily?: string | null }): PlaceCreateFormState {
   const mode = place.mode === 'remote' ? 'remote' : 'local';
   return {
     mode,
@@ -72,7 +75,8 @@ function formStateFromPlace(place: { mode?: PlanPlaceMode | null; title?: string
     description: place.description ?? '',
     defaultLanguage: normalizePlaceLanguage(place.defaultLanguage),
     translations: (place.translations ?? []).map((translation) => ({ languageCode: normalizePlaceLanguage(translation.languageCode), title: translation.title ?? '', description: translation.description ?? '' })),
-    location: mode === 'local' ? place.addressPublicText ?? place.areaLabel ?? '' : '',
+    location: mode === 'local' ? place.formattedAddress ?? place.addressPublicText ?? place.areaLabel ?? '' : '',
+    providerAddress: mode === 'local' ? providerAddressFormStateFromStoredPlace(place) : emptyProviderAddressFormState(),
     onlineLabel: mode === 'remote' ? place.onlineLabel ?? '' : '',
     onlineUrl: mode === 'remote' ? place.onlineUrl ?? '' : '',
     staticMapTemplateFamily: normalizeStaticMapTemplateFamily(place.staticMapTemplateFamily),
@@ -256,13 +260,13 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
 
   function validateDetails() {
     if (state.title.trim().length < 3) return 'Add a Place name.';
-    if (state.mode === 'remote' && state.onlineUrl.trim()) {
-      try {
-        const parsedUrl = new URL(state.onlineUrl.trim());
-        if (!['http:', 'https:'].includes(parsedUrl.protocol)) return 'Add a valid online URL.';
-      } catch {
-        return 'Add a valid online URL.';
-      }
+    if (state.mode === 'local') {
+      const addressError = offlineProviderAddressError(state.providerAddress);
+      if (addressError) return 'Select a confirmed address suggestion before saving an offline Place.';
+    }
+    if (state.mode === 'remote') {
+      const destinationError = onlineDestinationError({ onlineUrl: state.onlineUrl });
+      if (destinationError) return destinationError;
     }
     const translationError = validatePlaceTranslations(state);
     if (translationError) setTranslationPanelOpen(true);
@@ -314,6 +318,25 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
     setMessage('Image removed. Save the Place to keep this change.');
   }
 
+  function applyResolvedAddress(place: GoogleResolvedPlace | null) {
+    setState((current) => ({ ...current, location: place?.formattedAddress || current.location, providerAddress: providerAddressFormStateFromGooglePlace(place) }));
+  }
+
+  function clearResolvedAddress(location: string) {
+    setState((current) => ({ ...current, location, providerAddress: emptyProviderAddressFormState() }));
+  }
+
+  function changeMode(mode: PlanPlaceMode) {
+    setState((current) => ({
+      ...current,
+      mode,
+      location: mode === 'remote' ? '' : current.location,
+      providerAddress: mode === 'remote' ? emptyProviderAddressFormState() : current.providerAddress,
+      onlineLabel: mode === 'local' ? '' : current.onlineLabel,
+      onlineUrl: mode === 'local' ? '' : current.onlineUrl,
+    }));
+  }
+
   async function savePlace() {
     if (!auth.isAuthenticated) {
       router.push(`/auth?next=${encodeURIComponent(nextUrl())}`);
@@ -330,6 +353,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
     setMessage('');
     setError('');
     try {
+      const providerAddressPayload = state.mode === 'local' ? providerAddressPayloadFromFormState(state.providerAddress) : null;
       const body = {
         mode: state.mode,
         title: state.title.trim(),
@@ -338,7 +362,15 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
         translations: normalizePlaceTranslationsForPayload(state),
         visibility: 'private' as const,
         status: 'active' as const,
-        addressPublicText: state.mode === 'local' ? state.location.trim() || undefined : undefined,
+        addressPublicText: state.mode === 'local' ? providerAddressPayload?.formattedAddress : undefined,
+        googlePlaceId: providerAddressPayload?.googlePlaceId,
+        googlePlaceName: providerAddressPayload?.googlePlaceName,
+        formattedAddress: providerAddressPayload?.formattedAddress,
+        googleMapsUri: providerAddressPayload?.googleMapsUri,
+        latitude: providerAddressPayload?.latitude,
+        longitude: providerAddressPayload?.longitude,
+        locationSource: providerAddressPayload?.locationSource,
+        addressValidationStatus: providerAddressPayload?.addressValidationStatus,
         onlineLabel: state.mode === 'remote' ? state.onlineLabel.trim() || undefined : undefined,
         onlineUrl: state.mode === 'remote' ? state.onlineUrl.trim() || undefined : undefined,
         mediaIds: media.map((item) => item.id).slice(0, 1),
@@ -431,7 +463,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
                   <span className="semantic-badge place">My Place</span>
                 </div>
                 <div className="place-form__divider">
-                  <PlaceModeSegment value={state.mode} onChange={(mode) => setState((current) => ({ ...current, mode }))} />
+                  <PlaceModeSegment value={state.mode} onChange={changeMode} />
                 </div>
                 <label>
                   <span>Place name</span>
@@ -449,15 +481,19 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
                     </label>
                   </div>
                 ) : (
-                  <GooglePlacePicker
-                    value={state.location}
-                    onValueChange={(location) => setState((current) => ({ ...current, location }))}
-                    disabled={saving || uploading}
-                    label="Search address or place"
-                    placeholder="Café, park, address, station..."
-                    helperText="Choose a Google suggestion when possible. Hellowhen will save the confirmed public address text for this Place."
-                    languageCode={state.defaultLanguage}
-                  />
+                  <>
+                    <GooglePlacePicker
+                      value={state.location}
+                      onValueChange={clearResolvedAddress}
+                      onResolvedPlace={applyResolvedAddress}
+                      disabled={saving || uploading}
+                      label="Search and select address or place"
+                      placeholder="Café, park, address, station..."
+                      helperText="Select a provider suggestion. Typed text alone cannot be saved as an offline Place."
+                      languageCode={state.defaultLanguage}
+                    />
+                    {state.location.trim() && !providerAddressStatusLabel(state.providerAddress) ? <p className="form-error">Select a confirmed address suggestion before continuing.</p> : null}
+                  </>
                 )}
                 <label className="place-description-field">
                   <span>Description <small>Optional</small></span>

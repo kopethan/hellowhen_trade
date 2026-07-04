@@ -1,0 +1,246 @@
+diff --git a/apps/mobile/src/features/users/PublicUserProfileScreen.tsx b/apps/mobile/src/features/users/PublicUserProfileScreen.tsx
+index 714bdc6..eb5d293 100644
+--- a/apps/mobile/src/features/users/PublicUserProfileScreen.tsx
++++ b/apps/mobile/src/features/users/PublicUserProfileScreen.tsx
+@@ -68,6 +68,20 @@ function formatPresenceDate(value?: string | null, language = 'en') {
+   return new Intl.DateTimeFormat(language, { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+ }
+ 
++function presenceTrustCounts(stats?: PublicProfileResponse['stats'] | null) {
++  return {
++    places: stats?.verifiedOfflinePlacesCount ?? 0,
++    plans: stats?.verifiedOfflinePlansCount ?? 0,
++    checkIns: stats?.verifiedOfflineCheckInsCount ?? 0,
++  };
++}
++
++function presenceTrustSummary(stats: PublicProfileResponse['stats'], t: TFunction) {
++  const counts = presenceTrustCounts(stats);
++  if (!counts.places && !counts.plans && !counts.checkIns) return t('profile.trust.summaryNone');
++  return t('profile.trust.summary', { places: counts.places, plans: counts.plans, checkIns: counts.checkIns });
++}
++
+ function postKindLabel(kind: PostKind, t: TFunction) {
+   if (kind === 'need') return t('trade.labels.openNeed');
+   if (kind === 'offer') return t('trade.labels.openOffer');
+@@ -238,6 +252,9 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
+   const handleLabel = formatHandle(profile?.user.profile?.handle);
+   const memberSince = formatDate(profile?.user.memberSince, language);
+   const lastPresenceConfirmed = formatPresenceDate(profile?.stats.lastOfflinePresenceConfirmedAt, language);
++  const presenceCounts = presenceTrustCounts(profile?.stats);
++  const hasPresenceTrust = presenceCounts.places > 0 || presenceCounts.plans > 0 || presenceCounts.checkIns > 0;
++  const presenceSummary = profile ? presenceTrustSummary(profile.stats, t) : '';
+   const isBlockedByMe = Boolean(profile?.viewerState?.isBlockedByMe);
+   const activeTrades = profile?.sections.activeTrades ?? [];
+   const openNeeds = profile?.sections.openNeeds ?? [];
+@@ -310,6 +327,13 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
+               <View style={styles.heroCopy}>
+                 <AppText style={styles.displayName}>{name}</AppText>
+                 <VerificationBadgeRow badges={profile.user.badges} />
++                {hasPresenceTrust ? (
++                  <View style={[styles.presenceCounter, { backgroundColor: theme.semantic.success.softBg, borderColor: theme.semantic.success.border }]}>
++                    <MobileIcon name="verified" color={theme.semantic.success.text} size={13} />
++                    <AppText style={[styles.presenceCounterValue, { color: theme.semantic.success.text }]}>{presenceCounts.places}</AppText>
++                    <AppText style={[styles.presenceCounterLabel, { color: theme.semantic.success.text }]} numberOfLines={1}>{t('profile.trust.heroCounter', { count: presenceCounts.places })}</AppText>
++                  </View>
++                ) : null}
+                 {handleLabel ? <AppText style={[styles.handle, { color: theme.color.muted }]}>{handleLabel}</AppText> : null}
+                 {profile.user.profile?.bio ? <AppText style={[styles.bio, { color: theme.color.text }]}>{profile.user.profile.bio}</AppText> : null}
+                 <View style={styles.metaRow}>
+@@ -348,6 +372,11 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
+                   <AppText style={[styles.trustBody, { color: theme.color.muted }]}>{t('profile.trust.body')}</AppText>
+                 </View>
+               </View>
++              <View style={[styles.trustSummary, { backgroundColor: hasPresenceTrust ? theme.semantic.success.softBg : theme.color.subtleSurface, borderColor: hasPresenceTrust ? theme.semantic.success.border : theme.color.border }]}>
++                <AppText style={[styles.trustSummaryEyebrow, { color: hasPresenceTrust ? theme.semantic.success.text : theme.color.muted }]}>{t('profile.trust.primaryCounterLabel')}</AppText>
++                <AppText style={styles.trustSummaryValue}>{presenceCounts.places}</AppText>
++                <AppText style={[styles.trustSummaryBody, { color: theme.color.muted }]}>{presenceSummary}</AppText>
++              </View>
+               <View style={styles.trustGrid}>
+                 <TrustSignalTile label={t('profile.trust.memberSinceLabel')} value={memberSince ?? t('common.states.unknown')} />
+                 <TrustSignalTile label={t('profile.trust.verifiedPlaces')} value={profile.stats.verifiedOfflinePlacesCount ?? 0} />
+@@ -387,12 +416,19 @@ const styles = StyleSheet.create({
+   profileActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
+   profileAgendaButton: { alignSelf: 'flex-start' },
+   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
++  presenceCounter: { alignSelf: 'flex-start', maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
++  presenceCounterValue: { fontSize: 12, lineHeight: 15, fontWeight: '900' },
++  presenceCounterLabel: { flexShrink: 1, fontSize: 11, lineHeight: 14, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.3 },
+   trustPanel: { borderWidth: 1, borderRadius: 24, padding: 14, gap: 13 },
+   trustHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
+   trustIcon: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+   trustCopy: { flex: 1, minWidth: 0, gap: 3 },
+   trustTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900', letterSpacing: -0.2 },
+   trustBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
++  trustSummary: { borderWidth: 1, borderRadius: 20, padding: 12, gap: 3 },
++  trustSummaryEyebrow: { fontSize: 10, lineHeight: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.45 },
++  trustSummaryValue: { fontSize: 28, lineHeight: 32, fontWeight: '900', letterSpacing: -0.5 },
++  trustSummaryBody: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+   trustGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+   trustTile: { width: '48%', flexGrow: 1, minHeight: 72, borderWidth: 1, borderRadius: 18, padding: 11, justifyContent: 'center' },
+   trustValue: { fontSize: 18, lineHeight: 22, fontWeight: '900', letterSpacing: -0.25 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 9c1542a..0941823 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2853,12 +2853,21 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ .public-profile-avatar span { font-size: 36px; font-weight: 950; letter-spacing: -0.08em; }
+ .public-profile-meta-row { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; color: var(--app-text-muted); font-size: 13px; font-weight: 850; }
+ .public-profile-meta-row span { display: inline-flex; align-items: center; min-height: 28px; border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent); border-radius: 999px; background: var(--app-surface-soft); padding: 0 10px; }
++.public-profile-presence-counter { display: inline-flex; align-items: center; max-width: 100%; gap: 7px; margin: 2px 0 9px; border: 1px solid color-mix(in srgb, var(--success-border) 58%, var(--app-border)); border-radius: 999px; background: color-mix(in srgb, var(--success-bg) 78%, transparent); color: var(--success-text); padding: 7px 10px; font-size: 11px; font-weight: 950; letter-spacing: 0.035em; text-transform: uppercase; }
++.public-profile-presence-counter strong { color: inherit; font-size: 12px; line-height: 1; }
++.public-profile-presence-counter span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ 
+ .public-profile-trust-panel { display: grid; gap: 14px; border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent); border-radius: 26px; background: linear-gradient(145deg, color-mix(in srgb, var(--app-surface) 94%, var(--proposal-bg) 6%), var(--app-surface)); padding: 16px; box-shadow: var(--app-card-shadow); }
+ .public-profile-trust-panel__header { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; }
+ .public-profile-trust-panel__icon { display: inline-grid; place-items: center; width: 36px; height: 36px; border: 1px solid color-mix(in srgb, var(--success-border) 44%, var(--app-border)); border-radius: 999px; background: color-mix(in srgb, var(--success-bg) 74%, transparent); color: var(--success-text); }
+ .public-profile-trust-panel h3 { margin: 0; color: var(--app-text); font-size: 18px; letter-spacing: -0.03em; }
+ .public-profile-trust-panel p { margin: 3px 0 0; color: var(--app-text-muted); font-size: 13px; line-height: 1.42; font-weight: 760; }
++.public-profile-trust-summary { display: grid; gap: 4px; border: 1px solid color-mix(in srgb, var(--success-border) 52%, var(--app-border)); border-radius: 22px; background: color-mix(in srgb, var(--success-bg) 70%, transparent); padding: 14px; }
++.public-profile-trust-summary.is-empty { border-color: color-mix(in srgb, var(--app-border) 86%, transparent); background: color-mix(in srgb, var(--app-surface-soft) 82%, transparent); }
++.public-profile-trust-summary span { color: var(--success-text); font-size: 10px; font-weight: 950; letter-spacing: 0.05em; line-height: 1.1; text-transform: uppercase; }
++.public-profile-trust-summary.is-empty span { color: var(--app-text-muted); }
++.public-profile-trust-summary strong { color: var(--app-text); font-size: 32px; line-height: 0.95; letter-spacing: -0.06em; }
++.public-profile-trust-summary p { margin: 0; color: var(--app-text-muted); font-size: 13px; line-height: 1.35; font-weight: 850; }
+ .public-profile-trust-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+ .public-profile-trust-grid div { display: grid; gap: 3px; min-width: 0; border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent); border-radius: 20px; background: color-mix(in srgb, var(--app-surface-soft) 80%, transparent); padding: 12px 10px; }
+ .public-profile-trust-grid strong { overflow: hidden; color: var(--app-text); font-size: 18px; line-height: 1.08; letter-spacing: -0.035em; text-overflow: ellipsis; white-space: nowrap; }
+diff --git a/apps/web/src/features/users/PublicUserProfileClient.tsx b/apps/web/src/features/users/PublicUserProfileClient.tsx
+index 198b06c..924d011 100644
+--- a/apps/web/src/features/users/PublicUserProfileClient.tsx
++++ b/apps/web/src/features/users/PublicUserProfileClient.tsx
+@@ -37,6 +37,20 @@ function compactJoin(values: Array<string | null | undefined>) {
+   return values.filter((value): value is string => Boolean(value && value.trim())).join(' · ');
+ }
+ 
++function presenceTrustCounts(stats?: PublicProfileResponse['stats'] | null) {
++  return {
++    places: stats?.verifiedOfflinePlacesCount ?? 0,
++    plans: stats?.verifiedOfflinePlansCount ?? 0,
++    checkIns: stats?.verifiedOfflineCheckInsCount ?? 0,
++  };
++}
++
++function presenceTrustSummary(stats: PublicProfileResponse['stats'], t: TFunction) {
++  const counts = presenceTrustCounts(stats);
++  if (!counts.places && !counts.plans && !counts.checkIns) return t('profile.trust.summaryNone');
++  return t('profile.trust.summary', { places: counts.places, plans: counts.plans, checkIns: counts.checkIns });
++}
++
+ function postTypeLabel(post: PublicProfileTradeSummary, t: TFunction) {
+   if (post.postType === 'open_need') return t('trade.labels.openNeed');
+   if (post.postType === 'open_offer') return t('trade.labels.openOffer');
+@@ -222,6 +236,9 @@ export function PublicUserProfileClient({ userId, username }: { userId?: string;
+   const memberSince = profile?.user.memberSince ? formatWebDate(profile.user.memberSince, t('common.states.unknown'), language) : t('common.states.unknown');
+   const lastPresenceConfirmed = profile?.stats.lastOfflinePresenceConfirmedAt ? formatWebDate(profile.stats.lastOfflinePresenceConfirmedAt, t('common.states.unknown'), language) : null;
+   const handle = profile?.user.profile?.handle?.trim();
++  const presenceCounts = presenceTrustCounts(profile?.stats);
++  const hasPresenceTrust = presenceCounts.places > 0 || presenceCounts.plans > 0 || presenceCounts.checkIns > 0;
++  const presenceSummary = profile ? presenceTrustSummary(profile.stats, t) : '';
+   const isBlockedByMe = Boolean(profile?.viewerState?.isBlockedByMe);
+ 
+   async function toggleBlock() {
+@@ -290,6 +307,13 @@ export function PublicUserProfileClient({ userId, username }: { userId?: string;
+           <span className="semantic-badge trade">{t('profile.publicBadge')}</span>
+           <h2>{displayName}</h2>
+           <VerificationBadgeList badges={profile.user.badges} />
++          {hasPresenceTrust ? (
++            <div className="public-profile-presence-counter" aria-label={t('profile.trust.heroCounter', { count: presenceCounts.places })}>
++              <WebIcon name="verified" size={14} decorative />
++              <strong>{presenceCounts.places}</strong>
++              <span>{t('profile.trust.heroCounter', { count: presenceCounts.places })}</span>
++            </div>
++          ) : null}
+           <div className="public-profile-meta-row">
+             {handle ? <span>@{handle}</span> : null}
+             <span>{t('profile.memberSince', { date: memberSince })}</span>
+@@ -317,6 +341,11 @@ export function PublicUserProfileClient({ userId, username }: { userId?: string;
+             <p>{t('profile.trust.body')}</p>
+           </div>
+         </div>
++        <div className={`public-profile-trust-summary${hasPresenceTrust ? '' : ' is-empty'}`}>
++          <span>{t('profile.trust.primaryCounterLabel')}</span>
++          <strong>{presenceCounts.places}</strong>
++          <p>{presenceSummary}</p>
++        </div>
+         <div className="public-profile-trust-grid">
+           <div>
+             <strong>{memberSince}</strong>
+diff --git a/docs/plans/place-presence-verification-audit.md b/docs/plans/place-presence-verification-audit.md
+index 7e18a15..d17961f 100644
+--- a/docs/plans/place-presence-verification-audit.md
++++ b/docs/plans/place-presence-verification-audit.md
+@@ -336,7 +336,18 @@ Scope completed:
+ - No schema migration required.
+ ```
+ 
+-### PLAN-VERIFY3 — Verification smoke checks
++### PLAN-VERIFY3 — Profile trust counters — implemented
++
++Scope completed:
++
++```txt
++- Adds a compact offline presence counter to the public profile hero when the member has confirmed offline presence.
++- Adds an emphasized profile trust counter summary above the detailed trust stat grid.
++- Keeps the detailed aggregate counters from PLAN-VERIFY2.
++- Keeps exact place names, Plan titles, addresses, and coordinates private.
++```
++
++### PLAN-VERIFY4 — Verification smoke checks
+ 
+ Scope:
+ 
+@@ -346,7 +357,7 @@ Scope:
+ - Keep smoke records archived/cleaned if created in development.
+ ```
+ 
+-### PLAN-VERIFY4 — Private/admin verification review
++### PLAN-VERIFY5 — Private/admin verification review
+ 
+ Scope:
+ 
+diff --git a/packages/i18n/src/locales/en/profile.ts b/packages/i18n/src/locales/en/profile.ts
+index ae578f4..11ecc22 100644
+--- a/packages/i18n/src/locales/en/profile.ts
++++ b/packages/i18n/src/locales/en/profile.ts
+@@ -21,6 +21,10 @@ export const profile = {
+   trust: {
+     title: 'Presence trust signals',
+     body: 'Public aggregate counts from GPS presence checks. Exact places and live location are never shown.',
++    heroCounter: 'Offline presence confirmations',
++    primaryCounterLabel: 'Offline presence confirmations',
++    summary: '{{places}} location confirmations · {{plans}} plans · {{checkIns}} check-ins',
++    summaryNone: 'No offline presence confirmations yet.',
+     memberSinceLabel: 'Member since',
+     memberSince: 'Member since {{date}}',
+     verifiedPlaces: 'Offline place confirmations',
+diff --git a/packages/i18n/src/locales/es/profile.ts b/packages/i18n/src/locales/es/profile.ts
+index 870ef0f..ac51258 100644
+--- a/packages/i18n/src/locales/es/profile.ts
++++ b/packages/i18n/src/locales/es/profile.ts
+@@ -28,6 +28,10 @@ export const profile = {
+     ...enProfile.trust,
+     title: 'Señales de presencia',
+     body: 'Contadores públicos y agregados de confirmaciones GPS. Los lugares exactos y la ubicación en vivo nunca se muestran.',
++    heroCounter: 'Presencia offline confirmada',
++    primaryCounterLabel: 'Confirmaciones de presencia offline',
++    summary: '{{places}} confirmaciones de lugares · {{plans}} planes · {{checkIns}} check-ins',
++    summaryNone: 'Aún no hay confirmaciones de presencia offline.',
+     memberSinceLabel: 'Miembro desde',
+     memberSince: 'Miembro desde {{date}}',
+     verifiedPlaces: 'Confirmaciones de lugares offline',
+diff --git a/packages/i18n/src/locales/fr/profile.ts b/packages/i18n/src/locales/fr/profile.ts
+index 5b3a02c..79fff2b 100644
+--- a/packages/i18n/src/locales/fr/profile.ts
++++ b/packages/i18n/src/locales/fr/profile.ts
+@@ -21,6 +21,10 @@ export const profile = {
+   trust: {
+     title: 'Signaux de présence',
+     body: 'Des compteurs publics et agrégés issus des confirmations GPS. Les lieux exacts et la position en direct ne sont jamais affichés.',
++    heroCounter: 'Présence hors ligne confirmée',
++    primaryCounterLabel: 'Confirmations de présence hors ligne',
++    summary: '{{places}} confirmations de lieux · {{plans}} plans · {{checkIns}} présences',
++    summaryNone: 'Aucune présence hors ligne confirmée pour le moment.',
+     memberSinceLabel: 'Membre depuis',
+     memberSince: 'Membre depuis {{date}}',
+     verifiedPlaces: 'Confirmations de lieux hors ligne',

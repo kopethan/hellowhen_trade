@@ -7,6 +7,7 @@ import {
   createPlanPublicMessageRequestSchema,
   createPlanRequestSchema,
   listPlanPublicMessagesQuerySchema,
+  listMyPlacePresenceVerificationsQuerySchema,
   listPlansQuerySchema,
   updateMyPlanParticipantRequestSchema,
   updatePlanParticipantRequestSchema,
@@ -14,7 +15,16 @@ import {
   updatePlanPublicMessageRequestSchema,
   updatePlanRequestSchema,
 } from '@hellowhen/contracts';
-import { buildGeneratedPlanDisplay } from '@hellowhen/shared';
+import {
+  buildEstimatedPlanPlaceEndTimes,
+  buildGeneratedPlanDisplay,
+  buildMissingOfflineProviderAddressMessage,
+  buildMissingOnlineDestinationMessage,
+  getMissingOfflineProviderAddressFields,
+  getMissingOnlineDestinationFields,
+  PLACE_OFFLINE_MODE,
+  PLACE_ONLINE_MODE,
+} from '@hellowhen/shared';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
@@ -458,6 +468,12 @@ function planPublicDiscussionMessageSelect() {
   } as const;
 }
 
+function estimatePlanEndsAtFromPlaces(input: { endsAt?: string | null; places?: Array<{ startsAt?: string | null }> }) {
+  if (input.endsAt) return input.endsAt;
+  const estimatedPlaceEndTimes = buildEstimatedPlanPlaceEndTimes((input.places ?? []).map((place) => place.startsAt));
+  return estimatedPlaceEndTimes[estimatedPlaceEndTimes.length - 1] ?? null;
+}
+
 function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequestSchema.parse>) {
   const generatedPlanDisplay = buildGeneratedPlanDisplay({
     places: input.places ?? [],
@@ -465,6 +481,7 @@ function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequ
     mode: input.mode,
     joinApprovalMode: input.joinApprovalMode,
   });
+  const estimatedEndsAt = estimatePlanEndsAtFromPlaces(input);
   return {
     ownerId,
     title: input.title ?? generatedPlanDisplay.title,
@@ -474,7 +491,7 @@ function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequ
     mode: input.mode ?? null,
     locationLabel: input.locationLabel ?? null,
     startsAt: new Date(input.startsAt),
-    endsAt: input.endsAt ? new Date(input.endsAt) : null,
+    endsAt: estimatedEndsAt ? new Date(estimatedEndsAt) : null,
     maxParticipants: input.maxParticipants ?? null,
     joinApprovalMode: input.joinApprovalMode ?? 'automatic',
     status: input.status ?? 'open',
@@ -484,13 +501,14 @@ function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequ
 
 const activeOwnedPlanTimeStatuses = ['draft', 'open', 'full', 'started'] as const;
 
-function effectivePlanRange(input: { startsAt: string; endsAt?: string | null }) {
+function effectivePlanRange(input: { startsAt: string; endsAt?: string | null; places?: Array<{ startsAt?: string | null }> }) {
   const startsAt = new Date(input.startsAt);
-  const endsAt = input.endsAt ? new Date(input.endsAt) : startsAt;
+  const estimatedEndsAt = estimatePlanEndsAtFromPlaces(input);
+  const endsAt = estimatedEndsAt ? new Date(estimatedEndsAt) : startsAt;
   return { startsAt, endsAt };
 }
 
-async function findOwnedPlanTimeOverlap(ownerId: string, input: { startsAt: string; endsAt?: string | null }, excludePlanId?: string) {
+async function findOwnedPlanTimeOverlap(ownerId: string, input: { startsAt: string; endsAt?: string | null; places?: Array<{ startsAt?: string | null }> }, excludePlanId?: string) {
   const { startsAt, endsAt } = effectivePlanRange(input);
   return prisma.plan.findFirst({
     where: {
@@ -541,23 +559,30 @@ function planUpdateData(input: ReturnType<typeof updatePlanRequestSchema.parse>)
 }
 
 
-function hasPlanPlaceStaticMapCandidate(input: { mode?: string | null; latitude?: number | null; longitude?: number | null; addressPublicText?: string | null; formattedAddress?: string | null; googlePlaceName?: string | null }, reusablePlace?: any | null) {
-  const mode = input.mode ?? reusablePlace?.mode ?? 'local';
-  if (mode === 'remote') return false;
+function hasPlanPlaceStaticMapCandidate(input: { mode?: string | null; latitude?: number | null; longitude?: number | null }, reusablePlace?: any | null) {
+  const mode = input.mode ?? reusablePlace?.mode ?? PLACE_OFFLINE_MODE;
+  if (mode === PLACE_ONLINE_MODE) return false;
   if (typeof input.latitude === 'number' && typeof input.longitude === 'number') return true;
-  if (typeof reusablePlace?.latitude === 'number' && typeof reusablePlace?.longitude === 'number') return true;
-  return Boolean(
-    input.addressPublicText?.trim()
-    || input.formattedAddress?.trim()
-    || input.googlePlaceName?.trim()
-    || reusablePlace?.addressPublicText?.trim?.()
-    || reusablePlace?.areaLabel?.trim?.()
-    || reusablePlace?.formattedAddress?.trim?.()
-    || reusablePlace?.googlePlaceName?.trim?.(),
-  );
+  return typeof reusablePlace?.latitude === 'number' && typeof reusablePlace?.longitude === 'number';
 }
 
-function planPlaceStaticMapTemplateSnapshot(input: { mediaIds?: string[]; mode?: string | null; latitude?: number | null; longitude?: number | null; addressPublicText?: string | null; formattedAddress?: string | null; googlePlaceName?: string | null }, reusablePlace?: any | null) {
+function assertPlanPlaceAddressPolicy(input: any) {
+  const mode = input.mode ?? PLACE_OFFLINE_MODE;
+  if (mode === PLACE_ONLINE_MODE) {
+    const missing = getMissingOnlineDestinationFields(input);
+    if (missing.length > 0) {
+      throw createPlanRequestError('missing_online_place_destination', buildMissingOnlineDestinationMessage(missing));
+    }
+    return;
+  }
+
+  const missing = getMissingOfflineProviderAddressFields(input);
+  if (missing.length > 0) {
+    throw createPlanRequestError('missing_offline_provider_address', buildMissingOfflineProviderAddressMessage(missing));
+  }
+}
+
+function planPlaceStaticMapTemplateSnapshot(input: { mediaIds?: string[]; mode?: string | null; latitude?: number | null; longitude?: number | null }, reusablePlace?: any | null) {
   if (reusablePlace?.staticMapTemplateFamily) {
     return {
       staticMapTemplateFamily: reusablePlace.staticMapTemplateFamily,
@@ -584,23 +609,25 @@ async function loadReusablePlaceForSnapshot(placeId: string, userId: string) {
 }
 
 function planPlaceSnapshotData(planId: string, input: ReturnType<typeof createPlanPlaceRequestSchema.parse> | ReturnType<typeof updatePlanPlaceRequestSchema.parse>, fallbackOrder = 0, reusablePlace?: any | null) {
+  const mode = input.mode ?? reusablePlace?.mode ?? PLACE_OFFLINE_MODE;
+  const isOnline = mode === PLACE_ONLINE_MODE;
   return {
     planId,
     placeId: reusablePlace?.id ?? input.placeId ?? null,
     order: input.order ?? fallbackOrder,
-    mode: input.mode ?? reusablePlace?.mode ?? 'local',
+    mode,
     title: input.title ?? reusablePlace?.title,
     note: input.note ?? null,
-    addressPublicText: input.addressPublicText ?? reusablePlace?.addressPublicText ?? null,
-    addressPrivateText: input.addressPrivateText ?? reusablePlace?.addressPrivateText ?? null,
-    googlePlaceId: input.googlePlaceId ?? reusablePlace?.googlePlaceId ?? null,
-    googlePlaceName: input.googlePlaceName ?? reusablePlace?.googlePlaceName ?? null,
-    formattedAddress: input.formattedAddress ?? reusablePlace?.formattedAddress ?? input.addressPublicText ?? reusablePlace?.formattedAddress ?? reusablePlace?.addressPublicText ?? null,
-    googleMapsUri: input.googleMapsUri ?? reusablePlace?.googleMapsUri ?? null,
-    latitude: input.latitude ?? reusablePlace?.latitude ?? null,
-    longitude: input.longitude ?? reusablePlace?.longitude ?? null,
-    locationSource: input.locationSource ?? reusablePlace?.locationSource ?? (input.googlePlaceId || reusablePlace?.googlePlaceId ? 'google_places' : null),
-    addressValidationStatus: input.addressValidationStatus ?? reusablePlace?.addressValidationStatus ?? (input.googlePlaceId || reusablePlace?.googlePlaceId ? 'confirmed' : null),
+    addressPublicText: isOnline ? null : input.formattedAddress ?? reusablePlace?.formattedAddress ?? null,
+    addressPrivateText: isOnline ? null : input.addressPrivateText ?? reusablePlace?.addressPrivateText ?? null,
+    googlePlaceId: isOnline ? null : input.googlePlaceId ?? reusablePlace?.googlePlaceId ?? null,
+    googlePlaceName: isOnline ? null : input.googlePlaceName ?? reusablePlace?.googlePlaceName ?? null,
+    formattedAddress: isOnline ? null : input.formattedAddress ?? reusablePlace?.formattedAddress ?? null,
+    googleMapsUri: isOnline ? null : input.googleMapsUri ?? reusablePlace?.googleMapsUri ?? null,
+    latitude: isOnline ? null : input.latitude ?? reusablePlace?.latitude ?? null,
+    longitude: isOnline ? null : input.longitude ?? reusablePlace?.longitude ?? null,
+    locationSource: isOnline ? null : input.locationSource ?? reusablePlace?.locationSource ?? null,
+    addressValidationStatus: isOnline ? null : input.addressValidationStatus ?? reusablePlace?.addressValidationStatus ?? null,
     onlineLabel: input.onlineLabel ?? reusablePlace?.onlineLabel ?? null,
     onlineUrl: input.onlineUrl ?? reusablePlace?.onlineUrl ?? null,
     ...planPlaceStaticMapTemplateSnapshot(input, reusablePlace),
@@ -616,38 +643,43 @@ async function placeCreateData(planId: string, ownerId: string, input: ReturnTyp
   }
   const data = planPlaceSnapshotData(planId, input, fallbackOrder, reusablePlace);
   if (!data.title) throw createPlanRequestError('missing_place_title', 'Add a place title before saving this plan place.');
+  assertPlanPlaceAddressPolicy(data);
   return data;
 }
 
-async function placeUpdateData(ownerId: string, input: ReturnType<typeof updatePlanPlaceRequestSchema.parse>) {
+async function placeUpdateData(ownerId: string, input: ReturnType<typeof updatePlanPlaceRequestSchema.parse>, existing: any) {
   const reusablePlace = input.placeId ? await loadReusablePlaceForSnapshot(input.placeId, ownerId) : null;
   if (input.placeId && !reusablePlace) {
     throw createPlanRequestError('place_not_found', 'Choose one of your places or a Hellowhen library place.', 404);
   }
   const snapshot = reusablePlace ? planPlaceSnapshotData('', input, 0, reusablePlace) : null;
   const templateSnapshot = planPlaceStaticMapTemplateSnapshot(input, reusablePlace);
-  return {
+  const switchesToOnline = (input.mode ?? reusablePlace?.mode) === PLACE_ONLINE_MODE;
+  const patch = {
     ...(input.placeId !== undefined ? { placeId: reusablePlace?.id ?? null } : {}),
     ...(input.order !== undefined ? { order: input.order } : {}),
-    ...(input.mode !== undefined || reusablePlace ? { mode: input.mode ?? reusablePlace?.mode ?? 'local' } : {}),
+    ...(input.mode !== undefined || reusablePlace ? { mode: input.mode ?? reusablePlace?.mode ?? PLACE_OFFLINE_MODE } : {}),
     ...(input.title !== undefined || reusablePlace ? { title: input.title ?? reusablePlace?.title } : {}),
     ...(input.note !== undefined ? { note: input.note ?? null } : {}),
-    ...(input.addressPublicText !== undefined || reusablePlace ? { addressPublicText: input.addressPublicText ?? snapshot?.addressPublicText ?? null } : {}),
-    ...(input.addressPrivateText !== undefined || reusablePlace ? { addressPrivateText: input.addressPrivateText ?? snapshot?.addressPrivateText ?? null } : {}),
-    ...(input.googlePlaceId !== undefined || reusablePlace ? { googlePlaceId: input.googlePlaceId ?? snapshot?.googlePlaceId ?? null } : {}),
-    ...(input.googlePlaceName !== undefined || reusablePlace ? { googlePlaceName: input.googlePlaceName ?? snapshot?.googlePlaceName ?? null } : {}),
-    ...(input.formattedAddress !== undefined || input.addressPublicText !== undefined || reusablePlace ? { formattedAddress: input.formattedAddress ?? input.addressPublicText ?? snapshot?.formattedAddress ?? null } : {}),
-    ...(input.googleMapsUri !== undefined || reusablePlace ? { googleMapsUri: input.googleMapsUri ?? snapshot?.googleMapsUri ?? null } : {}),
-    ...(input.latitude !== undefined || reusablePlace ? { latitude: input.latitude ?? snapshot?.latitude ?? null } : {}),
-    ...(input.longitude !== undefined || reusablePlace ? { longitude: input.longitude ?? snapshot?.longitude ?? null } : {}),
-    ...(input.locationSource !== undefined || input.googlePlaceId !== undefined || reusablePlace ? { locationSource: input.locationSource ?? snapshot?.locationSource ?? (input.googlePlaceId ? 'google_places' : null) } : {}),
-    ...(input.addressValidationStatus !== undefined || input.googlePlaceId !== undefined || reusablePlace ? { addressValidationStatus: input.addressValidationStatus ?? snapshot?.addressValidationStatus ?? (input.googlePlaceId ? 'confirmed' : null) } : {}),
+    ...(switchesToOnline ? { addressPublicText: null } : input.formattedAddress !== undefined || reusablePlace ? { addressPublicText: input.formattedAddress ?? snapshot?.formattedAddress ?? null } : {}),
+    ...(switchesToOnline ? { addressPrivateText: null } : input.addressPrivateText !== undefined || reusablePlace ? { addressPrivateText: input.addressPrivateText ?? snapshot?.addressPrivateText ?? null } : {}),
+    ...(switchesToOnline ? { googlePlaceId: null } : input.googlePlaceId !== undefined || reusablePlace ? { googlePlaceId: input.googlePlaceId ?? snapshot?.googlePlaceId ?? null } : {}),
+    ...(switchesToOnline ? { googlePlaceName: null } : input.googlePlaceName !== undefined || reusablePlace ? { googlePlaceName: input.googlePlaceName ?? snapshot?.googlePlaceName ?? null } : {}),
+    ...(switchesToOnline ? { formattedAddress: null } : input.formattedAddress !== undefined || reusablePlace ? { formattedAddress: input.formattedAddress ?? snapshot?.formattedAddress ?? null } : {}),
+    ...(switchesToOnline ? { googleMapsUri: null } : input.googleMapsUri !== undefined || reusablePlace ? { googleMapsUri: input.googleMapsUri ?? snapshot?.googleMapsUri ?? null } : {}),
+    ...(switchesToOnline ? { latitude: null } : input.latitude !== undefined || reusablePlace ? { latitude: input.latitude ?? snapshot?.latitude ?? null } : {}),
+    ...(switchesToOnline ? { longitude: null } : input.longitude !== undefined || reusablePlace ? { longitude: input.longitude ?? snapshot?.longitude ?? null } : {}),
+    ...(switchesToOnline ? { locationSource: null } : input.locationSource !== undefined || reusablePlace ? { locationSource: input.locationSource ?? snapshot?.locationSource ?? null } : {}),
+    ...(switchesToOnline ? { addressValidationStatus: null } : input.addressValidationStatus !== undefined || reusablePlace ? { addressValidationStatus: input.addressValidationStatus ?? snapshot?.addressValidationStatus ?? null } : {}),
     ...(input.onlineLabel !== undefined || reusablePlace ? { onlineLabel: input.onlineLabel ?? snapshot?.onlineLabel ?? null } : {}),
     ...(input.onlineUrl !== undefined || reusablePlace ? { onlineUrl: input.onlineUrl ?? snapshot?.onlineUrl ?? null } : {}),
     ...(Object.keys(templateSnapshot).length ? templateSnapshot : {}),
     ...(input.startsAt !== undefined ? { startsAt: input.startsAt ? new Date(input.startsAt) : null } : {}),
     ...(input.endsAt !== undefined ? { endsAt: input.endsAt ? new Date(input.endsAt) : null } : {}),
   };
+
+  assertPlanPlaceAddressPolicy({ ...existing, ...patch });
+  return patch;
 }
 
 async function joinPlanFreely(planId: string, userId: string, message?: string | null) {
@@ -784,11 +816,19 @@ plansRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req, 
   const input = createPlanRequestSchema.parse(req.body ?? {});
   const overlappingPlan = await findOwnedPlanTimeOverlap(req.user!.id, input);
   if (overlappingPlan) return res.status(409).json(planTimeOverlapResponse(overlappingPlan));
+  const inputPlaces = input.places ?? [];
+  const estimatedPlaceEndTimes = buildEstimatedPlanPlaceEndTimes(inputPlaces.map((placeInput) => placeInput.startsAt));
+  const placeDataDrafts = [] as any[];
+  for (const [index, placeInput] of inputPlaces.entries()) {
+    const draft = await placeCreateData('__pending_plan__', req.user!.id, placeInput, index);
+    if (!draft.endsAt && estimatedPlaceEndTimes[index]) draft.endsAt = new Date(estimatedPlaceEndTimes[index]!);
+    placeDataDrafts.push(draft);
+  }
   const plan = await prisma.plan.create({ data: planCreateData(req.user!.id, input) as any });
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan' as any, plan.id);
 
-  for (const [index, placeInput] of (input.places ?? []).entries()) {
-    const place = await prisma.planPlace.create({ data: await placeCreateData(plan.id, req.user!.id, placeInput, index) as any });
+  for (const [index, placeInput] of inputPlaces.entries()) {
+    const place = await prisma.planPlace.create({ data: { ...placeDataDrafts[index], planId: plan.id } as any });
     await attachUploadedMediaToEntity(req.user!.id, placeInput.mediaIds, 'plan_place' as any, place.id, { maxImages: PLAN_PLACE_MEDIA_LIMITS.plus });
   }
 
@@ -829,7 +869,7 @@ plansRoutes.patch('/:planId/places/:placeId', requireAuth, requireActiveAccount,
   if (!plan) return res.status(404).json({ error: 'not_found' });
   const place = await prisma.planPlace.findFirst({ where: { id: req.params.placeId, planId: plan.id } });
   if (!place) return res.status(404).json({ error: 'not_found' });
-  await prisma.planPlace.update({ where: { id: place.id }, data: await placeUpdateData(req.user!.id, input) as any });
+  await prisma.planPlace.update({ where: { id: place.id }, data: await placeUpdateData(req.user!.id, input, place) as any });
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan_place' as any, place.id, { maxImages: PLAN_PLACE_MEDIA_LIMITS.plus });
   const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
   res.json({ plan: await decoratePlan(updated, req.user!.id) });
@@ -917,6 +957,57 @@ plansRoutes.post('/:planId/places/:placeId/verify-presence', requireAuth, requir
   });
 
   return res.status(accepted ? 201 : 409).json(verificationResponse(verification, accepted));
+}));
+
+
+function serializePrivatePlacePresenceVerification(verification: any) {
+  return {
+    id: verification.id,
+    userId: verification.userId,
+    planId: verification.planId,
+    planPlaceId: verification.planPlaceId,
+    sourcePlaceId: verification.sourcePlaceId ?? null,
+    source: verification.source,
+    status: verification.status,
+    distanceMeters: verification.distanceMeters ?? null,
+    maxDistanceMeters: verification.maxDistanceMeters ?? null,
+    rejectionReason: verification.rejectionReason ?? null,
+    verifiedAt: verification.verifiedAt?.toISOString?.() ?? null,
+    createdAt: verification.createdAt?.toISOString?.() ?? verification.createdAt,
+    plan: verification.plan ? {
+      id: verification.plan.id,
+      title: verification.plan.title,
+      status: verification.plan.status,
+      startsAt: verification.plan.startsAt?.toISOString?.() ?? verification.plan.startsAt ?? null,
+    } : null,
+    planPlace: verification.planPlace ? {
+      id: verification.planPlace.id,
+      title: verification.planPlace.title,
+      mode: verification.planPlace.mode ?? 'local',
+      addressPublicText: verification.planPlace.addressPublicText ?? null,
+      formattedAddress: verification.planPlace.formattedAddress ?? null,
+      onlineLabel: verification.planPlace.onlineLabel ?? null,
+    } : null,
+  };
+}
+
+
+plansRoutes.get('/place-verifications/mine', requireAuth, asyncRoute(async (req, res) => {
+  const input = listMyPlacePresenceVerificationsQuerySchema.parse(req.query);
+  const verifications = await (prisma as any).placePresenceVerification.findMany({
+    where: {
+      userId: req.user!.id,
+      ...(input.status && input.status !== 'all' ? { status: input.status } : {}),
+    },
+    orderBy: [{ createdAt: 'desc' }],
+    take: input.take ?? 50,
+    include: {
+      plan: { select: { id: true, title: true, status: true, startsAt: true } },
+      planPlace: { select: { id: true, title: true, mode: true, addressPublicText: true, formattedAddress: true, onlineLabel: true } },
+    },
+  });
+
+  res.json({ verifications: verifications.map(serializePrivatePlacePresenceVerification) });
 }));
 
 plansRoutes.get('/place-verifications/summary', requireAuth, asyncRoute(async (req, res) => {

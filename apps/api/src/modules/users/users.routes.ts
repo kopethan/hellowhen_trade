@@ -87,6 +87,7 @@ async function getPublicProfileResponse(userId: string, viewerId?: string) {
     verifiedOfflineCheckInsCount,
     verifiedOfflinePlaces,
     verifiedOfflinePlans,
+    lastOfflinePresenceConfirmation,
   ] = await Promise.all([
     prisma.trade.count({ where: { status: 'completed', OR: [{ ownerId: userId }, { providerId: userId }] } }),
     prisma.trade.count({ where: { ...publicPostWhereBase(userId), postType: 'need_offer' } }),
@@ -98,6 +99,7 @@ async function getPublicProfileResponse(userId: string, viewerId?: string) {
     (prisma as any).placePresenceVerification.count({ where: publicTrustVerificationWhere }),
     (prisma as any).placePresenceVerification.findMany({ where: publicTrustVerificationWhere, distinct: ['planPlaceId'], select: { planPlaceId: true } }),
     (prisma as any).placePresenceVerification.findMany({ where: publicTrustVerificationWhere, distinct: ['planId'], select: { planId: true } }),
+    (prisma as any).placePresenceVerification.findFirst({ where: publicTrustVerificationWhere, orderBy: { verifiedAt: 'desc' }, select: { verifiedAt: true } }),
   ]);
 
   const publicMediaVisibility = viewerId ? 'trade_public' : 'public_anonymous';
@@ -126,6 +128,7 @@ async function getPublicProfileResponse(userId: string, viewerId?: string) {
       verifiedOfflinePlacesCount: verifiedOfflinePlaces.length,
       verifiedOfflinePlansCount: verifiedOfflinePlans.length,
       verifiedOfflineCheckInsCount,
+      lastOfflinePresenceConfirmedAt: lastOfflinePresenceConfirmation?.verifiedAt?.toISOString?.() ?? null,
     },
     sections: {
       activeTrades: viewerState?.isBlockedByMe ? [] : activeTradesWithMedia,

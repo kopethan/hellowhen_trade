@@ -76,11 +76,10 @@ async function runEnabledSmoke() {
     body: JSON.stringify({
       title: `Hidden Place Library smoke ${stamp}`,
       description: 'Internal smoke test for reusable My Places.',
-      mode: 'local',
+      mode: 'remote',
       visibility: 'private',
-      areaLabel: 'Paris area',
-      addressPublicText: 'Public meeting area',
-      addressPrivateText: 'Private details only owner should see',
+      onlineLabel: 'Smoke video link',
+      onlineUrl: `https://meet.example/place-library-${encodeURIComponent(stamp)}`,
       defaultDurationMinutes: 60,
       defaultNote: 'Reusable place smoke note.',
       defaultMeetingInstructions: 'Owner-only smoke meeting instruction.',
@@ -91,7 +90,7 @@ async function runEnabledSmoke() {
   assert(placeId, 'Place creation did not return a place id.');
   assert(created.place.source === 'user', 'Normal place should use user source.');
   assert(created.place.visibility === 'private', 'Normal place should keep private visibility.');
-  assert(created.place.addressPrivateText, 'Owner response should include private address text.');
+  assert(created.place.onlineUrl?.startsWith('https://meet.example/'), 'Created remote place should include onlineUrl.');
 
   const mine = await request('/places/mine', { headers: authHeaders(owner.token) });
   assert(mine.places?.some((place) => place.id === placeId), 'Created place should appear in /places/mine.');
@@ -105,7 +104,7 @@ async function runEnabledSmoke() {
 
   const publicPlace = await request(`/places/${placeId}`);
   assert(publicPlace.place?.id === placeId, 'Public active place should be readable after owner makes it public.');
-  assert(publicPlace.place?.addressPrivateText === null, 'Anonymous place detail should hide private address text.');
+  assert(publicPlace.place?.onlineUrl?.startsWith('https://meet.example/'), 'Anonymous place detail should show the public online destination.');
 
   await expectLibraryCreateBlocked(owner.token);
 

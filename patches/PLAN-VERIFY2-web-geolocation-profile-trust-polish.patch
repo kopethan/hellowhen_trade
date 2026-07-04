@@ -1,0 +1,356 @@
+diff --git a/apps/api/src/modules/users/users.routes.ts b/apps/api/src/modules/users/users.routes.ts
+index c7b4f87..5ba41d4 100644
+--- a/apps/api/src/modules/users/users.routes.ts
++++ b/apps/api/src/modules/users/users.routes.ts
+@@ -87,6 +87,7 @@ async function getPublicProfileResponse(userId: string, viewerId?: string) {
+     verifiedOfflineCheckInsCount,
+     verifiedOfflinePlaces,
+     verifiedOfflinePlans,
++    lastOfflinePresenceConfirmation,
+   ] = await Promise.all([
+     prisma.trade.count({ where: { status: 'completed', OR: [{ ownerId: userId }, { providerId: userId }] } }),
+     prisma.trade.count({ where: { ...publicPostWhereBase(userId), postType: 'need_offer' } }),
+@@ -98,6 +99,7 @@ async function getPublicProfileResponse(userId: string, viewerId?: string) {
+     (prisma as any).placePresenceVerification.count({ where: publicTrustVerificationWhere }),
+     (prisma as any).placePresenceVerification.findMany({ where: publicTrustVerificationWhere, distinct: ['planPlaceId'], select: { planPlaceId: true } }),
+     (prisma as any).placePresenceVerification.findMany({ where: publicTrustVerificationWhere, distinct: ['planId'], select: { planId: true } }),
++    (prisma as any).placePresenceVerification.findFirst({ where: publicTrustVerificationWhere, orderBy: { verifiedAt: 'desc' }, select: { verifiedAt: true } }),
+   ]);
+ 
+   const publicMediaVisibility = viewerId ? 'trade_public' : 'public_anonymous';
+@@ -126,6 +128,7 @@ async function getPublicProfileResponse(userId: string, viewerId?: string) {
+       verifiedOfflinePlacesCount: verifiedOfflinePlaces.length,
+       verifiedOfflinePlansCount: verifiedOfflinePlans.length,
+       verifiedOfflineCheckInsCount,
++      lastOfflinePresenceConfirmedAt: lastOfflinePresenceConfirmation?.verifiedAt?.toISOString?.() ?? null,
+     },
+     sections: {
+       activeTrades: viewerState?.isBlockedByMe ? [] : activeTradesWithMedia,
+diff --git a/apps/mobile/src/features/users/PublicUserProfileScreen.tsx b/apps/mobile/src/features/users/PublicUserProfileScreen.tsx
+index 748659f..714bdc6 100644
+--- a/apps/mobile/src/features/users/PublicUserProfileScreen.tsx
++++ b/apps/mobile/src/features/users/PublicUserProfileScreen.tsx
+@@ -61,6 +61,13 @@ function formatDate(value?: string | null, language = 'en') {
+   return new Intl.DateTimeFormat(language, { month: 'short', year: 'numeric' }).format(date);
+ }
+ 
++function formatPresenceDate(value?: string | null, language = 'en') {
++  if (!value) return null;
++  const date = new Date(value);
++  if (Number.isNaN(date.getTime())) return null;
++  return new Intl.DateTimeFormat(language, { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
++}
++
+ function postKindLabel(kind: PostKind, t: TFunction) {
+   if (kind === 'need') return t('trade.labels.openNeed');
+   if (kind === 'offer') return t('trade.labels.openOffer');
+@@ -230,6 +237,7 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
+   const name = useMemo(() => displayNameForProfile(profile?.user.profile) || displayName || t('profile.hellowhenMember'), [displayName, profile?.user.profile, t]);
+   const handleLabel = formatHandle(profile?.user.profile?.handle);
+   const memberSince = formatDate(profile?.user.memberSince, language);
++  const lastPresenceConfirmed = formatPresenceDate(profile?.stats.lastOfflinePresenceConfirmedAt, language);
+   const isBlockedByMe = Boolean(profile?.viewerState?.isBlockedByMe);
+   const activeTrades = profile?.sections.activeTrades ?? [];
+   const openNeeds = profile?.sections.openNeeds ?? [];
+@@ -344,7 +352,9 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
+                 <TrustSignalTile label={t('profile.trust.memberSinceLabel')} value={memberSince ?? t('common.states.unknown')} />
+                 <TrustSignalTile label={t('profile.trust.verifiedPlaces')} value={profile.stats.verifiedOfflinePlacesCount ?? 0} />
+                 <TrustSignalTile label={t('profile.trust.verifiedPlans')} value={profile.stats.verifiedOfflinePlansCount ?? 0} />
++                <TrustSignalTile label={t('profile.trust.checkIns')} value={profile.stats.verifiedOfflineCheckInsCount ?? 0} />
+               </View>
++              {lastPresenceConfirmed ? <AppText style={[styles.trustNote, { color: theme.color.muted }]}>{t('profile.trust.lastPresence')}: {lastPresenceConfirmed}</AppText> : null}
+             </View>
+ 
+             <View style={styles.statsGrid}>
+@@ -384,9 +394,10 @@ const styles = StyleSheet.create({
+   trustTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900', letterSpacing: -0.2 },
+   trustBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
+   trustGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+-  trustTile: { width: '31%', flexGrow: 1, minHeight: 72, borderWidth: 1, borderRadius: 18, padding: 11, justifyContent: 'center' },
++  trustTile: { width: '48%', flexGrow: 1, minHeight: 72, borderWidth: 1, borderRadius: 18, padding: 11, justifyContent: 'center' },
+   trustValue: { fontSize: 18, lineHeight: 22, fontWeight: '900', letterSpacing: -0.25 },
+   trustLabel: { marginTop: 2, fontSize: 10, lineHeight: 14, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.35 },
++  trustNote: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
+   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+   statTile: { width: '48%', flexGrow: 1, minHeight: 88, borderWidth: 1, borderRadius: 22, padding: 14, justifyContent: 'center' },
+   statValue: { fontSize: 25, lineHeight: 30, fontWeight: '900', letterSpacing: -0.4 },
+diff --git a/apps/web/next.config.mjs b/apps/web/next.config.mjs
+index a36e4b6..c344481 100644
+--- a/apps/web/next.config.mjs
++++ b/apps/web/next.config.mjs
+@@ -12,7 +12,7 @@ const baseSecurityHeaders = [
+   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+   { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+   { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
+-  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
++  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(self), payment=()' },
+ ];
+ 
+ const productionSecurityHeaders = process.env.NODE_ENV === 'production'
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 3d871d4..9c1542a 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2859,10 +2859,11 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ .public-profile-trust-panel__icon { display: inline-grid; place-items: center; width: 36px; height: 36px; border: 1px solid color-mix(in srgb, var(--success-border) 44%, var(--app-border)); border-radius: 999px; background: color-mix(in srgb, var(--success-bg) 74%, transparent); color: var(--success-text); }
+ .public-profile-trust-panel h3 { margin: 0; color: var(--app-text); font-size: 18px; letter-spacing: -0.03em; }
+ .public-profile-trust-panel p { margin: 3px 0 0; color: var(--app-text-muted); font-size: 13px; line-height: 1.42; font-weight: 760; }
+-.public-profile-trust-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
++.public-profile-trust-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+ .public-profile-trust-grid div { display: grid; gap: 3px; min-width: 0; border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent); border-radius: 20px; background: color-mix(in srgb, var(--app-surface-soft) 80%, transparent); padding: 12px 10px; }
+ .public-profile-trust-grid strong { overflow: hidden; color: var(--app-text); font-size: 18px; line-height: 1.08; letter-spacing: -0.035em; text-overflow: ellipsis; white-space: nowrap; }
+ .public-profile-trust-grid span { color: var(--app-text-muted); font-size: 10px; font-weight: 950; letter-spacing: 0.04em; line-height: 1.18; text-transform: uppercase; }
++.public-profile-trust-panel__note { margin: 0; color: var(--app-text-muted); font-size: 12px; line-height: 1.35; font-weight: 850; }
+ .public-profile-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+ .public-profile-stats div { display: grid; gap: 3px; min-width: 0; border: 1px solid color-mix(in srgb, var(--app-border) 86%, transparent); border-radius: 22px; background: var(--app-surface); padding: 13px 9px; text-align: center; box-shadow: var(--app-card-shadow); }
+ .public-profile-stats strong { color: var(--app-text); font-size: 22px; line-height: 1; letter-spacing: -0.04em; }
+diff --git a/apps/web/src/features/users/PublicUserProfileClient.tsx b/apps/web/src/features/users/PublicUserProfileClient.tsx
+index ba99939..198b06c 100644
+--- a/apps/web/src/features/users/PublicUserProfileClient.tsx
++++ b/apps/web/src/features/users/PublicUserProfileClient.tsx
+@@ -220,6 +220,7 @@ export function PublicUserProfileClient({ userId, username }: { userId?: string;
+   const displayName = profileName(profile?.user.profile, t);
+   const location = countryLabel(profile?.user.profile?.countryCode, language);
+   const memberSince = profile?.user.memberSince ? formatWebDate(profile.user.memberSince, t('common.states.unknown'), language) : t('common.states.unknown');
++  const lastPresenceConfirmed = profile?.stats.lastOfflinePresenceConfirmedAt ? formatWebDate(profile.stats.lastOfflinePresenceConfirmedAt, t('common.states.unknown'), language) : null;
+   const handle = profile?.user.profile?.handle?.trim();
+   const isBlockedByMe = Boolean(profile?.viewerState?.isBlockedByMe);
+ 
+@@ -329,7 +330,14 @@ export function PublicUserProfileClient({ userId, username }: { userId?: string;
+             <strong>{profile.stats.verifiedOfflinePlansCount ?? 0}</strong>
+             <span>{t('profile.trust.verifiedPlans')}</span>
+           </div>
++          <div>
++            <strong>{profile.stats.verifiedOfflineCheckInsCount ?? 0}</strong>
++            <span>{t('profile.trust.checkIns')}</span>
++          </div>
+         </div>
++        {lastPresenceConfirmed ? (
++          <p className="public-profile-trust-panel__note">{t('profile.trust.lastPresence')}: {lastPresenceConfirmed}</p>
++        ) : null}
+       </section>
+ 
+       <section className="public-profile-stats" aria-label={t('profile.statsLabel')}>
+diff --git a/docs/plans/place-presence-verification-audit.md b/docs/plans/place-presence-verification-audit.md
+index cad97b2..7e18a15 100644
+--- a/docs/plans/place-presence-verification-audit.md
++++ b/docs/plans/place-presence-verification-audit.md
+@@ -199,50 +199,45 @@ locationCapturedAt
+ platform = web | mobile_web
+ ```
+ 
+-## Important web blocker found
++## Important web blocker found — fixed by PLAN-VERIFY2
+ 
+-The web app currently sends this security header:
++The web app previously sent this security header:
+ 
+ ```txt
+ Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+ ```
+ 
+-That blocks browser geolocation for the whole web app. As long as this remains, web presence verification may fail even when the UI is present. Native verification is not affected by this header.
+-
+-Recommended fix in the next code patch:
+-
+-```txt
+-Allow geolocation for the app itself while keeping camera, microphone, and payment disabled.
+-```
+-
+-Example target policy:
++That blocked browser geolocation for the whole web app. `PLAN-VERIFY2` changes the policy to allow geolocation for the app itself while keeping camera, microphone, and payment disabled:
+ 
+ ```txt
+ camera=(), microphone=(), geolocation=(self), payment=()
+ ```
+ 
++Native verification is not affected by this header.
++
+ ## Current public profile status
+ 
+ Public profile API already computes presence trust counters from verified records.
+ 
+-The public profile response already includes:
++The public profile response includes these aggregate presence fields:
+ 
+ ```txt
+ verifiedOfflinePlacesCount
+ verifiedOfflinePlansCount
+ verifiedOfflineCheckInsCount
++lastOfflinePresenceConfirmedAt
+ ```
+ 
+-The web profile UI currently shows:
++The web and native profile UIs now show:
+ 
+ ```txt
+ member since
+-verified offline places count
+-verified offline plans count
++offline place confirmations
++plans with confirmed presence
++presence check-ins
++last presence confirmation date, when available
+ ```
+ 
+-The native profile UI currently shows the same two offline trust counters.
+-
+ Important current privacy filter:
+ 
+ ```txt
+@@ -252,7 +247,6 @@ Public profile counters count verified offline checks from non-owned active/publ
+ The current public profile stats do not expose:
+ 
+ ```txt
+-last offline presence confirmation date
+ exact place names
+ exact Plan titles
+ exact addresses
+@@ -295,15 +289,15 @@ Keep `PLACE_PRESENCE_VERIFICATION_ENABLED=false` until the UI copy, web geolocat
+ 
+ ## Gaps to fix next
+ 
+-### Gap 1 — Web geolocation header
++### Gap 1 — Web geolocation header — fixed by PLAN-VERIFY2
+ 
+-Web verification UI exists, but the global Permissions-Policy blocks geolocation. Fix this before relying on web browser verification.
++Web verification UI exists, and the global Permissions-Policy now allows geolocation for `self`.
+ 
+-### Gap 2 — Profile trust wording
++### Gap 2 — Profile trust wording — fixed by PLAN-VERIFY2
+ 
+-The profile panels should explain that these are offline presence confirmations, not identity verification.
++The profile panels explain that these are offline presence confirmations, not identity verification.
+ 
+-Recommended user-facing labels:
++User-facing labels now use:
+ 
+ ```txt
+ Offline place confirmations
+@@ -311,16 +305,9 @@ Plans with confirmed presence
+ Presence check-ins
+ ```
+ 
+-### Gap 3 — Last confirmation date
+-
+-The verification table saves `verifiedAt`, and the authenticated summary endpoint already exposes `lastVerifiedAt`, but public profiles do not expose a public-safe last confirmation date yet.
+-
+-Recommended approach:
++### Gap 3 — Last confirmation date — fixed by PLAN-VERIFY2
+ 
+-```txt
+-Add lastOfflinePresenceConfirmedAt to public profile stats.
+-Display it as relative/month-level copy, not as an exact location history.
+-```
++Public profiles now expose `lastOfflinePresenceConfirmedAt` as an aggregate date only. Exact place names, Plan titles, addresses, and coordinates stay private.
+ 
+ ### Gap 4 — Owner self-checks vs trust signal
+ 
+@@ -336,16 +323,16 @@ Do not add public rejection history. Keep this private/admin-only.
+ 
+ ## Updated implementation plan
+ 
+-### PLAN-VERIFY2 — Web geolocation + profile trust polish
++### PLAN-VERIFY2 — Web geolocation + profile trust polish — implemented
+ 
+-Scope:
++Scope completed:
+ 
+ ```txt
+-- Change web Permissions-Policy to allow geolocation for self.
+-- Update profile trust copy to say offline presence confirmations.
+-- Show total check-ins if useful.
+-- Add public-safe lastOfflinePresenceConfirmedAt to public profile stats.
+-- Display last confirmation as safe relative/month copy.
++- Changed web Permissions-Policy to allow geolocation for self.
++- Updated profile trust copy to say offline presence confirmations.
++- Shows total presence check-ins.
++- Adds public-safe lastOfflinePresenceConfirmedAt to public profile stats.
++- Displays last confirmation as aggregate date copy.
+ - No schema migration required.
+ ```
+ 
+diff --git a/packages/contracts/src/users.ts b/packages/contracts/src/users.ts
+index 4fd9bc2..b4512fd 100644
+--- a/packages/contracts/src/users.ts
++++ b/packages/contracts/src/users.ts
+@@ -104,6 +104,7 @@ export const publicProfileStatsSchema = z.object({
+   verifiedOfflinePlacesCount: z.number().int().nonnegative().optional().default(0),
+   verifiedOfflinePlansCount: z.number().int().nonnegative().optional().default(0),
+   verifiedOfflineCheckInsCount: z.number().int().nonnegative().optional().default(0),
++  lastOfflinePresenceConfirmedAt: z.string().nullable().optional().default(null),
+ });
+ 
+ export const publicProfileSectionsSchema = z.object({
+diff --git a/packages/i18n/src/locales/en/profile.ts b/packages/i18n/src/locales/en/profile.ts
+index b5a75c0..ae578f4 100644
+--- a/packages/i18n/src/locales/en/profile.ts
++++ b/packages/i18n/src/locales/en/profile.ts
+@@ -19,13 +19,14 @@ export const profile = {
+     openOffers: 'Open offers',
+   },
+   trust: {
+-    title: 'Trust signals',
+-    body: 'Public, aggregate signals only. Exact visits and live location are never shown.',
++    title: 'Presence trust signals',
++    body: 'Public aggregate counts from GPS presence checks. Exact places and live location are never shown.',
+     memberSinceLabel: 'Member since',
+     memberSince: 'Member since {{date}}',
+-    verifiedPlaces: 'Verified offline places',
+-    verifiedPlans: 'Verified plan visits',
+-    checkIns: 'Presence confirmations',
++    verifiedPlaces: 'Offline place confirmations',
++    verifiedPlans: 'Plans with confirmed presence',
++    checkIns: 'Presence check-ins',
++    lastPresence: 'Last presence confirmed',
+   },
+   loading: {
+     badge: 'Loading',
+diff --git a/packages/i18n/src/locales/es/profile.ts b/packages/i18n/src/locales/es/profile.ts
+index fbb9ec8..870ef0f 100644
+--- a/packages/i18n/src/locales/es/profile.ts
++++ b/packages/i18n/src/locales/es/profile.ts
+@@ -26,13 +26,14 @@ export const profile = {
+   },
+   trust: {
+     ...enProfile.trust,
+-    title: 'Señales de confianza',
+-    body: 'Solo señales públicas y agregadas. Las visitas exactas y la ubicación en vivo nunca se muestran.',
++    title: 'Señales de presencia',
++    body: 'Contadores públicos y agregados de confirmaciones GPS. Los lugares exactos y la ubicación en vivo nunca se muestran.',
+     memberSinceLabel: 'Miembro desde',
+     memberSince: 'Miembro desde {{date}}',
+-    verifiedPlaces: 'Lugares offline verificados',
+-    verifiedPlans: 'Visitas de planes verificadas',
+-    checkIns: 'Confirmaciones de presencia',
++    verifiedPlaces: 'Confirmaciones de lugares offline',
++    verifiedPlans: 'Planes con presencia confirmada',
++    checkIns: 'Check-ins de presencia',
++    lastPresence: 'Última presencia confirmada',
+   },
+   loading: {
+     ...enProfile.loading,
+diff --git a/packages/i18n/src/locales/fr/profile.ts b/packages/i18n/src/locales/fr/profile.ts
+index 858c2e4..5b3a02c 100644
+--- a/packages/i18n/src/locales/fr/profile.ts
++++ b/packages/i18n/src/locales/fr/profile.ts
+@@ -19,13 +19,14 @@ export const profile = {
+     openOffers: 'Offres ouvertes',
+   },
+   trust: {
+-    title: 'Signaux de confiance',
+-    body: 'Uniquement des signaux publics et agrégés. Les visites exactes et la position en direct ne sont jamais affichées.',
++    title: 'Signaux de présence',
++    body: 'Des compteurs publics et agrégés issus des confirmations GPS. Les lieux exacts et la position en direct ne sont jamais affichés.',
+     memberSinceLabel: 'Membre depuis',
+     memberSince: 'Membre depuis {{date}}',
+-    verifiedPlaces: 'Lieux hors ligne vérifiés',
+-    verifiedPlans: 'Visites de plans vérifiées',
+-    checkIns: 'Confirmations de présence',
++    verifiedPlaces: 'Confirmations de lieux hors ligne',
++    verifiedPlans: 'Plans avec présence confirmée',
++    checkIns: 'Présences confirmées',
++    lastPresence: 'Dernière présence confirmée',
+   },
+   loading: {
+     badge: 'Chargement',

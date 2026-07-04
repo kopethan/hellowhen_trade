@@ -1,0 +1,198 @@
+diff --git a/packages/contracts/src/plans.ts b/packages/contracts/src/plans.ts
+index 7d7d724..2a355af 100644
+--- a/packages/contracts/src/plans.ts
++++ b/packages/contracts/src/plans.ts
+@@ -92,6 +92,32 @@ export const googlePlaceSearchResponseSchema = z.object({ predictions: z.array(g
+ export const googlePlaceDetailsResponseSchema = z.object({ place: googleResolvedPlaceSchema });
+ export const googleAddressValidationResponseSchema = z.object({ place: googleResolvedPlaceSchema.nullable(), validationStatus: googlePlaceValidationStatusSchema });
+ 
++const confirmedGooglePlaceAddressInputShape = {
++  googlePlaceId: z.string().trim().min(3).max(240),
++  googlePlaceName: z.string().trim().min(1).max(160).optional(),
++  formattedAddress: z.string().trim().min(1).max(300),
++  googleMapsUri: z.string().trim().url().max(500).optional(),
++  latitude: z.number().min(-90).max(90),
++  longitude: z.number().min(-180).max(180),
++  locationSource: z.literal('google_places'),
++  addressValidationStatus: z.literal('confirmed'),
++} as const;
++
++export const confirmedGooglePlaceAddressInputSchema = z.object(confirmedGooglePlaceAddressInputShape).passthrough();
++export const offlinePlaceProviderAddressInputSchema = z.object({
++  mode: z.literal('local').optional(),
++  ...confirmedGooglePlaceAddressInputShape,
++}).passthrough();
++export const onlinePlaceDestinationInputSchema = z.object({
++  onlineLabel: z.string().trim().min(1).max(120).optional(),
++  onlineUrl: z.string().trim().url().max(500),
++}).passthrough();
++export const remotePlaceDestinationInputSchema = z.object({
++  mode: z.literal('remote'),
++  onlineLabel: z.string().trim().min(1).max(120).optional(),
++  onlineUrl: z.string().trim().url().max(500),
++}).passthrough();
++
+ export const PLAN_PLACE_MEDIA_LIMITS = {
+   free: 1,
+   plus: 5,
+@@ -536,6 +562,10 @@ export type GoogleAddressValidationRequest = z.infer<typeof googleAddressValidat
+ export type GooglePlaceSearchResponse = z.infer<typeof googlePlaceSearchResponseSchema>;
+ export type GooglePlaceDetailsResponse = z.infer<typeof googlePlaceDetailsResponseSchema>;
+ export type GoogleAddressValidationResponse = z.infer<typeof googleAddressValidationResponseSchema>;
++export type ConfirmedGooglePlaceAddressInput = z.infer<typeof confirmedGooglePlaceAddressInputSchema>;
++export type OfflinePlaceProviderAddressInput = z.infer<typeof offlinePlaceProviderAddressInputSchema>;
++export type OnlinePlaceDestinationInput = z.infer<typeof onlinePlaceDestinationInputSchema>;
++export type RemotePlaceDestinationInput = z.infer<typeof remotePlaceDestinationInputSchema>;
+ export type CreatePlaceRequest = z.infer<typeof createPlaceRequestSchema>;
+ export type UpdatePlaceRequest = z.infer<typeof updatePlaceRequestSchema>;
+ export type ListPlacesQuery = z.infer<typeof listPlacesQuerySchema>;
+diff --git a/packages/shared/src/index.ts b/packages/shared/src/index.ts
+index a7c787f..2fd895a 100644
+--- a/packages/shared/src/index.ts
++++ b/packages/shared/src/index.ts
+@@ -18,6 +18,7 @@ export * from './tradeDisplay.js';
+ export * from './feedIdeaPlacement.js';
+ export * from './appNavigation.js';
+ export * from './plans.js';
++export * from './placeAddress.js';
+ export * from './planIdeas.js';
+ export * from './tradeOwnerActions.js';
+ 
+diff --git a/packages/shared/src/placeAddress.ts b/packages/shared/src/placeAddress.ts
+new file mode 100644
+index 0000000..0aa6d53
+--- /dev/null
++++ b/packages/shared/src/placeAddress.ts
+@@ -0,0 +1,132 @@
++export const PLACE_ADDRESS_PROVIDER_SOURCE = 'google_places' as const;
++export const PLACE_ADDRESS_CONFIRMED_STATUS = 'confirmed' as const;
++export const PLACE_OFFLINE_MODE = 'local' as const;
++export const PLACE_ONLINE_MODE = 'remote' as const;
++
++export const PLACE_OFFLINE_PROVIDER_REQUIRED_FIELDS = [
++  'googlePlaceId',
++  'formattedAddress',
++  'latitude',
++  'longitude',
++  'locationSource',
++  'addressValidationStatus',
++] as const;
++
++export const PLACE_ONLINE_DESTINATION_REQUIRED_FIELDS = ['onlineUrl'] as const;
++
++export type PlaceAddressMode = typeof PLACE_OFFLINE_MODE | typeof PLACE_ONLINE_MODE;
++export type PlaceAddressProviderSource = typeof PLACE_ADDRESS_PROVIDER_SOURCE | 'manual';
++export type PlaceAddressValidationStatus = typeof PLACE_ADDRESS_CONFIRMED_STATUS | 'needs_review' | 'unsupported';
++export type PlaceOfflineProviderRequiredField = typeof PLACE_OFFLINE_PROVIDER_REQUIRED_FIELDS[number];
++export type PlaceOnlineDestinationRequiredField = typeof PLACE_ONLINE_DESTINATION_REQUIRED_FIELDS[number];
++
++export type PlaceProviderAddressInput = {
++  googlePlaceId?: string | null;
++  googlePlaceName?: string | null;
++  formattedAddress?: string | null;
++  googleMapsUri?: string | null;
++  latitude?: number | null;
++  longitude?: number | null;
++  locationSource?: PlaceAddressProviderSource | string | null;
++  addressValidationStatus?: PlaceAddressValidationStatus | string | null;
++};
++
++export type PlaceOnlineDestinationInput = {
++  onlineLabel?: string | null;
++  onlineUrl?: string | null;
++};
++
++export type PlaceAddressValidationInput = PlaceProviderAddressInput & PlaceOnlineDestinationInput & {
++  mode?: PlaceAddressMode | string | null;
++};
++
++export type PlaceAddressValidity = {
++  mode: PlaceAddressMode;
++  isOffline: boolean;
++  isOnline: boolean;
++  hasProviderSelectedAddress: boolean;
++  hasOnlineDestination: boolean;
++  missingOfflineProviderFields: PlaceOfflineProviderRequiredField[];
++  missingOnlineDestinationFields: PlaceOnlineDestinationRequiredField[];
++};
++
++function hasText(value: unknown): value is string {
++  return typeof value === 'string' && value.trim().length > 0;
++}
++
++export function isValidLatitude(value: unknown): value is number {
++  return typeof value === 'number' && Number.isFinite(value) && value >= -90 && value <= 90;
++}
++
++export function isValidLongitude(value: unknown): value is number {
++  return typeof value === 'number' && Number.isFinite(value) && value >= -180 && value <= 180;
++}
++
++export function hasValidCoordinatePair(input: Pick<PlaceProviderAddressInput, 'latitude' | 'longitude'>): boolean {
++  return isValidLatitude(input.latitude) && isValidLongitude(input.longitude);
++}
++
++export function normalizePlaceAddressMode(mode: PlaceAddressValidationInput['mode']): PlaceAddressMode {
++  return mode === PLACE_ONLINE_MODE ? PLACE_ONLINE_MODE : PLACE_OFFLINE_MODE;
++}
++
++export function getMissingOfflineProviderAddressFields(input: PlaceProviderAddressInput): PlaceOfflineProviderRequiredField[] {
++  const missing: PlaceOfflineProviderRequiredField[] = [];
++
++  if (!hasText(input.googlePlaceId)) missing.push('googlePlaceId');
++  if (!hasText(input.formattedAddress)) missing.push('formattedAddress');
++  if (!isValidLatitude(input.latitude)) missing.push('latitude');
++  if (!isValidLongitude(input.longitude)) missing.push('longitude');
++  if (input.locationSource !== PLACE_ADDRESS_PROVIDER_SOURCE) missing.push('locationSource');
++  if (input.addressValidationStatus !== PLACE_ADDRESS_CONFIRMED_STATUS) missing.push('addressValidationStatus');
++
++  return missing;
++}
++
++export function hasConfirmedProviderOfflineAddress(input: PlaceProviderAddressInput): boolean {
++  return getMissingOfflineProviderAddressFields(input).length === 0;
++}
++
++export function getMissingOnlineDestinationFields(input: PlaceOnlineDestinationInput): PlaceOnlineDestinationRequiredField[] {
++  return hasText(input.onlineUrl) ? [] : ['onlineUrl'];
++}
++
++export function hasOnlineDestination(input: PlaceOnlineDestinationInput): boolean {
++  return getMissingOnlineDestinationFields(input).length === 0;
++}
++
++export function getPlaceAddressValidity(input: PlaceAddressValidationInput): PlaceAddressValidity {
++  const mode = normalizePlaceAddressMode(input.mode);
++  const missingOfflineProviderFields = getMissingOfflineProviderAddressFields(input);
++  const missingOnlineDestinationFields = getMissingOnlineDestinationFields(input);
++
++  return {
++    mode,
++    isOffline: mode === PLACE_OFFLINE_MODE,
++    isOnline: mode === PLACE_ONLINE_MODE,
++    hasProviderSelectedAddress: missingOfflineProviderFields.length === 0,
++    hasOnlineDestination: missingOnlineDestinationFields.length === 0,
++    missingOfflineProviderFields,
++    missingOnlineDestinationFields,
++  };
++}
++
++export function buildMissingOfflineProviderAddressMessage(missingFields: readonly PlaceOfflineProviderRequiredField[]): string {
++  if (!missingFields.length) return 'Offline address is provider-selected and confirmed.';
++  return `Offline places require a selected address from the provider. Missing: ${missingFields.join(', ')}.`;
++}
++
++export function buildMissingOnlineDestinationMessage(missingFields: readonly PlaceOnlineDestinationRequiredField[]): string {
++  if (!missingFields.length) return 'Online place destination is present.';
++  return `Online places require an online destination. Missing: ${missingFields.join(', ')}.`;
++}
++
++export function shouldBlockOfflinePlaceSave(input: PlaceAddressValidationInput): boolean {
++  const validity = getPlaceAddressValidity(input);
++  return validity.isOffline && !validity.hasProviderSelectedAddress;
++}
++
++export function shouldBlockOnlinePlaceSave(input: PlaceAddressValidationInput): boolean {
++  const validity = getPlaceAddressValidity(input);
++  return validity.isOnline && !validity.hasOnlineDestination;
++}

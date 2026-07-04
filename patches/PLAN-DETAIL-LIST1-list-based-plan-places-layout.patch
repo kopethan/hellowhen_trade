@@ -1,0 +1,329 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index de4be28..3d871d4 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -9881,8 +9881,9 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   display: grid;
+   gap: 14px;
+ }
+-.plan-route-desktop-preview {
+-  display: none;
++.plan-route-preview {
++  display: grid;
++  margin-top: 16px;
+ }
+ .plan-route-stop {
+   display: grid;
+@@ -10163,7 +10164,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   height: 100%;
+   object-fit: cover;
+ }
+-.plan-route-desktop-preview {
++.plan-route-preview {
+   align-self: start;
+   gap: 12px;
+   border: 1px solid var(--app-border);
+@@ -10174,7 +10175,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   box-shadow: var(--app-card-shadow);
+   padding: 12px;
+ }
+-.plan-route-desktop-preview__media {
++.plan-route-preview__media {
+   display: grid;
+   place-items: center;
+   overflow: hidden;
+@@ -10185,49 +10186,79 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   background: color-mix(in srgb, var(--place-text) 7%, var(--app-surface-soft));
+   color: var(--place-text);
+ }
+-.plan-route-desktop-preview__media img {
++.plan-route-preview__media img {
+   width: 100%;
+   height: 100%;
+   object-fit: cover;
+   display: block;
+ }
+-.plan-route-desktop-preview__copy {
++.plan-route-preview__copy {
+   display: grid;
+   gap: 5px;
+   padding: 0 4px;
+ }
+-.plan-route-desktop-preview__copy .eyebrow {
++.plan-route-preview__copy .eyebrow {
+   margin: 0;
+ }
+-.plan-route-desktop-preview__copy h3 {
++.plan-route-preview__copy h3 {
+   margin: 0;
+   color: var(--app-text);
+   font-size: 24px;
+   line-height: 1.04;
+   letter-spacing: -0.045em;
+ }
+-.plan-route-desktop-preview__copy p,
+-.plan-route-desktop-preview__copy small,
+-.plan-route-desktop-preview__copy span {
++.plan-route-preview__copy p,
++.plan-route-preview__copy small,
++.plan-route-preview__copy span {
+   margin: 0;
+   color: var(--app-text-muted);
+   font-size: 13px;
+   line-height: 1.4;
+   font-weight: 800;
+ }
+-.plan-route-desktop-preview__copy small {
++.plan-route-preview__copy small {
+   display: -webkit-box;
+   overflow: hidden;
+   -webkit-box-orient: vertical;
+   -webkit-line-clamp: 2;
+ }
+-.plan-route-desktop-preview__copy span {
++.plan-route-preview__copy span {
+   display: -webkit-box;
+   overflow: hidden;
+   -webkit-box-orient: vertical;
+   -webkit-line-clamp: 3;
+ }
+-.plan-route-desktop-preview__stops {
++
++.plan-route-preview__action {
++  display: inline-flex;
++  width: fit-content;
++  min-height: 38px;
++  align-items: center;
++  justify-content: center;
++  gap: 7px;
++  margin-top: 5px;
++  border: 1px solid var(--place-border);
++  border-radius: 999px;
++  background: var(--place-bg);
++  color: white;
++  padding: 0 13px;
++  font-size: 13px;
++  font-weight: 950;
++  line-height: 1;
++  text-decoration: none;
++  box-shadow: 0 12px 26px color-mix(in srgb, var(--place-text) 16%, transparent);
++}
++.plan-route-preview__action:hover {
++  transform: translateY(-1px);
++}
++.plan-route-preview__action span {
++  color: inherit;
++  font-size: inherit;
++  line-height: 1;
++  font-weight: inherit;
++}
++
++.plan-route-preview__stops {
+   display: grid;
+   gap: 0;
+   overflow: hidden;
+@@ -10235,7 +10266,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   border-radius: 22px;
+   background: color-mix(in srgb, var(--app-surface) 82%, transparent);
+ }
+-.plan-route-desktop-preview__stop {
++.plan-route-preview__stop {
+   display: grid;
+   grid-template-columns: 28px minmax(0, 1fr);
+   align-items: start;
+@@ -10243,10 +10274,10 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   padding: 10px;
+   border-top: 1px solid var(--app-divider);
+ }
+-.plan-route-desktop-preview__stop:first-child {
++.plan-route-preview__stop:first-child {
+   border-top: 0;
+ }
+-.plan-route-desktop-preview__stop > span {
++.plan-route-preview__stop > span {
+   display: grid;
+   place-items: center;
+   width: 26px;
+@@ -10257,12 +10288,12 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   font-size: 11px;
+   font-weight: 950;
+ }
+-.plan-route-desktop-preview__stop div {
++.plan-route-preview__stop div {
+   display: grid;
+   min-width: 0;
+   gap: 3px;
+ }
+-.plan-route-desktop-preview__stop strong {
++.plan-route-preview__stop strong {
+   overflow: hidden;
+   color: var(--app-text);
+   font-size: 13px;
+@@ -10271,7 +10302,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   text-overflow: ellipsis;
+   white-space: nowrap;
+ }
+-.plan-route-desktop-preview__stop small {
++.plan-route-preview__stop small {
+   overflow: hidden;
+   color: var(--app-text-muted);
+   font-size: 11px;
+@@ -10280,31 +10311,26 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   text-overflow: ellipsis;
+   white-space: nowrap;
+ }
+-.plan-route-desktop-preview__stop.is-active {
++.plan-route-preview__stop.is-active {
+   background: color-mix(in srgb, var(--place-text) 7%, transparent);
+ }
+-.plan-route-desktop-preview__stop.is-active > span {
++.plan-route-preview__stop.is-active > span {
+   background: var(--place-bg);
+   color: var(--place-text);
+   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--place-text) 22%, transparent);
+ }
+-@media (min-width: 940px) {
+-  .plan-route-section--desktop-split {
+-    gap: 16px;
+-  }
+-  .plan-route-section--desktop-split .plan-route-shell {
+-    grid-template-columns: minmax(0, 1fr) minmax(300px, 36%);
++@media (min-width: 760px) {
++  .plan-route-preview {
++    grid-template-columns: minmax(220px, 42%) minmax(0, 1fr);
+     align-items: start;
+-    gap: 18px;
++    column-gap: 16px;
+   }
+-  .plan-route-section--desktop-split .plan-route-desktop-preview {
+-    position: sticky;
+-    top: 86px;
+-    display: grid;
++  .plan-route-preview__stops {
++    grid-column: 1 / -1;
+   }
+-  .plan-route-section--desktop-split .plan-route-stop__media {
++  .plan-route-section--list .plan-route-stop__media {
+     width: 100%;
+-    max-width: 440px;
++    max-width: 520px;
+   }
+ }
+ 
+@@ -10428,8 +10454,9 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   .plan-route-maps-hint {
+     margin-top: -7px;
+   }
+-  .plan-route-shell { display: block; }
+-  .plan-route-desktop-preview { display: none; }
++  .plan-route-shell { display: grid; gap: 14px; }
++  .plan-route-preview { margin-top: 2px; }
++  .plan-route-preview__action { width: 100%; min-height: 42px; }
+   .plan-route-list { gap: 0; }
+   .plan-route-stop {
+     position: relative;
+diff --git a/apps/web/src/features/plans/PlanDetailClient.tsx b/apps/web/src/features/plans/PlanDetailClient.tsx
+index 753267e..ce39ea6 100644
+--- a/apps/web/src/features/plans/PlanDetailClient.tsx
++++ b/apps/web/src/features/plans/PlanDetailClient.tsx
+@@ -316,7 +316,7 @@ function PlanDetailItem({ label, value }: { label: string; value: string }) {
+   );
+ }
+ 
+-function PlanRouteDesktopPreview({ places, planStartsAt }: { places: PlanPlaceDto[]; planStartsAt: string }) {
++function PlanRoutePreview({ places, planStartsAt, routeMapsLink }: { places: PlanPlaceDto[]; planStartsAt: string; routeMapsLink: PlanRouteMapsLink | null }) {
+   const themeMode = useResolvedPlaceVisualTheme();
+   const preview = useMemo(() => {
+     const entries = places.map((place) => {
+@@ -332,34 +332,44 @@ function PlanRouteDesktopPreview({ places, planStartsAt }: { places: PlanPlaceDt
+ 
+   const location = planPlaceLocation(preview.place);
+   const previewDescription = planPlaceDescription(preview.place);
++  const previewTitle = routeMapsLink ? (routeMapsLink.totalStopCount > 1 ? 'Route preview' : 'Location preview') : 'Place preview';
++  const previewBody = routeMapsLink?.body ?? `${places.length} ${places.length === 1 ? 'place' : 'places'} in this Plan.`;
+ 
+   return (
+-    <aside className="plan-route-desktop-preview" aria-label="Route visual preview">
+-      <div className="plan-route-desktop-preview__media">
++    <aside className="plan-route-preview" aria-label={previewTitle}>
++      <div className="plan-route-preview__media">
+         {preview.visual.url ? (
+           preview.visual.kind === 'media' && preview.displayMedia ? <PlanPlaceImage media={preview.displayMedia} /> : <img src={preview.visual.url} alt="" loading="lazy" className="is-static-map" />
+         ) : (
+           <WebIcon name="location-on" size={34} decorative />
+         )}
+       </div>
+-      <div className="plan-route-desktop-preview__copy">
+-        <p className="eyebrow">Route preview</p>
++      <div className="plan-route-preview__copy">
++        <p className="eyebrow">{previewTitle}</p>
+         <h3>{preview.place.title}</h3>
+-        <p>{planPlaceTimeRange(preview.place, planStartsAt)}</p>
++        <p>{previewBody}</p>
+         {location ? <small>{location.value}</small> : null}
+         {previewDescription ? <span>{previewDescription}</span> : null}
++        {routeMapsLink ? (
++          <a className="plan-route-preview__action" href={routeMapsLink.href} target="_blank" rel="noreferrer">
++            <WebIcon name="location-on" size={15} decorative />
++            <span>{routeMapsLink.label}</span>
++          </a>
++        ) : null}
+       </div>
+-      <div className="plan-route-desktop-preview__stops" aria-label="Plan route stops">
+-        {places.map((place, index) => (
+-          <div key={`route-preview-stop-${place.id}`} className={`plan-route-desktop-preview__stop${place.id === preview.place.id ? ' is-active' : ''}`}>
+-            <span aria-hidden="true">{index + 1}</span>
+-            <div>
+-              <strong>{place.title}</strong>
+-              <small>{planPlaceTimeRange(place, planStartsAt)} · {planPlaceModeDisplay(place)}</small>
++      {places.length > 1 ? (
++        <div className="plan-route-preview__stops" aria-label="Plan route stops">
++          {places.map((place, index) => (
++            <div key={`route-preview-stop-${place.id}`} className={`plan-route-preview__stop${place.id === preview.place.id ? ' is-active' : ''}`}>
++              <span aria-hidden="true">{index + 1}</span>
++              <div>
++                <strong>{place.title}</strong>
++                <small>{planPlaceTimeRange(place, planStartsAt)} · {planPlaceModeDisplay(place)}</small>
++              </div>
+             </div>
+-          </div>
+-        ))}
+-      </div>
++          ))}
++        </div>
++      ) : null}
+     </aside>
+   );
+ }
+@@ -747,20 +757,13 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+               </div>
+             </section>
+ 
+-            <section className="plan-social-section plan-route-section plan-route-section--desktop-split">
+-              <div className="plan-section-heading plan-section-heading--with-action">
++            <section className="plan-social-section plan-route-section plan-route-section--list">
++              <div className="plan-section-heading">
+                 <div>
+                   <p className="eyebrow">Route</p>
+                   <h2>Places and times</h2>
+                 </div>
+-                {routeMapsLink ? (
+-                  <a className="plan-route-maps-action" href={routeMapsLink.href} target="_blank" rel="noreferrer">
+-                    <WebIcon name="location-on" size={15} decorative />
+-                    <span>{routeMapsLink.label}</span>
+-                  </a>
+-                ) : null}
+               </div>
+-              {routeMapsLink ? <p className="plan-route-maps-hint">{routeMapsLink.body}</p> : null}
+               <div className="plan-route-shell">
+                 <div className="plan-route-list">
+                   {places.map((place, index) => (
+@@ -778,7 +781,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+                   ))}
+                   {places.length === 0 ? <p className="meta">No places added yet.</p> : null}
+                 </div>
+-                <PlanRouteDesktopPreview places={places} planStartsAt={plan.startsAt} />
++                <PlanRoutePreview places={places} planStartsAt={plan.startsAt} routeMapsLink={routeMapsLink} />
+               </div>
+             </section>
+ 

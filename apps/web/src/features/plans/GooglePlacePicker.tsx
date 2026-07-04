@@ -42,7 +42,7 @@ export function GooglePlacePicker({
   disabled,
   label = 'Address or place',
   placeholder = 'Search a real address or place',
-  helperText = 'Choose a Google suggestion when possible. The selected address is saved as the public meeting address.',
+  helperText = 'Search and select a provider suggestion. Typed text alone cannot be saved as an offline address.',
   languageCode,
   country,
   inputMaxLength = 240,
@@ -94,7 +94,7 @@ export function GooglePlacePicker({
         .catch((error) => {
           if (cancelled) return;
           setPredictions([]);
-          setNotice(getFriendlyApiErrorMessage(error, 'Google address suggestions are unavailable. You can keep typing for now.'));
+          setNotice(getFriendlyApiErrorMessage(error, 'Address search is unavailable. Try again later or switch this Place to Online.'));
         })
         .finally(() => {
           if (!cancelled) setSearching(false);

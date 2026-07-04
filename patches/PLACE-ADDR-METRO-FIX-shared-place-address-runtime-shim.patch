@@ -1,0 +1,8 @@
+diff --git a/packages/shared/src/placeAddress.js b/packages/shared/src/placeAddress.js
+new file mode 100644
+index 0000000..8c159ae
+--- /dev/null
++++ b/packages/shared/src/placeAddress.js
+@@ -0,0 +1,2 @@
++// Runtime shim for Metro/Turbopack when TypeScript source imports use .js specifiers.
++export * from './placeAddress.ts';

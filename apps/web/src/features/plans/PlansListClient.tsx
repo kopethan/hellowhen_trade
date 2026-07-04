@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { PlanDto } from '@hellowhen/contracts';
-import { buildPlanFeedItems, getNormalWorkspaceMenuItems, mergeRecentStarterPlanIdeaIds, selectStarterPlanIdeaKeys, starterPlanIdeas, type NormalWorkspaceMenuItem, type StarterPlanIdeaKey } from '@hellowhen/shared';
+import { buildPlanFeedItems, getNormalWorkspaceMenuItems, mergeRecentStarterPlanIdeaIds, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaRequirementCounts, starterPlanIdeaRequirementSummary, starterPlanIdeaStopDestinationPrompt, type NormalWorkspaceMenuItem, type StarterPlanIdeaKey } from '@hellowhen/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
@@ -39,6 +39,7 @@ function PlanCard({ plan }: PlanCardProps) {
 function PlanIdeaCard({ ideaKey, onOpen }: { ideaKey: StarterPlanIdeaKey; onOpen?: () => void }) {
   const router = useRouter();
   const idea = starterPlanIdeas[ideaKey];
+  const requirementCounts = starterPlanIdeaRequirementCounts(idea);
   function openIdea() {
     onOpen?.();
     router.push(`/plans/ideas/${idea.id}`);
@@ -54,15 +55,20 @@ function PlanIdeaCard({ ideaKey, onOpen }: { ideaKey: StarterPlanIdeaKey; onOpen
           id: `${idea.id}-${index}`,
           mode: stop.mode,
           title: stop.title,
-          location: stop.mode === 'remote' ? stop.onlineLabel ?? stop.onlineUrl : stop.location,
+          location: starterPlanIdeaStopDestinationPrompt(stop),
           time: stop.time,
         }))}
         onOpen={openIdea}
         actionLabel="Open Plan idea"
       />
       <Link href={`/plans/ideas/${idea.id}`} className="plan-deck-link__meta" onClick={onOpen}>
-        {idea.stops.length} starter stops · Create your version
+        {idea.stops.length} starter stops · {starterPlanIdeaRequirementSummary(idea)}
       </Link>
+      <div className="plan-idea-card__requirements" aria-label="Plan idea requirements before publishing">
+        {requirementCounts.addressStops ? <span className="semantic-badge warning">{requirementCounts.addressStops} real address{requirementCounts.addressStops === 1 ? '' : 'es'}</span> : null}
+        {requirementCounts.onlineLinkStops ? <span className="semantic-badge info">{requirementCounts.onlineLinkStops} online link{requirementCounts.onlineLinkStops === 1 ? '' : 's'}</span> : null}
+        <span className="plan-idea-card__hint">Review first · no fake locations</span>
+      </div>
     </article>
   );
 }

@@ -61,6 +61,27 @@ function formatDate(value?: string | null, language = 'en') {
   return new Intl.DateTimeFormat(language, { month: 'short', year: 'numeric' }).format(date);
 }
 
+function formatPresenceDate(value?: string | null, language = 'en') {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat(language, { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+}
+
+function presenceTrustCounts(stats?: PublicProfileResponse['stats'] | null) {
+  return {
+    places: stats?.verifiedOfflinePlacesCount ?? 0,
+    plans: stats?.verifiedOfflinePlansCount ?? 0,
+    checkIns: stats?.verifiedOfflineCheckInsCount ?? 0,
+  };
+}
+
+function presenceTrustSummary(stats: PublicProfileResponse['stats'], t: TFunction) {
+  const counts = presenceTrustCounts(stats);
+  if (!counts.places && !counts.plans && !counts.checkIns) return t('profile.trust.summaryNone');
+  return t('profile.trust.summary', { places: counts.places, plans: counts.plans, checkIns: counts.checkIns });
+}
+
 function postKindLabel(kind: PostKind, t: TFunction) {
   if (kind === 'need') return t('trade.labels.openNeed');
   if (kind === 'offer') return t('trade.labels.openOffer');
@@ -230,6 +251,10 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
   const name = useMemo(() => displayNameForProfile(profile?.user.profile) || displayName || t('profile.hellowhenMember'), [displayName, profile?.user.profile, t]);
   const handleLabel = formatHandle(profile?.user.profile?.handle);
   const memberSince = formatDate(profile?.user.memberSince, language);
+  const lastPresenceConfirmed = formatPresenceDate(profile?.stats.lastOfflinePresenceConfirmedAt, language);
+  const presenceCounts = presenceTrustCounts(profile?.stats);
+  const hasPresenceTrust = presenceCounts.places > 0 || presenceCounts.plans > 0 || presenceCounts.checkIns > 0;
+  const presenceSummary = profile ? presenceTrustSummary(profile.stats, t) : '';
   const isBlockedByMe = Boolean(profile?.viewerState?.isBlockedByMe);
   const activeTrades = profile?.sections.activeTrades ?? [];
   const openNeeds = profile?.sections.openNeeds ?? [];
@@ -302,6 +327,13 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
               <View style={styles.heroCopy}>
                 <AppText style={styles.displayName}>{name}</AppText>
                 <VerificationBadgeRow badges={profile.user.badges} />
+                {hasPresenceTrust ? (
+                  <View style={[styles.presenceCounter, { backgroundColor: theme.semantic.success.softBg, borderColor: theme.semantic.success.border }]}>
+                    <MobileIcon name="verified" color={theme.semantic.success.text} size={13} />
+                    <AppText style={[styles.presenceCounterValue, { color: theme.semantic.success.text }]}>{presenceCounts.places}</AppText>
+                    <AppText style={[styles.presenceCounterLabel, { color: theme.semantic.success.text }]} numberOfLines={1}>{t('profile.trust.heroCounter', { count: presenceCounts.places })}</AppText>
+                  </View>
+                ) : null}
                 {handleLabel ? <AppText style={[styles.handle, { color: theme.color.muted }]}>{handleLabel}</AppText> : null}
                 {profile.user.profile?.bio ? <AppText style={[styles.bio, { color: theme.color.text }]}>{profile.user.profile.bio}</AppText> : null}
                 <View style={styles.metaRow}>
@@ -340,11 +372,18 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
                   <AppText style={[styles.trustBody, { color: theme.color.muted }]}>{t('profile.trust.body')}</AppText>
                 </View>
               </View>
+              <View style={[styles.trustSummary, { backgroundColor: hasPresenceTrust ? theme.semantic.success.softBg : theme.color.subtleSurface, borderColor: hasPresenceTrust ? theme.semantic.success.border : theme.color.border }]}>
+                <AppText style={[styles.trustSummaryEyebrow, { color: hasPresenceTrust ? theme.semantic.success.text : theme.color.muted }]}>{t('profile.trust.primaryCounterLabel')}</AppText>
+                <AppText style={styles.trustSummaryValue}>{presenceCounts.places}</AppText>
+                <AppText style={[styles.trustSummaryBody, { color: theme.color.muted }]}>{presenceSummary}</AppText>
+              </View>
               <View style={styles.trustGrid}>
                 <TrustSignalTile label={t('profile.trust.memberSinceLabel')} value={memberSince ?? t('common.states.unknown')} />
                 <TrustSignalTile label={t('profile.trust.verifiedPlaces')} value={profile.stats.verifiedOfflinePlacesCount ?? 0} />
                 <TrustSignalTile label={t('profile.trust.verifiedPlans')} value={profile.stats.verifiedOfflinePlansCount ?? 0} />
+                <TrustSignalTile label={t('profile.trust.checkIns')} value={profile.stats.verifiedOfflineCheckInsCount ?? 0} />
               </View>
+              {lastPresenceConfirmed ? <AppText style={[styles.trustNote, { color: theme.color.muted }]}>{t('profile.trust.lastPresence')}: {lastPresenceConfirmed}</AppText> : null}
             </View>
 
             <View style={styles.statsGrid}>
@@ -377,16 +416,24 @@ const styles = StyleSheet.create({
   profileActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
   profileAgendaButton: { alignSelf: 'flex-start' },
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  presenceCounter: { alignSelf: 'flex-start', maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  presenceCounterValue: { fontSize: 12, lineHeight: 15, fontWeight: '900' },
+  presenceCounterLabel: { flexShrink: 1, fontSize: 11, lineHeight: 14, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.3 },
   trustPanel: { borderWidth: 1, borderRadius: 24, padding: 14, gap: 13 },
   trustHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
   trustIcon: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   trustCopy: { flex: 1, minWidth: 0, gap: 3 },
   trustTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900', letterSpacing: -0.2 },
   trustBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  trustSummary: { borderWidth: 1, borderRadius: 20, padding: 12, gap: 3 },
+  trustSummaryEyebrow: { fontSize: 10, lineHeight: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.45 },
+  trustSummaryValue: { fontSize: 28, lineHeight: 32, fontWeight: '900', letterSpacing: -0.5 },
+  trustSummaryBody: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
   trustGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  trustTile: { width: '31%', flexGrow: 1, minHeight: 72, borderWidth: 1, borderRadius: 18, padding: 11, justifyContent: 'center' },
+  trustTile: { width: '48%', flexGrow: 1, minHeight: 72, borderWidth: 1, borderRadius: 18, padding: 11, justifyContent: 'center' },
   trustValue: { fontSize: 18, lineHeight: 22, fontWeight: '900', letterSpacing: -0.25 },
   trustLabel: { marginTop: 2, fontSize: 10, lineHeight: 14, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.35 },
+  trustNote: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   statTile: { width: '48%', flexGrow: 1, minHeight: 88, borderWidth: 1, borderRadius: 22, padding: 14, justifyContent: 'center' },
   statValue: { fontSize: 25, lineHeight: 30, fontWeight: '900', letterSpacing: -0.4 },

@@ -1,0 +1,748 @@
+diff --git a/docs/plans/google-provider-smoke-parity.md b/docs/plans/google-provider-smoke-parity.md
+new file mode 100644
+index 0000000..40a9c47
+--- /dev/null
++++ b/docs/plans/google-provider-smoke-parity.md
+@@ -0,0 +1,278 @@
++# PLACE-ADDR7 — Google provider smoke and parity checks
++
++Date: 2026-07-04
++
++This document is the final smoke/parity checklist for the provider-selected offline Place rollout.
++
++It assumes the previous address patches are applied:
++
++1. `PLACE-ADDR1` — audit and provider/env docs
++2. `PLACE-ADDR2` — shared provider address validation helpers
++3. `PLACE-ADDR2B` — invalid offline cleanup script
++4. `PLACE-ADDR3` — API offline/online address enforcement
++5. `PLACE-ADDR4` — web address picker enforcement
++6. `PLACE-ADDR5` — native address picker enforcement
++7. `PLACE-ADDR6` — starter idea prompt cleanup
++
++## Product invariant
++
++Offline Places and offline Plan stops are valid only when they come from a provider-selected address payload.
++
++Required offline fields:
++
++```txt
++mode = local
++googlePlaceId
++formattedAddress
++latitude
++longitude
++locationSource = google_places
++addressValidationStatus = confirmed
++```
++
++Manual text such as `addressPublicText`, starter prompt text, area labels, or private instructions can still be displayed as helper copy, but they must not make an offline destination valid.
++
++Online Places remain valid without offline address fields when they include a supported online destination:
++
++```txt
++mode = remote
++onlineUrl = http:// or https:// URL
++onlineLabel optional
++```
++
++## Command summary
++
++Run the cleanup audit before and after the rollout:
++
++```bash
++npm run places:address-audit
++```
++
++Dry-run the safe cleanup actions:
++
++```bash
++npm run places:address-cleanup -- --dry-run --convert-online-when-url --archive-places --mark-plan-stops-unsupported
++```
++
++Run the provider/address policy smoke:
++
++```bash
++npm run places:address-provider-smoke
++```
++
++Run it with Plans/Places enabled:
++
++```bash
++EXPECT_PLANS_ENABLED=true npm run places:address-provider-smoke
++```
++
++Run it with real Google provider checks enabled:
++
++```bash
++EXPECT_PLANS_ENABLED=true \
++EXPECT_GOOGLE_PLACES_ENABLED=true \
++GOOGLE_PLACE_SMOKE_QUERY="Eiffel Tower" \
++GOOGLE_PLACE_SMOKE_COUNTRY=FR \
++npm run places:address-provider-smoke
++```
++
++On Windows PowerShell:
++
++```powershell
++$env:EXPECT_PLANS_ENABLED="true"
++$env:EXPECT_GOOGLE_PLACES_ENABLED="true"
++$env:GOOGLE_PLACE_SMOKE_QUERY="Eiffel Tower"
++$env:GOOGLE_PLACE_SMOKE_COUNTRY="FR"
++npm run places:address-provider-smoke
++```
++
++## Smoke coverage
++
++`scripts/place-address-provider-smoke.mjs` verifies:
++
++- invalid offline reusable Place create is rejected with `missing_offline_provider_address`
++- online reusable Place create/archive still works without offline address fields
++- provider-disabled/provider-not-configured state is friendly when Google checks are not expected
++- Google Places search/details works when explicitly expected
++- Google details return a confirmed provider payload
++- provider-backed offline reusable Place create/archive works
++- provider-backed offline Plan create/cancel works
++
++The script only creates short-lived smoke rows and archives/cancels them during the run.
++
++## Existing smoke script parity
++
++Two older smoke scripts were updated so they do not fight the new offline rule:
++
++```txt
++scripts/place-library-hidden-smoke.mjs
++scripts/plans-hidden-smoke.mjs
++```
++
++They now use valid remote/online destinations for their generic create/join/edit checks. They should not create fake local addresses from manual text. Real offline Google-provider coverage belongs in `places:address-provider-smoke`.
++
++## Web parity checklist
++
++Create Place, web:
++
++- Offline mode shows the Google place picker.
++- Typing manual address text clears the selected provider result.
++- Save is disabled until a provider result is selected.
++- Save sends `googlePlaceId`, `formattedAddress`, coordinates, `locationSource = google_places`, and `addressValidationStatus = confirmed`.
++- Online mode hides or de-emphasizes offline address requirements.
++- Online mode requires a valid `http://` or `https://` URL.
++- Provider unavailable state blocks offline save instead of allowing free text.
++
++Create Plan, web:
++
++- Custom offline stops require a provider-selected address before publish.
++- Saved/my/library Places that are invalid offline rows are disabled or marked “Fix first.”
++- Starter idea local stops show prompts, not fake address values.
++- Starter idea online stops require the user to provide a real online URL before publish.
++
++## Native parity checklist
++
++Create Place, native:
++
++- Offline mode stores the selected Google result in parent form state.
++- Manual input clears the selected provider result.
++- Continue/save is blocked until the selected provider result is confirmed.
++- Online mode requires a valid `http://` or `https://` URL.
++- Provider unavailable state blocks offline save instead of allowing free text.
++
++Create Plan, native:
++
++- Custom offline stops require a selected provider payload.
++- Invalid reusable offline Places are not selectable as valid stops.
++- Starter idea local stops remain prompts until the user selects a real address.
++
++## API parity checklist
++
++Reusable Place API:
++
++```txt
++POST /places mode=local with manual address only
++  => reject missing_offline_provider_address
++
++POST /places mode=local with confirmed Google payload
++  => accept
++
++PATCH /places/:placeId switching to remote with onlineUrl
++  => accept and clear offline/map fields
++
++POST /places mode=remote without onlineUrl
++  => reject missing_online_place_destination
++
++POST /places mode=remote with onlineUrl
++  => accept
++```
++
++Plan API:
++
++```txt
++POST /plans with custom local PlanPlace and manual address only
++  => reject missing_offline_provider_address before creating the Plan
++
++POST /plans with saved reusable Place that is invalid local/offline
++  => reject missing_offline_provider_address
++
++POST /plans with confirmed Google local PlanPlace payload
++  => accept
++
++POST /plans with remote PlanPlace and onlineUrl
++  => accept
++```
++
++## Google Cloud setup checklist
++
++Enable only the APIs needed for the rollout:
++
++- Places API (New)
++- Address Validation API only when `GOOGLE_ADDRESS_VALIDATION_ENABLED=true`
++- Maps Static API only when static map card previews are enabled
++
++Use separate keys where possible:
++
++```txt
++Server Places key:
++  Application restriction: API server IP addresses
++  API restrictions: Places API (New), and Address Validation API only if enabled
++
++Static Maps key:
++  Application restriction: HTTP referrers / websites
++  API restrictions: Maps Static API only
++```
++
++Google requires Places API (New) requests such as Place Details to specify the desired fields with a field mask. Keep backend field masks narrow so Google returns only data Hellowhen needs for address selection and map display.
++
++Google Maps Platform security guidance recommends API restrictions and application restrictions for API keys. Do not ship unrestricted keys.
++
++## Required env for Google-backed smoke
++
++Shared/API env:
++
++```env
++PLANS_ENABLED=true
++PLANS_VISIBLE=true
++PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS=true
++GOOGLE_PLACES_ENABLED=true
++GOOGLE_MAPS_SERVER_API_KEY=YOUR_SERVER_RESTRICTED_GOOGLE_MAPS_KEY
++GOOGLE_PLACES_COUNTRY_CODES=FR
++GOOGLE_PLACES_DEFAULT_LANGUAGE=en
++GOOGLE_PLACES_REQUEST_TIMEOUT_MS=4500
++```
++
++Optional:
++
++```env
++GOOGLE_ADDRESS_VALIDATION_ENABLED=false
++GOOGLE_STATIC_MAPS_ENABLED=true
++GOOGLE_STATIC_MAPS_API_KEY=YOUR_STATIC_MAPS_RESTRICTED_KEY
++GOOGLE_STATIC_MAPS_ANONYMOUS_ENABLED=false
++```
++
++## Failure meanings
++
++`missing_offline_provider_address`
++
++: The caller is trying to save a local/offline destination without confirmed provider address fields. Fix UI payload wiring or select a real address.
++
++`missing_online_place_destination`
++
++: The caller is trying to save a remote/online destination without `onlineUrl`.
++
++`google_places_disabled`
++
++: Google provider feature flag is off. Offline creation should show an unavailable state, not manual fallback.
++
++`google_places_not_configured`
++
++: Provider flag is on but `GOOGLE_MAPS_SERVER_API_KEY` is missing.
++
++Google `400` or field-mask errors
++
++: The provider route field mask is missing or asking for an unsupported field. Confirm the backend route still sends `X-Goog-FieldMask` for Places API (New) calls.
++
++Google `403`
++
++: Usually key restriction/API enablement problem. Confirm the server key is allowed from the API server IP and restricted to Places API (New).
++
++Google `429`
++
++: Quota or rate-limit problem. Keep app-side rate limits and Google Cloud quotas/budgets low during beta.
++
++## Release gate
++
++Do not enable strict production rollout until all of these are true:
++
++- cleanup audit has been reviewed
++- safe cleanup has been dry-run
++- API rejects manual offline creates
++- web blocks manual offline save
++- native blocks manual offline save
++- online places still save on web and native
++- starter plan ideas no longer publish fake offline addresses
++- Google provider smoke passes in staging with real key
++- Static Maps uses coordinates/provider data only, not manual text
++- first-launch guard behavior is unchanged
++- Plans / Me / Trade navigation behavior is unchanged
+diff --git a/docs/plans/google-static-maps.md b/docs/plans/google-static-maps.md
+index 6a9566b..29dafd5 100644
+--- a/docs/plans/google-static-maps.md
++++ b/docs/plans/google-static-maps.md
+@@ -308,6 +308,20 @@ Public view:
+ 
+ If a place is sensitive or private, do not issue a static map URL for anonymous/public views.
+ 
++## Provider address smoke before map rollout
++
++Before relying on Static Maps for Place cards, run the address provider smoke checks from `docs/plans/google-provider-smoke-parity.md`. Static Maps should only be issued for local Places/Plan stops that have provider-backed coordinates.
++
++```bash
++EXPECT_PLANS_ENABLED=true \
++EXPECT_GOOGLE_PLACES_ENABLED=true \
++GOOGLE_PLACE_SMOKE_QUERY="Eiffel Tower" \
++GOOGLE_PLACE_SMOKE_COUNTRY=FR \
++npm run places:address-provider-smoke
++```
++
++If this smoke fails, fix the provider-selected address flow before debugging Static Maps. Static Maps must not use manual/free-text-only locations as map sources.
++
+ ## Local testing checklist
+ 
+ 1. Add env variables.
+diff --git a/docs/plans/place-address-cleanup.md b/docs/plans/place-address-cleanup.md
+index 14ee651..997fbdf 100644
+--- a/docs/plans/place-address-cleanup.md
++++ b/docs/plans/place-address-cleanup.md
+@@ -73,3 +73,24 @@ npm run places:address-cleanup -- --dry-run --limit 50
+ - Mutations require `--apply` plus at least one explicit action flag.
+ - Real user `PlanPlace` rows are never deleted by this script.
+ - Existing invalid rows remain readable until later UI/API patches require users to select a provider address before saving them as offline places again.
++
++
++## Post-cleanup smoke
++
++After the cleanup dry-run/apply step, run the address policy smoke command:
++
++```bash
++npm run places:address-provider-smoke
++```
++
++For staging with real Google provider checks enabled:
++
++```bash
++EXPECT_PLANS_ENABLED=true \
++EXPECT_GOOGLE_PLACES_ENABLED=true \
++GOOGLE_PLACE_SMOKE_QUERY="Eiffel Tower" \
++GOOGLE_PLACE_SMOKE_COUNTRY=FR \
++npm run places:address-provider-smoke
++```
++
++The smoke verifies that invalid manual offline creates remain blocked while online destinations and provider-backed offline destinations continue to work.
+diff --git a/docs/plans/place-address-storage-audit.md b/docs/plans/place-address-storage-audit.md
+index 5d8068b..d42262d 100644
+--- a/docs/plans/place-address-storage-audit.md
++++ b/docs/plans/place-address-storage-audit.md
+@@ -334,7 +334,19 @@ Recommended patch order after this audit:
+ 4. `PLACE-ADDR4` — Web Create Place address picker enforcement.
+ 5. `PLACE-ADDR5` — Native Create Place address picker enforcement.
+ 6. `PLACE-ADDR6` — Plan starter ideas/templates cleanup.
+-7. `PLACE-ADDR7` — Google provider smoke/parity docs.
++7. `PLACE-ADDR7` — Google provider smoke/parity docs and smoke script updates.
++
++## PLACE-ADDR7 smoke/parity
++
++PLACE-ADDR7 adds the final smoke/parity guide and root command:
++
++```bash
++npm run places:address-provider-smoke
++```
++
++Full provider rollout checks are documented in `docs/plans/google-provider-smoke-parity.md`. The command verifies that manual offline rows are blocked, online Places remain allowed, provider-unavailable states are friendly, and real Google-backed offline Places/Plan stops work when `EXPECT_GOOGLE_PLACES_ENABLED=true`.
++
++The existing hidden Places/Plans smoke scripts now use valid remote/online destinations for generic create/join/edit checks. Real offline address coverage belongs in the dedicated provider smoke command.
+ 
+ ## Acceptance checklist for later validation patches
+ 
+diff --git a/package.json b/package.json
+index 25c351b..19aef0c 100644
+--- a/package.json
++++ b/package.json
+@@ -36,7 +36,8 @@
+     "media:s3-cleanup-smoke": "node scripts/media-s3-cleanup-smoke.mjs",
+     "media:s3-migrate": "npm run media:s3-migrate -w @hellowhen/api --",
+     "places:address-audit": "npm run places:address-cleanup -w @hellowhen/api -- --dry-run",
+-    "places:address-cleanup": "npm run places:address-cleanup -w @hellowhen/api --"
++    "places:address-cleanup": "npm run places:address-cleanup -w @hellowhen/api --",
++    "places:address-provider-smoke": "node scripts/place-address-provider-smoke.mjs"
+   },
+   "devDependencies": {
+     "typescript": "^5.4.5"
+diff --git a/scripts/place-address-provider-smoke.mjs b/scripts/place-address-provider-smoke.mjs
+new file mode 100755
+index 0000000..7baa8b1
+--- /dev/null
++++ b/scripts/place-address-provider-smoke.mjs
+@@ -0,0 +1,257 @@
++#!/usr/bin/env node
++
++const apiBase = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000').replace(/\/$/, '');
++const ownerEmail = process.env.PLACE_OWNER_EMAIL || process.env.PLAN_OWNER_EMAIL || 'demo@hellowhen.app';
++const ownerPassword = process.env.PLACE_OWNER_PASSWORD || process.env.PLAN_OWNER_PASSWORD || process.env.SEED_DEMO_PASSWORD || 'password123';
++const expectPlansEnabled = (process.env.EXPECT_PLANS_ENABLED || 'false').toLowerCase() === 'true';
++const expectGoogleEnabled = (process.env.EXPECT_GOOGLE_PLACES_ENABLED || 'false').toLowerCase() === 'true';
++const smokeQuery = process.env.GOOGLE_PLACE_SMOKE_QUERY || 'Eiffel Tower';
++const smokeCountry = process.env.GOOGLE_PLACE_SMOKE_COUNTRY || 'FR';
++const smokeLanguage = process.env.GOOGLE_PLACE_SMOKE_LANGUAGE || 'en';
++
++async function request(path, options = {}) {
++  const response = await fetch(`${apiBase}${path}`, {
++    ...options,
++    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
++  });
++  const body = await response.json().catch(() => null);
++  if (!response.ok) {
++    const error = new Error(body?.message || body?.error || `${response.status} ${response.statusText}`);
++    error.status = response.status;
++    error.body = body;
++    throw error;
++  }
++  return body;
++}
++
++async function login(email, password) {
++  const result = await request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
++  if (result.requiresTwoFactor) throw new Error(`${email} requires two-step verification. Use a demo user without 2FA for this smoke test.`);
++  if (!result.accessToken || !result.user?.id) throw new Error(`${email} login did not return a user/session.`);
++  return { token: result.accessToken, userId: result.user.id };
++}
++
++function authHeaders(token) {
++  return { Authorization: `Bearer ${token}` };
++}
++
++function assert(condition, message) {
++  if (!condition) throw new Error(message);
++}
++
++async function expectPlansDisabled() {
++  try {
++    await request('/plans/feed');
++    throw new Error('/plans/feed unexpectedly succeeded while Plans are expected to be disabled.');
++  } catch (error) {
++    if (error.body?.error === 'plans_disabled') {
++      console.log('Plans disabled gate: PASS');
++      return;
++    }
++    throw error;
++  }
++}
++
++async function expectInvalidOfflineBlocked(token) {
++  try {
++    await request('/places', {
++      method: 'POST',
++      headers: authHeaders(token),
++      body: JSON.stringify({
++        title: 'Invalid offline address smoke',
++        description: 'This should be blocked because manual text is not a provider-selected address.',
++        mode: 'local',
++        visibility: 'private',
++        addressPublicText: 'Manual text should not pass.',
++      }),
++    });
++    throw new Error('Invalid offline Place unexpectedly saved without provider-selected address data.');
++  } catch (error) {
++    if (error.body?.error === 'missing_offline_provider_address') {
++      console.log('Invalid offline Place create is blocked: PASS');
++      return;
++    }
++    throw error;
++  }
++}
++
++async function expectOnlinePlaceWorks(token, stamp) {
++  const created = await request('/places', {
++    method: 'POST',
++    headers: authHeaders(token),
++    body: JSON.stringify({
++      title: `Address policy online smoke ${stamp}`,
++      description: 'This verifies online Places remain allowed without an offline address.',
++      mode: 'remote',
++      visibility: 'private',
++      onlineLabel: 'Smoke video link',
++      onlineUrl: `https://meet.example/address-policy-${encodeURIComponent(stamp)}`,
++    }),
++  });
++
++  const placeId = created.place?.id;
++  assert(placeId, 'Online Place creation did not return a place id.');
++  assert(created.place?.mode === 'remote', 'Online Place should store remote mode.');
++  assert(created.place?.onlineUrl?.startsWith('https://meet.example/'), 'Online Place should store onlineUrl.');
++
++  await request(`/places/${placeId}`, { method: 'DELETE', headers: authHeaders(token) });
++  console.log('Online Place create/archive without offline address: PASS');
++}
++
++async function checkGoogleProviderOptional(token) {
++  try {
++    const result = await request(`/places/google/search?q=${encodeURIComponent(smokeQuery)}&country=${encodeURIComponent(smokeCountry)}&languageCode=${encodeURIComponent(smokeLanguage)}&take=1`, {
++      headers: authHeaders(token),
++    });
++    const count = Array.isArray(result.predictions) ? result.predictions.length : 0;
++    console.log(`Google provider appears enabled and returned ${count} prediction(s). Set EXPECT_GOOGLE_PLACES_ENABLED=true to run Google-backed offline create checks.`);
++  } catch (error) {
++    if (['google_places_disabled', 'google_places_not_configured'].includes(error.body?.error)) {
++      console.log(`Google provider unavailable state (${error.body.error}): PASS`);
++      return;
++    }
++    throw error;
++  }
++}
++
++async function resolveGooglePlace(token) {
++  const search = await request(`/places/google/search?q=${encodeURIComponent(smokeQuery)}&country=${encodeURIComponent(smokeCountry)}&languageCode=${encodeURIComponent(smokeLanguage)}&take=1`, {
++    headers: authHeaders(token),
++  });
++  const prediction = search.predictions?.[0];
++  assert(prediction?.placeId, `Google Places search returned no prediction for ${smokeQuery}.`);
++
++  const details = await request(`/places/google/details?placeId=${encodeURIComponent(prediction.placeId)}&languageCode=${encodeURIComponent(smokeLanguage)}`, {
++    headers: authHeaders(token),
++  });
++  const place = details.place;
++  assert(place?.source === 'google_places', 'Google details should return source=google_places.');
++  assert(place?.placeId, 'Google details should include placeId.');
++  assert(place?.formattedAddress, 'Google details should include formattedAddress.');
++  assert(typeof place?.latitude === 'number', 'Google details should include latitude.');
++  assert(typeof place?.longitude === 'number', 'Google details should include longitude.');
++  assert(place?.validationStatus === 'confirmed', 'Google details should be confirmed when formatted address and coordinates are present.');
++  console.log(`Google Places search/details resolved ${place.formattedAddress}: PASS`);
++  return place;
++}
++
++function providerPlacePayload(place) {
++  return {
++    googlePlaceId: place.placeId,
++    googlePlaceName: place.name || undefined,
++    formattedAddress: place.formattedAddress,
++    googleMapsUri: place.googleMapsUri || undefined,
++    latitude: place.latitude,
++    longitude: place.longitude,
++    locationSource: 'google_places',
++    addressValidationStatus: 'confirmed',
++  };
++}
++
++async function expectProviderOfflinePlaceWorks(token, stamp, place) {
++  const created = await request('/places', {
++    method: 'POST',
++    headers: authHeaders(token),
++    body: JSON.stringify({
++      title: `Address policy offline smoke ${stamp}`,
++      description: 'This verifies provider-selected offline Places are accepted.',
++      mode: 'local',
++      visibility: 'private',
++      addressPublicText: place.formattedAddress,
++      ...providerPlacePayload(place),
++    }),
++  });
++
++  const placeId = created.place?.id;
++  assert(placeId, 'Provider-backed offline Place creation did not return a place id.');
++  assert(created.place?.mode === 'local', 'Provider-backed Place should store local mode.');
++  assert(created.place?.googlePlaceId === place.placeId, 'Provider-backed Place should store googlePlaceId.');
++  assert(created.place?.locationSource === 'google_places', 'Provider-backed Place should store locationSource=google_places.');
++  assert(created.place?.addressValidationStatus === 'confirmed', 'Provider-backed Place should store confirmed validation status.');
++
++  await request(`/places/${placeId}`, { method: 'DELETE', headers: authHeaders(token) });
++  console.log('Provider-backed offline Place create/archive: PASS');
++}
++
++async function expectProviderPlanPlaceWorks(token, stamp, place) {
++  const start = new Date(Date.now() + 36 * 60 * 60 * 1000);
++  start.setHours(13, 0, 0, 0);
++  const startsAt = start.toISOString();
++  const endsAt = new Date(start.getTime() + 2 * 60 * 60 * 1000).toISOString();
++
++  const created = await request('/plans', {
++    method: 'POST',
++    headers: authHeaders(token),
++    body: JSON.stringify({
++      title: `Address policy Plan smoke ${stamp}`,
++      description: 'Internal smoke test for provider-selected offline Plan stops.',
++      category: 'Smoke test',
++      mode: 'local',
++      startsAt,
++      endsAt,
++      joinApprovalMode: 'automatic',
++      status: 'open',
++      places: [
++        {
++          mode: 'local',
++          title: 'Provider-backed meeting place',
++          note: 'This stop verifies provider-selected offline PlanPlace validation.',
++          addressPublicText: place.formattedAddress,
++          startsAt,
++          order: 0,
++          ...providerPlacePayload(place),
++        },
++      ],
++    }),
++  });
++
++  const planId = created.plan?.id;
++  assert(planId, 'Provider-backed Plan creation did not return a plan id.');
++  const firstPlace = created.plan?.places?.[0];
++  assert(firstPlace?.mode === 'local', 'Provider-backed Plan stop should store local mode.');
++  assert(firstPlace?.googlePlaceId === place.placeId, 'Provider-backed Plan stop should store googlePlaceId.');
++  assert(firstPlace?.locationSource === 'google_places', 'Provider-backed Plan stop should store locationSource=google_places.');
++  assert(firstPlace?.addressValidationStatus === 'confirmed', 'Provider-backed Plan stop should store confirmed validation status.');
++
++  await request(`/plans/${planId}`, {
++    method: 'PATCH',
++    headers: authHeaders(token),
++    body: JSON.stringify({ status: 'cancelled' }),
++  });
++  console.log('Provider-backed offline Plan create/cancel: PASS');
++}
++
++async function runEnabledSmoke() {
++  const owner = await login(ownerEmail, ownerPassword);
++  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
++
++  await expectInvalidOfflineBlocked(owner.token);
++  await expectOnlinePlaceWorks(owner.token, stamp);
++
++  if (!expectGoogleEnabled) {
++    await checkGoogleProviderOptional(owner.token);
++    console.log('Set EXPECT_GOOGLE_PLACES_ENABLED=true with GOOGLE_PLACES_ENABLED=true and GOOGLE_MAPS_SERVER_API_KEY set to run Google-backed offline create checks.');
++    return;
++  }
++
++  const place = await resolveGooglePlace(owner.token);
++  await expectProviderOfflinePlaceWorks(owner.token, stamp, place);
++  await expectProviderPlanPlaceWorks(owner.token, stamp, place);
++}
++
++async function main() {
++  console.log(`Place address provider smoke: ${apiBase}`);
++  if (!expectPlansEnabled) {
++    await expectPlansDisabled();
++    console.log('Set EXPECT_PLANS_ENABLED=true with PLANS_ENABLED=true on the API to run address validation smoke checks.');
++    return;
++  }
++
++  await runEnabledSmoke();
++}
++
++main().catch((error) => {
++  console.error(error instanceof Error ? error.message : error);
++  if (error?.body) console.error(JSON.stringify(error.body, null, 2));
++  process.exitCode = 1;
++});
+diff --git a/scripts/place-library-hidden-smoke.mjs b/scripts/place-library-hidden-smoke.mjs
+index 6440445..d4d7b68 100644
+--- a/scripts/place-library-hidden-smoke.mjs
++++ b/scripts/place-library-hidden-smoke.mjs
+@@ -76,11 +76,10 @@ async function runEnabledSmoke() {
+     body: JSON.stringify({
+       title: `Hidden Place Library smoke ${stamp}`,
+       description: 'Internal smoke test for reusable My Places.',
+-      mode: 'local',
++      mode: 'remote',
+       visibility: 'private',
+-      areaLabel: 'Paris area',
+-      addressPublicText: 'Public meeting area',
+-      addressPrivateText: 'Private details only owner should see',
++      onlineLabel: 'Smoke video link',
++      onlineUrl: `https://meet.example/place-library-${encodeURIComponent(stamp)}`,
+       defaultDurationMinutes: 60,
+       defaultNote: 'Reusable place smoke note.',
+       defaultMeetingInstructions: 'Owner-only smoke meeting instruction.',
+@@ -91,7 +90,7 @@ async function runEnabledSmoke() {
+   assert(placeId, 'Place creation did not return a place id.');
+   assert(created.place.source === 'user', 'Normal place should use user source.');
+   assert(created.place.visibility === 'private', 'Normal place should keep private visibility.');
+-  assert(created.place.addressPrivateText, 'Owner response should include private address text.');
++  assert(created.place.onlineUrl?.startsWith('https://meet.example/'), 'Created remote place should include onlineUrl.');
+ 
+   const mine = await request('/places/mine', { headers: authHeaders(owner.token) });
+   assert(mine.places?.some((place) => place.id === placeId), 'Created place should appear in /places/mine.');
+@@ -105,7 +104,7 @@ async function runEnabledSmoke() {
+ 
+   const publicPlace = await request(`/places/${placeId}`);
+   assert(publicPlace.place?.id === placeId, 'Public active place should be readable after owner makes it public.');
+-  assert(publicPlace.place?.addressPrivateText === null, 'Anonymous place detail should hide private address text.');
++  assert(publicPlace.place?.onlineUrl?.startsWith('https://meet.example/'), 'Anonymous place detail should show the public online destination.');
+ 
+   await expectLibraryCreateBlocked(owner.token);
+ 
+diff --git a/scripts/plans-hidden-smoke.mjs b/scripts/plans-hidden-smoke.mjs
+index 93e4e5d..de61be9 100644
+--- a/scripts/plans-hidden-smoke.mjs
++++ b/scripts/plans-hidden-smoke.mjs
+@@ -75,10 +75,11 @@ async function runEnabledSmoke() {
+       status: 'open',
+       places: [
+         {
+-          mode: 'local',
+-          title: 'Public meeting area',
++          mode: 'remote',
++          title: 'Opening video call',
+           note: 'Meet and align before moving to the next stop.',
+-          addressPublicText: 'Paris area only',
++          onlineLabel: 'Smoke video link',
++          onlineUrl: `https://meet.example/plan-opening-${encodeURIComponent(stamp)}`,
+           startsAt: firstStopAt,
+           order: 0,
+         },
+@@ -86,7 +87,8 @@ async function runEnabledSmoke() {
+           mode: 'remote',
+           title: 'Second smoke stop',
+           note: 'Second public note.',
+-          addressPublicText: 'https://meet.example/smoke',
++          onlineLabel: 'Second smoke link',
++          onlineUrl: `https://meet.example/plan-second-${encodeURIComponent(stamp)}`,
+           startsAt: secondStopAt,
+           order: 1,
+         },
+@@ -99,11 +101,11 @@ async function runEnabledSmoke() {
+   assert(created.plan.joinApprovalMode === 'automatic', 'Simplified Plans should default to automatic join.');
+   assert(created.plan.status === 'open', 'Simplified Plans should be open after create.');
+   assert(created.plan.places?.length === 2, 'Plan should include the created places.');
+-  assert(created.plan.places?.[0]?.mode === 'local', 'First place should store local mode.');
++  assert(created.plan.places?.[0]?.mode === 'remote', 'First place should store remote mode.');
+   assert(created.plan.places?.[1]?.mode === 'remote', 'Second place should store remote mode.');
+ 
+   const publicPlan = await request(`/plans/${planId}`);
+-  assert(publicPlan.plan?.places?.[0]?.addressPublicText === 'Paris area only', 'Anonymous viewer should see the simplified public place address.');
++  assert(publicPlan.plan?.places?.[0]?.onlineUrl?.startsWith('https://meet.example/plan-opening-'), 'Anonymous viewer should see the public online destination.');
+ 
+   const join = await request(`/plans/${planId}/join`, {
+     method: 'POST',
+@@ -131,7 +133,7 @@ async function runEnabledSmoke() {
+   await request(`/plans/${planId}/places/${firstPlaceId}`, {
+     method: 'PATCH',
+     headers: authHeaders(owner.token),
+-    body: JSON.stringify({ mode: 'local', addressPublicText: 'Edited smoke-test meeting area', order: 1, startsAt: secondStopAt }),
++    body: JSON.stringify({ mode: 'remote', onlineLabel: 'Edited smoke link', onlineUrl: `https://meet.example/plan-edited-${encodeURIComponent(stamp)}`, order: 1, startsAt: secondStopAt }),
+   });
+ 
+   await request(`/plans/${planId}/places`, {
+@@ -141,7 +143,8 @@ async function runEnabledSmoke() {
+       mode: 'remote',
+       title: 'Remote smoke stop',
+       note: 'This stop verifies per-place remote mode and explicit date/time scheduling.',
+-      addressPublicText: 'https://meet.example/remote-smoke',
++      onlineLabel: 'Remote smoke link',
++      onlineUrl: `https://meet.example/remote-smoke-${encodeURIComponent(stamp)}`,
+       startsAt: remoteStopAt,
+       order: 2,
+     }),
+@@ -149,7 +152,7 @@ async function runEnabledSmoke() {
+ 
+   const helperAfterEdit = await request(`/plans/${planId}`, { headers: authHeaders(helper.token) });
+   assert(helperAfterEdit.plan?.title?.startsWith('Hidden Plans edited'), 'Owner should be able to edit Plan details.');
+-  assert(helperAfterEdit.plan?.places?.some((place) => place.addressPublicText === 'Edited smoke-test meeting area'), 'Edited place address should be visible.');
++  assert(helperAfterEdit.plan?.places?.some((place) => place.onlineUrl?.startsWith('https://meet.example/plan-edited-')), 'Edited remote place URL should be visible.');
+   assert(helperAfterEdit.plan?.places?.some((place) => place.title === 'Remote smoke stop' && place.mode === 'remote'), 'Owner should be able to add another remote place.');
+ 
+   await request(`/plans/${planId}/leave`, {

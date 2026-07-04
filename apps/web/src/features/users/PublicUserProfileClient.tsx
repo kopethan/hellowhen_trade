@@ -37,6 +37,20 @@ function compactJoin(values: Array<string | null | undefined>) {
   return values.filter((value): value is string => Boolean(value && value.trim())).join(' · ');
 }
 
+function presenceTrustCounts(stats?: PublicProfileResponse['stats'] | null) {
+  return {
+    places: stats?.verifiedOfflinePlacesCount ?? 0,
+    plans: stats?.verifiedOfflinePlansCount ?? 0,
+    checkIns: stats?.verifiedOfflineCheckInsCount ?? 0,
+  };
+}
+
+function presenceTrustSummary(stats: PublicProfileResponse['stats'], t: TFunction) {
+  const counts = presenceTrustCounts(stats);
+  if (!counts.places && !counts.plans && !counts.checkIns) return t('profile.trust.summaryNone');
+  return t('profile.trust.summary', { places: counts.places, plans: counts.plans, checkIns: counts.checkIns });
+}
+
 function postTypeLabel(post: PublicProfileTradeSummary, t: TFunction) {
   if (post.postType === 'open_need') return t('trade.labels.openNeed');
   if (post.postType === 'open_offer') return t('trade.labels.openOffer');
@@ -220,7 +234,11 @@ export function PublicUserProfileClient({ userId, username }: { userId?: string;
   const displayName = profileName(profile?.user.profile, t);
   const location = countryLabel(profile?.user.profile?.countryCode, language);
   const memberSince = profile?.user.memberSince ? formatWebDate(profile.user.memberSince, t('common.states.unknown'), language) : t('common.states.unknown');
+  const lastPresenceConfirmed = profile?.stats.lastOfflinePresenceConfirmedAt ? formatWebDate(profile.stats.lastOfflinePresenceConfirmedAt, t('common.states.unknown'), language) : null;
   const handle = profile?.user.profile?.handle?.trim();
+  const presenceCounts = presenceTrustCounts(profile?.stats);
+  const hasPresenceTrust = presenceCounts.places > 0 || presenceCounts.plans > 0 || presenceCounts.checkIns > 0;
+  const presenceSummary = profile ? presenceTrustSummary(profile.stats, t) : '';
   const isBlockedByMe = Boolean(profile?.viewerState?.isBlockedByMe);
 
   async function toggleBlock() {
@@ -289,6 +307,13 @@ export function PublicUserProfileClient({ userId, username }: { userId?: string;
           <span className="semantic-badge trade">{t('profile.publicBadge')}</span>
           <h2>{displayName}</h2>
           <VerificationBadgeList badges={profile.user.badges} />
+          {hasPresenceTrust ? (
+            <div className="public-profile-presence-counter" aria-label={t('profile.trust.heroCounter', { count: presenceCounts.places })}>
+              <WebIcon name="verified" size={14} decorative />
+              <strong>{presenceCounts.places}</strong>
+              <span>{t('profile.trust.heroCounter', { count: presenceCounts.places })}</span>
+            </div>
+          ) : null}
           <div className="public-profile-meta-row">
             {handle ? <span>@{handle}</span> : null}
             <span>{t('profile.memberSince', { date: memberSince })}</span>
@@ -316,6 +341,11 @@ export function PublicUserProfileClient({ userId, username }: { userId?: string;
             <p>{t('profile.trust.body')}</p>
           </div>
         </div>
+        <div className={`public-profile-trust-summary${hasPresenceTrust ? '' : ' is-empty'}`}>
+          <span>{t('profile.trust.primaryCounterLabel')}</span>
+          <strong>{presenceCounts.places}</strong>
+          <p>{presenceSummary}</p>
+        </div>
         <div className="public-profile-trust-grid">
           <div>
             <strong>{memberSince}</strong>
@@ -329,7 +359,14 @@ export function PublicUserProfileClient({ userId, username }: { userId?: string;
             <strong>{profile.stats.verifiedOfflinePlansCount ?? 0}</strong>
             <span>{t('profile.trust.verifiedPlans')}</span>
           </div>
+          <div>
+            <strong>{profile.stats.verifiedOfflineCheckInsCount ?? 0}</strong>
+            <span>{t('profile.trust.checkIns')}</span>
+          </div>
         </div>
+        {lastPresenceConfirmed ? (
+          <p className="public-profile-trust-panel__note">{t('profile.trust.lastPresence')}: {lastPresenceConfirmed}</p>
+        ) : null}
       </section>
 
       <section className="public-profile-stats" aria-label={t('profile.statsLabel')}>

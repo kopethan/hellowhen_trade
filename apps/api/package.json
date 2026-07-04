@@ -13,7 +13,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:validate": "prisma validate",
     "prisma:seed": "prisma db seed",
-    "media:s3-migrate": "tsx src/scripts/migrateLocalMediaToS3.ts"
+    "media:s3-migrate": "tsx src/scripts/migrateLocalMediaToS3.ts",
+    "places:address-cleanup": "tsx src/scripts/cleanupInvalidOfflinePlaces.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1077.0",

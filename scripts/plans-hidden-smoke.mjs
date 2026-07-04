@@ -75,10 +75,11 @@ async function runEnabledSmoke() {
       status: 'open',
       places: [
         {
-          mode: 'local',
-          title: 'Public meeting area',
+          mode: 'remote',
+          title: 'Opening video call',
           note: 'Meet and align before moving to the next stop.',
-          addressPublicText: 'Paris area only',
+          onlineLabel: 'Smoke video link',
+          onlineUrl: `https://meet.example/plan-opening-${encodeURIComponent(stamp)}`,
           startsAt: firstStopAt,
           order: 0,
         },
@@ -86,7 +87,8 @@ async function runEnabledSmoke() {
           mode: 'remote',
           title: 'Second smoke stop',
           note: 'Second public note.',
-          addressPublicText: 'https://meet.example/smoke',
+          onlineLabel: 'Second smoke link',
+          onlineUrl: `https://meet.example/plan-second-${encodeURIComponent(stamp)}`,
           startsAt: secondStopAt,
           order: 1,
         },
@@ -99,11 +101,11 @@ async function runEnabledSmoke() {
   assert(created.plan.joinApprovalMode === 'automatic', 'Simplified Plans should default to automatic join.');
   assert(created.plan.status === 'open', 'Simplified Plans should be open after create.');
   assert(created.plan.places?.length === 2, 'Plan should include the created places.');
-  assert(created.plan.places?.[0]?.mode === 'local', 'First place should store local mode.');
+  assert(created.plan.places?.[0]?.mode === 'remote', 'First place should store remote mode.');
   assert(created.plan.places?.[1]?.mode === 'remote', 'Second place should store remote mode.');
 
   const publicPlan = await request(`/plans/${planId}`);
-  assert(publicPlan.plan?.places?.[0]?.addressPublicText === 'Paris area only', 'Anonymous viewer should see the simplified public place address.');
+  assert(publicPlan.plan?.places?.[0]?.onlineUrl?.startsWith('https://meet.example/plan-opening-'), 'Anonymous viewer should see the public online destination.');
 
   const join = await request(`/plans/${planId}/join`, {
     method: 'POST',
@@ -131,7 +133,7 @@ async function runEnabledSmoke() {
   await request(`/plans/${planId}/places/${firstPlaceId}`, {
     method: 'PATCH',
     headers: authHeaders(owner.token),
-    body: JSON.stringify({ mode: 'local', addressPublicText: 'Edited smoke-test meeting area', order: 1, startsAt: secondStopAt }),
+    body: JSON.stringify({ mode: 'remote', onlineLabel: 'Edited smoke link', onlineUrl: `https://meet.example/plan-edited-${encodeURIComponent(stamp)}`, order: 1, startsAt: secondStopAt }),
   });
 
   await request(`/plans/${planId}/places`, {
@@ -141,7 +143,8 @@ async function runEnabledSmoke() {
       mode: 'remote',
       title: 'Remote smoke stop',
       note: 'This stop verifies per-place remote mode and explicit date/time scheduling.',
-      addressPublicText: 'https://meet.example/remote-smoke',
+      onlineLabel: 'Remote smoke link',
+      onlineUrl: `https://meet.example/remote-smoke-${encodeURIComponent(stamp)}`,
       startsAt: remoteStopAt,
       order: 2,
     }),
@@ -149,7 +152,7 @@ async function runEnabledSmoke() {
 
   const helperAfterEdit = await request(`/plans/${planId}`, { headers: authHeaders(helper.token) });
   assert(helperAfterEdit.plan?.title?.startsWith('Hidden Plans edited'), 'Owner should be able to edit Plan details.');
-  assert(helperAfterEdit.plan?.places?.some((place) => place.addressPublicText === 'Edited smoke-test meeting area'), 'Edited place address should be visible.');
+  assert(helperAfterEdit.plan?.places?.some((place) => place.onlineUrl?.startsWith('https://meet.example/plan-edited-')), 'Edited remote place URL should be visible.');
   assert(helperAfterEdit.plan?.places?.some((place) => place.title === 'Remote smoke stop' && place.mode === 'remote'), 'Owner should be able to add another remote place.');
 
   await request(`/plans/${planId}/leave`, {

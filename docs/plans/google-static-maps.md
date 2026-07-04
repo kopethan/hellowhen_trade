@@ -14,6 +14,8 @@ Priority order in the UI:
 
 Important rule: **do not download, cache, or re-host the generated Google map image**. The app should use the generated Google Static Maps URL directly as an image source. Store only Place data and template choices.
 
+Address-safety rule: Static Maps should be generated only from provider-selected offline address data, preferably coordinates from a selected Google Place. Do not generate map visuals from manual/free-text-only offline addresses.
+
 ## Patch stack
 
 The current planned stack is:
@@ -44,7 +46,7 @@ apps/mobile/src/features/plans/*
 
 ## Environment variables
 
-Use separate API keys when possible: one server-restricted key for Places, one browser/referrer-restricted key for Static Maps.
+Use separate API keys when possible: one server-restricted key for Places/Address Validation, one browser/referrer-restricted key for Static Maps. The current web/native address picker architecture should call Hellowhen API endpoints first, so browser, Android, and iOS Google client keys are not required unless a future patch switches to direct Google client SDK usage.
 
 ```env
 # Google-confirmed offline place search
@@ -117,7 +119,7 @@ API restrictions:
 
 ### Static Maps key restrictions
 
-Use this key only for rendered map image URLs.
+Use this key only for rendered map image URLs. Static Maps URLs are visible to clients, so keep this key separate from the server Places key.
 
 ```txt
 Application restriction:
@@ -131,6 +133,25 @@ API restrictions:
 ```
 
 Do not put an unrestricted Static Maps key in production.
+
+### Web/mobile client key note
+
+The current provider flow is backend-proxied through Hellowhen API routes, not direct Google SDK calls. Do not add browser, Android, or iOS Google API keys for address picking until a future patch intentionally introduces direct Maps JavaScript SDK or native Google SDK usage. If direct client SDKs are added later, use separate keys with the matching application restrictions:
+
+```txt
+Web browser key:
+- HTTP referrers only
+- Hellowhen production/staging origins only
+- API restrictions for the specific browser SDK/API in use
+
+Android key:
+- Android package + SHA certificate restriction
+- API restrictions for the specific Android SDK/API in use
+
+iOS key:
+- iOS bundle ID restriction
+- API restrictions for the specific iOS SDK/API in use
+```
 
 ## Quota and budget settings
 
@@ -242,6 +263,18 @@ Place static map template family
 Optional seed / assignment metadata
 ```
 
+For offline Places, the minimum trusted map source is:
+
+```txt
+locationSource = google_places
+addressValidationStatus = confirmed
+googlePlaceId present
+latitude present
+longitude present
+```
+
+Manual text such as `addressPublicText` or `areaLabel` can be displayed as copy, but should not be enough to create a Google map card.
+
 The API computes:
 
 ```txt
@@ -274,6 +307,20 @@ Public view:
 ```
 
 If a place is sensitive or private, do not issue a static map URL for anonymous/public views.
+
+## Provider address smoke before map rollout
+
+Before relying on Static Maps for Place cards, run the address provider smoke checks from `docs/plans/google-provider-smoke-parity.md`. Static Maps should only be issued for local Places/Plan stops that have provider-backed coordinates.
+
+```bash
+EXPECT_PLANS_ENABLED=true \
+EXPECT_GOOGLE_PLACES_ENABLED=true \
+GOOGLE_PLACE_SMOKE_QUERY="Eiffel Tower" \
+GOOGLE_PLACE_SMOKE_COUNTRY=FR \
+npm run places:address-provider-smoke
+```
+
+If this smoke fails, fix the provider-selected address flow before debugging Static Maps. Static Maps must not use manual/free-text-only locations as map sources.
 
 ## Local testing checklist
 
