@@ -119,8 +119,25 @@ The implementation uses server-side config from `apps/api/src/config/env.ts`:
 - `GOOGLE_PLACES_DEFAULT_LANGUAGE`
 - `GOOGLE_PLACES_COUNTRY_CODES`
 - `GOOGLE_PLACES_REQUEST_TIMEOUT_MS`
+- `GOOGLE_PLACES_MONTHLY_SOFT_LIMIT`
+- `GOOGLE_PLACES_MONTHLY_HARD_LIMIT`
 
 This means web and native do not need direct Google client keys for the first provider-selected address flow. They can call the Hellowhen API, and the API can call Google server-side.
+
+
+### Provider search cost behavior
+
+Provider search is intentionally guarded before the API calls Google:
+
+- Web and native start autocomplete only after at least 3 typed characters.
+- Web and native keep a short debounce before provider search.
+- Place details are fetched only after the user selects a suggestion.
+- Typed text alone is never converted into a valid offline address.
+- The API tracks Google Places autocomplete/details requests with lightweight monthly soft/hard limits.
+- After `GOOGLE_PLACES_MONTHLY_HARD_LIMIT`, autocomplete/details stop before another Google request is issued.
+- If Google Places is disabled, unavailable, or over its monthly hard limit, offline creation must stay unavailable. There is no manual fallback; users can switch the Place to Online and provide a valid link instead.
+
+The monthly guard is in-memory and resets on process restart/deployment. Use Google Cloud quotas and budgets as the real billing hard stop.
 
 ### Weakness in Places API writes
 

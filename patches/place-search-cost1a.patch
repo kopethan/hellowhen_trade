@@ -1,0 +1,222 @@
+diff --git a/apps/api/src/modules/places/googlePlaces.routes.ts b/apps/api/src/modules/places/googlePlaces.routes.ts
+index 3f7920c..c593a87 100644
+--- a/apps/api/src/modules/places/googlePlaces.routes.ts
++++ b/apps/api/src/modules/places/googlePlaces.routes.ts
+@@ -1,5 +1,6 @@
+ import { Router } from 'express';
+ import {
++  GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH,
+   googleAddressValidationRequestSchema,
+   googlePlaceDetailsQuerySchema,
+   googlePlaceSearchQuerySchema,
+@@ -171,6 +172,11 @@ googlePlacesRoutes.get('/search', asyncRoute(async (req, res) => {
+   const disabled = requireGooglePlacesReady(res);
+   if (disabled) return disabled;
+ 
++  const rawQuery = safeString((req.query ?? {}).q);
++  if (rawQuery.length > 0 && rawQuery.length < GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH) {
++    return res.json({ predictions: [] });
++  }
++
+   const input = googlePlaceSearchQuerySchema.parse(req.query ?? {});
+   const country = cleanCountryCode(input.country);
+   const body = {
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index e985bfb..de6da54 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -4,7 +4,7 @@ import * as Location from 'expo-location';
+ import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+-import type { DiscoveryLanguage, GooglePlacePrediction, GoogleResolvedPlace, InventoryTranslationDto, ListPlansQuery, MediaAssetDto, PlaceDto, PlacePresenceVerificationResponse, PlaceStaticMapDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
++import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
+ import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaRequirementSummary, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+@@ -2489,7 +2489,7 @@ function GooglePlacePicker({
+   disabled,
+   label = 'Address or place',
+   placeholder = 'Search a real address or place',
+-  helperText = 'Choose a Google suggestion when possible. The selected address is saved as the public meeting address.',
++  helperText = `Type at least ${GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH} characters, then select a provider suggestion. Typed text alone cannot be saved as an offline address.`,
+   languageCode,
+   country,
+   maxLength = 240,
+@@ -2526,9 +2526,16 @@ function GooglePlacePicker({
+   useEffect(() => {
+     const trimmed = query.trim();
+     const selectedLabel = selectedPlace ? resolvedGooglePlaceAddress(selectedPlace) : '';
+-    if (disabled || trimmed.length < 2 || (selectedLabel && selectedLabel === trimmed)) {
++    if (disabled || (selectedLabel && selectedLabel === trimmed)) {
+       setPredictions([]);
+       setSearching(false);
++      setNotice('');
++      return undefined;
++    }
++    if (trimmed.length < GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH) {
++      setPredictions([]);
++      setSearching(false);
++      setNotice(trimmed ? `Type at least ${GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH} characters to search Google places.` : '');
+       return undefined;
+     }
+ 
+@@ -3405,7 +3412,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                             onChangeText={(location) => updateSelectedPlace(detailPlaceIndex, { location })}
+                             onResolvedPlace={(place) => updateSelectedPlace(detailPlaceIndex, { providerAddress: place ? placeAddressFromGoogleResolvedPlace(place) : null })}
+                             placeholder="Search and select a real address"
+-                            helperText="Offline stops require selecting a confirmed Google address. Typed text alone cannot be saved."
++                            helperText="Type at least 3 characters, then select a confirmed Google address. Typed text alone cannot be saved."
+                             languageCode={language}
+                           />
+                           {!hasValidOfflineProviderAddress(detailPlace.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(detailPlace.providerAddress)} /> : null}
+@@ -3658,7 +3665,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+                     onChangeText={(location) => setState((current) => ({ ...current, location }))}
+                     onResolvedPlace={(place) => setState((current) => ({ ...current, providerAddress: place ? placeAddressFromGoogleResolvedPlace(place) : null }))}
+                     placeholder="Search and select a real address"
+-                    helperText="Offline Places require selecting a confirmed Google address. Typed text alone cannot be saved."
++                    helperText="Type at least 3 characters, then select a confirmed Google address. Typed text alone cannot be saved."
+                     languageCode={language}
+                   />
+                   {!hasValidOfflineProviderAddress(state.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(state.providerAddress)} /> : null}
+diff --git a/apps/web/src/features/plans/GooglePlacePicker.tsx b/apps/web/src/features/plans/GooglePlacePicker.tsx
+index ce1065d..c078ad9 100644
+--- a/apps/web/src/features/plans/GooglePlacePicker.tsx
++++ b/apps/web/src/features/plans/GooglePlacePicker.tsx
+@@ -1,6 +1,6 @@
+ 'use client';
+ 
+-import type { GooglePlacePrediction, GoogleResolvedPlace } from '@hellowhen/contracts';
++import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type GooglePlacePrediction, type GoogleResolvedPlace } from '@hellowhen/contracts';
+ import { useEffect, useMemo, useRef, useState } from 'react';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+@@ -42,7 +42,7 @@ export function GooglePlacePicker({
+   disabled,
+   label = 'Address or place',
+   placeholder = 'Search a real address or place',
+-  helperText = 'Search and select a provider suggestion. Typed text alone cannot be saved as an offline address.',
++  helperText = `Type at least ${GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH} characters, then select a provider suggestion. Typed text alone cannot be saved as an offline address.`,
+   languageCode,
+   country,
+   inputMaxLength = 240,
+@@ -69,9 +69,16 @@ export function GooglePlacePicker({
+     if (!sessionTokenRef.current) sessionTokenRef.current = makeSessionToken();
+     const trimmed = query.trim();
+     const selectedLabel = selectedPlace ? placeAddressLabel(selectedPlace) : '';
+-    if (disabled || trimmed.length < 2 || (selectedLabel && selectedLabel === trimmed)) {
++    if (disabled || (selectedLabel && selectedLabel === trimmed)) {
+       setPredictions([]);
+       setSearching(false);
++      setNotice('');
++      return undefined;
++    }
++    if (trimmed.length < GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH) {
++      setPredictions([]);
++      setSearching(false);
++      setNotice(trimmed ? `Type at least ${GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH} characters to search Google places.` : '');
+       return undefined;
+     }
+ 
+@@ -94,7 +101,7 @@ export function GooglePlacePicker({
+         .catch((error) => {
+           if (cancelled) return;
+           setPredictions([]);
+-          setNotice(getFriendlyApiErrorMessage(error, 'Address search is unavailable. Try again later or switch this Place to Online.'));
++          setNotice(getFriendlyApiErrorMessage(error, 'Address search is unavailable. Offline places need a selected provider address; try again later or switch this Place to Online.'));
+         })
+         .finally(() => {
+           if (!cancelled) setSearching(false);
+diff --git a/apps/web/src/features/plans/PlaceCreateClient.tsx b/apps/web/src/features/plans/PlaceCreateClient.tsx
+index 0357c78..cd533e6 100644
+--- a/apps/web/src/features/plans/PlaceCreateClient.tsx
++++ b/apps/web/src/features/plans/PlaceCreateClient.tsx
+@@ -489,7 +489,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+                       disabled={saving || uploading}
+                       label="Search and select address or place"
+                       placeholder="Café, park, address, station..."
+-                      helperText="Select a provider suggestion. Typed text alone cannot be saved as an offline Place."
++                      helperText="Type at least 3 characters, then select a provider suggestion. Typed text alone cannot be saved as an offline Place."
+                       languageCode={state.defaultLanguage}
+                     />
+                     {state.location.trim() && !providerAddressStatusLabel(state.providerAddress) ? <p className="form-error">Select a confirmed address suggestion before continuing.</p> : null}
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index fba8f4b..1a2fd6f 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -1133,7 +1133,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                           disabled={saving || detailPlace.uploading}
+                           label="Search and select address or place"
+                           placeholder="Café, park, address, station..."
+-                          helperText="Select a provider suggestion. Typed text alone cannot be saved as an offline Plan stop."
++                          helperText="Type at least 3 characters, then select a provider suggestion. Typed text alone cannot be saved as an offline Plan stop."
+                         />
+                         {detailPlace.location.trim() && !providerAddressStatusLabel(detailPlace.providerAddress) ? <p className="form-error">Select a confirmed address suggestion before publishing.</p> : null}
+                       </>
+diff --git a/docs/plans/google-provider-smoke-parity.md b/docs/plans/google-provider-smoke-parity.md
+index 40a9c47..576c487 100644
+--- a/docs/plans/google-provider-smoke-parity.md
++++ b/docs/plans/google-provider-smoke-parity.md
+@@ -94,6 +94,8 @@ npm run places:address-provider-smoke
+ - online reusable Place create/archive still works without offline address fields
+ - provider-disabled/provider-not-configured state is friendly when Google checks are not expected
+ - Google Places search/details works when explicitly expected
++- Google Places search is only requested for queries with at least 3 characters
++- Google details are fetched only after the user selects a suggestion
+ - Google details return a confirmed provider payload
+ - provider-backed offline reusable Place create/archive works
+ - provider-backed offline Plan create/cancel works
+@@ -116,6 +118,7 @@ They now use valid remote/online destinations for their generic create/join/edit
+ Create Place, web:
+ 
+ - Offline mode shows the Google place picker.
++- Search waits for at least 3 typed characters and uses the existing debounce before calling Google.
+ - Typing manual address text clears the selected provider result.
+ - Save is disabled until a provider result is selected.
+ - Save sends `googlePlaceId`, `formattedAddress`, coordinates, `locationSource = google_places`, and `addressValidationStatus = confirmed`.
+@@ -135,6 +138,7 @@ Create Plan, web:
+ Create Place, native:
+ 
+ - Offline mode stores the selected Google result in parent form state.
++- Search waits for at least 3 typed characters and uses the existing debounce before calling Google.
+ - Manual input clears the selected provider result.
+ - Continue/save is blocked until the selected provider result is confirmed.
+ - Online mode requires a valid `http://` or `https://` URL.
+diff --git a/docs/plans/place-address-storage-audit.md b/docs/plans/place-address-storage-audit.md
+index d42262d..81c5f7b 100644
+--- a/docs/plans/place-address-storage-audit.md
++++ b/docs/plans/place-address-storage-audit.md
+@@ -122,6 +122,17 @@ The implementation uses server-side config from `apps/api/src/config/env.ts`:
+ 
+ This means web and native do not need direct Google client keys for the first provider-selected address flow. They can call the Hellowhen API, and the API can call Google server-side.
+ 
++
++### Provider search cost behavior
++
++Provider search is intentionally guarded before the API calls Google:
++
++- Web and native start autocomplete only after at least 3 typed characters.
++- Web and native keep a short debounce before provider search.
++- Place details are fetched only after the user selects a suggestion.
++- Typed text alone is never converted into a valid offline address.
++- If Google Places is disabled, unavailable, or later over its hard limit, offline creation must stay unavailable. There is no manual fallback; users can switch the Place to Online and provide a valid link instead.
++
+ ### Weakness in Places API writes
+ 
+ Current `POST /places` and `PATCH /places/:placeId` still trust user-supplied text.
+diff --git a/packages/contracts/src/plans.ts b/packages/contracts/src/plans.ts
+index 9329efe..07c1317 100644
+--- a/packages/contracts/src/plans.ts
++++ b/packages/contracts/src/plans.ts
+@@ -146,8 +146,10 @@ export const googleResolvedPlaceSchema = z
+     validationStatus: googlePlaceValidationStatusSchema,
+   })
+   .passthrough();
++export const GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH = 3;
++
+ export const googlePlaceSearchQuerySchema = z.object({
+-  q: z.string().trim().min(2).max(160),
++  q: z.string().trim().min(GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH).max(160),
+   languageCode: z.string().trim().min(2).max(12).optional(),
+   sessionToken: z.string().trim().min(8).max(120).optional(),
+   country: z.string().trim().min(2).max(2).optional(),

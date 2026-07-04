@@ -7,6 +7,7 @@ import {
   getMissingOfflineProviderAddressFields,
   getMissingOnlineDestinationFields,
   hasConfirmedProviderOfflineAddress,
+  getOnlinePlaceProviderMetadata,
   hasOnlineDestination,
 } from '@hellowhen/shared';
 
@@ -120,4 +121,12 @@ export function onlineDestinationError(input: { onlineUrl?: string | null }): st
 export function providerAddressStatusLabel(state: WebProviderAddressFormState): string {
   if (!hasConfirmedProviderOfflineAddress(state)) return '';
   return state.googlePlaceName.trim() || state.formattedAddress.trim();
+}
+
+export function onlineProviderHint(input: { onlineUrl?: string | null }): string {
+  const rawUrl = input.onlineUrl?.trim();
+  if (!rawUrl) return 'Add a valid http:// or https:// link. We do not fetch previews yet.';
+  const metadata = getOnlinePlaceProviderMetadata(rawUrl);
+  if (!metadata) return 'Use a valid http:// or https:// link to detect the provider.';
+  return `Detected: ${metadata.label}`;
 }

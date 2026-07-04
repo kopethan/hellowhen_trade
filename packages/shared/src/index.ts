@@ -20,6 +20,7 @@ export * from './appNavigation.js';
 export * from './plans.js';
 export * from './planSchedule.js';
 export * from './placeAddress.js';
+export * from './onlinePlaceLinks.js';
 export * from './planIdeas.js';
 export * from './tradeOwnerActions.js';
 

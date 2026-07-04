@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+  GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH,
   googleAddressValidationRequestSchema,
   googlePlaceDetailsQuerySchema,
   googlePlaceSearchQuerySchema,
@@ -10,6 +11,7 @@ import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { createRateLimiter } from '../../middleware/rateLimit.js';
+import { reserveGooglePlacesBudget } from './googlePlacesBudget.js';
 
 export const googlePlacesRoutes = Router();
 
@@ -26,6 +28,12 @@ const googlePlacesRateLimit = createRateLimiter({
 
 function disabledResponse(res: any, error: string, message: string, status = 404) {
   return res.status(status).json({ error, message });
+}
+
+function budgetGuardResponse(res: any, reservation: ReturnType<typeof reserveGooglePlacesBudget>) {
+  if (reservation.ok) return null;
+  const error = reservation.reason === 'hard_limit' ? 'google_places_monthly_hard_limit' : 'google_places_usage_guard_disabled';
+  return disabledResponse(res, error, reservation.message, reservation.reason === 'hard_limit' ? 429 : 503);
 }
 
 function requireGooglePlacesReady(res: any) {
@@ -171,7 +179,16 @@ googlePlacesRoutes.get('/search', asyncRoute(async (req, res) => {
   const disabled = requireGooglePlacesReady(res);
   if (disabled) return disabled;
 
+  const rawQuery = safeString((req.query ?? {}).q);
+  if (rawQuery.length > 0 && rawQuery.length < GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH) {
+    return res.json({ predictions: [] });
+  }
+
   const input = googlePlaceSearchQuerySchema.parse(req.query ?? {});
+
+  const budgetBlocked = budgetGuardResponse(res, reserveGooglePlacesBudget('autocomplete'));
+  if (budgetBlocked) return budgetBlocked;
+
   const country = cleanCountryCode(input.country);
   const body = {
     input: input.q,
@@ -198,6 +215,10 @@ googlePlacesRoutes.get('/details', asyncRoute(async (req, res) => {
   if (disabled) return disabled;
 
   const input = googlePlaceDetailsQuerySchema.parse(req.query ?? {});
+
+  const budgetBlocked = budgetGuardResponse(res, reserveGooglePlacesBudget('details'));
+  if (budgetBlocked) return budgetBlocked;
+
   const placeId = input.placeId.replace(/^places\//, '');
   const url = new URL(`${placesDetailsBaseUrl}/${encodeURIComponent(placeId)}`);
   url.searchParams.set('languageCode', cleanLanguageCode(input.languageCode));

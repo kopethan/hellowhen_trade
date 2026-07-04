@@ -1,0 +1,249 @@
+diff --git a/.env.example b/.env.example
+index a6c9884..5246ca6 100644
+--- a/.env.example
++++ b/.env.example
+@@ -469,6 +469,10 @@ GOOGLE_PLACES_DEFAULT_LANGUAGE=en
+ # Optional comma-separated ISO country codes, e.g. FR or FR,BE,CH.
+ GOOGLE_PLACES_COUNTRY_CODES=FR
+ GOOGLE_PLACES_REQUEST_TIMEOUT_MS=4500
++# Lightweight API-side monthly request caps for Google Places autocomplete/details.
++# Set Cloud Console quotas/budgets too; those remain the true billing hard stop.
++GOOGLE_PLACES_MONTHLY_SOFT_LIMIT=9000
++GOOGLE_PLACES_MONTHLY_HARD_LIMIT=10000
+ 
+ # Optional Place card static map previews. These render Google Static Maps as direct image URLs; do not download/re-host them.
+ # Static map visuals should be generated from provider-selected coordinates, not manual/free-text-only addresses.
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 22f0b8d..7de20cc 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -165,6 +165,8 @@ export const env = {
+   googlePlacesDefaultLanguage: process.env.GOOGLE_PLACES_DEFAULT_LANGUAGE ?? 'en',
+   googlePlacesCountryCodes: parseCsv(process.env.GOOGLE_PLACES_COUNTRY_CODES).map((value) => value.toUpperCase()).filter((value) => /^[A-Z]{2}$/.test(value)),
+   googlePlacesRequestTimeoutMs: boundedInt(process.env.GOOGLE_PLACES_REQUEST_TIMEOUT_MS, 4500, 1000, 15000),
++  googlePlacesMonthlySoftLimit: boundedInt(process.env.GOOGLE_PLACES_MONTHLY_SOFT_LIMIT, 9000, 0, 10_000_000),
++  googlePlacesMonthlyHardLimit: boundedInt(process.env.GOOGLE_PLACES_MONTHLY_HARD_LIMIT, 10000, 0, 10_000_000),
+   placePresenceVerificationEnabled: enabled(process.env.PLACE_PRESENCE_VERIFICATION_ENABLED),
+   placePresenceMaxDistanceMeters: boundedInt(process.env.PLACE_PRESENCE_MAX_DISTANCE_METERS, 100, 10, 1000),
+   placePresenceMaxAccuracyMeters: boundedInt(process.env.PLACE_PRESENCE_MAX_ACCURACY_METERS, 75, 5, 1000),
+diff --git a/apps/api/src/modules/places/googlePlaces.routes.ts b/apps/api/src/modules/places/googlePlaces.routes.ts
+index c593a87..28d5c3d 100644
+--- a/apps/api/src/modules/places/googlePlaces.routes.ts
++++ b/apps/api/src/modules/places/googlePlaces.routes.ts
+@@ -11,6 +11,7 @@ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { createRateLimiter } from '../../middleware/rateLimit.js';
++import { reserveGooglePlacesBudget } from './googlePlacesBudget.js';
+ 
+ export const googlePlacesRoutes = Router();
+ 
+@@ -29,6 +30,12 @@ function disabledResponse(res: any, error: string, message: string, status = 404
+   return res.status(status).json({ error, message });
+ }
+ 
++function budgetGuardResponse(res: any, reservation: ReturnType<typeof reserveGooglePlacesBudget>) {
++  if (reservation.ok) return null;
++  const error = reservation.reason === 'hard_limit' ? 'google_places_monthly_hard_limit' : 'google_places_usage_guard_disabled';
++  return disabledResponse(res, error, reservation.message, reservation.reason === 'hard_limit' ? 429 : 503);
++}
++
+ function requireGooglePlacesReady(res: any) {
+   if (!env.googlePlacesEnabled) {
+     return disabledResponse(res, 'google_places_disabled', 'Google place search is disabled for this launch.');
+@@ -178,6 +185,10 @@ googlePlacesRoutes.get('/search', asyncRoute(async (req, res) => {
+   }
+ 
+   const input = googlePlaceSearchQuerySchema.parse(req.query ?? {});
++
++  const budgetBlocked = budgetGuardResponse(res, reserveGooglePlacesBudget('autocomplete'));
++  if (budgetBlocked) return budgetBlocked;
++
+   const country = cleanCountryCode(input.country);
+   const body = {
+     input: input.q,
+@@ -204,6 +215,10 @@ googlePlacesRoutes.get('/details', asyncRoute(async (req, res) => {
+   if (disabled) return disabled;
+ 
+   const input = googlePlaceDetailsQuerySchema.parse(req.query ?? {});
++
++  const budgetBlocked = budgetGuardResponse(res, reserveGooglePlacesBudget('details'));
++  if (budgetBlocked) return budgetBlocked;
++
+   const placeId = input.placeId.replace(/^places\//, '');
+   const url = new URL(`${placesDetailsBaseUrl}/${encodeURIComponent(placeId)}`);
+   url.searchParams.set('languageCode', cleanLanguageCode(input.languageCode));
+diff --git a/apps/api/src/modules/places/googlePlacesBudget.ts b/apps/api/src/modules/places/googlePlacesBudget.ts
+new file mode 100644
+index 0000000..e9a2d26
+--- /dev/null
++++ b/apps/api/src/modules/places/googlePlacesBudget.ts
+@@ -0,0 +1,88 @@
++import { env } from '../../config/env.js';
++
++type GooglePlacesUsageKind = 'autocomplete' | 'details';
++
++type GooglePlacesBudgetWindow = {
++  key: string;
++  autocomplete: number;
++  details: number;
++};
++
++export type GooglePlacesBudgetSnapshot = {
++  enabled: boolean;
++  monthlySoftLimit: number;
++  monthlyHardLimit: number;
++  monthlyAutocompleteIssued: number;
++  monthlyDetailsIssued: number;
++  monthlyIssued: number;
++  state: 'available' | 'soft_limited' | 'hard_limited' | 'disabled';
++};
++
++export type GooglePlacesBudgetReservation =
++  | { ok: true; softLimited: boolean; snapshot: GooglePlacesBudgetSnapshot }
++  | { ok: false; reason: 'disabled' | 'hard_limit'; snapshot: GooglePlacesBudgetSnapshot; message: string };
++
++let monthlyBudgetWindow: GooglePlacesBudgetWindow = { key: '', autocomplete: 0, details: 0 };
++
++function utcMonthKey(now = new Date()) {
++  return now.toISOString().slice(0, 7);
++}
++
++function refreshBudgetWindow(now = new Date()) {
++  const monthKey = utcMonthKey(now);
++  if (monthlyBudgetWindow.key !== monthKey) monthlyBudgetWindow = { key: monthKey, autocomplete: 0, details: 0 };
++}
++
++function monthlyIssued() {
++  return monthlyBudgetWindow.autocomplete + monthlyBudgetWindow.details;
++}
++
++export function getGooglePlacesBudgetSnapshot(now = new Date()): GooglePlacesBudgetSnapshot {
++  refreshBudgetWindow(now);
++  const issued = monthlyIssued();
++  const monthlySoftLimit = env.googlePlacesMonthlySoftLimit;
++  const monthlyHardLimit = env.googlePlacesMonthlyHardLimit;
++  const disabled = monthlyHardLimit <= 0;
++  const hardLimited = !disabled && issued >= monthlyHardLimit;
++  const softLimited = !disabled && monthlySoftLimit > 0 && issued >= monthlySoftLimit;
++
++  return {
++    enabled: env.googlePlacesEnabled,
++    monthlySoftLimit,
++    monthlyHardLimit,
++    monthlyAutocompleteIssued: monthlyBudgetWindow.autocomplete,
++    monthlyDetailsIssued: monthlyBudgetWindow.details,
++    monthlyIssued: issued,
++    state: !env.googlePlacesEnabled || disabled ? 'disabled' : hardLimited ? 'hard_limited' : softLimited ? 'soft_limited' : 'available',
++  };
++}
++
++export function reserveGooglePlacesBudget(kind: GooglePlacesUsageKind, estimate = 1): GooglePlacesBudgetReservation {
++  refreshBudgetWindow();
++  const requestCount = Math.max(1, Math.trunc(estimate));
++  const monthlyHardLimit = env.googlePlacesMonthlyHardLimit;
++
++  if (monthlyHardLimit <= 0) {
++    return {
++      ok: false,
++      reason: 'disabled',
++      snapshot: getGooglePlacesBudgetSnapshot(),
++      message: 'Google place search is paused by the monthly usage guard.',
++    };
++  }
++
++  if (monthlyIssued() + requestCount > monthlyHardLimit) {
++    return {
++      ok: false,
++      reason: 'hard_limit',
++      snapshot: getGooglePlacesBudgetSnapshot(),
++      message: 'Offline address search is paused for this month. You can create an Online place with a valid link, or try offline addresses again after the quota resets.',
++    };
++  }
++
++  if (kind === 'autocomplete') monthlyBudgetWindow.autocomplete += requestCount;
++  else monthlyBudgetWindow.details += requestCount;
++
++  const snapshot = getGooglePlacesBudgetSnapshot();
++  return { ok: true, softLimited: snapshot.state === 'soft_limited', snapshot };
++}
+diff --git a/docs/plans/google-provider-smoke-parity.md b/docs/plans/google-provider-smoke-parity.md
+index 576c487..c87d143 100644
+--- a/docs/plans/google-provider-smoke-parity.md
++++ b/docs/plans/google-provider-smoke-parity.md
+@@ -211,6 +211,16 @@ Google requires Places API (New) requests such as Place Details to specify the d
+ 
+ Google Maps Platform security guidance recommends API restrictions and application restrictions for API keys. Do not ship unrestricted keys.
+ 
++### Places monthly usage guard
++
++The API has a lightweight in-memory monthly guard for Google Places autocomplete/details calls:
++
++- `GOOGLE_PLACES_MONTHLY_SOFT_LIMIT` marks the provider as soft-limited for operators, but keeps offline address search working.
++- `GOOGLE_PLACES_MONTHLY_HARD_LIMIT` pauses autocomplete/details before another Google request is issued.
++- When the hard limit is reached, offline Place creation stays unavailable because typed/manual addresses are not accepted as fallback. Users can create an Online place with a valid link instead.
++
++This guard is app-side protection only. Keep Google Cloud quotas/budgets enabled because they are the real billing hard stop across processes, restarts, and deployments.
++
+ ## Required env for Google-backed smoke
+ 
+ Shared/API env:
+@@ -224,6 +234,8 @@ GOOGLE_MAPS_SERVER_API_KEY=YOUR_SERVER_RESTRICTED_GOOGLE_MAPS_KEY
+ GOOGLE_PLACES_COUNTRY_CODES=FR
+ GOOGLE_PLACES_DEFAULT_LANGUAGE=en
+ GOOGLE_PLACES_REQUEST_TIMEOUT_MS=4500
++GOOGLE_PLACES_MONTHLY_SOFT_LIMIT=9000
++GOOGLE_PLACES_MONTHLY_HARD_LIMIT=10000
+ ```
+ 
+ Optional:
+@@ -253,6 +265,10 @@ GOOGLE_STATIC_MAPS_ANONYMOUS_ENABLED=false
+ 
+ : Provider flag is on but `GOOGLE_MAPS_SERVER_API_KEY` is missing.
+ 
++`google_places_monthly_hard_limit`
++
++: The app-side monthly hard limit paused Google Places autocomplete/details. Offline creation remains unavailable without provider-selected data; increase the limit only after checking Google Cloud quota/billing settings.
++
+ Google `400` or field-mask errors
+ 
+ : The provider route field mask is missing or asking for an unsupported field. Confirm the backend route still sends `X-Goog-FieldMask` for Places API (New) calls.
+diff --git a/docs/plans/google-static-maps.md b/docs/plans/google-static-maps.md
+index 8523e8c..60b041e 100644
+--- a/docs/plans/google-static-maps.md
++++ b/docs/plans/google-static-maps.md
+@@ -81,6 +81,8 @@ GOOGLE_MAPS_SERVER_API_KEY=YOUR_SERVER_RESTRICTED_GOOGLE_MAPS_KEY
+ GOOGLE_PLACES_DEFAULT_LANGUAGE=en
+ GOOGLE_PLACES_COUNTRY_CODES=FR
+ GOOGLE_PLACES_REQUEST_TIMEOUT_MS=4500
++GOOGLE_PLACES_MONTHLY_SOFT_LIMIT=9000
++GOOGLE_PLACES_MONTHLY_HARD_LIMIT=10000
+ 
+ # Static map card previews
+ GOOGLE_STATIC_MAPS_ENABLED=true
+diff --git a/docs/plans/place-address-storage-audit.md b/docs/plans/place-address-storage-audit.md
+index 81c5f7b..e3a0d82 100644
+--- a/docs/plans/place-address-storage-audit.md
++++ b/docs/plans/place-address-storage-audit.md
+@@ -119,6 +119,8 @@ The implementation uses server-side config from `apps/api/src/config/env.ts`:
+ - `GOOGLE_PLACES_DEFAULT_LANGUAGE`
+ - `GOOGLE_PLACES_COUNTRY_CODES`
+ - `GOOGLE_PLACES_REQUEST_TIMEOUT_MS`
++- `GOOGLE_PLACES_MONTHLY_SOFT_LIMIT`
++- `GOOGLE_PLACES_MONTHLY_HARD_LIMIT`
+ 
+ This means web and native do not need direct Google client keys for the first provider-selected address flow. They can call the Hellowhen API, and the API can call Google server-side.
+ 
+@@ -131,7 +133,11 @@ Provider search is intentionally guarded before the API calls Google:
+ - Web and native keep a short debounce before provider search.
+ - Place details are fetched only after the user selects a suggestion.
+ - Typed text alone is never converted into a valid offline address.
+-- If Google Places is disabled, unavailable, or later over its hard limit, offline creation must stay unavailable. There is no manual fallback; users can switch the Place to Online and provide a valid link instead.
++- The API tracks Google Places autocomplete/details requests with lightweight monthly soft/hard limits.
++- After `GOOGLE_PLACES_MONTHLY_HARD_LIMIT`, autocomplete/details stop before another Google request is issued.
++- If Google Places is disabled, unavailable, or over its monthly hard limit, offline creation must stay unavailable. There is no manual fallback; users can switch the Place to Online and provide a valid link instead.
++
++The monthly guard is in-memory and resets on process restart/deployment. Use Google Cloud quotas and budgets as the real billing hard stop.
+ 
+ ### Weakness in Places API writes
+ 

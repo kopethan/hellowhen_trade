@@ -1,0 +1,123 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index de6da54..5700740 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -5,7 +5,7 @@ import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linkin
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+ import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
+-import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaRequirementSummary, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
++import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaRequirementSummary, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppText } from '../../components/AppText';
+@@ -472,6 +472,14 @@ function getOnlineDestinationRequirementMessage(value: { onlineUrl?: string | nu
+   return 'Add a valid online URL starting with http:// or https://.';
+ }
+ 
++function getOnlineProviderHint(value: { onlineUrl?: string | null }) {
++  const rawUrl = value.onlineUrl?.trim();
++  if (!rawUrl) return 'Add a valid http:// or https:// link. We do not fetch previews yet.';
++  const metadata = getOnlinePlaceProviderMetadata(rawUrl);
++  if (!metadata) return 'Use a valid http:// or https:// link to detect the provider.';
++  return `Detected: ${metadata.label}`;
++}
++
+ function providerAddressPayload(address?: NativeProviderAddressState | null) {
+   if (!address) return {};
+   return {
+@@ -3403,6 +3411,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                         <>
+                           <TextField label="Online label" value={detailPlace.onlineLabel} onChangeText={(onlineLabel) => updateSelectedPlace(detailPlaceIndex, { onlineLabel })} placeholder="Zoom, Discord, website" maxLength={120} />
+                           <TextField label="Online URL" value={detailPlace.onlineUrl} onChangeText={(onlineUrl) => updateSelectedPlace(detailPlaceIndex, { onlineUrl })} placeholder="https://..." keyboardType="url" maxLength={500} />
++                          <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: detailPlace.onlineUrl })} />
+                         </>
+                       ) : (
+                         <>
+@@ -3656,6 +3665,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+                 <>
+                   <TextField label="Online label" value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder="Zoom, Discord, website" maxLength={120} />
+                   <TextField label="Online URL" value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
++                  <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: state.onlineUrl })} />
+                 </>
+               ) : (
+                 <>
+diff --git a/apps/web/src/features/plans/PlaceCreateClient.tsx b/apps/web/src/features/plans/PlaceCreateClient.tsx
+index cd533e6..6fb324e 100644
+--- a/apps/web/src/features/plans/PlaceCreateClient.tsx
++++ b/apps/web/src/features/plans/PlaceCreateClient.tsx
+@@ -12,7 +12,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { mediaSrc, normalizeMediaUpload } from '../inventory/inventoryPresentation';
+ import { GooglePlacePicker } from './GooglePlacePicker';
+-import { emptyProviderAddressFormState, offlineProviderAddressError, onlineDestinationError, providerAddressFormStateFromGooglePlace, providerAddressFormStateFromStoredPlace, providerAddressPayloadFromFormState, providerAddressStatusLabel, type WebProviderAddressFormState } from './placeAddressForm';
++import { emptyProviderAddressFormState, offlineProviderAddressError, onlineDestinationError, onlineProviderHint, providerAddressFormStateFromGooglePlace, providerAddressFormStateFromStoredPlace, providerAddressPayloadFromFormState, providerAddressStatusLabel, type WebProviderAddressFormState } from './placeAddressForm';
+ import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
+ 
+ type PlaceCreateClientProps = {
+@@ -478,6 +478,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
+                     <label>
+                       <span>Online URL</span>
+                       <input type="url" value={state.onlineUrl} onChange={(event) => setState((current) => ({ ...current, onlineUrl: event.target.value }))} maxLength={500} placeholder="https://..." />
++                      <small>{onlineProviderHint({ onlineUrl: state.onlineUrl })}</small>
+                     </label>
+                   </div>
+                 ) : (
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index 1a2fd6f..2c57272 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -11,7 +11,7 @@ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { GooglePlacePicker } from './GooglePlacePicker';
+-import { emptyProviderAddressFormState, offlineProviderAddressError, onlineDestinationError, providerAddressFormStateFromGooglePlace, providerAddressFormStateFromStoredPlace, providerAddressPayloadFromFormState, providerAddressStatusLabel, type WebProviderAddressFormState } from './placeAddressForm';
++import { emptyProviderAddressFormState, offlineProviderAddressError, onlineDestinationError, onlineProviderHint, providerAddressFormStateFromGooglePlace, providerAddressFormStateFromStoredPlace, providerAddressPayloadFromFormState, providerAddressStatusLabel, type WebProviderAddressFormState } from './placeAddressForm';
+ import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
+ import { PlanPreviewDeck } from './PlanPreviewDeck';
+ import { buildPlanSchedule, toDateInputValue } from './planSchedule';
+@@ -1122,6 +1122,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                         <label>
+                           <span>Online URL</span>
+                           <input type="url" value={detailPlace.onlineUrl} onChange={(event) => updatePlace(detailPlaceIndex, { onlineUrl: event.target.value })} maxLength={500} placeholder="https://..." />
++                          <small>{onlineProviderHint({ onlineUrl: detailPlace.onlineUrl })}</small>
+                         </label>
+                       </div>
+                     ) : (
+diff --git a/apps/web/src/features/plans/placeAddressForm.ts b/apps/web/src/features/plans/placeAddressForm.ts
+index 6cc2e9b..2104e1a 100644
+--- a/apps/web/src/features/plans/placeAddressForm.ts
++++ b/apps/web/src/features/plans/placeAddressForm.ts
+@@ -7,6 +7,7 @@ import {
+   getMissingOfflineProviderAddressFields,
+   getMissingOnlineDestinationFields,
+   hasConfirmedProviderOfflineAddress,
++  getOnlinePlaceProviderMetadata,
+   hasOnlineDestination,
+ } from '@hellowhen/shared';
+ 
+@@ -121,3 +122,11 @@ export function providerAddressStatusLabel(state: WebProviderAddressFormState):
+   if (!hasConfirmedProviderOfflineAddress(state)) return '';
+   return state.googlePlaceName.trim() || state.formattedAddress.trim();
+ }
++
++export function onlineProviderHint(input: { onlineUrl?: string | null }): string {
++  const rawUrl = input.onlineUrl?.trim();
++  if (!rawUrl) return 'Add a valid http:// or https:// link. We do not fetch previews yet.';
++  const metadata = getOnlinePlaceProviderMetadata(rawUrl);
++  if (!metadata) return 'Use a valid http:// or https:// link to detect the provider.';
++  return `Detected: ${metadata.label}`;
++}
+diff --git a/docs/plans/online-place-link-awareness.md b/docs/plans/online-place-link-awareness.md
+index 827c018..e6b28a3 100644
+--- a/docs/plans/online-place-link-awareness.md
++++ b/docs/plans/online-place-link-awareness.md
+@@ -28,6 +28,8 @@ Generic link
+ 
+ Backend create/update paths use the same helper before saving Online Place links, so web, native, and API behavior can stay aligned.
+ 
++Web and native Create Place / Create Plan flows show the same hostname-only provider label next to Online URL inputs. The label is informational only; it does not mean the app opened or verified the remote page.
++
+ ## Provider detection rules
+ 
+ Provider detection is hostname-only. It does not fetch the remote page.

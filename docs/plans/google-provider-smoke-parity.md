@@ -94,6 +94,8 @@ npm run places:address-provider-smoke
 - online reusable Place create/archive still works without offline address fields
 - provider-disabled/provider-not-configured state is friendly when Google checks are not expected
 - Google Places search/details works when explicitly expected
+- Google Places search is only requested for queries with at least 3 characters
+- Google details are fetched only after the user selects a suggestion
 - Google details return a confirmed provider payload
 - provider-backed offline reusable Place create/archive works
 - provider-backed offline Plan create/cancel works
@@ -116,6 +118,7 @@ They now use valid remote/online destinations for their generic create/join/edit
 Create Place, web:
 
 - Offline mode shows the Google place picker.
+- Search waits for at least 3 typed characters and uses the existing debounce before calling Google.
 - Typing manual address text clears the selected provider result.
 - Save is disabled until a provider result is selected.
 - Save sends `googlePlaceId`, `formattedAddress`, coordinates, `locationSource = google_places`, and `addressValidationStatus = confirmed`.
@@ -135,6 +138,7 @@ Create Plan, web:
 Create Place, native:
 
 - Offline mode stores the selected Google result in parent form state.
+- Search waits for at least 3 typed characters and uses the existing debounce before calling Google.
 - Manual input clears the selected provider result.
 - Continue/save is blocked until the selected provider result is confirmed.
 - Online mode requires a valid `http://` or `https://` URL.
@@ -207,6 +211,16 @@ Google requires Places API (New) requests such as Place Details to specify the d
 
 Google Maps Platform security guidance recommends API restrictions and application restrictions for API keys. Do not ship unrestricted keys.
 
+### Places monthly usage guard
+
+The API has a lightweight in-memory monthly guard for Google Places autocomplete/details calls:
+
+- `GOOGLE_PLACES_MONTHLY_SOFT_LIMIT` marks the provider as soft-limited for operators, but keeps offline address search working.
+- `GOOGLE_PLACES_MONTHLY_HARD_LIMIT` pauses autocomplete/details before another Google request is issued.
+- When the hard limit is reached, offline Place creation stays unavailable because typed/manual addresses are not accepted as fallback. Users can create an Online place with a valid link instead.
+
+This guard is app-side protection only. Keep Google Cloud quotas/budgets enabled because they are the real billing hard stop across processes, restarts, and deployments.
+
 ## Required env for Google-backed smoke
 
 Shared/API env:
@@ -220,6 +234,8 @@ GOOGLE_MAPS_SERVER_API_KEY=YOUR_SERVER_RESTRICTED_GOOGLE_MAPS_KEY
 GOOGLE_PLACES_COUNTRY_CODES=FR
 GOOGLE_PLACES_DEFAULT_LANGUAGE=en
 GOOGLE_PLACES_REQUEST_TIMEOUT_MS=4500
+GOOGLE_PLACES_MONTHLY_SOFT_LIMIT=9000
+GOOGLE_PLACES_MONTHLY_HARD_LIMIT=10000
 ```
 
 Optional:
@@ -248,6 +264,10 @@ GOOGLE_STATIC_MAPS_ANONYMOUS_ENABLED=false
 `google_places_not_configured`
 
 : Provider flag is on but `GOOGLE_MAPS_SERVER_API_KEY` is missing.
+
+`google_places_monthly_hard_limit`
+
+: The app-side monthly hard limit paused Google Places autocomplete/details. Offline creation remains unavailable without provider-selected data; increase the limit only after checking Google Cloud quota/billing settings.
 
 Google `400` or field-mask errors
 

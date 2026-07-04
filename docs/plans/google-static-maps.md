@@ -16,6 +16,29 @@ Important rule: **do not download, cache, or re-host the generated Google map im
 
 Address-safety rule: Static Maps should be generated only from provider-selected offline address data, preferably coordinates from a selected Google Place. Do not generate map visuals from manual/free-text-only offline addresses.
 
+## Cost-safe Plan detail rendering
+
+Plan detail pages should avoid duplicate Static Maps image loads.
+
+Current web behavior:
+
+```txt
+1 offline place:
+- show the Place card visual only
+- do not render an extra Location preview / route preview card
+
+2+ offline places with map queries:
+- show the Place cards first
+- show one Route preview after the place list
+- skip online places for Google Maps routing
+
+Online places:
+- do not use Google Static Maps
+- keep normal online link actions
+```
+
+Map images should use normal browser lazy loading where possible. This reduces app-side duplicate requests, but it does not replace Google Cloud quotas/budgets because the final billable image request is made by the client browser or app.
+
 ## Patch stack
 
 The current planned stack is:
@@ -27,6 +50,8 @@ PLACE-MAP3 — Free random template family assignment
 PLACE-MAP4 — Place card light/dark visual rendering
 PLACE-MAP5 — Plus manual template chooser later
 PLACE-MAP6 — Static map budget guard
+PLAN-MAP-COST1A — Web Plan detail duplicate map cleanup
+PLAN-MAP-COST2A — Static Maps soft/hard guard foundation
 ```
 
 Main files touched by the stack:
@@ -56,6 +81,8 @@ GOOGLE_MAPS_SERVER_API_KEY=YOUR_SERVER_RESTRICTED_GOOGLE_MAPS_KEY
 GOOGLE_PLACES_DEFAULT_LANGUAGE=en
 GOOGLE_PLACES_COUNTRY_CODES=FR
 GOOGLE_PLACES_REQUEST_TIMEOUT_MS=4500
+GOOGLE_PLACES_MONTHLY_SOFT_LIMIT=9000
+GOOGLE_PLACES_MONTHLY_HARD_LIMIT=10000
 
 # Static map card previews
 GOOGLE_STATIC_MAPS_ENABLED=true
@@ -65,9 +92,12 @@ GOOGLE_STATIC_MAPS_API_KEY=YOUR_STATIC_MAPS_RESTRICTED_KEY
 # Logged-in users can still receive map URLs.
 GOOGLE_STATIC_MAPS_ANONYMOUS_ENABLED=false
 
-# Soft app-side caps. These estimate image URL exposures and stop issuing URLs before the free tier target.
+# Soft app-side caps. These estimate image URL exposures.
+# After a soft limit, list/preview surfaces stop receiving Static Maps; detail pages can still receive them.
 GOOGLE_STATIC_MAPS_DAILY_SOFT_LIMIT=250
 GOOGLE_STATIC_MAPS_MONTHLY_SOFT_LIMIT=9000
+# Hard app-side pause for all Static Maps URL issuance. Keep real billing caps in Google Cloud.
+GOOGLE_STATIC_MAPS_MONTHLY_HARD_LIMIT=10000
 
 # Template defaults
 GOOGLE_STATIC_MAPS_DEFAULT_TEMPLATE=clean_local
@@ -87,6 +117,7 @@ GOOGLE_STATIC_MAPS_ENABLED=true
 GOOGLE_STATIC_MAPS_ANONYMOUS_ENABLED=false
 GOOGLE_STATIC_MAPS_DAILY_SOFT_LIMIT=250
 GOOGLE_STATIC_MAPS_MONTHLY_SOFT_LIMIT=9000
+GOOGLE_STATIC_MAPS_MONTHLY_HARD_LIMIT=10000
 GOOGLE_PLACES_COUNTRY_CODES=FR
 ```
 
@@ -255,6 +286,8 @@ Plus users later:
 
 Do not store the generated Static Maps image itself.
 
+Do not save Google Static Maps output into app media, S3, a CDN, or local upload storage unless a later legal/provider audit confirms that the selected provider allows it. The current safe behavior is to store only metadata and render Google-provided Static Maps URLs directly.
+
 Store only:
 
 ```txt
@@ -308,6 +341,60 @@ Public view:
 
 If a place is sensitive or private, do not issue a static map URL for anonymous/public views.
 
+
+## Static Maps soft/hard guard behavior
+
+The app guard is intentionally lightweight. It counts Static Maps URL issuance inside the API process, not guaranteed Google image fetches from every browser/app. Use Google Cloud budgets and Maps Static API quota limits as the real billing protection.
+
+Current surfaces:
+
+```txt
+detail:
+- Plan detail
+- Place detail
+- create/update responses
+
+list:
+- Plan feeds
+- My Plans / Joined Plans
+- My Places / Place Library
+
+preview:
+- reserved for future high-volume previews
+```
+
+Behavior:
+
+```txt
+Normal:
+- issue Static Maps URLs where enabled
+
+After daily/monthly soft limit:
+- stop issuing Static Maps URLs for list/preview surfaces
+- keep detail pages eligible so users can still inspect a specific Place/Plan
+
+After monthly hard limit:
+- stop issuing Static Maps URLs for every surface
+- API returns `staticMap: null` plus `staticMapStatus.reason = "hard_limit"`
+- web Plan detail shows: “Map preview paused. Open in Google Maps.”
+```
+
+Local/staging/prod recommendation:
+
+```txt
+local:
+- use low limits such as daily=2, monthly_soft=3, monthly_hard=4 when testing fallback states
+
+staging:
+- keep anonymous maps off
+- use low but realistic limits to catch accidental feed overuse
+
+production:
+- keep Google Cloud quota/budget alerts enabled
+- keep app hard limit below the monthly spend level you are comfortable with
+- review Google Cloud API metrics after traffic changes
+```
+
 ## Provider address smoke before map rollout
 
 Before relying on Static Maps for Place cards, run the address provider smoke checks from `docs/plans/google-provider-smoke-parity.md`. Static Maps should only be issued for local Places/Plan stops that have provider-backed coordinates.
@@ -332,8 +419,9 @@ If this smoke fails, fix the provider-selected address flow before debugging Sta
 6. Confirm uploaded images still win over static maps.
 7. Confirm light theme uses `lightUrl` and dark theme uses `darkUrl`.
 8. Confirm anonymous users do not receive map URLs when `GOOGLE_STATIC_MAPS_ANONYMOUS_ENABLED=false`.
-9. Lower `GOOGLE_STATIC_MAPS_DAILY_SOFT_LIMIT` to `1` locally and confirm fallback visuals appear after the limit is reached.
-10. Check Google Cloud API metrics after testing.
+9. Lower `GOOGLE_STATIC_MAPS_DAILY_SOFT_LIMIT` to `1` locally and confirm list/preview surfaces stop receiving Static Maps while detail pages still can.
+10. Lower `GOOGLE_STATIC_MAPS_MONTHLY_HARD_LIMIT` to `1` locally and confirm web Plan detail shows “Map preview paused. Open in Google Maps.”
+11. Check Google Cloud API metrics after testing.
 
 ## Troubleshooting
 
@@ -349,6 +437,8 @@ API key is restricted to Maps Static API
 HTTP referrer restriction includes your current domain
 Place has local mode and either coordinates or a public address
 Budget guard has not stopped issuing URLs
+If `staticMapStatus.reason` is `soft_limit`, open the detail page instead of a feed/list surface
+If `staticMapStatus.reason` is `hard_limit`, open the Google Maps link instead of loading an in-app preview
 ```
 
 ### Place search works but map image fails
@@ -366,6 +456,8 @@ Actions:
 ```txt
 Set GOOGLE_STATIC_MAPS_ANONYMOUS_ENABLED=false
 Lower GOOGLE_STATIC_MAPS_DAILY_SOFT_LIMIT
+Lower GOOGLE_STATIC_MAPS_MONTHLY_SOFT_LIMIT
+Lower GOOGLE_STATIC_MAPS_MONTHLY_HARD_LIMIT
 Lower Google Cloud Maps Static API daily quota
 Reduce where cards request static maps
 Prefer uploaded image / fallback visuals in high-traffic anonymous feeds
@@ -375,6 +467,7 @@ Prefer uploaded image / fallback visuals in high-traffic anonymous feeds
 
 ```txt
 - Persist budget counts in DB/Redis instead of process memory.
+- Move hard-limit counters to shared storage for multi-instance deployments.
 - Add admin dashboard showing static map budget state.
 - Add per-user or per-IP static map throttling.
 - Add approximate public map mode for sensitive places.

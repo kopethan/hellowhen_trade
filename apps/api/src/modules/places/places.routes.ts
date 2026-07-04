@@ -6,7 +6,9 @@ import {
   evaluatePlusGate,
   getMissingOfflineProviderAddressFields,
   getMissingOnlineDestinationFields,
+  getOnlinePlaceProviderMetadata,
   normalizeContentLanguageOrder,
+  normalizeOnlinePlaceUrl,
   PLACE_OFFLINE_MODE,
   PLACE_ONLINE_MODE,
   type ContentLanguageCode,
@@ -27,7 +29,7 @@ import { usersHaveBlockBetween } from '../users/userBlocks.js';
 import { loadMembershipAccessStateForUser } from '../subscriptions/membershipEntitlements.js';
 import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
 import { googlePlacesRoutes } from './googlePlaces.routes.js';
-import { buildPlaceStaticMap } from './placeStaticMap.js';
+import { buildPlaceStaticMapResult } from './placeStaticMap.js';
 import { createRandomPlaceStaticMapTemplateAssignment, isPlaceStaticMapTemplateFamily } from './placeStaticMapTemplates.js';
 
 export const placesRoutes = Router();
@@ -49,6 +51,14 @@ function cleanTags(value: string[] | undefined) {
 function hasLocalStaticMapCandidate(input: { mode?: string | null; latitude?: number | null; longitude?: number | null }) {
   if (input.mode === PLACE_ONLINE_MODE) return false;
   return typeof input.latitude === 'number' && typeof input.longitude === 'number';
+}
+
+function normalizedOnlineUrl(value?: string | null) {
+  return normalizeOnlinePlaceUrl(value) ?? null;
+}
+
+function onlineProviderFor(value?: string | null) {
+  return getOnlinePlaceProviderMetadata(value);
 }
 
 function assertReusablePlaceAddressPolicy(input: ReturnType<typeof createPlaceRequestSchema.parse> | ReturnType<typeof updatePlaceRequestSchema.parse>) {
@@ -270,8 +280,8 @@ function createPlaceData(ownerId: string, input: ReturnType<typeof createPlaceRe
     longitude: isOnline ? null : input.longitude ?? null,
     locationSource: isOnline ? null : input.locationSource ?? null,
     addressValidationStatus: isOnline ? null : input.addressValidationStatus ?? null,
-    onlineLabel: input.onlineLabel ?? null,
-    onlineUrl: input.onlineUrl ?? null,
+    onlineLabel: isOnline ? input.onlineLabel ?? null : null,
+    onlineUrl: isOnline ? normalizedOnlineUrl(input.onlineUrl) : null,
     defaultDurationMinutes: input.defaultDurationMinutes ?? null,
     defaultNote: input.defaultNote ?? null,
     defaultMeetingInstructions: input.defaultMeetingInstructions ?? null,
@@ -317,8 +327,13 @@ function updatePlaceData(input: ReturnType<typeof updatePlaceRequestSchema.parse
     if (input.addressValidationStatus !== undefined) data.addressValidationStatus = input.addressValidationStatus ?? null;
   }
 
-  if (input.onlineLabel !== undefined) data.onlineLabel = input.onlineLabel ?? null;
-  if (input.onlineUrl !== undefined) data.onlineUrl = input.onlineUrl ?? null;
+  if (input.mode === PLACE_OFFLINE_MODE) {
+    data.onlineLabel = null;
+    data.onlineUrl = null;
+  } else {
+    if (input.onlineLabel !== undefined) data.onlineLabel = input.onlineLabel ?? null;
+    if (input.onlineUrl !== undefined) data.onlineUrl = normalizedOnlineUrl(input.onlineUrl);
+  }
   if (input.defaultDurationMinutes !== undefined) data.defaultDurationMinutes = input.defaultDurationMinutes ?? null;
   if (input.defaultNote !== undefined) data.defaultNote = input.defaultNote ?? null;
   if (input.defaultMeetingInstructions !== undefined) data.defaultMeetingInstructions = input.defaultMeetingInstructions ?? null;
@@ -330,7 +345,6 @@ function updatePlaceData(input: ReturnType<typeof updatePlaceRequestSchema.parse
 
   return data;
 }
-
 
 function isArchiveOnlyPlaceUpdate(input: ReturnType<typeof updatePlaceRequestSchema.parse>) {
   const keys = Object.keys(input);
@@ -353,7 +367,7 @@ async function placeUsedInPlansCount(placeId: string) {
   return counts.get(placeId) ?? 0;
 }
 
-function cleanPlaceForViewer(place: any, viewerId?: string | null, actorRole?: string | null) {
+function cleanPlaceForViewer(place: any, viewerId?: string | null, actorRole?: string | null, surface: 'detail' | 'list' | 'preview' = 'detail') {
   const isOwner = Boolean(viewerId && place.ownerId === viewerId);
   const isAdmin = actorRole === 'admin';
   const canSeePrivateDetails = isOwner || isAdmin;
@@ -368,7 +382,9 @@ function cleanPlaceForViewer(place: any, viewerId?: string | null, actorRole?: s
     defaultMeetingInstructions: canSeePrivateDetails ? place.defaultMeetingInstructions ?? null : null,
     usedInPlansCount: canSeePrivateDetails ? place.usedInPlansCount ?? 0 : undefined,
   };
-  return { ...cleaned, staticMap: buildPlaceStaticMap(cleaned, { viewerId }) };
+  const onlineProvider = cleaned.mode === PLACE_ONLINE_MODE ? onlineProviderFor(cleaned.onlineUrl) : null;
+  const staticMapResult = buildPlaceStaticMapResult(cleaned, { viewerId, surface });
+  return { ...cleaned, onlineProvider, staticMap: staticMapResult.staticMap, staticMapStatus: staticMapResult.staticMapStatus };
 }
 
 async function decoratePlaces(
@@ -382,7 +398,7 @@ async function decoratePlaces(
   const displayReadyPlaces = applyInventoryDisplayLanguage(withTranslations, languagePreferences?.language, languagePreferences?.contentLanguageOrder);
   const withPlaceMedia = await withMedia('place' as any, displayReadyPlaces, visibility);
   const usageCounts = await loadPlaceUsageCounts(withPlaceMedia.map((place: any) => place.id));
-  return withPlaceMedia.map((place: any) => cleanPlaceForViewer({ ...place, usedInPlansCount: usageCounts.get(place.id) ?? 0 }, viewerId ?? null, actorRole ?? null));
+  return withPlaceMedia.map((place: any) => cleanPlaceForViewer({ ...place, usedInPlansCount: usageCounts.get(place.id) ?? 0 }, viewerId ?? null, actorRole ?? null, 'list'));
 }
 
 async function decoratePlace(
@@ -393,8 +409,10 @@ async function decoratePlace(
   languagePreferences?: { language: ContentLanguageCode; contentLanguageOrder: ContentLanguageCode[] },
 ) {
   const withTranslations = await withOneInventoryTranslation(prisma, 'place', place);
-  const [decorated] = await decoratePlaces([withTranslations], viewerId, visibility, actorRole, languagePreferences);
-  return decorated;
+  const [displayReadyPlace] = applyInventoryDisplayLanguage([withTranslations], languagePreferences?.language, languagePreferences?.contentLanguageOrder);
+  const [withPlaceMedia] = await withMedia('place' as any, [displayReadyPlace], visibility);
+  const usageCounts = await loadPlaceUsageCounts([withPlaceMedia.id]);
+  return cleanPlaceForViewer({ ...withPlaceMedia, usedInPlansCount: usageCounts.get(withPlaceMedia.id) ?? 0 }, viewerId ?? null, actorRole ?? null, 'detail');
 }
 
 placesRoutes.use('/google', googlePlacesRoutes);

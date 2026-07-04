@@ -45,7 +45,7 @@ function ParticipantRow({ participant, ownerControls, onRemove }: { participant:
 function PlanPlaceImage({ media }: { media?: MediaAssetDto | null }) {
   const imageSrc = planMediaSrc(media);
   if (!imageSrc) return <WebIcon name="calendar" size={28} decorative />;
-  return <img src={imageSrc} alt="" loading="lazy" />;
+  return <img src={imageSrc} alt="" loading="lazy" decoding="async" />;
 }
 
 function planPlaceDisplayMedia(place: PlanPlaceDto) {
@@ -183,6 +183,20 @@ type PlanPlacePresenceNotice = {
 
 function isOfflinePlanPlace(place: PlanPlaceDto) {
   return place.mode !== 'remote';
+}
+
+function planPlaceStaticMapStatus(place: PlanPlaceDto) {
+  return place.staticMapStatus ?? place.sourcePlace?.staticMapStatus ?? null;
+}
+
+function planPlaceMapPausedCopy(place: PlanPlaceDto) {
+  const status = planPlaceStaticMapStatus(place);
+  if (!isOfflinePlanPlace(place) || !status || status.state !== 'unavailable') return null;
+  if (status.reason !== 'hard_limit' && status.reason !== 'soft_limit') return null;
+  return {
+    title: status.reason === 'hard_limit' ? 'Map preview paused' : 'Map preview limited',
+    body: status.message || 'Map preview paused. Open in Google Maps.',
+  };
 }
 
 function planPlaceVerificationCoordinates(place: PlanPlaceDto) {
@@ -339,7 +353,7 @@ function PlanRoutePreview({ places, planStartsAt, routeMapsLink }: { places: Pla
     <aside className="plan-route-preview" aria-label={previewTitle}>
       <div className="plan-route-preview__media">
         {preview.visual.url ? (
-          preview.visual.kind === 'media' && preview.displayMedia ? <PlanPlaceImage media={preview.displayMedia} /> : <img src={preview.visual.url} alt="" loading="lazy" className="is-static-map" />
+          preview.visual.kind === 'media' && preview.displayMedia ? <PlanPlaceImage media={preview.displayMedia} /> : <img src={preview.visual.url} alt="" loading="lazy" decoding="async" className="is-static-map" />
         ) : (
           <WebIcon name="location-on" size={34} decorative />
         )}
@@ -404,6 +418,7 @@ function PlanPlaceCard({
     fallbackDescription: description,
   });
   const location = planPlaceLocation(place);
+  const mapPausedCopy = !placeVisual.url ? planPlaceMapPausedCopy(place) : null;
   const [locationCopyNotice, setLocationCopyNotice] = useState('');
   const hasVerificationCoordinates = Boolean(planPlaceVerificationCoordinates(place));
   const showPresenceVerification = isOfflinePlanPlace(place) && (canVerifyPresence || presenceNotice || hasVerificationCoordinates);
@@ -460,7 +475,21 @@ function PlanPlaceCard({
             {languageSelection.description ? <p className="plan-route-stop__description">{languageSelection.description}</p> : null}
             {placeVisual.url ? (
               <div className="plan-route-stop__media">
-                {placeVisual.kind === 'media' && displayMedia ? <PlanPlaceImage media={displayMedia} /> : <img src={placeVisual.url} alt="" loading="lazy" className="is-static-map" />}
+                {placeVisual.kind === 'media' && displayMedia ? <PlanPlaceImage media={displayMedia} /> : <img src={placeVisual.url} alt="" loading="lazy" decoding="async" className="is-static-map" />}
+              </div>
+            ) : null}
+            {mapPausedCopy ? (
+              <div className="plan-route-stop__map-paused">
+                <div>
+                  <strong>{mapPausedCopy.title}</strong>
+                  <p>{mapPausedCopy.body}</p>
+                </div>
+                {location?.href ? (
+                  <a href={location.href} target="_blank" rel="noreferrer">
+                    Open in Google Maps
+                    <WebIcon name="arrow-right" size={13} decorative />
+                  </a>
+                ) : null}
               </div>
             ) : null}
             {showPresenceVerification ? (
@@ -518,6 +547,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
   const showReportActions = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner);
   const places = plan?.places ?? [];
   const routeMapsLink = buildPlanRouteMapsLink(places);
+  const shouldShowRoutePreview = Boolean(routeMapsLink && routeMapsLink.totalStopCount >= 2);
   const joinedCount = plan?.participantCount ?? 0;
   const placeCount = places.length;
   const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
@@ -781,7 +811,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
                   ))}
                   {places.length === 0 ? <p className="meta">No places added yet.</p> : null}
                 </div>
-                <PlanRoutePreview places={places} planStartsAt={plan.startsAt} routeMapsLink={routeMapsLink} />
+                {shouldShowRoutePreview ? <PlanRoutePreview places={places.filter(isOfflinePlanPlace)} planStartsAt={plan.startsAt} routeMapsLink={routeMapsLink} /> : null}
               </div>
             </section>
 

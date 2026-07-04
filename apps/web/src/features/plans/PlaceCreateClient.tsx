@@ -12,7 +12,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { mediaSrc, normalizeMediaUpload } from '../inventory/inventoryPresentation';
 import { GooglePlacePicker } from './GooglePlacePicker';
-import { emptyProviderAddressFormState, offlineProviderAddressError, onlineDestinationError, providerAddressFormStateFromGooglePlace, providerAddressFormStateFromStoredPlace, providerAddressPayloadFromFormState, providerAddressStatusLabel, type WebProviderAddressFormState } from './placeAddressForm';
+import { emptyProviderAddressFormState, offlineProviderAddressError, onlineDestinationError, onlineProviderHint, providerAddressFormStateFromGooglePlace, providerAddressFormStateFromStoredPlace, providerAddressPayloadFromFormState, providerAddressStatusLabel, type WebProviderAddressFormState } from './placeAddressForm';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
 
 type PlaceCreateClientProps = {
@@ -478,6 +478,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
                     <label>
                       <span>Online URL</span>
                       <input type="url" value={state.onlineUrl} onChange={(event) => setState((current) => ({ ...current, onlineUrl: event.target.value }))} maxLength={500} placeholder="https://..." />
+                      <small>{onlineProviderHint({ onlineUrl: state.onlineUrl })}</small>
                     </label>
                   </div>
                 ) : (
@@ -489,7 +490,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
                       disabled={saving || uploading}
                       label="Search and select address or place"
                       placeholder="Café, park, address, station..."
-                      helperText="Select a provider suggestion. Typed text alone cannot be saved as an offline Place."
+                      helperText="Type at least 3 characters, then select a provider suggestion. Typed text alone cannot be saved as an offline Place."
                       languageCode={state.defaultLanguage}
                     />
                     {state.location.trim() && !providerAddressStatusLabel(state.providerAddress) ? <p className="form-error">Select a confirmed address suggestion before continuing.</p> : null}

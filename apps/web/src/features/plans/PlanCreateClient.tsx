@@ -11,7 +11,7 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { GooglePlacePicker } from './GooglePlacePicker';
-import { emptyProviderAddressFormState, offlineProviderAddressError, onlineDestinationError, providerAddressFormStateFromGooglePlace, providerAddressFormStateFromStoredPlace, providerAddressPayloadFromFormState, providerAddressStatusLabel, type WebProviderAddressFormState } from './placeAddressForm';
+import { emptyProviderAddressFormState, offlineProviderAddressError, onlineDestinationError, onlineProviderHint, providerAddressFormStateFromGooglePlace, providerAddressFormStateFromStoredPlace, providerAddressPayloadFromFormState, providerAddressStatusLabel, type WebProviderAddressFormState } from './placeAddressForm';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
 import { PlanPreviewDeck } from './PlanPreviewDeck';
 import { buildPlanSchedule, toDateInputValue } from './planSchedule';
@@ -1122,6 +1122,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                         <label>
                           <span>Online URL</span>
                           <input type="url" value={detailPlace.onlineUrl} onChange={(event) => updatePlace(detailPlaceIndex, { onlineUrl: event.target.value })} maxLength={500} placeholder="https://..." />
+                          <small>{onlineProviderHint({ onlineUrl: detailPlace.onlineUrl })}</small>
                         </label>
                       </div>
                     ) : (
@@ -1133,7 +1134,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                           disabled={saving || detailPlace.uploading}
                           label="Search and select address or place"
                           placeholder="Café, park, address, station..."
-                          helperText="Select a provider suggestion. Typed text alone cannot be saved as an offline Plan stop."
+                          helperText="Type at least 3 characters, then select a provider suggestion. Typed text alone cannot be saved as an offline Plan stop."
                         />
                         {detailPlace.location.trim() && !providerAddressStatusLabel(detailPlace.providerAddress) ? <p className="form-error">Select a confirmed address suggestion before publishing.</p> : null}
                       </>

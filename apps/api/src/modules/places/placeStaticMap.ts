@@ -12,6 +12,8 @@ const DEFAULT_SCALE = 2;
 const DEFAULT_ZOOM = 14;
 
 type StaticMapTheme = 'light' | 'dark';
+type StaticMapSurface = 'detail' | 'list' | 'preview';
+type StaticMapUnavailableReason = 'disabled' | 'anonymous_blocked' | 'soft_limit' | 'hard_limit' | 'unavailable';
 
 type StaticMappablePlace = {
   mode?: string | null;
@@ -29,6 +31,7 @@ type StaticMappablePlace = {
 type PlaceStaticMapBuildOptions = {
   viewerId?: string | null;
   estimatedRequestCount?: number;
+  surface?: StaticMapSurface;
 };
 
 type StaticMapBudgetWindow = {
@@ -41,8 +44,10 @@ export type PlaceStaticMapBudgetSnapshot = {
   anonymousEnabled: boolean;
   dailySoftLimit: number;
   monthlySoftLimit: number;
+  monthlyHardLimit: number;
   dailyIssued: number;
   monthlyIssued: number;
+  state: 'available' | 'soft_limited' | 'hard_limited' | 'disabled';
 };
 
 export type PlaceStaticMapDto = {
@@ -55,6 +60,18 @@ export type PlaceStaticMapDto = {
   zoom: number;
   lightUrl: string;
   darkUrl: string;
+};
+
+export type PlaceStaticMapStatusDto = {
+  state: 'available' | 'unavailable';
+  reason?: StaticMapUnavailableReason;
+  surface?: StaticMapSurface;
+  message?: string;
+};
+
+export type PlaceStaticMapBuildResult = {
+  staticMap: PlaceStaticMapDto | null;
+  staticMapStatus: PlaceStaticMapStatusDto;
 };
 
 let dailyBudgetWindow: StaticMapBudgetWindow = { key: '', count: 0 };
@@ -79,31 +96,53 @@ function canUseAnonymousStaticMaps(options?: PlaceStaticMapBuildOptions | null) 
   return Boolean(options?.viewerId) || env.googleStaticMapsAnonymousEnabled;
 }
 
-function reserveStaticMapBudget(options?: PlaceStaticMapBuildOptions | null) {
-  if (!canUseAnonymousStaticMaps(options)) return false;
+function budgetUnavailableStatus(reason: StaticMapUnavailableReason, surface: StaticMapSurface): PlaceStaticMapStatusDto {
+  return {
+    state: 'unavailable',
+    reason,
+    surface,
+    message: reason === 'hard_limit'
+      ? 'Map preview paused. Open in Google Maps.'
+      : 'Map preview limited. Open in Google Maps.',
+  };
+}
+
+function reserveStaticMapBudget(options?: PlaceStaticMapBuildOptions | null): PlaceStaticMapStatusDto {
+  const surface = options?.surface ?? 'detail';
+  if (!canUseAnonymousStaticMaps(options)) return budgetUnavailableStatus('anonymous_blocked', surface);
 
   refreshBudgetWindows();
   const estimate = Math.max(1, Math.trunc(options?.estimatedRequestCount ?? 1));
-  const dailyLimit = env.googleStaticMapsDailySoftLimit;
-  const monthlyLimit = env.googleStaticMapsMonthlySoftLimit;
-  if (dailyLimit <= 0 || monthlyLimit <= 0) return false;
-  if (dailyBudgetWindow.count + estimate > dailyLimit) return false;
-  if (monthlyBudgetWindow.count + estimate > monthlyLimit) return false;
+  const dailySoftLimit = env.googleStaticMapsDailySoftLimit;
+  const monthlySoftLimit = env.googleStaticMapsMonthlySoftLimit;
+  const monthlyHardLimit = env.googleStaticMapsMonthlyHardLimit;
+  if (dailySoftLimit <= 0 || monthlySoftLimit <= 0 || monthlyHardLimit <= 0) return budgetUnavailableStatus('disabled', surface);
+  if (monthlyBudgetWindow.count + estimate > monthlyHardLimit) return budgetUnavailableStatus('hard_limit', surface);
+
+  const softLimitReached = dailyBudgetWindow.count + estimate > dailySoftLimit
+    || monthlyBudgetWindow.count + estimate > monthlySoftLimit;
+  if (softLimitReached && surface !== 'detail') return budgetUnavailableStatus('soft_limit', surface);
 
   dailyBudgetWindow.count += estimate;
   monthlyBudgetWindow.count += estimate;
-  return true;
+  return { state: 'available', surface };
 }
 
 export function getPlaceStaticMapBudgetSnapshot(now = new Date()): PlaceStaticMapBudgetSnapshot {
   refreshBudgetWindows(now);
+  const softLimited = dailyBudgetWindow.count >= env.googleStaticMapsDailySoftLimit
+    || monthlyBudgetWindow.count >= env.googleStaticMapsMonthlySoftLimit;
+  const hardLimited = env.googleStaticMapsMonthlyHardLimit <= 0
+    || monthlyBudgetWindow.count >= env.googleStaticMapsMonthlyHardLimit;
   return {
     enabled: env.googleStaticMapsEnabled,
     anonymousEnabled: env.googleStaticMapsAnonymousEnabled,
     dailySoftLimit: env.googleStaticMapsDailySoftLimit,
     monthlySoftLimit: env.googleStaticMapsMonthlySoftLimit,
+    monthlyHardLimit: env.googleStaticMapsMonthlyHardLimit,
     dailyIssued: dailyBudgetWindow.count,
     monthlyIssued: monthlyBudgetWindow.count,
+    state: !env.googleStaticMapsEnabled ? 'disabled' : hardLimited ? 'hard_limited' : softLimited ? 'soft_limited' : 'available',
   };
 }
 
@@ -192,31 +231,48 @@ function buildThemeUrl(place: StaticMappablePlace, source: 'coordinates' | 'addr
   return { url: `${GOOGLE_STATIC_MAPS_BASE_URL}?${params.toString()}`, zoom };
 }
 
-export function buildPlaceStaticMap(place?: StaticMappablePlace | null, options?: PlaceStaticMapBuildOptions | null): PlaceStaticMapDto | null {
-  if (!env.googleStaticMapsEnabled) return null;
-  if (!place || place.mode === 'remote') return null;
+export function buildPlaceStaticMapResult(place?: StaticMappablePlace | null, options?: PlaceStaticMapBuildOptions | null): PlaceStaticMapBuildResult {
+  const surface = options?.surface ?? 'detail';
+  if (!env.googleStaticMapsEnabled) {
+    return { staticMap: null, staticMapStatus: budgetUnavailableStatus('disabled', surface) };
+  }
+  if (!place || place.mode === 'remote') {
+    return { staticMap: null, staticMapStatus: budgetUnavailableStatus('unavailable', surface) };
+  }
 
   const coordinates = resolveCoordinates(place);
   const source: 'coordinates' | 'address' | null = coordinates
     ? 'coordinates'
     : (resolveAddress(place) ? 'address' : null);
-  if (!source) return null;
+  if (!source) return { staticMap: null, staticMapStatus: budgetUnavailableStatus('unavailable', surface) };
+  if (!env.googleStaticMapsApiKey && !env.googleMapsServerApiKey) {
+    return { staticMap: null, staticMapStatus: budgetUnavailableStatus('unavailable', surface) };
+  }
+
+  const budgetStatus = reserveStaticMapBudget(options);
+  if (budgetStatus.state !== 'available') return { staticMap: null, staticMapStatus: budgetStatus };
 
   const templateFamily = resolveTemplateFamily(place);
   const light = buildThemeUrl(place, source, 'light', templateFamily);
   const dark = buildThemeUrl(place, source, 'dark', templateFamily);
-  if (!light || !dark) return null;
-  if (!reserveStaticMapBudget(options)) return null;
+  if (!light || !dark) return { staticMap: null, staticMapStatus: budgetUnavailableStatus('unavailable', surface) };
 
   return {
-    provider: 'google_static_maps',
-    templateFamily,
-    source,
-    width: DEFAULT_WIDTH,
-    height: DEFAULT_HEIGHT,
-    scale: DEFAULT_SCALE,
-    zoom: light.zoom,
-    lightUrl: light.url,
-    darkUrl: dark.url,
+    staticMap: {
+      provider: 'google_static_maps',
+      templateFamily,
+      source,
+      width: DEFAULT_WIDTH,
+      height: DEFAULT_HEIGHT,
+      scale: DEFAULT_SCALE,
+      zoom: light.zoom,
+      lightUrl: light.url,
+      darkUrl: dark.url,
+    },
+    staticMapStatus: { state: 'available', surface },
   };
+}
+
+export function buildPlaceStaticMap(place?: StaticMappablePlace | null, options?: PlaceStaticMapBuildOptions | null): PlaceStaticMapDto | null {
+  return buildPlaceStaticMapResult(place, options).staticMap;
 }

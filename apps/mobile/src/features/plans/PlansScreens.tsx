@@ -4,8 +4,8 @@ import * as Location from 'expo-location';
 import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { DiscoveryLanguage, GooglePlacePrediction, GoogleResolvedPlace, InventoryTranslationDto, ListPlansQuery, MediaAssetDto, PlaceDto, PlacePresenceVerificationResponse, PlaceStaticMapDto, PlanDto, PlanParticipantDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
-import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaRequirementSummary, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
+import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaRequirementSummary, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { AppText } from '../../components/AppText';
@@ -470,6 +470,14 @@ function getOfflineAddressRequirementMessage(address?: NativeProviderAddressStat
 function getOnlineDestinationRequirementMessage(value: { onlineUrl?: string | null }) {
   if (hasValidOnlineDestinationFields(value)) return '';
   return 'Add a valid online URL starting with http:// or https://.';
+}
+
+function getOnlineProviderHint(value: { onlineUrl?: string | null }) {
+  const rawUrl = value.onlineUrl?.trim();
+  if (!rawUrl) return 'Add a valid http:// or https:// link. We do not fetch previews yet.';
+  const metadata = getOnlinePlaceProviderMetadata(rawUrl);
+  if (!metadata) return 'Use a valid http:// or https:// link to detect the provider.';
+  return `Detected: ${metadata.label}`;
 }
 
 function providerAddressPayload(address?: NativeProviderAddressState | null) {
@@ -2489,7 +2497,7 @@ function GooglePlacePicker({
   disabled,
   label = 'Address or place',
   placeholder = 'Search a real address or place',
-  helperText = 'Choose a Google suggestion when possible. The selected address is saved as the public meeting address.',
+  helperText = `Type at least ${GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH} characters, then select a provider suggestion. Typed text alone cannot be saved as an offline address.`,
   languageCode,
   country,
   maxLength = 240,
@@ -2526,9 +2534,16 @@ function GooglePlacePicker({
   useEffect(() => {
     const trimmed = query.trim();
     const selectedLabel = selectedPlace ? resolvedGooglePlaceAddress(selectedPlace) : '';
-    if (disabled || trimmed.length < 2 || (selectedLabel && selectedLabel === trimmed)) {
+    if (disabled || (selectedLabel && selectedLabel === trimmed)) {
       setPredictions([]);
       setSearching(false);
+      setNotice('');
+      return undefined;
+    }
+    if (trimmed.length < GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH) {
+      setPredictions([]);
+      setSearching(false);
+      setNotice(trimmed ? `Type at least ${GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH} characters to search Google places.` : '');
       return undefined;
     }
 
@@ -3396,6 +3411,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                         <>
                           <TextField label="Online label" value={detailPlace.onlineLabel} onChangeText={(onlineLabel) => updateSelectedPlace(detailPlaceIndex, { onlineLabel })} placeholder="Zoom, Discord, website" maxLength={120} />
                           <TextField label="Online URL" value={detailPlace.onlineUrl} onChangeText={(onlineUrl) => updateSelectedPlace(detailPlaceIndex, { onlineUrl })} placeholder="https://..." keyboardType="url" maxLength={500} />
+                          <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: detailPlace.onlineUrl })} />
                         </>
                       ) : (
                         <>
@@ -3405,7 +3421,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                             onChangeText={(location) => updateSelectedPlace(detailPlaceIndex, { location })}
                             onResolvedPlace={(place) => updateSelectedPlace(detailPlaceIndex, { providerAddress: place ? placeAddressFromGoogleResolvedPlace(place) : null })}
                             placeholder="Search and select a real address"
-                            helperText="Offline stops require selecting a confirmed Google address. Typed text alone cannot be saved."
+                            helperText="Type at least 3 characters, then select a confirmed Google address. Typed text alone cannot be saved."
                             languageCode={language}
                           />
                           {!hasValidOfflineProviderAddress(detailPlace.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(detailPlace.providerAddress)} /> : null}
@@ -3649,6 +3665,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                 <>
                   <TextField label="Online label" value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder="Zoom, Discord, website" maxLength={120} />
                   <TextField label="Online URL" value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
+                  <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: state.onlineUrl })} />
                 </>
               ) : (
                 <>
@@ -3658,7 +3675,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                     onChangeText={(location) => setState((current) => ({ ...current, location }))}
                     onResolvedPlace={(place) => setState((current) => ({ ...current, providerAddress: place ? placeAddressFromGoogleResolvedPlace(place) : null }))}
                     placeholder="Search and select a real address"
-                    helperText="Offline Places require selecting a confirmed Google address. Typed text alone cannot be saved."
+                    helperText="Type at least 3 characters, then select a confirmed Google address. Typed text alone cannot be saved."
                     languageCode={language}
                   />
                   {!hasValidOfflineProviderAddress(state.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(state.providerAddress)} /> : null}

@@ -1,3 +1,5 @@
+import { isValidOnlinePlaceUrl } from './onlinePlaceLinks.js';
+
 export const PLACE_ADDRESS_PROVIDER_SOURCE = 'google_places' as const;
 export const PLACE_ADDRESS_CONFIRMED_STATUS = 'confirmed' as const;
 export const PLACE_OFFLINE_MODE = 'local' as const;
@@ -88,7 +90,7 @@ export function hasConfirmedProviderOfflineAddress(input: PlaceProviderAddressIn
 }
 
 export function getMissingOnlineDestinationFields(input: PlaceOnlineDestinationInput): PlaceOnlineDestinationRequiredField[] {
-  return hasText(input.onlineUrl) ? [] : ['onlineUrl'];
+  return isValidOnlinePlaceUrl(input.onlineUrl) ? [] : ['onlineUrl'];
 }
 
 export function hasOnlineDestination(input: PlaceOnlineDestinationInput): boolean {
@@ -118,7 +120,7 @@ export function buildMissingOfflineProviderAddressMessage(missingFields: readonl
 
 export function buildMissingOnlineDestinationMessage(missingFields: readonly PlaceOnlineDestinationRequiredField[]): string {
   if (!missingFields.length) return 'Online place destination is present.';
-  return `Online places require an online destination. Missing: ${missingFields.join(', ')}.`;
+  return `Online places require a valid http:// or https:// link. Missing or invalid: ${missingFields.join(', ')}.`;
 }
 
 export function shouldBlockOfflinePlaceSave(input: PlaceAddressValidationInput): boolean {

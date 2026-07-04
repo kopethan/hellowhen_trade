@@ -10166,6 +10166,49 @@ html[data-theme="dark"] .onboarding-guide-primary {
   opacity: 0.55;
   transform: none;
 }
+
+.plan-route-stop__map-paused {
+  display: grid;
+  gap: 9px;
+  width: min(100%, 320px);
+  margin: 10px 0 9px;
+  padding: 12px;
+  border: 1px dashed var(--app-border);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--app-surface-soft) 86%, transparent);
+}
+.plan-route-stop__map-paused strong {
+  color: var(--app-text);
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 950;
+}
+.plan-route-stop__map-paused p {
+  margin: 3px 0 0;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 800;
+}
+.plan-route-stop__map-paused a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  min-height: 32px;
+  border: 1px solid var(--place-border);
+  border-radius: 999px;
+  background: var(--place-bg);
+  color: var(--place-text);
+  padding: 0 11px;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 950;
+  box-shadow: var(--app-control-shadow);
+}
+.plan-route-stop__map-paused a:hover {
+  transform: translateY(-1px);
+}
 .plan-route-stop__media {
   overflow: hidden;
   width: min(100%, 320px);

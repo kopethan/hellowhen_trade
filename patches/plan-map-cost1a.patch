@@ -1,0 +1,91 @@
+diff --git a/apps/web/src/features/plans/PlanDetailClient.tsx b/apps/web/src/features/plans/PlanDetailClient.tsx
+index ce39ea6..35ac75e 100644
+--- a/apps/web/src/features/plans/PlanDetailClient.tsx
++++ b/apps/web/src/features/plans/PlanDetailClient.tsx
+@@ -45,7 +45,7 @@ function ParticipantRow({ participant, ownerControls, onRemove }: { participant:
+ function PlanPlaceImage({ media }: { media?: MediaAssetDto | null }) {
+   const imageSrc = planMediaSrc(media);
+   if (!imageSrc) return <WebIcon name="calendar" size={28} decorative />;
+-  return <img src={imageSrc} alt="" loading="lazy" />;
++  return <img src={imageSrc} alt="" loading="lazy" decoding="async" />;
+ }
+ 
+ function planPlaceDisplayMedia(place: PlanPlaceDto) {
+@@ -339,7 +339,7 @@ function PlanRoutePreview({ places, planStartsAt, routeMapsLink }: { places: Pla
+     <aside className="plan-route-preview" aria-label={previewTitle}>
+       <div className="plan-route-preview__media">
+         {preview.visual.url ? (
+-          preview.visual.kind === 'media' && preview.displayMedia ? <PlanPlaceImage media={preview.displayMedia} /> : <img src={preview.visual.url} alt="" loading="lazy" className="is-static-map" />
++          preview.visual.kind === 'media' && preview.displayMedia ? <PlanPlaceImage media={preview.displayMedia} /> : <img src={preview.visual.url} alt="" loading="lazy" decoding="async" className="is-static-map" />
+         ) : (
+           <WebIcon name="location-on" size={34} decorative />
+         )}
+@@ -460,7 +460,7 @@ function PlanPlaceCard({
+             {languageSelection.description ? <p className="plan-route-stop__description">{languageSelection.description}</p> : null}
+             {placeVisual.url ? (
+               <div className="plan-route-stop__media">
+-                {placeVisual.kind === 'media' && displayMedia ? <PlanPlaceImage media={displayMedia} /> : <img src={placeVisual.url} alt="" loading="lazy" className="is-static-map" />}
++                {placeVisual.kind === 'media' && displayMedia ? <PlanPlaceImage media={displayMedia} /> : <img src={placeVisual.url} alt="" loading="lazy" decoding="async" className="is-static-map" />}
+               </div>
+             ) : null}
+             {showPresenceVerification ? (
+@@ -518,6 +518,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+   const showReportActions = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner);
+   const places = plan?.places ?? [];
+   const routeMapsLink = buildPlanRouteMapsLink(places);
++  const shouldShowRoutePreview = Boolean(routeMapsLink && routeMapsLink.totalStopCount >= 2);
+   const joinedCount = plan?.participantCount ?? 0;
+   const placeCount = places.length;
+   const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
+@@ -781,7 +782,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+                   ))}
+                   {places.length === 0 ? <p className="meta">No places added yet.</p> : null}
+                 </div>
+-                <PlanRoutePreview places={places} planStartsAt={plan.startsAt} routeMapsLink={routeMapsLink} />
++                {shouldShowRoutePreview ? <PlanRoutePreview places={places.filter(isOfflinePlanPlace)} planStartsAt={plan.startsAt} routeMapsLink={routeMapsLink} /> : null}
+               </div>
+             </section>
+ 
+diff --git a/docs/plans/google-static-maps.md b/docs/plans/google-static-maps.md
+index 29dafd5..1b6b4d3 100644
+--- a/docs/plans/google-static-maps.md
++++ b/docs/plans/google-static-maps.md
+@@ -16,6 +16,29 @@ Important rule: **do not download, cache, or re-host the generated Google map im
+ 
+ Address-safety rule: Static Maps should be generated only from provider-selected offline address data, preferably coordinates from a selected Google Place. Do not generate map visuals from manual/free-text-only offline addresses.
+ 
++## Cost-safe Plan detail rendering
++
++Plan detail pages should avoid duplicate Static Maps image loads.
++
++Current web behavior:
++
++```txt
++1 offline place:
++- show the Place card visual only
++- do not render an extra Location preview / route preview card
++
++2+ offline places with map queries:
++- show the Place cards first
++- show one Route preview after the place list
++- skip online places for Google Maps routing
++
++Online places:
++- do not use Google Static Maps
++- keep normal online link actions
++```
++
++Map images should use normal browser lazy loading where possible. This reduces app-side duplicate requests, but it does not replace Google Cloud quotas/budgets because the final billable image request is made by the client browser or app.
++
+ ## Patch stack
+ 
+ The current planned stack is:
+@@ -255,6 +278,8 @@ Plus users later:
+ 
+ Do not store the generated Static Maps image itself.
+ 
++Do not save Google Static Maps output into app media, S3, a CDN, or local upload storage unless a later legal/provider audit confirms that the selected provider allows it. The current safe behavior is to store only metadata and render Google-provided Static Maps URLs directly.
++
+ Store only:
+ 
+ ```txt

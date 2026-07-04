@@ -1,6 +1,6 @@
 'use client';
 
-import type { GooglePlacePrediction, GoogleResolvedPlace } from '@hellowhen/contracts';
+import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type GooglePlacePrediction, type GoogleResolvedPlace } from '@hellowhen/contracts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
@@ -42,7 +42,7 @@ export function GooglePlacePicker({
   disabled,
   label = 'Address or place',
   placeholder = 'Search a real address or place',
-  helperText = 'Search and select a provider suggestion. Typed text alone cannot be saved as an offline address.',
+  helperText = `Type at least ${GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH} characters, then select a provider suggestion. Typed text alone cannot be saved as an offline address.`,
   languageCode,
   country,
   inputMaxLength = 240,
@@ -69,9 +69,16 @@ export function GooglePlacePicker({
     if (!sessionTokenRef.current) sessionTokenRef.current = makeSessionToken();
     const trimmed = query.trim();
     const selectedLabel = selectedPlace ? placeAddressLabel(selectedPlace) : '';
-    if (disabled || trimmed.length < 2 || (selectedLabel && selectedLabel === trimmed)) {
+    if (disabled || (selectedLabel && selectedLabel === trimmed)) {
       setPredictions([]);
       setSearching(false);
+      setNotice('');
+      return undefined;
+    }
+    if (trimmed.length < GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH) {
+      setPredictions([]);
+      setSearching(false);
+      setNotice(trimmed ? `Type at least ${GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH} characters to search Google places.` : '');
       return undefined;
     }
 
@@ -94,7 +101,7 @@ export function GooglePlacePicker({
         .catch((error) => {
           if (cancelled) return;
           setPredictions([]);
-          setNotice(getFriendlyApiErrorMessage(error, 'Address search is unavailable. Try again later or switch this Place to Online.'));
+          setNotice(getFriendlyApiErrorMessage(error, 'Address search is unavailable. Offline places need a selected provider address; try again later or switch this Place to Online.'));
         })
         .finally(() => {
           if (!cancelled) setSearching(false);

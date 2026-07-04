@@ -75,6 +75,22 @@ export const placeStaticMapTemplateFamilySchema = z.enum(
   PLACE_STATIC_MAP_TEMPLATE_FAMILIES,
 );
 export const placeStaticMapSourceSchema = z.enum(["coordinates", "address"]);
+export const placeStaticMapSurfaceSchema = z.enum(["detail", "list", "preview"]);
+export const placeStaticMapUnavailableReasonSchema = z.enum([
+  "disabled",
+  "anonymous_blocked",
+  "soft_limit",
+  "hard_limit",
+  "unavailable",
+]);
+export const placeStaticMapStatusSchema = z
+  .object({
+    state: z.enum(["available", "unavailable"]),
+    reason: placeStaticMapUnavailableReasonSchema.optional(),
+    surface: placeStaticMapSurfaceSchema.optional(),
+    message: z.string().optional(),
+  })
+  .passthrough();
 export const placeStaticMapSchema = z
   .object({
     provider: z.literal("google_static_maps"),
@@ -130,8 +146,10 @@ export const googleResolvedPlaceSchema = z
     validationStatus: googlePlaceValidationStatusSchema,
   })
   .passthrough();
+export const GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH = 3;
+
 export const googlePlaceSearchQuerySchema = z.object({
-  q: z.string().trim().min(2).max(160),
+  q: z.string().trim().min(GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH).max(160),
   languageCode: z.string().trim().min(2).max(12).optional(),
   sessionToken: z.string().trim().min(8).max(120).optional(),
   country: z.string().trim().min(2).max(2).optional(),
@@ -628,6 +646,7 @@ export const placeSchema = z
     owner: publicUserSummarySchema.nullable().optional(),
     media: z.array(mediaAssetSchema).optional(),
     staticMap: placeStaticMapSchema.nullable().optional(),
+    staticMapStatus: placeStaticMapStatusSchema.optional(),
     displayLanguage: inventoryDisplayLanguageSchema.optional(),
   })
   .passthrough();
@@ -667,6 +686,7 @@ export const planPlaceSchema = z
     sourcePlace: placeSchema.nullable().optional(),
     media: z.array(mediaAssetSchema).optional(),
     staticMap: placeStaticMapSchema.nullable().optional(),
+    staticMapStatus: placeStaticMapStatusSchema.optional(),
     displayLanguage: inventoryDisplayLanguageSchema.optional(),
   })
   .passthrough();
@@ -876,6 +896,8 @@ export type PlaceStaticMapTemplateFamily = z.infer<
 >;
 export type PlaceStaticMapSource = z.infer<typeof placeStaticMapSourceSchema>;
 export type PlaceStaticMapDto = z.infer<typeof placeStaticMapSchema>;
+export type PlaceStaticMapSurface = z.infer<typeof placeStaticMapSurfaceSchema>;
+export type PlaceStaticMapStatusDto = z.infer<typeof placeStaticMapStatusSchema>;
 export type GooglePlaceValidationStatus = z.infer<
   typeof googlePlaceValidationStatusSchema
 >;

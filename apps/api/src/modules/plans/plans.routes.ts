@@ -22,6 +22,8 @@ import {
   buildMissingOnlineDestinationMessage,
   getMissingOfflineProviderAddressFields,
   getMissingOnlineDestinationFields,
+  getOnlinePlaceProviderMetadata,
+  normalizeOnlinePlaceUrl,
   PLACE_OFFLINE_MODE,
   PLACE_ONLINE_MODE,
 } from '@hellowhen/shared';
@@ -35,7 +37,7 @@ import { stripAnonymousPublicProfileMedia } from '../users/publicUser.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
 import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
 import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
-import { buildPlaceStaticMap } from '../places/placeStaticMap.js';
+import { buildPlaceStaticMapResult } from '../places/placeStaticMap.js';
 import { createRandomPlaceStaticMapTemplateAssignment } from '../places/placeStaticMapTemplates.js';
 
 export const plansRoutes = Router();
@@ -58,6 +60,14 @@ function cleanTags(value: string[] | undefined) {
   return Array.from(new Set(value ?? [])).map((item) => item.trim()).filter(Boolean).slice(0, 8);
 }
 
+function normalizedOnlineUrl(value?: string | null) {
+  return normalizeOnlinePlaceUrl(value) ?? null;
+}
+
+function onlineProviderFor(value?: string | null) {
+  return getOnlinePlaceProviderMetadata(value);
+}
+
 function planInclude() {
   return {
     owner: { select: userSummarySelect },
@@ -77,7 +87,6 @@ async function blockedUserIdsForViewer(viewerId?: string) {
   });
   return Array.from(new Set(blocks.map((block) => block.blockerId === viewerId ? block.blockedId : block.blockerId)));
 }
-
 
 function normalizePlanSearchQuery(value?: string | null) {
   return (value ?? '').trim().replace(/\s+/g, ' ').slice(0, 120);
@@ -168,7 +177,7 @@ async function decoratePlan(plan: any, viewerId?: string | null) {
   const publicMediaVisibility = viewerId ? 'public' : 'public_anonymous';
   const [withPlanMedia] = await withMedia('plan' as any, [plan], publicMediaVisibility);
   const places = await withPlanPlaceMediaFallback(plan.places ?? [], publicMediaVisibility);
-  return serializePlan({ ...withPlanMedia, places }, viewerId ?? null);
+  return serializePlan({ ...withPlanMedia, places }, viewerId ?? null, 'detail');
 }
 
 async function decoratePlans(plans: any[], viewerId?: string | null) {
@@ -177,14 +186,14 @@ async function decoratePlans(plans: any[], viewerId?: string | null) {
   const allPlaces = plans.flatMap((plan) => plan.places ?? []);
   const placeMedia = await withPlanPlaceMediaFallback(allPlaces, publicMediaVisibility);
   const placeById = new Map(placeMedia.map((place: any) => [place.id, place]));
-  return planMediaMap.map((plan: any) => serializePlan({ ...plan, places: (plan.places ?? []).map((place: any) => placeById.get(place.id) ?? place) }, viewerId ?? null));
+  return planMediaMap.map((plan: any) => serializePlan({ ...plan, places: (plan.places ?? []).map((place: any) => placeById.get(place.id) ?? place) }, viewerId ?? null, 'list'));
 }
 
 function createPlanRequestError(code: string, publicMessage: string, statusCode = 400) {
   return Object.assign(new Error(publicMessage), { code, publicMessage, statusCode });
 }
 
-function cleanReusablePlaceForViewer(place: any, canSeePrivateDetails: boolean, viewerId?: string | null) {
+function cleanReusablePlaceForViewer(place: any, canSeePrivateDetails: boolean, viewerId?: string | null, surface: 'detail' | 'list' | 'preview' = 'detail') {
   if (!place) return null;
   const cleaned = {
     ...place,
@@ -194,7 +203,9 @@ function cleanReusablePlaceForViewer(place: any, canSeePrivateDetails: boolean, 
     addressPrivateText: canSeePrivateDetails ? place.addressPrivateText ?? null : null,
     defaultMeetingInstructions: canSeePrivateDetails ? place.defaultMeetingInstructions ?? null : null,
   };
-  return { ...cleaned, staticMap: buildPlaceStaticMap(cleaned, { viewerId }) };
+  const onlineProvider = cleaned.mode === PLACE_ONLINE_MODE ? onlineProviderFor(cleaned.onlineUrl) : null;
+  const staticMapResult = buildPlaceStaticMapResult(cleaned, { viewerId, surface });
+  return { ...cleaned, onlineProvider, staticMap: staticMapResult.staticMap, staticMapStatus: staticMapResult.staticMapStatus };
 }
 
 function planPlaceSourceFor(place: any) {
@@ -202,7 +213,7 @@ function planPlaceSourceFor(place: any) {
   return place.sourcePlace?.source === 'hellowhen_library' ? 'hellowhen_library' : 'my_place';
 }
 
-function serializePlan(plan: any, viewerId: string | null) {
+function serializePlan(plan: any, viewerId: string | null, surface: 'detail' | 'list' | 'preview' = 'detail') {
   const isOwner = Boolean(viewerId && plan.ownerId === viewerId);
   const myParticipant = viewerId ? (plan.participants ?? []).find((participant: any) => participant.userId === viewerId) : null;
   const canSeePrivatePlaceDetails = isOwner || myParticipant?.status === 'accepted';
@@ -216,7 +227,7 @@ function serializePlan(plan: any, viewerId: string | null) {
   return {
     ...plan,
     places: (plan.places ?? []).map((place: any) => {
-      const sourcePlace = canSeeSourcePlace ? cleanReusablePlaceForViewer(place.sourcePlace, canSeePrivatePlaceDetails, viewerId) : null;
+      const sourcePlace = canSeeSourcePlace ? cleanReusablePlaceForViewer(place.sourcePlace, canSeePrivatePlaceDetails, viewerId, surface) : null;
       const cleanedPlace = {
         ...place,
         source: planPlaceSourceFor(place),
@@ -224,7 +235,9 @@ function serializePlan(plan: any, viewerId: string | null) {
         mode: place.mode ?? 'local',
         addressPrivateText: canSeePrivatePlaceDetails ? place.addressPrivateText ?? null : null,
       };
-      return { ...cleanedPlace, staticMap: buildPlaceStaticMap(cleanedPlace, { viewerId }) };
+      const onlineProvider = cleanedPlace.mode === PLACE_ONLINE_MODE ? onlineProviderFor(cleanedPlace.onlineUrl) : null;
+      const staticMapResult = buildPlaceStaticMapResult(cleanedPlace, { viewerId, surface });
+      return { ...cleanedPlace, onlineProvider, staticMap: staticMapResult.staticMap, staticMapStatus: staticMapResult.staticMapStatus };
     }),
     participants: visibleParticipants,
     participantCount: acceptedParticipants.length,
@@ -262,7 +275,6 @@ async function loadReadablePlanForDiscussion(planId: string, actorId?: string | 
 function canWritePlanPublicDiscussion(plan: { status: string }) {
   return writablePlanDiscussionStatuses.includes(plan.status as any);
 }
-
 
 const verificationPlanStatuses = ['open', 'full', 'started'] as const;
 const EARTH_RADIUS_METERS = 6_371_000;
@@ -498,7 +510,6 @@ function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequ
   };
 }
 
-
 const activeOwnedPlanTimeStatuses = ['draft', 'open', 'full', 'started'] as const;
 
 function effectivePlanRange(input: { startsAt: string; endsAt?: string | null; places?: Array<{ startsAt?: string | null }> }) {
@@ -557,7 +568,6 @@ function planUpdateData(input: ReturnType<typeof updatePlanRequestSchema.parse>)
     } : {}),
   };
 }
-
 
 function hasPlanPlaceStaticMapCandidate(input: { mode?: string | null; latitude?: number | null; longitude?: number | null }, reusablePlace?: any | null) {
   const mode = input.mode ?? reusablePlace?.mode ?? PLACE_OFFLINE_MODE;
@@ -628,8 +638,8 @@ function planPlaceSnapshotData(planId: string, input: ReturnType<typeof createPl
     longitude: isOnline ? null : input.longitude ?? reusablePlace?.longitude ?? null,
     locationSource: isOnline ? null : input.locationSource ?? reusablePlace?.locationSource ?? null,
     addressValidationStatus: isOnline ? null : input.addressValidationStatus ?? reusablePlace?.addressValidationStatus ?? null,
-    onlineLabel: input.onlineLabel ?? reusablePlace?.onlineLabel ?? null,
-    onlineUrl: input.onlineUrl ?? reusablePlace?.onlineUrl ?? null,
+    onlineLabel: isOnline ? input.onlineLabel ?? reusablePlace?.onlineLabel ?? null : null,
+    onlineUrl: isOnline ? normalizedOnlineUrl(input.onlineUrl ?? reusablePlace?.onlineUrl) : null,
     ...planPlaceStaticMapTemplateSnapshot(input, reusablePlace),
     startsAt: input.startsAt ? new Date(input.startsAt) : null,
     endsAt: input.endsAt ? new Date(input.endsAt) : null,
@@ -671,8 +681,8 @@ async function placeUpdateData(ownerId: string, input: ReturnType<typeof updateP
     ...(switchesToOnline ? { longitude: null } : input.longitude !== undefined || reusablePlace ? { longitude: input.longitude ?? snapshot?.longitude ?? null } : {}),
     ...(switchesToOnline ? { locationSource: null } : input.locationSource !== undefined || reusablePlace ? { locationSource: input.locationSource ?? snapshot?.locationSource ?? null } : {}),
     ...(switchesToOnline ? { addressValidationStatus: null } : input.addressValidationStatus !== undefined || reusablePlace ? { addressValidationStatus: input.addressValidationStatus ?? snapshot?.addressValidationStatus ?? null } : {}),
-    ...(input.onlineLabel !== undefined || reusablePlace ? { onlineLabel: input.onlineLabel ?? snapshot?.onlineLabel ?? null } : {}),
-    ...(input.onlineUrl !== undefined || reusablePlace ? { onlineUrl: input.onlineUrl ?? snapshot?.onlineUrl ?? null } : {}),
+    ...(switchesToOnline ? { onlineLabel: input.onlineLabel ?? snapshot?.onlineLabel ?? existing.onlineLabel ?? null } : input.mode === PLACE_OFFLINE_MODE ? { onlineLabel: null } : input.onlineLabel !== undefined || reusablePlace ? { onlineLabel: input.onlineLabel ?? snapshot?.onlineLabel ?? null } : {}),
+    ...(switchesToOnline ? { onlineUrl: normalizedOnlineUrl(input.onlineUrl ?? snapshot?.onlineUrl ?? existing.onlineUrl) } : input.mode === PLACE_OFFLINE_MODE ? { onlineUrl: null } : input.onlineUrl !== undefined || reusablePlace ? { onlineUrl: normalizedOnlineUrl(input.onlineUrl ?? snapshot?.onlineUrl) } : {}),
     ...(Object.keys(templateSnapshot).length ? templateSnapshot : {}),
     ...(input.startsAt !== undefined ? { startsAt: input.startsAt ? new Date(input.startsAt) : null } : {}),
     ...(input.endsAt !== undefined ? { endsAt: input.endsAt ? new Date(input.endsAt) : null } : {}),
@@ -875,7 +885,6 @@ plansRoutes.patch('/:planId/places/:placeId', requireAuth, requireActiveAccount,
   res.json({ plan: await decoratePlan(updated, req.user!.id) });
 }));
 
-
 plansRoutes.post('/:planId/places/:placeId/verify-presence', requireAuth, requireActiveAccount, placePresenceVerificationRateLimit, asyncRoute(async (req, res) => {
   if (!env.placePresenceVerificationEnabled) {
     return res.status(503).json({ error: 'place_presence_verification_disabled', message: 'Place presence verification is not enabled yet.' });
@@ -959,7 +968,6 @@ plansRoutes.post('/:planId/places/:placeId/verify-presence', requireAuth, requir
   return res.status(accepted ? 201 : 409).json(verificationResponse(verification, accepted));
 }));
 
-
 function serializePrivatePlacePresenceVerification(verification: any) {
   return {
     id: verification.id,
@@ -990,7 +998,6 @@ function serializePrivatePlacePresenceVerification(verification: any) {
     } : null,
   };
 }
-
 
 plansRoutes.get('/place-verifications/mine', requireAuth, asyncRoute(async (req, res) => {
   const input = listMyPlacePresenceVerificationsQuerySchema.parse(req.query);
