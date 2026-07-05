@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
-import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle, type LayoutChangeEvent } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
@@ -304,6 +304,9 @@ type PlanEndState = {
 };
 
 type PlanCreateStage = 'build' | 'preview';
+
+const PLAN_OFFLINE_ADDRESS_TOP_ERROR = 'Some offline places need an address. Choose a verified address for each offline place, or delete the places you do not want to use.';
+const PLAN_OFFLINE_ADDRESS_INLINE_ERROR = 'Choose a verified address for this place, or delete it.';
 
 type PlaceTranslationFormValue = { languageCode: DiscoveryLanguage; title: string; description: string };
 
@@ -711,6 +714,18 @@ function getPlanPlacesAddressRuleError(places: SelectedPlanPlaceState[]) {
     if (error) return error;
   }
   return '';
+}
+
+function incompleteOfflinePlanPlaceIndexes(places: SelectedPlanPlaceState[]) {
+  return places.reduce<number[]>((indexes, place, index) => {
+    const hasContent = Boolean(place.title.trim() || place.sourcePlaceId || place.sourcePlaceTitle?.trim());
+    if (hasContent && place.mode === 'local' && !hasValidOfflineProviderAddress(place.providerAddress)) indexes.push(index);
+    return indexes;
+  }, []);
+}
+
+function mergeUniquePlaceIds(currentIds: string[], nextIds: string[]) {
+  return Array.from(new Set([...currentIds, ...nextIds]));
 }
 
 function isReusablePlaceSelectable(place: PlaceDto) {
@@ -2498,6 +2513,7 @@ function GooglePlacePicker({
   label = 'Address or place',
   placeholder = 'Search a real address or place',
   helperText = `Type at least ${GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH} characters, then select a provider suggestion. Typed text alone cannot be saved as an offline address.`,
+  autoFocus = false,
   languageCode,
   country,
   maxLength = 240,
@@ -2509,6 +2525,7 @@ function GooglePlacePicker({
   label?: string;
   placeholder?: string;
   helperText?: string;
+  autoFocus?: boolean;
   languageCode?: string;
   country?: string;
   maxLength?: number;
@@ -2623,6 +2640,7 @@ function GooglePlacePicker({
           placeholder={placeholder}
           placeholderTextColor={theme.color.muted}
           editable={!disabled}
+          autoFocus={autoFocus && !disabled}
           maxLength={maxLength}
           inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
           returnKeyType="search"
@@ -2939,9 +2957,16 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   const handledInitialPlanIdeaRef = useRef<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [addressGuidanceNotice, setAddressGuidanceNotice] = useState<string | null>(null);
+  const [expandedAddressPlaceIds, setExpandedAddressPlaceIds] = useState<string[]>([]);
+  const [addressFocusPlaceId, setAddressFocusPlaceId] = useState<string | null>(null);
+  const createPlanScrollRef = useRef<ScrollView | null>(null);
+  const addressGuidanceOffsetsRef = useRef<Record<string, number>>({});
 
   const filteredMyPlaces = useMemo(() => filterPlaces(myPlaces, placeQuery), [myPlaces, placeQuery]);
   const filteredLibraryPlaces = useMemo(() => filterPlaces(libraryPlaces, placeQuery), [libraryPlaces, placeQuery]);
+  const incompleteOfflineIndexes = useMemo(() => incompleteOfflinePlanPlaceIndexes(places), [places]);
+  const incompleteOfflineIds = useMemo(() => incompleteOfflineIndexes.map((index) => places[index]?.id).filter((id): id is string => Boolean(id)), [incompleteOfflineIndexes, places]);
   const placesForGeneratedDisplay = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceTitle?.trim()), [places]);
   const schedulablePlaces = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceId), [places]);
   const schedule = useMemo(() => buildMobilePlanSchedule(schedulablePlaces), [schedulablePlaces]);
@@ -2957,7 +2982,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   const generatedDescription = generatedPlanDisplay.description;
   const previewTitle = advancedDetails.title.trim() || generatedTitle;
   const previewDescription = advancedDetails.description.trim() || generatedDescription;
-  const validationNotice = error;
+  const validationNotice = error || addressGuidanceNotice;
   const previewPlan = useMemo(() => ({
     id: 'create-plan-preview',
     ownerId: 'preview',
@@ -3029,6 +3054,24 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     setMessage('Starter Plan idea loaded. Offline stops are prompts only: select real address suggestions, and add online links before publishing.');
     navigation.setParams({ initialPlanIdeaKey: undefined });
   }, [navigation, places.length, route.params?.initialPlanIdeaKey]);
+
+  useEffect(() => {
+    setExpandedAddressPlaceIds((current) => {
+      const next = current.filter((id) => incompleteOfflineIds.includes(id));
+      return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
+    });
+    if (addressGuidanceNotice && !incompleteOfflineIds.length) setAddressGuidanceNotice(null);
+    if (addressFocusPlaceId && !incompleteOfflineIds.includes(addressFocusPlaceId)) setAddressFocusPlaceId(null);
+  }, [addressFocusPlaceId, addressGuidanceNotice, incompleteOfflineIds]);
+
+  useEffect(() => {
+    if (!addressFocusPlaceId || stage !== 'build') return undefined;
+    const timeoutId = setTimeout(() => {
+      const y = addressGuidanceOffsetsRef.current[addressFocusPlaceId];
+      if (typeof y === 'number') createPlanScrollRef.current?.scrollTo({ y: Math.max(0, y - 24), animated: true });
+    }, 80);
+    return () => clearTimeout(timeoutId);
+  }, [addressFocusPlaceId, expandedAddressPlaceIds.length, stage]);
 
 
   useEffect(() => {
@@ -3156,9 +3199,51 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     setError(null);
   }
 
+  function recordAddressGuidanceLayout(placeId: string, event: LayoutChangeEvent) {
+    addressGuidanceOffsetsRef.current[placeId] = event.nativeEvent.layout.y;
+  }
+
+  function removeSelectedPlace(index: number) {
+    const placeId = places[index]?.id;
+    setPlaces((current) => current.filter((_, placeIndex) => placeIndex !== index));
+    if (placeId) {
+      setExpandedAddressPlaceIds((current) => current.filter((id) => id !== placeId));
+      if (addressFocusPlaceId === placeId) setAddressFocusPlaceId(null);
+      delete addressGuidanceOffsetsRef.current[placeId];
+    }
+    setDetailPlaceIndex(null);
+    setError(null);
+  }
+
+  function updateSelectedPlaceResolvedAddress(index: number, place: GoogleResolvedPlace | null) {
+    const placeId = places[index]?.id;
+    updateSelectedPlace(index, { providerAddress: place ? placeAddressFromGoogleResolvedPlace(place) : null });
+    if (placeId && place?.validationStatus === PLACE_ADDRESS_CONFIRMED_STATUS) {
+      setExpandedAddressPlaceIds((current) => current.filter((id) => id !== placeId));
+      if (addressFocusPlaceId === placeId) setAddressFocusPlaceId(null);
+    }
+  }
+
+  function focusMissingOfflineAddresses() {
+    const missingIds = incompleteOfflinePlanPlaceIndexes(places)
+      .map((index) => places[index]?.id)
+      .filter((id): id is string => Boolean(id));
+    if (!missingIds.length) return false;
+    setStage('build');
+    setDetailPlaceIndex(null);
+    setPlaceSourceSheetOpen(false);
+    setPlacePickerOpen(false);
+    setExpandedAddressPlaceIds((current) => mergeUniquePlaceIds(current, missingIds));
+    setAddressFocusPlaceId(missingIds[0] ?? null);
+    setAddressGuidanceNotice(PLAN_OFFLINE_ADDRESS_TOP_ERROR);
+    setError(null);
+    return true;
+  }
+
   function showPreviewStage() {
     setError(null);
     if (places.length === 0) { setError('Add at least one place before preview.'); return; }
+    if (focusMissingOfflineAddresses()) return;
     if (schedule.error) { setError(schedule.error); return; }
     const addressRuleError = getPlanPlacesAddressRuleError(schedulablePlaces);
     if (addressRuleError) { setError(addressRuleError); return; }
@@ -3174,7 +3259,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     const customCategory = advancedDetails.category.trim();
     const customTags = parsePlanTagsInput(advancedDetails.tags);
     const nextExplicitEnd = parseOptionalMobilePlanEnd(planEnd, nextSchedule.startsAt);
-    if (nextSchedule.error || !nextSchedule.startsAt || usablePlaces.length === 0) { setError(nextSchedule.error || 'Add at least one place.'); return; }
+    if (usablePlaces.length === 0) { setError('Add at least one place.'); return; }
+    if (focusMissingOfflineAddresses()) return;
+    if (nextSchedule.error || !nextSchedule.startsAt) { setError(nextSchedule.error || 'Add at least one place.'); return; }
     const addressRuleError = getPlanPlacesAddressRuleError(usablePlaces);
     if (addressRuleError) { setError(addressRuleError); return; }
     if (nextExplicitEnd.error) { setError(nextExplicitEnd.error); return; }
@@ -3230,7 +3317,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   return (
     <AppFixedHeaderScreen header={<AppHeader title="Create plan" onBack={() => navigation.goBack()} />}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
-        <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={createPlanScrollRef} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           <View style={styles.planCreateCompactHeader}>
             <SemanticBadge label="Plan" tone="plan" />
             <AppText style={styles.heroTitle}>Create plan</AppText>
@@ -3240,6 +3327,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
             <PillButton label="Build" active={stage === 'build'} onPress={() => setStage('build')} />
             <PillButton label="Preview" active={stage === 'preview'} onPress={showPreviewStage} />
           </View>
+
+          {stage === 'build' && addressGuidanceNotice ? <InfoNotice tone="warning" title="Address needed" body={addressGuidanceNotice} /> : null}
 
           {stage === 'build' ? (
             <>
@@ -3261,6 +3350,31 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                       index={index}
                       onPress={() => setDetailPlaceIndex(index)}
                     />
+                    {expandedAddressPlaceIds.includes(place.id) && place.mode === 'local' && !hasValidOfflineProviderAddress(place.providerAddress) ? (
+                      <View
+                        onLayout={(event) => recordAddressGuidanceLayout(place.id, event)}
+                        style={[styles.planAddressGuidance, { borderTopColor: theme.color.border, backgroundColor: theme.semantic.place.softBg }]}
+                      >
+                        <View style={styles.timelineCopy}>
+                          <SemanticBadge label="Address needed" tone="warning" size="sm" />
+                          <InfoNotice tone="warning" body={PLAN_OFFLINE_ADDRESS_INLINE_ERROR} />
+                        </View>
+                        <GooglePlacePicker
+                          label={`Verified address for Place ${index + 1}`}
+                          value={place.location}
+                          onChangeText={(location) => updateSelectedPlace(index, { location })}
+                          onResolvedPlace={(resolvedPlace) => updateSelectedPlaceResolvedAddress(index, resolvedPlace)}
+                          placeholder="Search and select a real address"
+                          helperText="Type at least 3 characters, then select a provider suggestion. Starter offline stops cannot use placeholder addresses."
+                          languageCode={language}
+                          autoFocus={addressFocusPlaceId === place.id}
+                        />
+                        <View style={styles.actionGrid}>
+                          <SecondaryButton label="Delete this place" icon="close" onPress={() => removeSelectedPlace(index)} />
+                          <SecondaryButton label="Open details" onPress={() => setDetailPlaceIndex(index)} />
+                        </View>
+                      </View>
+                    ) : null}
                   </View>
                 ))}
 
@@ -3297,7 +3411,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                 ) : null}
               </View>
 
-              {validationNotice ? <InfoNotice tone="warning" title="Check plan" body={validationNotice} /> : null}
+              {error ? <InfoNotice tone="warning" title="Check plan" body={error} /> : null}
               {places.length > 0 ? (
                 <Pressable accessibilityRole="button" onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed]}>
                   <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Preview Plan</AppText>
@@ -3419,7 +3533,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                             label="Address or meeting point"
                             value={detailPlace.location}
                             onChangeText={(location) => updateSelectedPlace(detailPlaceIndex, { location })}
-                            onResolvedPlace={(place) => updateSelectedPlace(detailPlaceIndex, { providerAddress: place ? placeAddressFromGoogleResolvedPlace(place) : null })}
+                            onResolvedPlace={(place) => updateSelectedPlaceResolvedAddress(detailPlaceIndex, place)}
                             placeholder="Search and select a real address"
                             helperText="Type at least 3 characters, then select a confirmed Google address. Typed text alone cannot be saved."
                             languageCode={language}
@@ -3433,7 +3547,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                     <SecondaryButton label="Move up" disabled={detailPlaceIndex === 0} onPress={() => { moveSelectedPlace(detailPlaceIndex, -1); setDetailPlaceIndex(detailPlaceIndex - 1); }} />
                     <SecondaryButton label="Move down" disabled={detailPlaceIndex === places.length - 1} onPress={() => { moveSelectedPlace(detailPlaceIndex, 1); setDetailPlaceIndex(detailPlaceIndex + 1); }} />
                     <SecondaryButton label="Change place" onPress={() => openPlaceSourceSheet(detailPlaceIndex)} />
-                    <SecondaryButton label="Remove" icon="close" onPress={() => { setPlaces((current) => current.filter((_, placeIndex) => placeIndex !== detailPlaceIndex)); setDetailPlaceIndex(null); }} />
+                    <SecondaryButton label="Remove" icon="close" onPress={() => removeSelectedPlace(detailPlaceIndex)} />
                   </View>
                   <Pressable accessibilityRole="button" onPress={() => setDetailPlaceIndex(null)} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
                     <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Done</AppText>
@@ -3859,6 +3973,7 @@ const styles = StyleSheet.create({
   planTimelineOptionalEnd: { opacity: 0.9, paddingTop: 12 },
   planEndSummaryCard: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 10 },
   placeTimelineRow: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  planAddressGuidance: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 13, gap: 12 },
   placeDetailSheetContent: { gap: 10, paddingBottom: 12 },
   placePickerPanel: { gap: 10 },
   sourceSheetOverlay: { flex: 1, justifyContent: 'flex-end' },

@@ -96,6 +96,9 @@ type PlanCreateStage = 'build' | 'preview';
 type PlacePickerTarget = number | 'new';
 type PlacePickerView = 'source' | 'list';
 
+const PLAN_OFFLINE_ADDRESS_TOP_ERROR = 'Some offline places need an address. Choose a verified address for each offline place, or delete the places you do not want to use.';
+const PLAN_OFFLINE_ADDRESS_INLINE_ERROR = 'Choose a verified address for this place, or delete it.';
+
 const EMPTY_ADVANCED_PLAN_DETAILS: AdvancedPlanDetailsState = {
   title: '',
   description: '',
@@ -324,6 +327,17 @@ function planPreviewPlaceTitle(place: PlaceFormState, index: number) {
   return place.title.trim() || place.sourcePlaceTitle?.trim() || `Place ${index + 1}`;
 }
 
+function incompleteOfflinePlaceIndexes(places: PlaceFormState[]) {
+  return places.reduce<number[]>((indexes, place, index) => {
+    if (place.mode === 'local' && offlineProviderAddressError(place.providerAddress)) indexes.push(index);
+    return indexes;
+  }, []);
+}
+
+function mergeUniquePlaceIds(currentIds: string[], nextIds: string[]) {
+  return Array.from(new Set([...currentIds, ...nextIds]));
+}
+
 function applyReusablePlacePatch(place: PlaceDto): Partial<PlaceFormState> {
   return {
     sourcePlaceId: place.id,
@@ -535,6 +549,10 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   const [createdPlanId, setCreatedPlanId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [addressGuidanceNotice, setAddressGuidanceNotice] = useState('');
+  const [expandedAddressPlaceIds, setExpandedAddressPlaceIds] = useState<string[]>([]);
+  const [addressFocusPlaceId, setAddressFocusPlaceId] = useState<string | null>(null);
+  const firstMissingOfflinePlaceRef = useRef<HTMLDivElement | null>(null);
 
   const placesForGeneratedDisplay = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceTitle?.trim()), [places]);
   const schedulablePlaces = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceId), [places]);
@@ -554,7 +572,9 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   const previewDescription = advancedDetails.description.trim() || generatedDescription;
   const filteredMyPlaces = useMemo(() => filterPlaces(myPlaces, placeQuery), [myPlaces, placeQuery]);
   const filteredLibraryPlaces = useMemo(() => filterPlaces(libraryPlaces, placeQuery), [libraryPlaces, placeQuery]);
-  const validationNotice = error;
+  const incompleteOfflineIndexes = useMemo(() => incompleteOfflinePlaceIndexes(places), [places]);
+  const incompleteOfflineIds = useMemo(() => incompleteOfflineIndexes.map((index) => places[index]?.id).filter((id): id is string => Boolean(id)), [incompleteOfflineIndexes, places]);
+  const validationNotice = error || addressGuidanceNotice;
 
   async function loadReusablePlaces() {
     setLoadingPlaces(true);
@@ -589,6 +609,24 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   useEffect(() => {
     storePlanDraft(places, advancedDetails, planEnd);
   }, [places, advancedDetails, planEnd]);
+
+
+  useEffect(() => {
+    setExpandedAddressPlaceIds((current) => {
+      const next = current.filter((id) => incompleteOfflineIds.includes(id));
+      return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
+    });
+    if (addressGuidanceNotice && !incompleteOfflineIds.length) setAddressGuidanceNotice('');
+    if (addressFocusPlaceId && !incompleteOfflineIds.includes(addressFocusPlaceId)) setAddressFocusPlaceId(null);
+  }, [addressFocusPlaceId, addressGuidanceNotice, incompleteOfflineIds]);
+
+  useEffect(() => {
+    if (!addressFocusPlaceId || stage !== 'build') return undefined;
+    const timeoutId = window.setTimeout(() => {
+      firstMissingOfflinePlaceRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [addressFocusPlaceId, expandedAddressPlaceIds.length, stage]);
 
   useEffect(() => {
     const returnedPlaceId = createdPlaceId || updatedPlaceId;
@@ -739,11 +777,27 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     setError('');
   }
 
+  function focusMissingOfflineAddresses() {
+    const nextMissingIds = incompleteOfflinePlaceIndexes(places)
+      .map((index) => places[index]?.id)
+      .filter((id): id is string => Boolean(id));
+    if (!nextMissingIds.length) return false;
+    setStage('build');
+    setDetailPlaceIndex(null);
+    setPickerTarget(null);
+    setExpandedAddressPlaceIds((current) => mergeUniquePlaceIds(current, nextMissingIds));
+    setAddressFocusPlaceId(nextMissingIds[0] ?? null);
+    setError('');
+    setAddressGuidanceNotice(PLAN_OFFLINE_ADDRESS_TOP_ERROR);
+    return true;
+  }
+
   function showPreviewStage() {
     setError('');
     if (places.length === 0) { setError('Add at least one place before preview.'); return; }
     if (schedule.error) { setError(schedule.error); return; }
     if (explicitPlanEnd.error) { setError(explicitPlanEnd.error); return; }
+    if (focusMissingOfflineAddresses()) return;
     const destinationError = validatePlaceDestinations(schedulablePlaces);
     if (destinationError) { setError(destinationError); return; }
     setStage('preview');
@@ -775,10 +829,15 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   }
 
   function updatePlaceResolvedAddress(index: number, place: GoogleResolvedPlace | null) {
+    const currentPlaceId = places[index]?.id;
     updatePlace(index, {
       location: place?.formattedAddress || places[index]?.location || '',
       providerAddress: providerAddressFormStateFromGooglePlace(place),
     });
+    if (currentPlaceId && place?.validationStatus === 'confirmed') {
+      setExpandedAddressPlaceIds((current) => current.filter((id) => id !== currentPlaceId));
+      if (addressFocusPlaceId === currentPlaceId) setAddressFocusPlaceId(null);
+    }
   }
 
   function updateCustomPlaceMode(index: number, mode: PlanPlaceMode) {
@@ -790,6 +849,10 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
       onlineLabel: mode === 'local' ? '' : currentPlace?.onlineLabel ?? '',
       onlineUrl: mode === 'local' ? '' : currentPlace?.onlineUrl ?? '',
     });
+    if (mode === 'remote' && currentPlace?.id) {
+      setExpandedAddressPlaceIds((current) => current.filter((id) => id !== currentPlace.id));
+      if (addressFocusPlaceId === currentPlace.id) setAddressFocusPlaceId(null);
+    }
   }
 
   function validatePlaceDestinations(usablePlaces: PlaceFormState[]) {
@@ -843,6 +906,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
       setError('Use up to 8 tags, each 32 characters or less.');
       return;
     }
+    if (focusMissingOfflineAddresses()) return;
     const destinationError = validatePlaceDestinations(usablePlaces);
     if (destinationError) {
       setError(destinationError);
@@ -951,6 +1015,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
 
             {stage === 'build' ? (
               <>
+                {addressGuidanceNotice ? <p className="form-error">{addressGuidanceNotice}</p> : null}
                 <section className="plan-build-timeline" aria-label="Build Plan timeline">
                   {places.map((place, index) => (
                     <div className="plan-place-time-group" key={place.id}>
@@ -977,6 +1042,33 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                           <button type="button" className="button secondary" onClick={() => setDetailPlaceIndex(index)}>Details</button>
                         </div>
                       </div>
+
+                      {expandedAddressPlaceIds.includes(place.id) && place.mode === 'local' ? (
+                        <div
+                          className="plan-starter-address-guidance"
+                          ref={addressFocusPlaceId === place.id ? firstMissingOfflinePlaceRef : undefined}
+                          tabIndex={-1}
+                        >
+                          <div className="plan-starter-address-guidance__copy">
+                            <span className="semantic-badge place">Address needed</span>
+                            <p className="form-error">{PLAN_OFFLINE_ADDRESS_INLINE_ERROR}</p>
+                          </div>
+                          <GooglePlacePicker
+                            value={place.location}
+                            onValueChange={(location) => updatePlaceManualLocation(index, location)}
+                            onResolvedPlace={(resolvedPlace) => updatePlaceResolvedAddress(index, resolvedPlace)}
+                            disabled={saving || place.uploading}
+                            label={`Verified address for Place ${index + 1}`}
+                            placeholder="Café, park, address, station..."
+                            helperText="Type at least 3 characters, then select a provider suggestion. Starter offline stops cannot use placeholder addresses."
+                            autoFocus={addressFocusPlaceId === place.id}
+                          />
+                          <div className="plan-starter-address-guidance__actions">
+                            <button type="button" className="button secondary" onClick={() => removePlace(index)}>Delete this place</button>
+                            <button type="button" className="button secondary" onClick={() => setDetailPlaceIndex(index)}>Open details</button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   ))}
 
@@ -1018,7 +1110,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                   ) : null}
                 </section>
 
-                {validationNotice ? <p className="form-error">{validationNotice}</p> : null}
+                {error ? <p className="form-error">{error}</p> : null}
                 {places.length > 0 ? <button className="button primary full" type="button" onClick={showPreviewStage} disabled={places.some((place) => place.uploading)}>Preview Plan</button> : null}
               </>
             ) : (

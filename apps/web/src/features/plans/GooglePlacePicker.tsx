@@ -16,6 +16,7 @@ type GooglePlacePickerProps = {
   languageCode?: string;
   country?: string;
   inputMaxLength?: number;
+  autoFocus?: boolean;
 };
 
 function makeSessionToken() {
@@ -46,6 +47,7 @@ export function GooglePlacePicker({
   languageCode,
   country,
   inputMaxLength = 240,
+  autoFocus = false,
 }: GooglePlacePickerProps) {
   const [query, setQuery] = useState(value);
   const [predictions, setPredictions] = useState<GooglePlacePrediction[]>([]);
@@ -54,6 +56,7 @@ export function GooglePlacePicker({
   const [resolvingPlaceId, setResolvingPlaceId] = useState('');
   const [notice, setNotice] = useState('');
   const sessionTokenRef = useRef('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setQuery(value);
@@ -63,6 +66,12 @@ export function GooglePlacePicker({
       return selectedLabel && selectedLabel === value ? current : null;
     });
   }, [value]);
+
+  useEffect(() => {
+    if (!autoFocus || disabled || typeof window === 'undefined') return undefined;
+    const timeoutId = window.setTimeout(() => inputRef.current?.focus(), 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [autoFocus, disabled]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -155,6 +164,7 @@ export function GooglePlacePicker({
       <label className="google-place-picker__field">
         <span>{label}</span>
         <input
+          ref={inputRef}
           value={query}
           onChange={(event) => handleInputChange(event.target.value)}
           disabled={disabled}

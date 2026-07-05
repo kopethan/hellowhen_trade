@@ -9702,6 +9702,13 @@ html[data-theme="dark"] .onboarding-guide-primary {
 .plan-timeline-row__fields input:focus, .plan-timeline-row__details input:focus, .plan-stop-note textarea:focus { border-color: var(--time-border); box-shadow: 0 0 0 3px color-mix(in srgb, var(--time-border) 24%, transparent); }
 .plan-timeline-row__fields--optional { grid-column: 1 / -1; max-width: 360px; }
 .plan-timeline-row__details { grid-column: 1 / -1; display: grid; gap: 10px; padding-top: 4px; }
+.plan-starter-address-guidance { display: grid; gap: 12px; border-top: 1px solid var(--app-divider); border-bottom: 1px solid var(--app-divider); background: color-mix(in srgb, var(--place-bg) 30%, transparent); padding: 14px 0; outline: none; }
+.plan-starter-address-guidance:focus-within { border-color: var(--place-border); }
+.plan-starter-address-guidance__copy { display: grid; gap: 7px; }
+.plan-starter-address-guidance__copy .semantic-badge { width: fit-content; }
+.plan-starter-address-guidance__copy .form-error { margin: 0; }
+.plan-starter-address-guidance__actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.plan-starter-address-guidance .google-place-picker { border-bottom: 0; padding-bottom: 0; }
 .plan-stop-note { grid-column: 1 / -1; display: grid; gap: 10px; }
 .plan-stop-note summary { width: fit-content; cursor: pointer; color: var(--app-text-muted); font-size: 12px; font-weight: 950; letter-spacing: 0.04em; text-transform: uppercase; }
 .plan-stop-note[open] { gap: 10px; }

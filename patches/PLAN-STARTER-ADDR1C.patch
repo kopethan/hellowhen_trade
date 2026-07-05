@@ -1,0 +1,201 @@
+diff --git a/docs/plans/starter-plan-offline-address-guidance-smoke.md b/docs/plans/starter-plan-offline-address-guidance-smoke.md
+new file mode 100644
+index 0000000..5cb3588
+--- /dev/null
++++ b/docs/plans/starter-plan-offline-address-guidance-smoke.md
+@@ -0,0 +1,195 @@
++# PLAN-STARTER-ADDR1 — Starter Plan offline address guidance smoke checklist
++
++Date: 2026-07-05
++
++This checklist covers the Starter Plan idea flow after offline Places became provider-address-only.
++
++Starter Plan ideas may prefill titles, prompts, suggested times, and online labels, but they must not create fake offline addresses. Every offline Plan stop must be backed by a selected provider address before preview or publish.
++
++## Product invariant
++
++Offline Starter Plan stops are incomplete until the user selects a confirmed provider address.
++
++Required offline payload:
++
++```txt
++mode = local
++googlePlaceId
++formattedAddress
++latitude
++longitude
++locationSource = google_places
++addressValidationStatus = confirmed
++```
++
++Starter idea copy such as `addressPrompt`, `addressPublicText`, place labels, or neighborhood hints can guide the user, but it must not make an offline stop valid.
++
++Online Starter Plan stops are unaffected by offline address search. They require a safe online destination instead:
++
++```txt
++mode = remote
++onlineUrl = http:// or https:// URL
++onlineLabel optional
++```
++
++## Expected UX when offline starter places are incomplete
++
++When the user clicks Continue, Preview, or Create while at least one offline place is missing a confirmed provider address:
++
++1. Continue is blocked.
++2. The user is returned to the editable/build step if needed.
++3. Every incomplete offline place block expands.
++4. The screen scrolls or focuses toward the first incomplete offline place.
++5. The top-level error is shown:
++
++```txt
++Some offline places need an address. Choose a verified address for each offline place, or delete the places you do not want to use.
++```
++
++6. Each incomplete offline place shows this inline copy:
++
++```txt
++Choose a verified address for this place, or delete it.
++```
++
++7. The user can either:
++   - select a provider-backed address, or
++   - delete the unwanted offline starter place.
++
++The UI must not create fake provider IDs, coordinates, or formatted addresses from starter idea content.
++
++## Web smoke checklist
++
++Use a Starter Plan idea with at least two offline places and, if available, at least one online place.
++
++### Missing offline address block
++
++- Open the Starter Plan idea create flow.
++- Do not select any offline addresses.
++- Click Preview/Create.
++- Confirm the flow does not continue.
++- Confirm the top-level error appears exactly once near the editor.
++- Confirm every incomplete offline place expands.
++- Confirm each incomplete offline place shows:
++
++```txt
++Choose a verified address for this place, or delete it.
++```
++
++- Confirm the first incomplete offline place is visible or focused after the click.
++- Confirm online/remote places are not marked with offline address errors.
++
++### Partial completion
++
++- Select a Google/provider-backed address for the first offline place.
++- Leave another offline place incomplete.
++- Click Preview/Create.
++- Confirm the completed place no longer shows the inline offline-address error.
++- Confirm the remaining incomplete offline place expands and receives the inline error.
++- Confirm the top-level error still appears.
++
++### Delete unwanted starter places
++
++- Delete an incomplete offline starter place from the inline error area.
++- Click Preview/Create again.
++- Confirm the deleted place is not required anymore.
++- Confirm the user can continue when every remaining offline place has a provider-backed address and every online place has a valid link.
++
++### Provider-backed address success
++
++- For every remaining offline place, search at least three characters and select a Google/provider result.
++- Confirm the selected address appears in the place block.
++- Confirm the form sends a confirmed provider payload.
++- Click Preview/Create.
++- Confirm the flow continues.
++
++### Manual/free-text address regression
++
++- Type or paste manual address-like text without selecting a provider suggestion.
++- Click Preview/Create.
++- Confirm the flow is blocked.
++- Confirm no fake `googlePlaceId`, coordinates, `locationSource`, or `addressValidationStatus` are added by the client.
++
++## Native smoke checklist
++
++Use the same Starter Plan idea shape as the web smoke.
++
++### Missing offline address block
++
++- Open the native Starter Plan idea create flow.
++- Do not select offline addresses.
++- Tap Preview/Create.
++- Confirm the flow does not continue.
++- Confirm the top-level error appears.
++- Confirm every incomplete offline place expands inline.
++- Confirm the first incomplete offline place is scrolled into view as closely as the native list allows.
++- Confirm each incomplete offline place shows:
++
++```txt
++Choose a verified address for this place, or delete it.
++```
++
++- Confirm each incomplete place offers an address picker path and a delete/remove action.
++- Confirm online/remote places are unaffected.
++
++### Native completion and delete paths
++
++- Select a provider-backed address for one offline place.
++- Confirm that place's inline error clears.
++- Delete another incomplete offline place.
++- Tap Preview/Create again.
++- Confirm only remaining incomplete offline places are blocked.
++- Complete all required provider-backed addresses.
++- Confirm Preview/Create can continue.
++
++## API safety regression checklist
++
++Frontend guidance is not the final authority. The API must still reject invalid offline Plan payloads.
++
++```txt
++POST /plans with a local/custom Plan stop and only starter prompt/manual address text
++  => reject missing_offline_provider_address
++
++POST /plans with a local/custom Plan stop and fake coordinates but no confirmed provider source
++  => reject missing_offline_provider_address
++
++POST /plans with a local/custom Plan stop and confirmed Google/provider payload
++  => accept
++
++POST /plans with a remote/online Plan stop and valid onlineUrl
++  => accept
++
++POST /plans with a remote/online Plan stop and missing/invalid onlineUrl
++  => reject missing_online_place_destination
++```
++
++## Google Places cost guard checklist
++
++- Address autocomplete only starts after the configured minimum query length.
++- Details are fetched only after a user selects a suggestion.
++- The missing-address error state itself does not call Google.
++- Expanding multiple incomplete offline places does not automatically trigger search/details calls.
++- Deleting incomplete offline starter places does not call Google.
++
++## Non-goals
++
++Do not add any of these as part of this smoke fix:
++
++```txt
++fake saved Places
++fake Google place IDs
++fake latitude/longitude
++stored Static Maps images
++server-side URL preview fetching
++backend relaxation for starter ideas
++```
++
++## Release sign-off
++
++Before marking this flow ready:
++
++- Web smoke passes.
++- Native smoke passes.
++- API safety regression passes.
++- Online Starter Plan stops remain unaffected by offline address errors.
++- No client-side fallback creates provider-looking address data from starter idea text.
