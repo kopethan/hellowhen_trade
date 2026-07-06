@@ -7,6 +7,16 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.hellowhen.com",
+        "EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED": "true",
+        "EXPO_PUBLIC_PLANS_ENABLED": "true",
+        "EXPO_PUBLIC_PLANS_VISIBLE": "true",
+        "EXPO_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS": "true",
+        "EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE": "true",
+        "EXPO_PUBLIC_CASH_PROMISE_ENABLED": "false",
+        "EXPO_PUBLIC_CASH_PROMISE_VISIBLE": "false"
+      },
       "ios": {
         "image": "macos-sequoia-15.6-xcode-26.0"
       }
@@ -18,6 +28,11 @@
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.hellowhen.com",
+        "EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED": "true",
+        "EXPO_PUBLIC_PLANS_ENABLED": "true",
+        "EXPO_PUBLIC_PLANS_VISIBLE": "true",
+        "EXPO_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS": "true",
+        "EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE": "true",
         "EXPO_PUBLIC_CASH_PROMISE_ENABLED": "false",
         "EXPO_PUBLIC_CASH_PROMISE_VISIBLE": "false"
       },
@@ -32,6 +47,11 @@
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.hellowhen.com",
+        "EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED": "true",
+        "EXPO_PUBLIC_PLANS_ENABLED": "true",
+        "EXPO_PUBLIC_PLANS_VISIBLE": "true",
+        "EXPO_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS": "true",
+        "EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE": "true",
         "EXPO_PUBLIC_CASH_PROMISE_ENABLED": "false",
         "EXPO_PUBLIC_CASH_PROMISE_VISIBLE": "false"
       },
