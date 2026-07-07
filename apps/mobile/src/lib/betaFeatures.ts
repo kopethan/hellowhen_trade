@@ -82,6 +82,34 @@ const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.en
 const plansEnabled = !forcePlansFirstLaunchSafeFlags && enabledUnlessExplicitlyFalse(publicEnv('PLANS_ENABLED'));
 const plansVisible = plansEnabled && enabledUnlessExplicitlyFalse(publicEnv('PLANS_VISIBLE'));
 const mainNavPlansMeTrade = plansVisible && !disabled(publicEnv('MAIN_NAV_PLANS_ME_TRADE'));
+const mobileFeatureFlagRawEnv = {
+  EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL,
+  EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED: process.env.EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED,
+  NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED: process.env.NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED,
+  EXPO_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS: process.env.EXPO_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS,
+  NEXT_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS: process.env.NEXT_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS,
+  EXPO_PUBLIC_PLANS_ENABLED: process.env.EXPO_PUBLIC_PLANS_ENABLED,
+  NEXT_PUBLIC_PLANS_ENABLED: process.env.NEXT_PUBLIC_PLANS_ENABLED,
+  EXPO_PUBLIC_PLANS_VISIBLE: process.env.EXPO_PUBLIC_PLANS_VISIBLE,
+  NEXT_PUBLIC_PLANS_VISIBLE: process.env.NEXT_PUBLIC_PLANS_VISIBLE,
+  EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE: process.env.EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE,
+  NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE: process.env.NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE,
+  EXPO_PUBLIC_MOBILE_FLAG_DIAGNOSTICS_VISIBLE: process.env.EXPO_PUBLIC_MOBILE_FLAG_DIAGNOSTICS_VISIBLE,
+} as const;
+
+export const mobileFeatureFlagDiagnostics = {
+  nodeEnv: process.env.NODE_ENV ?? 'undefined',
+  raw: mobileFeatureFlagRawEnv,
+  resolved: {
+    firstLaunchGuardsEnabled,
+    forceFirstLaunchSafeFlags,
+    plansAllowWithFirstLaunchGuards,
+    forcePlansFirstLaunchSafeFlags,
+    plansEnabled,
+    plansVisible,
+    mainNavPlansMeTrade,
+  },
+} as const;
 const mobileMembershipVisible = !forceFirstLaunchSafeFlags && (
   enabled(process.env.EXPO_PUBLIC_MOBILE_MEMBERSHIP_VISIBLE)
   || (subscriptionsEnabled && plusSubscriptionFeatures.plusPublic)

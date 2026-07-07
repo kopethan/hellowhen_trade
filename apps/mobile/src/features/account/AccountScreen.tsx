@@ -10,7 +10,7 @@ import { AppText } from '../../components/AppText';
 import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
-import { betaFeatures } from '../../lib/betaFeatures';
+import { betaFeatures, mobileFeatureFlagDiagnostics } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useAuth } from '../../providers/AuthProvider';
@@ -246,6 +246,7 @@ export function AccountScreen() {
 
   const futureActions = groupedActions.future;
   const menuActions = [...groupedActions.settings, ...futureActions, groupedActions.activity.find((action) => action.route === 'OnboardingGuide'), groupedActions.activity.find((action) => action.route === 'SupportCenter')].filter(Boolean) as AccountAction[];
+  const showFlagDiagnostics = !betaFeatures.plansVisible || process.env.EXPO_PUBLIC_MOBILE_FLAG_DIAGNOSTICS_VISIBLE?.toLowerCase() === 'true';
 
   const header = (
     <View style={styles.headerRowTop}>
@@ -289,6 +290,8 @@ export function AccountScreen() {
           </View>
         </View>
 
+        {showFlagDiagnostics ? <MobileFlagDiagnosticsCard /> : null}
+
         <MeWidgetSection sectionKey="activity" title={t('account.sections.activity')} widgets={activityWidgets} collapsed={collapsedSections.activity} onToggle={toggleMeSection} onNavigate={navigate} />
         {planWidgets.length > 0 ? <MeWidgetSection sectionKey="plans" title={t('account.sections.plans')} widgets={planWidgets} collapsed={collapsedSections.plans} onToggle={toggleMeSection} onNavigate={navigate} /> : null}
         <MeWidgetSection sectionKey="tools" title={t('account.sections.tools')} widgets={toolWidgets} collapsed={collapsedSections.tools} onToggle={toggleMeSection} onNavigate={navigate} />
@@ -330,6 +333,43 @@ export function AccountScreen() {
         <AccountMenuModal visible={menuOpen} actions={menuActions} unreadCount={notificationUnreadCount} onClose={() => setMenuOpen(false)} onLogout={() => { setMenuOpen(false); void auth.logout(); }} onNavigate={navigate} />
       </ScrollView>
     </AppFixedHeaderScreen>
+  );
+}
+
+function formatDiagnosticValue(value: boolean | string | undefined) {
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'string' && value.trim().length > 0) return value;
+  return '(unset)';
+}
+
+function MobileFlagDiagnosticsCard() {
+  const rows = [
+    { label: 'NODE_ENV', value: mobileFeatureFlagDiagnostics.nodeEnv },
+    { label: 'API URL', value: mobileFeatureFlagDiagnostics.raw.EXPO_PUBLIC_API_URL },
+    { label: 'resolved plansEnabled', value: mobileFeatureFlagDiagnostics.resolved.plansEnabled, tone: mobileFeatureFlagDiagnostics.resolved.plansEnabled ? 'success' as const : 'warning' as const },
+    { label: 'resolved plansVisible', value: mobileFeatureFlagDiagnostics.resolved.plansVisible, tone: mobileFeatureFlagDiagnostics.resolved.plansVisible ? 'success' as const : 'warning' as const },
+    { label: 'resolved main nav', value: mobileFeatureFlagDiagnostics.resolved.mainNavPlansMeTrade, tone: mobileFeatureFlagDiagnostics.resolved.mainNavPlansMeTrade ? 'success' as const : 'warning' as const },
+    { label: 'first launch guards', value: mobileFeatureFlagDiagnostics.resolved.firstLaunchGuardsEnabled },
+    { label: 'force safe flags', value: mobileFeatureFlagDiagnostics.resolved.forceFirstLaunchSafeFlags },
+    { label: 'plans guard allow', value: mobileFeatureFlagDiagnostics.resolved.plansAllowWithFirstLaunchGuards, tone: mobileFeatureFlagDiagnostics.resolved.plansAllowWithFirstLaunchGuards ? 'success' as const : 'warning' as const },
+    { label: 'force Plans hidden', value: mobileFeatureFlagDiagnostics.resolved.forcePlansFirstLaunchSafeFlags, tone: mobileFeatureFlagDiagnostics.resolved.forcePlansFirstLaunchSafeFlags ? 'warning' as const : 'success' as const },
+    { label: 'EXPO FIRST_LAUNCH', value: mobileFeatureFlagDiagnostics.raw.EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED },
+    { label: 'NEXT FIRST_LAUNCH', value: mobileFeatureFlagDiagnostics.raw.NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED },
+    { label: 'EXPO PLANS_ALLOW', value: mobileFeatureFlagDiagnostics.raw.EXPO_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS },
+    { label: 'NEXT PLANS_ALLOW', value: mobileFeatureFlagDiagnostics.raw.NEXT_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS },
+    { label: 'EXPO PLANS_ENABLED', value: mobileFeatureFlagDiagnostics.raw.EXPO_PUBLIC_PLANS_ENABLED },
+    { label: 'NEXT PLANS_ENABLED', value: mobileFeatureFlagDiagnostics.raw.NEXT_PUBLIC_PLANS_ENABLED },
+    { label: 'EXPO PLANS_VISIBLE', value: mobileFeatureFlagDiagnostics.raw.EXPO_PUBLIC_PLANS_VISIBLE },
+    { label: 'NEXT PLANS_VISIBLE', value: mobileFeatureFlagDiagnostics.raw.NEXT_PUBLIC_PLANS_VISIBLE },
+    { label: 'EXPO MAIN_NAV', value: mobileFeatureFlagDiagnostics.raw.EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE },
+    { label: 'NEXT MAIN_NAV', value: mobileFeatureFlagDiagnostics.raw.NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE },
+    { label: 'diagnostics flag', value: mobileFeatureFlagDiagnostics.raw.EXPO_PUBLIC_MOBILE_FLAG_DIAGNOSTICS_VISIBLE },
+  ].map((row) => ({ ...row, value: formatDiagnosticValue(row.value) }));
+
+  return (
+    <DetailSection title="Feature flag diagnostics" description="Temporary mobile bundle diagnostics for Plans visibility. Remove or hide after production flags are confirmed." compact>
+      <DetailInfoList rows={rows} />
+    </DetailSection>
   );
 }
 
