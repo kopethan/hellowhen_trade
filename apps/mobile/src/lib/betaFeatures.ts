@@ -3,9 +3,30 @@ const enabled = (value: string | undefined) => value?.toLowerCase() === 'true';
 const disabled = (value: string | undefined) => value?.toLowerCase() === 'false';
 const enabledUnlessExplicitlyFalse = (value: string | undefined) => !disabled(value);
 
-function publicEnv(suffix: string) {
-  const env = process.env as Record<string, string | undefined>;
-  return env[`EXPO_PUBLIC_${suffix}`] ?? env[`NEXT_PUBLIC_${suffix}`];
+type MobilePublicEnvSuffix =
+  | 'FIRST_LAUNCH_GUARDS_ENABLED'
+  | 'PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS'
+  | 'PLANS_ENABLED'
+  | 'PLANS_VISIBLE'
+  | 'MAIN_NAV_PLANS_ME_TRADE';
+
+function publicEnv(suffix: MobilePublicEnvSuffix) {
+  // Expo only inlines EXPO_PUBLIC_* values when the property access is static.
+  // Avoid dynamic lookups such as process.env[`EXPO_PUBLIC_${suffix}`], because
+  // production bundles can then show raw env values but resolve feature flags as
+  // undefined.
+  switch (suffix) {
+    case 'FIRST_LAUNCH_GUARDS_ENABLED':
+      return process.env.EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED ?? process.env.NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED;
+    case 'PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS':
+      return process.env.EXPO_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS ?? process.env.NEXT_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS;
+    case 'PLANS_ENABLED':
+      return process.env.EXPO_PUBLIC_PLANS_ENABLED ?? process.env.NEXT_PUBLIC_PLANS_ENABLED;
+    case 'PLANS_VISIBLE':
+      return process.env.EXPO_PUBLIC_PLANS_VISIBLE ?? process.env.NEXT_PUBLIC_PLANS_VISIBLE;
+    case 'MAIN_NAV_PLANS_ME_TRADE':
+      return process.env.EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE ?? process.env.NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE;
+  }
 }
 
 const firstLaunchGuardsEnabled = !disabled(publicEnv('FIRST_LAUNCH_GUARDS_ENABLED'));
