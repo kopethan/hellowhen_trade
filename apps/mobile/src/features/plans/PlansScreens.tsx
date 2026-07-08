@@ -2492,7 +2492,16 @@ function TextField({
 }
 
 function makeGooglePlaceSessionToken() {
-  return `native-place-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+  const maybeCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (typeof maybeCrypto?.randomUUID === 'function') {
+    return maybeCrypto.randomUUID();
+  }
+
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = char === 'x' ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
 }
 
 function resolvedGooglePlaceAddress(place: GoogleResolvedPlace) {
