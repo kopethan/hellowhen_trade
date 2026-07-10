@@ -567,8 +567,12 @@ function selectedPlaceFromReusable(place: PlaceDto, index: number, date = toDate
   };
 }
 
-function selectedPlaceMediaIds(place: SelectedPlanPlaceState) {
-  return place.existingMedia?.id ? [place.existingMedia.id] : undefined;
+function selectedPlaceMediaIds(_place: SelectedPlanPlaceState) {
+  // Reusable Place images already belong to the saved Place. Plan Places render
+  // those images through the source-place media fallback after creation, so do
+  // not reattach them to the Plan Place or the API will reject them as already
+  // attached. Only future Plan-specific uploads should return media ids here.
+  return undefined;
 }
 
 function resetSelectedPlaceToCustom(place: SelectedPlanPlaceState): SelectedPlanPlaceState {
