@@ -1,0 +1,178 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 9074df5..bd6e8ad 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -10,6 +10,7 @@ import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGe
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppText } from '../../components/AppText';
++import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+ import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
+ import { KeyboardDoneAccessory, KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
+ import { ReportContentPanel } from '../../components/ReportContentPanel';
+@@ -1589,6 +1590,7 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
+   const [error, setError] = useState<string | null>(null);
+   const [message, setMessage] = useState<string | null>(null);
+   const [archivingPlaceId, setArchivingPlaceId] = useState<string | null>(null);
++  const [archiveConfirmPlace, setArchiveConfirmPlace] = useState<PlaceDto | null>(null);
+ 
+   const load = useCallback(async ({ refresh = false }: { refresh?: boolean } = {}) => {
+     if (!isPlansVisible()) { setLoading(false); return; }
+@@ -1610,21 +1612,11 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
+ 
+   function confirmArchivePlace(place: PlaceDto) {
+     if (scope !== 'mine' || place.source !== 'user') return;
+-    Alert.alert(
+-      'Delete Place?',
+-      'This removes the Place from My Places and future Plan pickers. Existing Plans keep their saved Place details.',
+-      [
+-        { text: 'Cancel', style: 'cancel' },
+-        {
+-          text: 'Delete',
+-          style: 'destructive',
+-          onPress: () => { void archivePlace(place); },
+-        },
+-      ],
+-    );
++    setArchiveConfirmPlace(place);
+   }
+ 
+   async function archivePlace(place: PlaceDto) {
++    setArchiveConfirmPlace(null);
+     setArchivingPlaceId(place.id);
+     setError(null);
+     setMessage(null);
+@@ -1650,23 +1642,36 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
+   }
+ 
+   return (
+-    <ScrollView
+-      contentContainerStyle={styles.listContent}
+-      showsVerticalScrollIndicator={false}
+-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
+-    >
+-      {message ? <InfoNotice tone="success" title="My Places" body={message} /> : null}
+-      {scope === 'mine' ? <InfoNotice tone="info" title="Reusable Places" body="Edit your saved Places here. Delete archives the Place from future pickers, while existing Plans keep their saved details." /> : null}
+-      {places.map((place) => (
+-        <PlaceRow
+-          key={place.id}
+-          place={place}
+-          onEdit={scope === 'mine' && place.source === 'user' ? () => navigation.navigate('CreatePlace', { editPlace: place }) : undefined}
+-          onArchive={scope === 'mine' && place.source === 'user' ? () => confirmArchivePlace(place) : undefined}
+-          archiving={archivingPlaceId === place.id}
+-        />
+-      ))}
+-    </ScrollView>
++    <>
++      <ScrollView
++        contentContainerStyle={styles.listContent}
++        showsVerticalScrollIndicator={false}
++        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
++      >
++        {message ? <InfoNotice tone="success" title="My Places" body={message} /> : null}
++        {scope === 'mine' ? <InfoNotice tone="info" title="Reusable Places" body="Edit your saved Places here. Delete archives the Place from future pickers, while existing Plans keep their saved details." /> : null}
++        {places.map((place) => (
++          <PlaceRow
++            key={place.id}
++            place={place}
++            onEdit={scope === 'mine' && place.source === 'user' ? () => navigation.navigate('CreatePlace', { editPlace: place }) : undefined}
++            onArchive={scope === 'mine' && place.source === 'user' ? () => confirmArchivePlace(place) : undefined}
++            archiving={archivingPlaceId === place.id}
++          />
++        ))}
++      </ScrollView>
++      <AppConfirmSheet
++        visible={Boolean(archiveConfirmPlace)}
++        title="Delete Place?"
++        body="This removes the Place from My Places and future Plan pickers. Existing Plans keep their saved Place details."
++        cancelLabel="Cancel"
++        confirmLabel="Delete Place"
++        tone="danger"
++        confirmDisabled={Boolean(archivingPlaceId)}
++        onCancel={() => setArchiveConfirmPlace(null)}
++        onConfirm={() => { if (archiveConfirmPlace) void archivePlace(archiveConfirmPlace); }}
++      />
++    </>
+   );
+ }
+ 
+@@ -2143,6 +2148,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   const [publicMessageCount, setPublicMessageCount] = useState(0);
+   const [verifyingPlaceId, setVerifyingPlaceId] = useState<string | null>(null);
+   const [presenceNotices, setPresenceNotices] = useState<Record<string, PlanPlacePresenceNotice>>({});
++  const [cancelConfirmVisible, setCancelConfirmVisible] = useState(false);
+ 
+   const load = useCallback(async () => {
+     if (!isPlansVisible()) { setLoading(false); return; }
+@@ -2220,34 +2226,25 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+ 
+   function cancelPlan() {
+     if (!plan || !canCancelPlan || busy) return;
+-    Alert.alert(
+-      'Cancel Plan?',
+-      'People will no longer be able to join, but the Plan will remain visible with a Cancelled status.',
+-      [
+-        { text: 'Keep Plan', style: 'cancel' },
+-        {
+-          text: 'Cancel Plan',
+-          style: 'destructive',
+-          onPress: () => {
+-            void (async () => {
+-              setBusy(true);
+-              setError(null);
+-              setActionMessage(null);
+-              setActionError(null);
+-              try {
+-                await api.plans.update(plan.id, { status: 'cancelled' });
+-                setActionMessage('Plan cancelled. It remains visible with a Cancelled status.');
+-                await load();
+-              } catch (caughtError) {
+-                setActionError(getFriendlyApiErrorMessage(caughtError));
+-              } finally {
+-                setBusy(false);
+-              }
+-            })();
+-          },
+-        },
+-      ],
+-    );
++    setCancelConfirmVisible(true);
++  }
++
++  async function confirmCancelPlan() {
++    if (!plan || !canCancelPlan || busy) return;
++    setCancelConfirmVisible(false);
++    setBusy(true);
++    setError(null);
++    setActionMessage(null);
++    setActionError(null);
++    try {
++      await api.plans.update(plan.id, { status: 'cancelled' });
++      setActionMessage('Plan cancelled. It remains visible with a Cancelled status.');
++      await load();
++    } catch (caughtError) {
++      setActionError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setBusy(false);
++    }
+   }
+ 
+   async function verifyPlanPlacePresence(place: PlanPlaceDto) {
+@@ -2341,6 +2338,17 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+ 
+   return (
+     <AppFixedHeaderScreen header={header}>
++      <AppConfirmSheet
++        visible={cancelConfirmVisible}
++        title="Cancel Plan?"
++        body="People will no longer be able to join, but the Plan will remain visible with a Cancelled status."
++        cancelLabel="Keep Plan"
++        confirmLabel="Cancel Plan"
++        tone="danger"
++        confirmDisabled={busy}
++        onCancel={() => setCancelConfirmVisible(false)}
++        onConfirm={() => { void confirmCancelPlan(); }}
++      />
+       {loading ? <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Plan...</AppText></View> : null}
+       {!loading && error ? <View style={styles.contentPad}><InfoNotice tone="warning" title="Could not load Plan" body={error} /></View> : null}
+       {!loading && plan ? (

@@ -9700,6 +9700,17 @@ html[data-theme="dark"] .onboarding-guide-primary {
 .plan-timeline-row__fields label, .plan-timeline-row__details label, .plan-stop-note label { display: grid; gap: 7px; color: var(--app-text-muted); font-size: 12px; font-weight: 950; letter-spacing: 0.04em; text-transform: uppercase; }
 .plan-timeline-row__fields input, .plan-timeline-row__details input, .plan-stop-note textarea { width: 100%; border: 1px solid color-mix(in srgb, var(--time-border) 38%, var(--app-border-strong)); border-radius: 18px; background: color-mix(in srgb, var(--app-surface) 76%, var(--time-bg)); color: var(--app-text); padding: 12px 13px; font: inherit; font-weight: 750; outline: none; }
 .plan-timeline-row__fields input:focus, .plan-timeline-row__details input:focus, .plan-stop-note textarea:focus { border-color: var(--time-border); box-shadow: 0 0 0 3px color-mix(in srgb, var(--time-border) 24%, transparent); }
+.plan-timeline-row__fields--compact { grid-column: 1 / -1; }
+.plan-quick-time-card { grid-column: 1 / -1; display: grid; gap: 12px; border: 1px solid color-mix(in srgb, var(--time-border) 32%, var(--app-divider)); border-radius: 22px; background: color-mix(in srgb, var(--time-bg) 24%, transparent); padding: 12px; }
+.plan-quick-time-card__summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.plan-quick-time-card__summary strong { color: var(--app-text); font-size: 16px; font-weight: 950; letter-spacing: -0.01em; }
+.plan-quick-time-card__summary span { color: var(--app-text-muted); font-size: 13px; font-weight: 850; }
+.plan-quick-picker-group { display: grid; gap: 8px; grid-column: 1 / -1; }
+.plan-quick-picker-group > span { color: var(--app-text-muted); font-size: 11px; font-weight: 950; letter-spacing: 0.06em; text-transform: uppercase; }
+.plan-quick-button-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.plan-quick-button-row button { min-height: 36px; border: 1px solid var(--app-divider); border-radius: 999px; background: var(--app-surface); color: var(--app-text); padding: 8px 12px; font: inherit; font-size: 12px; font-weight: 950; cursor: pointer; }
+.plan-quick-button-row button.is-active { border-color: var(--plan-border); background: var(--plan-bg-soft); color: var(--plan-text); }
+.plan-quick-button-row button:disabled { cursor: not-allowed; opacity: 0.55; }
 .plan-timeline-row__fields--optional { grid-column: 1 / -1; max-width: 360px; }
 .plan-timeline-row__details { grid-column: 1 / -1; display: grid; gap: 10px; padding-top: 4px; }
 .plan-starter-address-guidance { display: grid; gap: 12px; border-top: 1px solid var(--app-divider); border-bottom: 1px solid var(--app-divider); background: color-mix(in srgb, var(--place-bg) 30%, transparent); padding: 14px 0; outline: none; }

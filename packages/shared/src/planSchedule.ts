@@ -14,10 +14,21 @@ export type EstimatedFinalPlanEnd = {
   placeCount: number;
 };
 
+export type PlanStopStartGapViolation = {
+  previousIndex: number;
+  currentIndex: number;
+  previousStartsAt: string;
+  currentStartsAt: string;
+  earliestStartsAt: string;
+  actualGapMinutes: number;
+  minGapMinutes: number;
+};
+
 export const PLAN_ESTIMATED_FINAL_PLACE_END_ROUNDING_MINUTES = 30;
 export const PLAN_ESTIMATED_FINAL_PLACE_MIN_DURATION_MINUTES = 30;
 export const PLAN_ESTIMATED_FINAL_PLACE_MAX_DURATION_MINUTES = 8 * 60;
 export const PLAN_ESTIMATED_SINGLE_PLACE_DURATION_MINUTES = 90;
+export const PLAN_MIN_STOP_START_GAP_MINUTES = 15;
 
 const MINUTE_MS = 60_000;
 
@@ -26,6 +37,34 @@ function parsePlanPlaceTime(value: PlanPlaceTimeInput) {
   const date = value instanceof Date ? value : new Date(value);
   const time = date.getTime();
   return Number.isFinite(time) ? time : null;
+}
+
+
+export function findPlanStopStartGapViolation(
+  placeStartsAt: PlanPlaceTimeInput[],
+  minGapMinutes = PLAN_MIN_STOP_START_GAP_MINUTES,
+): PlanStopStartGapViolation | null {
+  const safeMinimum = Number.isFinite(minGapMinutes) && minGapMinutes > 0 ? minGapMinutes : PLAN_MIN_STOP_START_GAP_MINUTES;
+  const minGapMs = safeMinimum * MINUTE_MS;
+
+  for (let index = 1; index < placeStartsAt.length; index += 1) {
+    const previous = parsePlanPlaceTime(placeStartsAt[index - 1]);
+    const current = parsePlanPlaceTime(placeStartsAt[index]);
+    if (previous === null || current === null) continue;
+    const actualGapMs = current - previous;
+    if (actualGapMs >= minGapMs) continue;
+    return {
+      previousIndex: index - 1,
+      currentIndex: index,
+      previousStartsAt: new Date(previous).toISOString(),
+      currentStartsAt: new Date(current).toISOString(),
+      earliestStartsAt: new Date(previous + minGapMs).toISOString(),
+      actualGapMinutes: actualGapMs / MINUTE_MS,
+      minGapMinutes: safeMinimum,
+    };
+  }
+
+  return null;
 }
 
 function roundDurationMinutes(value: number, roundingMinutes: number, minDurationMinutes: number, maxDurationMinutes?: number) {

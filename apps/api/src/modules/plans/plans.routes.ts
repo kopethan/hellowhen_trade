@@ -11,19 +11,20 @@ import {
   listPlansQuerySchema,
   updateMyPlanParticipantRequestSchema,
   updatePlanParticipantRequestSchema,
-  updatePlanPlaceRequestSchema,
   updatePlanPublicMessageRequestSchema,
   updatePlanRequestSchema,
 } from '@hellowhen/contracts';
 import {
   buildEstimatedPlanPlaceEndTimes,
   buildGeneratedPlanDisplay,
+  findPlanStopStartGapViolation,
   buildMissingOfflineProviderAddressMessage,
   buildMissingOnlineDestinationMessage,
   getMissingOfflineProviderAddressFields,
   getMissingOnlineDestinationFields,
   getOnlinePlaceProviderMetadata,
   normalizeOnlinePlaceUrl,
+  PLAN_MIN_STOP_START_GAP_MINUTES,
   PLACE_OFFLINE_MODE,
   PLACE_ONLINE_MODE,
 } from '@hellowhen/shared';
@@ -85,7 +86,7 @@ async function blockedUserIdsForViewer(viewerId?: string) {
     where: { OR: [{ blockerId: viewerId }, { blockedId: viewerId }] },
     select: { blockerId: true, blockedId: true },
   });
-  return Array.from(new Set(blocks.map((block) => block.blockerId === viewerId ? block.blockedId : block.blockerId)));
+  return Array.from(new Set(blocks.map((block: { blockerId: string; blockedId: string }) => block.blockerId === viewerId ? block.blockedId : block.blockerId)));
 }
 
 function normalizePlanSearchQuery(value?: string | null) {
@@ -480,10 +481,21 @@ function planPublicDiscussionMessageSelect() {
   } as const;
 }
 
-function estimatePlanEndsAtFromPlaces(input: { endsAt?: string | null; places?: Array<{ startsAt?: string | null }> }) {
-  if (input.endsAt) return input.endsAt;
-  const estimatedPlaceEndTimes = buildEstimatedPlanPlaceEndTimes((input.places ?? []).map((place) => place.startsAt));
-  return estimatedPlaceEndTimes[estimatedPlaceEndTimes.length - 1] ?? null;
+function dateInputToIso(value?: string | Date | null) {
+  if (!value) return null;
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function estimatePlanEndsAtFromPlaces(input: { endsAt?: string | Date | null; places?: Array<{ startsAt?: string | Date | null; endsAt?: string | Date | null }> }) {
+  const explicitEndsAt = dateInputToIso(input.endsAt);
+  if (explicitEndsAt) return explicitEndsAt;
+
+  const places = input.places ?? [];
+  const estimatedPlaceEndTimes = buildEstimatedPlanPlaceEndTimes(places.map((place) => dateInputToIso(place.startsAt))).filter((value): value is string => Boolean(value));
+  const explicitPlaceEndTimes = places.map((place) => dateInputToIso(place.endsAt)).filter((value): value is string => Boolean(value));
+  const candidates = [...estimatedPlaceEndTimes, ...explicitPlaceEndTimes];
+  if (!candidates.length) return null;
+  return candidates.reduce((latest, candidate) => new Date(candidate).getTime() > new Date(latest).getTime() ? candidate : latest);
 }
 
 function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequestSchema.parse>) {
@@ -511,25 +523,43 @@ function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequ
 }
 
 const activeOwnedPlanTimeStatuses = ['draft', 'open', 'full', 'started'] as const;
+const PLAN_TIME_MIN_GAP_MINUTES = 60;
+const PLAN_TIME_MIN_GAP_MS = PLAN_TIME_MIN_GAP_MINUTES * 60 * 1000;
 
-function effectivePlanRange(input: { startsAt: string; endsAt?: string | null; places?: Array<{ startsAt?: string | null }> }) {
+type PlanScheduleInput = {
+  startsAt: string | Date;
+  endsAt?: string | Date | null;
+  places?: Array<{ startsAt?: string | Date | null; endsAt?: string | Date | null }>;
+};
+
+function effectivePlanRange(input: PlanScheduleInput) {
   const startsAt = new Date(input.startsAt);
   const estimatedEndsAt = estimatePlanEndsAtFromPlaces(input);
-  const endsAt = estimatedEndsAt ? new Date(estimatedEndsAt) : startsAt;
+  const rawEndsAt = estimatedEndsAt ? new Date(estimatedEndsAt) : startsAt;
+  const endsAt = rawEndsAt.getTime() >= startsAt.getTime() ? rawEndsAt : startsAt;
   return { startsAt, endsAt };
 }
 
-async function findOwnedPlanTimeOverlap(ownerId: string, input: { startsAt: string; endsAt?: string | null; places?: Array<{ startsAt?: string | null }> }, excludePlanId?: string) {
-  const { startsAt, endsAt } = effectivePlanRange(input);
+function planRangeWithGap(input: PlanScheduleInput) {
+  const range = effectivePlanRange(input);
+  return {
+    ...range,
+    startsAtWithGap: new Date(range.startsAt.getTime() - PLAN_TIME_MIN_GAP_MS),
+    endsAtWithGap: new Date(range.endsAt.getTime() + PLAN_TIME_MIN_GAP_MS),
+  };
+}
+
+async function findOwnedPlanTimeConflict(ownerId: string, input: PlanScheduleInput, excludePlanId?: string) {
+  const { startsAtWithGap, endsAtWithGap } = planRangeWithGap(input);
   return prisma.plan.findFirst({
     where: {
       ownerId,
       ...(excludePlanId ? { id: { not: excludePlanId } } : {}),
       status: { in: [...activeOwnedPlanTimeStatuses] as any },
-      startsAt: { lte: endsAt },
+      startsAt: { lte: endsAtWithGap },
       OR: [
-        { endsAt: { gte: startsAt } },
-        { endsAt: null, startsAt: { gte: startsAt } },
+        { endsAt: { gte: startsAtWithGap } },
+        { endsAt: null, startsAt: { gte: startsAtWithGap } },
       ],
     },
     select: { id: true, title: true, startsAt: true, endsAt: true },
@@ -537,16 +567,65 @@ async function findOwnedPlanTimeOverlap(ownerId: string, input: { startsAt: stri
   });
 }
 
-function planTimeOverlapResponse(conflict: { id: string; title: string; startsAt: Date; endsAt: Date | null }) {
+
+function findPlanRequestStopGapViolation(input: PlanScheduleInput) {
+  const startsAtInRouteOrder = (input.places ?? [])
+    .map((place, index) => ({ startsAt: place.startsAt ?? null, order: typeof (place as { order?: unknown }).order === 'number' ? (place as { order?: number }).order! : index }))
+    .sort((left, right) => left.order - right.order)
+    .map((place) => place.startsAt);
+  return findPlanStopStartGapViolation(startsAtInRouteOrder);
+}
+
+function planStopGapViolationResponse(violation: NonNullable<ReturnType<typeof findPlanRequestStopGapViolation>>) {
+  return {
+    error: 'plan_stop_gap_too_short',
+    message: `Place ${violation.currentIndex + 1} must start at least ${PLAN_MIN_STOP_START_GAP_MINUTES} minutes after Place ${violation.previousIndex + 1}.`,
+    minGapMinutes: PLAN_MIN_STOP_START_GAP_MINUTES,
+    previousPlaceIndex: violation.previousIndex,
+    currentPlaceIndex: violation.currentIndex,
+    previousStartsAt: violation.previousStartsAt,
+    currentStartsAt: violation.currentStartsAt,
+    earliestStartsAt: violation.earliestStartsAt,
+  };
+}
+
+function planTimeConflictResponse(conflict: { id: string; title: string; startsAt: Date; endsAt: Date | null }, requested: PlanScheduleInput) {
+  const requestedRange = effectivePlanRange(requested);
   return {
     error: 'plan_time_overlap',
-    message: `This overlaps with your existing Plan “${conflict.title}”. Choose a different time or cancel the existing Plan first.`,
+    message: `This is too close to your existing Plan “${conflict.title}”. Keep at least ${PLAN_TIME_MIN_GAP_MINUTES} minutes between Plans.`,
+    minGapMinutes: PLAN_TIME_MIN_GAP_MINUTES,
     plan: {
       id: conflict.id,
       title: conflict.title,
       startsAt: conflict.startsAt.toISOString(),
       endsAt: conflict.endsAt ? conflict.endsAt.toISOString() : null,
     },
+    requested: {
+      startsAt: requestedRange.startsAt.toISOString(),
+      endsAt: requestedRange.endsAt.toISOString(),
+    },
+  };
+}
+
+function planLockedAfterCreationResponse() {
+  return {
+    error: 'plan_locked_after_creation',
+    message: 'Plans are locked after creation. Create a new Plan if you need different places, times, or route order.',
+  };
+}
+
+function planContentLockedResponse() {
+  return {
+    ...planLockedAfterCreationResponse(),
+    message: 'Plans are locked after creation. You can cancel this Plan, or create a new Plan if the details need to change.',
+  };
+}
+
+function planStopsLockedResponse() {
+  return {
+    ...planLockedAfterCreationResponse(),
+    lockedFields: ['places', 'place_order', 'place_times', 'place_duration', 'place_location'],
   };
 }
 
@@ -618,7 +697,7 @@ async function loadReusablePlaceForSnapshot(placeId: string, userId: string) {
   });
 }
 
-function planPlaceSnapshotData(planId: string, input: ReturnType<typeof createPlanPlaceRequestSchema.parse> | ReturnType<typeof updatePlanPlaceRequestSchema.parse>, fallbackOrder = 0, reusablePlace?: any | null) {
+function planPlaceSnapshotData(planId: string, input: ReturnType<typeof createPlanPlaceRequestSchema.parse>, fallbackOrder = 0, reusablePlace?: any | null) {
   const mode = input.mode ?? reusablePlace?.mode ?? PLACE_OFFLINE_MODE;
   const isOnline = mode === PLACE_ONLINE_MODE;
   return {
@@ -655,41 +734,6 @@ async function placeCreateData(planId: string, ownerId: string, input: ReturnTyp
   if (!data.title) throw createPlanRequestError('missing_place_title', 'Add a place title before saving this plan place.');
   assertPlanPlaceAddressPolicy(data);
   return data;
-}
-
-async function placeUpdateData(ownerId: string, input: ReturnType<typeof updatePlanPlaceRequestSchema.parse>, existing: any) {
-  const reusablePlace = input.placeId ? await loadReusablePlaceForSnapshot(input.placeId, ownerId) : null;
-  if (input.placeId && !reusablePlace) {
-    throw createPlanRequestError('place_not_found', 'Choose one of your places or a Hellowhen library place.', 404);
-  }
-  const snapshot = reusablePlace ? planPlaceSnapshotData('', input, 0, reusablePlace) : null;
-  const templateSnapshot = planPlaceStaticMapTemplateSnapshot(input, reusablePlace);
-  const switchesToOnline = (input.mode ?? reusablePlace?.mode) === PLACE_ONLINE_MODE;
-  const patch = {
-    ...(input.placeId !== undefined ? { placeId: reusablePlace?.id ?? null } : {}),
-    ...(input.order !== undefined ? { order: input.order } : {}),
-    ...(input.mode !== undefined || reusablePlace ? { mode: input.mode ?? reusablePlace?.mode ?? PLACE_OFFLINE_MODE } : {}),
-    ...(input.title !== undefined || reusablePlace ? { title: input.title ?? reusablePlace?.title } : {}),
-    ...(input.note !== undefined ? { note: input.note ?? null } : {}),
-    ...(switchesToOnline ? { addressPublicText: null } : input.formattedAddress !== undefined || reusablePlace ? { addressPublicText: input.formattedAddress ?? snapshot?.formattedAddress ?? null } : {}),
-    ...(switchesToOnline ? { addressPrivateText: null } : input.addressPrivateText !== undefined || reusablePlace ? { addressPrivateText: input.addressPrivateText ?? snapshot?.addressPrivateText ?? null } : {}),
-    ...(switchesToOnline ? { googlePlaceId: null } : input.googlePlaceId !== undefined || reusablePlace ? { googlePlaceId: input.googlePlaceId ?? snapshot?.googlePlaceId ?? null } : {}),
-    ...(switchesToOnline ? { googlePlaceName: null } : input.googlePlaceName !== undefined || reusablePlace ? { googlePlaceName: input.googlePlaceName ?? snapshot?.googlePlaceName ?? null } : {}),
-    ...(switchesToOnline ? { formattedAddress: null } : input.formattedAddress !== undefined || reusablePlace ? { formattedAddress: input.formattedAddress ?? snapshot?.formattedAddress ?? null } : {}),
-    ...(switchesToOnline ? { googleMapsUri: null } : input.googleMapsUri !== undefined || reusablePlace ? { googleMapsUri: input.googleMapsUri ?? snapshot?.googleMapsUri ?? null } : {}),
-    ...(switchesToOnline ? { latitude: null } : input.latitude !== undefined || reusablePlace ? { latitude: input.latitude ?? snapshot?.latitude ?? null } : {}),
-    ...(switchesToOnline ? { longitude: null } : input.longitude !== undefined || reusablePlace ? { longitude: input.longitude ?? snapshot?.longitude ?? null } : {}),
-    ...(switchesToOnline ? { locationSource: null } : input.locationSource !== undefined || reusablePlace ? { locationSource: input.locationSource ?? snapshot?.locationSource ?? null } : {}),
-    ...(switchesToOnline ? { addressValidationStatus: null } : input.addressValidationStatus !== undefined || reusablePlace ? { addressValidationStatus: input.addressValidationStatus ?? snapshot?.addressValidationStatus ?? null } : {}),
-    ...(switchesToOnline ? { onlineLabel: input.onlineLabel ?? snapshot?.onlineLabel ?? existing.onlineLabel ?? null } : input.mode === PLACE_OFFLINE_MODE ? { onlineLabel: null } : input.onlineLabel !== undefined || reusablePlace ? { onlineLabel: input.onlineLabel ?? snapshot?.onlineLabel ?? null } : {}),
-    ...(switchesToOnline ? { onlineUrl: normalizedOnlineUrl(input.onlineUrl ?? snapshot?.onlineUrl ?? existing.onlineUrl) } : input.mode === PLACE_OFFLINE_MODE ? { onlineUrl: null } : input.onlineUrl !== undefined || reusablePlace ? { onlineUrl: normalizedOnlineUrl(input.onlineUrl ?? snapshot?.onlineUrl) } : {}),
-    ...(Object.keys(templateSnapshot).length ? templateSnapshot : {}),
-    ...(input.startsAt !== undefined ? { startsAt: input.startsAt ? new Date(input.startsAt) : null } : {}),
-    ...(input.endsAt !== undefined ? { endsAt: input.endsAt ? new Date(input.endsAt) : null } : {}),
-  };
-
-  assertPlanPlaceAddressPolicy({ ...existing, ...patch });
-  return patch;
 }
 
 async function joinPlanFreely(planId: string, userId: string, message?: string | null) {
@@ -824,8 +868,10 @@ plansRoutes.get('/joined', requireAuth, asyncRoute(async (req, res) => {
 
 plansRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createPlanRequestSchema.parse(req.body ?? {});
-  const overlappingPlan = await findOwnedPlanTimeOverlap(req.user!.id, input);
-  if (overlappingPlan) return res.status(409).json(planTimeOverlapResponse(overlappingPlan));
+  const stopGapViolation = findPlanRequestStopGapViolation(input);
+  if (stopGapViolation) return res.status(400).json(planStopGapViolationResponse(stopGapViolation));
+  const conflictingPlan = await findOwnedPlanTimeConflict(req.user!.id, input);
+  if (conflictingPlan) return res.status(409).json(planTimeConflictResponse(conflictingPlan, input));
   const inputPlaces = input.places ?? [];
   const estimatedPlaceEndTimes = buildEstimatedPlanPlaceEndTimes(inputPlaces.map((placeInput) => placeInput.startsAt));
   const placeDataDrafts = [] as any[];
@@ -851,10 +897,7 @@ plansRoutes.patch('/:planId', requireAuth, requireActiveAccount, asyncRoute(asyn
   const existing = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
   if (!isCancelOnlyPlanUpdate(input)) {
-    return res.status(409).json({
-      error: 'plan_content_locked',
-      message: 'Plans cannot be edited after publishing yet. You can cancel this Plan from Manage Plan.',
-    });
+    return res.status(409).json(planContentLockedResponse());
   }
   const plan = await prisma.plan.update({ where: { id: existing.id }, data: planUpdateData(input) as any });
   const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
@@ -862,27 +905,34 @@ plansRoutes.patch('/:planId', requireAuth, requireActiveAccount, asyncRoute(asyn
 }));
 
 plansRoutes.post('/:planId/places', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
-  const input = createPlanPlaceRequestSchema.parse(req.body ?? {});
-  const plan = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id } });
+  const plan = await prisma.plan.findFirst({
+    where: { id: req.params.planId, ownerId: req.user!.id },
+    include: { places: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
+  });
   if (!plan) return res.status(404).json({ error: 'not_found' });
-  const existingCount = await prisma.planPlace.count({ where: { planId: plan.id } });
-  if (existingCount >= 12) return res.status(409).json({ error: 'too_many_places', message: 'A plan can include up to 12 places for now.' });
-  const place = await prisma.planPlace.create({ data: await placeCreateData(plan.id, req.user!.id, input, existingCount) as any });
-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan_place' as any, place.id, { maxImages: PLAN_PLACE_MEDIA_LIMITS.plus });
-  const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
-  res.status(201).json({ plan: await decoratePlan(updated, req.user!.id) });
+  return res.status(409).json(planStopsLockedResponse());
 }));
 
 plansRoutes.patch('/:planId/places/:placeId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
-  const input = updatePlanPlaceRequestSchema.parse(req.body ?? {});
-  const plan = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id } });
+  const plan = await prisma.plan.findFirst({
+    where: { id: req.params.planId, ownerId: req.user!.id },
+    include: { places: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
+  });
   if (!plan) return res.status(404).json({ error: 'not_found' });
-  const place = await prisma.planPlace.findFirst({ where: { id: req.params.placeId, planId: plan.id } });
+  const place = plan.places.find((item: any) => item.id === req.params.placeId);
   if (!place) return res.status(404).json({ error: 'not_found' });
-  await prisma.planPlace.update({ where: { id: place.id }, data: await placeUpdateData(req.user!.id, input, place) as any });
-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan_place' as any, place.id, { maxImages: PLAN_PLACE_MEDIA_LIMITS.plus });
-  const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
-  res.json({ plan: await decoratePlan(updated, req.user!.id) });
+  return res.status(409).json(planStopsLockedResponse());
+}));
+
+plansRoutes.delete('/:planId/places/:placeId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const plan = await prisma.plan.findFirst({
+    where: { id: req.params.planId, ownerId: req.user!.id },
+    include: { places: { select: { id: true } } },
+  });
+  if (!plan) return res.status(404).json({ error: 'not_found' });
+  const place = plan.places.find((item: any) => item.id === req.params.placeId);
+  if (!place) return res.status(404).json({ error: 'not_found' });
+  return res.status(409).json(planStopsLockedResponse());
 }));
 
 plansRoutes.post('/:planId/places/:placeId/verify-presence', requireAuth, requireActiveAccount, placePresenceVerificationRateLimit, asyncRoute(async (req, res) => {

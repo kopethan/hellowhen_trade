@@ -1,4 +1,4 @@
-import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime } from '@hellowhen/shared';
+import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, PLAN_MIN_STOP_START_GAP_MINUTES } from '@hellowhen/shared';
 
 export type PlanSchedulePlace = {
   id?: string;
@@ -57,8 +57,9 @@ export function buildPlanSchedule(places: PlanSchedulePlace[]) {
     if (!currentDateTime) {
       return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: `Add a valid date and time for Place ${index + 1}.` };
     }
-    if (currentDateTime.getTime() < previousDateTime.getTime()) {
-      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: 'Each place time must be at the same time or after the previous place.' };
+    const minNextStartTime = previousDateTime.getTime() + PLAN_MIN_STOP_START_GAP_MINUTES * 60_000;
+    if (currentDateTime.getTime() < minNextStartTime) {
+      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: `Place ${index + 1} must start at least ${PLAN_MIN_STOP_START_GAP_MINUTES} minutes after Place ${index}.` };
     }
     placeStartsAt[index] = currentDateTime.toISOString();
     previousDateTime = currentDateTime;

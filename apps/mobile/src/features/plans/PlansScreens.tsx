@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import * as Location from 'expo-location';
 import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle, type LayoutChangeEvent } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
-import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaRequirementSummary, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaRequirementSummary, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { AppText } from '../../components/AppText';
+import { AppConfirmSheet } from '../../components/AppConfirmSheet';
 import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
 import { KeyboardDoneAccessory, KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
 import { ReportContentPanel } from '../../components/ReportContentPanel';
@@ -338,13 +340,13 @@ function toDateInputValue(value?: string | null) {
   return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
 }
 
-function makeSelectedPlanPlace(index: number, date = toDateInputValue()): SelectedPlanPlaceState {
+function makeSelectedPlanPlace(index: number, date = toDateInputValue(), time?: string): SelectedPlanPlaceState {
   return {
     id: `mobile-plan-place-${Date.now()}-${index}`,
     sourcePlaceSource: 'custom',
     mode: 'local',
     date,
-    time: index === 0 ? '13:00' : '',
+    time: time ?? (index === 0 ? '13:00' : ''),
     title: '',
     location: '',
     providerAddress: null,
@@ -546,7 +548,7 @@ function placeLocationForSelectedPlace(place: PlaceDto) {
   return place.mode === 'remote' ? '' : place.formattedAddress ?? place.addressPublicText ?? place.areaLabel ?? '';
 }
 
-function selectedPlaceFromReusable(place: PlaceDto, index: number, date = toDateInputValue()): SelectedPlanPlaceState {
+function selectedPlaceFromReusable(place: PlaceDto, index: number, date = toDateInputValue(), time?: string): SelectedPlanPlaceState {
   return {
     id: `mobile-plan-place-${place.id}-${Date.now()}-${index}`,
     sourcePlaceId: place.id,
@@ -554,7 +556,7 @@ function selectedPlaceFromReusable(place: PlaceDto, index: number, date = toDate
     sourcePlaceTitle: place.title,
     mode: place.mode ?? 'local',
     date,
-    time: index === 0 ? '13:00' : '',
+    time: time ?? (index === 0 ? '13:00' : ''),
     title: place.title,
     location: placeLocationForSelectedPlace(place),
     providerAddress: place.mode === 'remote' ? null : placeAddressFromReusablePlace(place),
@@ -595,6 +597,137 @@ function parseLocalDateTime(dateValue: string, timeValue: string) {
   return date;
 }
 
+function addDaysToDate(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function toDateInputValueFromDate(date: Date) {
+  return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
+}
+
+function nextWeekendDate() {
+  const today = new Date();
+  const day = today.getDay();
+  if (day === 6 || day === 0) return today;
+  return addDaysToDate(today, 6 - day);
+}
+
+function nextWeekDate() {
+  const today = new Date();
+  const day = today.getDay();
+  const daysUntilNextMonday = ((8 - day) % 7) || 7;
+  return addDaysToDate(today, daysUntilNextMonday);
+}
+
+function datePresetValue(preset: 'today' | 'tomorrow' | 'weekend' | 'next_week') {
+  const today = new Date();
+  if (preset === 'today') return toDateInputValueFromDate(today);
+  if (preset === 'tomorrow') return toDateInputValueFromDate(addDaysToDate(today, 1));
+  if (preset === 'weekend') return toDateInputValueFromDate(nextWeekendDate());
+  return toDateInputValueFromDate(nextWeekDate());
+}
+
+function timePresetValue(preset: 'morning' | 'afternoon' | 'evening') {
+  if (preset === 'morning') return '09:00';
+  if (preset === 'afternoon') return '13:00';
+  return '18:00';
+}
+
+function formatInputDateLabel(value: string) {
+  const date = parseLocalDateTime(value, '12:00');
+  if (!date) return value || 'DD/MM/YYYY';
+  return `${padDatePart(date.getDate())}/${padDatePart(date.getMonth() + 1)}/${date.getFullYear()}`;
+}
+
+function formatInputTimeLabel(value: string) {
+  if (!/^\d{2}:\d{2}$/.test(value)) return value || 'HH:MM';
+  return value;
+}
+
+function formatCompactIsoDateTime(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${padDatePart(date.getDate())}/${padDatePart(date.getMonth() + 1)}/${date.getFullYear()} · ${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`;
+}
+
+type PlanNativePickerMode = 'date' | 'time';
+type PlanEndPickerMode = 'duration' | 'custom';
+type PlanStopTimeSheetState = { placeIndex: number; mode: PlanNativePickerMode } | null;
+
+function toTimeInputValueFromDate(date: Date) {
+  return `${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`;
+}
+
+function nativePickerDateValue(dateValue: string, timeValue: string, mode: PlanNativePickerMode) {
+  const fallbackDate = /^\d{4}-\d{2}-\d{2}$/.test(dateValue.trim()) ? dateValue.trim() : toDateInputValueFromDate(new Date());
+  const fallbackTime = /^\d{2}:\d{2}$/.test(timeValue.trim()) ? timeValue.trim() : mode === 'time' ? '13:00' : '12:00';
+  return parseLocalDateTime(fallbackDate, fallbackTime) ?? new Date();
+}
+
+function nativePickerPatch(mode: PlanNativePickerMode, selectedDate: Date) {
+  if (mode === 'date') return { date: toDateInputValueFromDate(selectedDate) };
+  return { time: toTimeInputValueFromDate(selectedDate) };
+}
+
+function addMinutesToIso(value: string, minutes: number) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setMinutes(date.getMinutes() + minutes);
+  return date;
+}
+
+function dateAndTimeFromDate(value: Date): PlanEndState {
+  return { date: toDateInputValueFromDate(value), time: `${padDatePart(value.getHours())}:${padDatePart(value.getMinutes())}` };
+}
+
+function nextPlanStopDateTimeFromPlaces(places: SelectedPlanPlaceState[], fallbackDate = toDateInputValue()) {
+  const previous = places[places.length - 1];
+  const previousDateTime = previous ? parseLocalDateTime(previous.date, previous.time) : null;
+  if (!previousDateTime) return { date: previous?.date || fallbackDate, time: places.length === 0 ? '13:00' : '' };
+  const nextDate = new Date(previousDateTime);
+  nextDate.setMinutes(nextDate.getMinutes() + PLAN_MIN_STOP_START_GAP_MINUTES);
+  return dateAndTimeFromDate(nextDate);
+}
+
+function planDurationLabel(minutes: number) {
+  if (minutes === 30) return '30 min';
+  if (minutes === 60) return '1h';
+  if (minutes === 90) return '1h30';
+  if (minutes === 120) return '2h';
+  return formatDurationMinutes(minutes);
+}
+
+function planSelectedTimeRange(schedule: ReturnType<typeof buildMobilePlanSchedule>, explicitEnd: ReturnType<typeof parseOptionalMobilePlanEnd>) {
+  if (!schedule.startsAt) return null;
+  const start = new Date(schedule.startsAt);
+  const end = new Date(explicitEnd.endsAt || schedule.endsAt || schedule.startsAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  if (end.getTime() < start.getTime()) return null;
+  return { start, end };
+}
+
+function planConflictWarning(plans: PlanDto[], schedule: ReturnType<typeof buildMobilePlanSchedule>, explicitEnd: ReturnType<typeof parseOptionalMobilePlanEnd>) {
+  const selected = planSelectedTimeRange(schedule, explicitEnd);
+  if (!selected) return '';
+  const oneHour = 60 * 60 * 1000;
+  for (const plan of plans) {
+    if (plan.status === 'cancelled') continue;
+    const planStart = new Date(plan.startsAt);
+    const planEnd = new Date(plan.endsAt || plan.startsAt);
+    if (Number.isNaN(planStart.getTime()) || Number.isNaN(planEnd.getTime())) continue;
+    const bufferedStart = planStart.getTime() - oneHour;
+    const bufferedEnd = Math.max(planEnd.getTime(), planStart.getTime()) + oneHour;
+    const overlapsOrTooClose = selected.start.getTime() < bufferedEnd && selected.end.getTime() > bufferedStart;
+    if (!overlapsOrTooClose) continue;
+    const label = plan.title?.trim() || 'another Plan';
+    return `This time overlaps or sits within 1 hour of “${label}”. Leave at least 1 hour between Plans before publishing.`;
+  }
+  return '';
+}
+
 function buildMobilePlanSchedule(places: SelectedPlanPlaceState[]) {
   if (places.length === 0) {
     return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: 'Add at least one place with a valid date and time.' };
@@ -617,8 +750,9 @@ function buildMobilePlanSchedule(places: SelectedPlanPlaceState[]) {
     if (!currentDateTime) {
       return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: `Add a valid date and time for Place ${index + 1}.` };
     }
-    if (currentDateTime.getTime() < previousDateTime.getTime()) {
-      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: 'Each place time must be at the same time or after the previous place.' };
+    const minNextStartTime = previousDateTime.getTime() + PLAN_MIN_STOP_START_GAP_MINUTES * 60_000;
+    if (currentDateTime.getTime() < minNextStartTime) {
+      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: `Place ${index + 1} must start at least ${PLAN_MIN_STOP_START_GAP_MINUTES} minutes after Place ${index}.` };
     }
     placeStartsAt[index] = currentDateTime.toISOString();
     previousDateTime = currentDateTime;
@@ -678,7 +812,7 @@ function mobilePlanEndSummary(schedule: ReturnType<typeof buildMobilePlanSchedul
       : `Estimated from the average gap between places${estimatedDuration ? ` (${estimatedDuration})` : ''}.`;
   return {
     label: manual ? 'Manual end' : 'Estimated end',
-    endLabel: formatDate(endsAt),
+    endLabel: formatCompactIsoDateTime(endsAt),
     detail,
     manual,
   };
@@ -1456,6 +1590,7 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [archivingPlaceId, setArchivingPlaceId] = useState<string | null>(null);
+  const [archiveConfirmPlace, setArchiveConfirmPlace] = useState<PlaceDto | null>(null);
 
   const load = useCallback(async ({ refresh = false }: { refresh?: boolean } = {}) => {
     if (!isPlansVisible()) { setLoading(false); return; }
@@ -1477,21 +1612,11 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
 
   function confirmArchivePlace(place: PlaceDto) {
     if (scope !== 'mine' || place.source !== 'user') return;
-    Alert.alert(
-      'Delete Place?',
-      'This removes the Place from My Places and future Plan pickers. Existing Plans keep their saved Place details.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => { void archivePlace(place); },
-        },
-      ],
-    );
+    setArchiveConfirmPlace(place);
   }
 
   async function archivePlace(place: PlaceDto) {
+    setArchiveConfirmPlace(null);
     setArchivingPlaceId(place.id);
     setError(null);
     setMessage(null);
@@ -1517,23 +1642,36 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
   }
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.listContent}
-      showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
-    >
-      {message ? <InfoNotice tone="success" title="My Places" body={message} /> : null}
-      {scope === 'mine' ? <InfoNotice tone="info" title="Reusable Places" body="Edit your saved Places here. Delete archives the Place from future pickers, while existing Plans keep their saved details." /> : null}
-      {places.map((place) => (
-        <PlaceRow
-          key={place.id}
-          place={place}
-          onEdit={scope === 'mine' && place.source === 'user' ? () => navigation.navigate('CreatePlace', { editPlace: place }) : undefined}
-          onArchive={scope === 'mine' && place.source === 'user' ? () => confirmArchivePlace(place) : undefined}
-          archiving={archivingPlaceId === place.id}
-        />
-      ))}
-    </ScrollView>
+    <>
+      <ScrollView
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
+      >
+        {message ? <InfoNotice tone="success" title="My Places" body={message} /> : null}
+        {scope === 'mine' ? <InfoNotice tone="info" title="Reusable Places" body="Edit your saved Places here. Delete archives the Place from future pickers, while existing Plans keep their saved details." /> : null}
+        {places.map((place) => (
+          <PlaceRow
+            key={place.id}
+            place={place}
+            onEdit={scope === 'mine' && place.source === 'user' ? () => navigation.navigate('CreatePlace', { editPlace: place }) : undefined}
+            onArchive={scope === 'mine' && place.source === 'user' ? () => confirmArchivePlace(place) : undefined}
+            archiving={archivingPlaceId === place.id}
+          />
+        ))}
+      </ScrollView>
+      <AppConfirmSheet
+        visible={Boolean(archiveConfirmPlace)}
+        title="Delete Place?"
+        body="This removes the Place from My Places and future Plan pickers. Existing Plans keep their saved Place details."
+        cancelLabel="Cancel"
+        confirmLabel="Delete Place"
+        tone="danger"
+        confirmDisabled={Boolean(archivingPlaceId)}
+        onCancel={() => setArchiveConfirmPlace(null)}
+        onConfirm={() => { if (archiveConfirmPlace) void archivePlace(archiveConfirmPlace); }}
+      />
+    </>
   );
 }
 
@@ -2010,6 +2148,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   const [publicMessageCount, setPublicMessageCount] = useState(0);
   const [verifyingPlaceId, setVerifyingPlaceId] = useState<string | null>(null);
   const [presenceNotices, setPresenceNotices] = useState<Record<string, PlanPlacePresenceNotice>>({});
+  const [cancelConfirmVisible, setCancelConfirmVisible] = useState(false);
 
   const load = useCallback(async () => {
     if (!isPlansVisible()) { setLoading(false); return; }
@@ -2087,34 +2226,25 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
 
   function cancelPlan() {
     if (!plan || !canCancelPlan || busy) return;
-    Alert.alert(
-      'Cancel Plan?',
-      'People will no longer be able to join, but the Plan will remain visible with a Cancelled status.',
-      [
-        { text: 'Keep Plan', style: 'cancel' },
-        {
-          text: 'Cancel Plan',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              setBusy(true);
-              setError(null);
-              setActionMessage(null);
-              setActionError(null);
-              try {
-                await api.plans.update(plan.id, { status: 'cancelled' });
-                setActionMessage('Plan cancelled. It remains visible with a Cancelled status.');
-                await load();
-              } catch (caughtError) {
-                setActionError(getFriendlyApiErrorMessage(caughtError));
-              } finally {
-                setBusy(false);
-              }
-            })();
-          },
-        },
-      ],
-    );
+    setCancelConfirmVisible(true);
+  }
+
+  async function confirmCancelPlan() {
+    if (!plan || !canCancelPlan || busy) return;
+    setCancelConfirmVisible(false);
+    setBusy(true);
+    setError(null);
+    setActionMessage(null);
+    setActionError(null);
+    try {
+      await api.plans.update(plan.id, { status: 'cancelled' });
+      setActionMessage('Plan cancelled. It remains visible with a Cancelled status.');
+      await load();
+    } catch (caughtError) {
+      setActionError(getFriendlyApiErrorMessage(caughtError));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function verifyPlanPlacePresence(place: PlanPlaceDto) {
@@ -2208,6 +2338,17 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
 
   return (
     <AppFixedHeaderScreen header={header}>
+      <AppConfirmSheet
+        visible={cancelConfirmVisible}
+        title="Cancel Plan?"
+        body="People will no longer be able to join, but the Plan will remain visible with a Cancelled status."
+        cancelLabel="Keep Plan"
+        confirmLabel="Cancel Plan"
+        tone="danger"
+        confirmDisabled={busy}
+        onCancel={() => setCancelConfirmVisible(false)}
+        onConfirm={() => { void confirmCancelPlan(); }}
+      />
       {loading ? <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Plan...</AppText></View> : null}
       {!loading && error ? <View style={styles.contentPad}><InfoNotice tone="warning" title="Could not load Plan" body={error} /></View> : null}
       {!loading && plan ? (
@@ -2491,6 +2632,326 @@ function TextField({
   );
 }
 
+function QuickChoiceButton({ label, active, onPress }: { label: string; active?: boolean; onPress: () => void }) {
+  const theme = useThemeTokens();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: Boolean(active) }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.quickChoiceButton,
+        { borderColor: active ? theme.semantic.plan.border : theme.color.border, backgroundColor: active ? theme.semantic.plan.softBg : theme.color.surface },
+        pressed && styles.pressed,
+      ]}
+    >
+      <AppText style={[styles.quickChoiceButtonText, { color: active ? theme.semantic.plan.text : theme.color.text }]}>{label}</AppText>
+    </Pressable>
+  );
+}
+
+function PlanNativeDateTimePicker({
+  mode,
+  date,
+  time,
+  onChange,
+  onClose,
+}: {
+  mode: PlanNativePickerMode;
+  date: string;
+  time: string;
+  onChange: (patch: { date?: string; time?: string }) => void;
+  onClose: () => void;
+}) {
+  const theme = useThemeTokens();
+  const pickerValue = nativePickerDateValue(date, time, mode);
+
+  function handleNativeChange(event: DateTimePickerEvent, selectedDate?: Date) {
+    if (Platform.OS === 'android') onClose();
+    if (event.type === 'dismissed' || !selectedDate) return;
+    onChange(nativePickerPatch(mode, selectedDate));
+  }
+
+  return (
+    <View style={[styles.nativePickerCard, { borderColor: theme.color.border, backgroundColor: theme.color.surface }]}>
+      {Platform.OS === 'ios' ? (
+        <View style={styles.nativePickerHeader}>
+          <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{mode === 'date' ? 'Choose date' : 'Choose time'}</AppText>
+          <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.nativePickerDoneButton, pressed && styles.pressed]}>
+            <AppText style={[styles.quickChoiceButtonText, { color: theme.semantic.plan.text }]}>Done</AppText>
+          </Pressable>
+        </View>
+      ) : null}
+      <DateTimePicker
+        value={pickerValue}
+        mode={mode}
+        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+        is24Hour
+        minuteInterval={mode === 'time' ? 5 : undefined}
+        onChange={handleNativeChange}
+        style={styles.nativePicker}
+      />
+      {Platform.OS === 'android' ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>Use the system picker to choose a custom {mode}.</AppText> : null}
+    </View>
+  );
+}
+
+function PlanPickerSheetFrame({
+  visible,
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  visible: boolean;
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const theme = useThemeTokens();
+  if (!visible) return null;
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sourceSheetOverlay}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Close time picker" onPress={onClose} style={styles.sourceSheetScrim} />
+        <View style={[styles.planPickerSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+          <View style={[styles.sourceSheetHandle, { backgroundColor: theme.color.border }]} />
+          <View style={styles.sourceSheetTopbar}>
+            <View style={styles.sourceSheetTitleBlock}>
+              <AppText style={styles.sourceSheetTitle}>{title}</AppText>
+              {subtitle ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>{subtitle}</AppText> : null}
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={[styles.headerAction, { borderColor: theme.color.border }]}>
+              <MobileIcon name="close" color={theme.color.text} size={18} />
+            </Pressable>
+          </View>
+          <View style={styles.planPickerSheetContent}>{children}</View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function PlanDateTimePickerSheet({
+  visible,
+  mode,
+  date,
+  time,
+  title,
+  subtitle,
+  onChange,
+  onClose,
+}: {
+  visible: boolean;
+  mode: PlanNativePickerMode;
+  date: string;
+  time: string;
+  title: string;
+  subtitle?: string;
+  onChange: (patch: { date?: string; time?: string }) => void;
+  onClose: () => void;
+}) {
+  if (!visible) return null;
+  const pickerValue = nativePickerDateValue(date, time, mode);
+
+  function handleAndroidChange(event: DateTimePickerEvent, selectedDate?: Date) {
+    onClose();
+    if (event.type === 'dismissed' || !selectedDate) return;
+    onChange(nativePickerPatch(mode, selectedDate));
+  }
+
+  function handleIosChange(patch: { date?: string; time?: string }) {
+    onChange(patch);
+  }
+
+  if (Platform.OS === 'android') {
+    return (
+      <DateTimePicker
+        value={pickerValue}
+        mode={mode}
+        display={mode === 'date' ? 'calendar' : 'clock'}
+        is24Hour
+        minuteInterval={mode === 'time' ? 5 : undefined}
+        onChange={handleAndroidChange}
+      />
+    );
+  }
+
+  return (
+    <PlanPickerSheetFrame visible={visible} title={title} subtitle={subtitle} onClose={onClose}>
+      <PlanNativeDateTimePicker mode={mode} date={date} time={time} onChange={handleIosChange} onClose={onClose} />
+    </PlanPickerSheetFrame>
+  );
+}
+
+function PlanStopTimeCompactRow({
+  place,
+  index,
+  onDatePress,
+  onTimePress,
+}: {
+  place: SelectedPlanPlaceState;
+  index: number;
+  onDatePress: () => void;
+  onTimePress: () => void;
+}) {
+  const theme = useThemeTokens();
+  return (
+    <View style={styles.planStopScheduleRow}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Choose date for Place ${index + 1}`}
+        onPress={(event) => {
+          event.stopPropagation();
+          onDatePress();
+        }}
+        style={({ pressed }) => [styles.planStopSchedulePill, { backgroundColor: theme.semantic.time.softBg, borderColor: theme.semantic.time.border }, pressed && styles.pressed]}
+      >
+        <AppText style={[styles.planStopScheduleText, { color: theme.semantic.time.text }]}>{formatInputDateLabel(place.date)}</AppText>
+      </Pressable>
+      <AppText style={[styles.planStopScheduleSeparator, { color: theme.color.muted }]}>·</AppText>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Choose time for Place ${index + 1}`}
+        onPress={(event) => {
+          event.stopPropagation();
+          onTimePress();
+        }}
+        style={({ pressed }) => [styles.planStopSchedulePill, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
+      >
+        <AppText style={[styles.planStopScheduleText, { color: theme.color.text }]}>{formatInputTimeLabel(place.time)}</AppText>
+      </Pressable>
+    </View>
+  );
+}
+
+function PlanDurationQuickControls({ schedule, onSelectDuration }: { schedule: ReturnType<typeof buildMobilePlanSchedule>; onSelectDuration: (minutes: number) => void }) {
+  const theme = useThemeTokens();
+  const durations = [30, 60, 90, 120];
+  return (
+    <View style={styles.quickPickerGroup}>
+      <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>Duration helper</AppText>
+      <View style={styles.quickChoiceRow}>
+        {durations.map((minutes) => (
+          <QuickChoiceButton key={minutes} label={planDurationLabel(minutes)} onPress={() => onSelectDuration(minutes)} />
+        ))}
+        <QuickChoiceButton label="Custom" onPress={() => onSelectDuration(0)} />
+      </View>
+      {!schedule.startsAt ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose a start date and time first.</AppText> : null}
+    </View>
+  );
+}
+
+function PlanEndNativeControls({ end, schedule, onChange }: { end: PlanEndState; schedule: ReturnType<typeof buildMobilePlanSchedule>; onChange: (patch: Partial<PlanEndState>) => void }) {
+  const theme = useThemeTokens();
+  const [customEndDateOpen, setCustomEndDateOpen] = useState(false);
+  const [customEndTimeOpen, setCustomEndTimeOpen] = useState(false);
+  const fallbackEnd = schedule.endsAt ? new Date(schedule.endsAt) : schedule.startsAt ? new Date(schedule.startsAt) : new Date();
+  const fallbackDate = Number.isNaN(fallbackEnd.getTime()) ? toDateInputValueFromDate(new Date()) : toDateInputValueFromDate(fallbackEnd);
+  const fallbackTime = Number.isNaN(fallbackEnd.getTime()) ? '13:00' : toTimeInputValueFromDate(fallbackEnd);
+  const pickerDate = end.date || fallbackDate;
+  const pickerTime = end.time || fallbackTime;
+
+  function handleEndChange(patch: { date?: string; time?: string }) {
+    onChange({
+      date: (patch.date ?? end.date) || fallbackDate,
+      time: (patch.time ?? end.time) || fallbackTime,
+    });
+  }
+
+  return (
+    <View style={styles.quickPickerGroup}>
+      <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>Custom end</AppText>
+      <View style={styles.quickChoiceRow}>
+        <QuickChoiceButton label={end.date ? formatInputDateLabel(end.date) : 'End date'} active={customEndDateOpen || Boolean(end.date)} onPress={() => { setCustomEndTimeOpen(false); setCustomEndDateOpen((open) => !open); }} />
+        <QuickChoiceButton label={end.time ? formatInputTimeLabel(end.time) : 'End time'} active={customEndTimeOpen || Boolean(end.time)} onPress={() => { setCustomEndDateOpen(false); setCustomEndTimeOpen((open) => !open); }} />
+      </View>
+      {customEndDateOpen ? (
+        <PlanNativeDateTimePicker mode="date" date={pickerDate} time={pickerTime} onChange={handleEndChange} onClose={() => setCustomEndDateOpen(false)} />
+      ) : null}
+      {customEndTimeOpen ? (
+        <PlanNativeDateTimePicker mode="time" date={pickerDate} time={pickerTime} onChange={handleEndChange} onClose={() => setCustomEndTimeOpen(false)} />
+      ) : null}
+      <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose a custom end only when the automatic estimate is not right.</AppText>
+    </View>
+  );
+}
+
+function PlanEndCompactRow({
+  endSummary,
+  onOpenCustom,
+  onReset,
+}: {
+  endSummary: ReturnType<typeof mobilePlanEndSummary>;
+  onOpenCustom: () => void;
+  onReset: () => void;
+}) {
+  const theme = useThemeTokens();
+  return (
+    <View style={styles.planEndSummaryRow}>
+      <View style={styles.timelineCopy}>
+        <AppText style={styles.rowTitle}>{endSummary?.label || 'Estimated end'}</AppText>
+        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{endSummary?.endLabel || 'Choose a start date and time to calculate the end.'}</AppText>
+      </View>
+      <View style={styles.quickChoiceRow}>
+        <QuickChoiceButton label="Change end time" active={Boolean(endSummary?.manual)} onPress={onOpenCustom} />
+        {endSummary?.manual ? <QuickChoiceButton label="Use estimate" onPress={onReset} /> : null}
+      </View>
+    </View>
+  );
+}
+
+function PlanEndPickerSheet({
+  visible,
+  mode,
+  end,
+  schedule,
+  onChange,
+  onSelectDuration,
+  onClose,
+}: {
+  visible: boolean;
+  mode: PlanEndPickerMode;
+  end: PlanEndState;
+  schedule: ReturnType<typeof buildMobilePlanSchedule>;
+  onChange: (patch: Partial<PlanEndState>) => void;
+  onSelectDuration: (minutes: number) => void;
+  onClose: () => void;
+}) {
+  const theme = useThemeTokens();
+  const durations = [30, 60, 90, 120];
+
+  function chooseDuration(minutes: number) {
+    onSelectDuration(minutes);
+    onClose();
+  }
+
+  return (
+    <PlanPickerSheetFrame
+      visible={visible}
+      title={mode === 'duration' ? 'Duration' : 'Custom end'}
+      subtitle={mode === 'duration' ? 'Choose how long this Plan should last.' : 'Use this only when the automatic end is not right.'}
+      onClose={onClose}
+    >
+      {mode === 'duration' ? (
+        <View style={styles.quickPickerGroup}>
+          <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>Duration helper</AppText>
+          <View style={styles.quickChoiceRow}>
+            {durations.map((minutes) => (
+              <QuickChoiceButton key={minutes} label={planDurationLabel(minutes)} onPress={() => chooseDuration(minutes)} />
+            ))}
+          </View>
+          {!schedule.startsAt ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose a start date and time first.</AppText> : null}
+        </View>
+      ) : (
+        <PlanEndNativeControls end={end} schedule={schedule} onChange={onChange} />
+      )}
+    </PlanPickerSheetFrame>
+  );
+}
+
 function makeGooglePlaceSessionToken() {
   const maybeCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
   if (typeof maybeCrypto?.randomUUID === 'function') {
@@ -2730,16 +3191,16 @@ function SecondaryButton({ label, onPress, disabled, icon }: { label: string; on
   );
 }
 
-function PlaceChoiceCard({ place, onAdd }: { place: PlaceDto; onAdd: () => void }) {
+function PlaceChoiceCard({ place, onPress }: { place: PlaceDto; onPress: () => void }) {
   const theme = useThemeTokens();
   const disabledReason = reusablePlaceDisabledReason(place);
-  const disabled = Boolean(disabledReason);
+  const needsFix = Boolean(disabledReason);
   const meta = [place.mode === 'remote' ? 'Online' : 'Offline', place.category, place.formattedAddress || place.areaLabel || place.addressPublicText || place.onlineLabel]
     .filter((value): value is string => Boolean(value && value.trim()))
     .join(' · ');
   const mediaUrl = placeVisualUrl(activeMedia(place.media)[0], place.staticMap, theme.mode);
   return (
-    <Pressable accessibilityRole="button" disabled={disabled} onPress={onAdd} style={({ pressed }) => [styles.choiceCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, disabled && styles.disabled]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={needsFix ? `Fix ${place.title}` : `Add ${place.title}`} onPress={onPress} style={({ pressed }) => [styles.choiceCard, { backgroundColor: theme.color.surface, borderColor: needsFix ? theme.semantic.warning.border : theme.color.border }, pressed && styles.pressed]}>
       <View style={[styles.choiceIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
         {mediaUrl ? <Image source={{ uri: mediaUrl }} resizeMode="cover" style={styles.choiceImage as ImageStyle} /> : <MobileIcon name={place.mode === 'remote' ? 'send' : 'calendar'} size={18} color={theme.semantic.place.text} />}
       </View>
@@ -2749,16 +3210,16 @@ function PlaceChoiceCard({ place, onAdd }: { place: PlaceDto; onAdd: () => void 
           <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
         </View>
         <AppText style={styles.choiceTitle}>{place.title}</AppText>
-        <AppText style={[styles.choiceMeta, { color: theme.color.muted }]} numberOfLines={1}>{disabledReason || meta || 'Reusable Place'}</AppText>
+        <AppText style={[styles.choiceMeta, { color: needsFix ? theme.semantic.warning.text : theme.color.muted }]} numberOfLines={2}>{disabledReason || meta || 'Reusable Place'}</AppText>
       </View>
-      <View style={[styles.addMini, { backgroundColor: disabled ? theme.color.border : theme.semantic.place.bg }]}>
-        {disabled ? <AppText style={[styles.addMiniText, { color: theme.color.muted }]}>Fix</AppText> : <MobileIcon name="add" size={16} color={theme.color.background} />}
+      <View style={[styles.addMini, { backgroundColor: needsFix ? theme.semantic.warning.softBg : theme.semantic.place.bg, borderColor: needsFix ? theme.semantic.warning.border : 'transparent' }]}>
+        {needsFix ? <AppText style={[styles.addMiniText, { color: theme.semantic.warning.text }]}>Fix</AppText> : <MobileIcon name="add" size={16} color={theme.color.background} />}
       </View>
     </Pressable>
   );
 }
 
-function PlaceTimelineRow({ place, index, onPress }: { place: SelectedPlanPlaceState; index: number; onPress: () => void }) {
+function PlaceTimelineRow({ place, index, onPress, onDatePress, onTimePress }: { place: SelectedPlanPlaceState; index: number; onPress: () => void; onDatePress: () => void; onTimePress: () => void }) {
   const theme = useThemeTokens();
   const meta = placePreviewLocation(place) || 'No location yet';
   const mediaUrl = placeVisualUrl(place.existingMedia, place.existingStaticMap, theme.mode);
@@ -2770,10 +3231,7 @@ function PlaceTimelineRow({ place, index, onPress }: { place: SelectedPlanPlaceS
         </View>
       ) : null}
       <View style={styles.timelineCopy}>
-        <View style={styles.rowTop}>
-          <SemanticBadge label={`Place ${index + 1}`} tone="place" size="sm" />
-          {place.sourcePlaceId ? <SemanticBadge label={place.sourcePlaceSource === 'hellowhen_library' ? 'Library' : 'My Place'} tone="place" size="sm" /> : <SemanticBadge label="Custom" tone="place" size="sm" />}
-        </View>
+        <PlanStopTimeCompactRow place={place} index={index} onDatePress={onDatePress} onTimePress={onTimePress} />
         <AppText style={styles.rowTitle}>{place.title || place.sourcePlaceTitle || `Place ${index + 1}`}</AppText>
         <AppText style={[styles.metaText, { color: theme.color.muted }]} numberOfLines={2}>{meta}</AppText>
       </View>
@@ -2950,6 +3408,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   const [places, setPlaces] = useState<SelectedPlanPlaceState[]>([]);
   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
   const [libraryPlaces, setLibraryPlaces] = useState<PlaceDto[]>([]);
+  const [myPlansForConflict, setMyPlansForConflict] = useState<PlanDto[]>([]);
   const [pickerTab, setPickerTab] = useState<PlacePickerTab>('mine');
   const [placeQuery, setPlaceQuery] = useState('');
   const [loadingPlaces, setLoadingPlaces] = useState(false);
@@ -2961,6 +3420,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   const [placePickerOpen, setPlacePickerOpen] = useState(false);
   const [placeSourceTarget, setPlaceSourceTarget] = useState<PlaceSourceTarget>('new');
   const [detailPlaceIndex, setDetailPlaceIndex] = useState<number | null>(null);
+  const [timeSheet, setTimeSheet] = useState<PlanStopTimeSheetState>(null);
+  const [endPickerMode, setEndPickerMode] = useState<PlanEndPickerMode | null>(null);
   const [advancedDetailsOpen, setAdvancedDetailsOpen] = useState(false);
   const handledCreatedPlaceNonceRef = useRef<number | undefined>(undefined);
   const handledInitialPlanIdeaRef = useRef<string | null>(null);
@@ -2981,6 +3442,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   const schedule = useMemo(() => buildMobilePlanSchedule(schedulablePlaces), [schedulablePlaces]);
   const explicitPlanEnd = useMemo(() => parseOptionalMobilePlanEnd(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
   const endSummary = useMemo(() => mobilePlanEndSummary(schedule, planEnd), [schedule, planEnd]);
+  const conflictWarning = useMemo(() => planConflictWarning(myPlansForConflict, schedule, explicitPlanEnd), [explicitPlanEnd, myPlansForConflict, schedule]);
   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
     places: placesForGeneratedDisplay,
     startsAt: schedule.startsAt,
@@ -3041,9 +3503,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     setLoadingPlaces(true);
     setError(null);
     try {
-      const [mineResponse, libraryResponse] = await Promise.all([api.places.mine({ take: 100 }), api.places.library({ take: 100 })]);
+      const [mineResponse, libraryResponse, plansResponse] = await Promise.all([api.places.mine({ take: 100 }), api.places.library({ take: 100 }), api.plans.mine()]);
       setMyPlaces(mineResponse.places ?? []);
       setLibraryPlaces(libraryResponse.places ?? []);
+      setMyPlansForConflict(plansResponse.plans ?? []);
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
     } finally {
@@ -3099,16 +3562,21 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     if (!updatedPlace || !updatedPlaceNonce || handledCreatedPlaceNonceRef.current === updatedPlaceNonce) return;
     handledCreatedPlaceNonceRef.current = updatedPlaceNonce;
     setMyPlaces((current) => [updatedPlace, ...current.filter((place) => place.id !== updatedPlace.id)]);
+    const selectAfterFix = Boolean(route.params?.updatedPlaceSelectAfterFix);
     setPlaces((current) => {
       const targetIndex = route.params?.updatedPlaceTargetIndex;
       if (typeof targetIndex === 'number' && current[targetIndex]) {
         return current.map((item, index) => index === targetIndex ? { ...selectedPlaceFromReusable(updatedPlace, index, item.date || toDateInputValue()), id: item.id, date: item.date, time: item.time } : item);
       }
+      if (selectAfterFix) {
+        const nextStart = nextPlanStopDateTimeFromPlaces(current);
+        return [...current, selectedPlaceFromReusable(updatedPlace, current.length, nextStart.date, nextStart.time)];
+      }
       return current.map((item, index) => item.sourcePlaceId === updatedPlace.id ? { ...selectedPlaceFromReusable(updatedPlace, index, item.date || toDateInputValue()), id: item.id, date: item.date, time: item.time } : item);
     });
-    setMessage('Place updated in this Plan.');
-    navigation.setParams({ updatedPlace: undefined, updatedPlaceTargetIndex: undefined, updatedPlaceNonce: undefined });
-  }, [navigation, route.params?.updatedPlace, route.params?.updatedPlaceNonce, route.params?.updatedPlaceTargetIndex]);
+    setMessage(selectAfterFix ? 'Place fixed and added to this Plan.' : 'Place updated in this Plan.');
+    navigation.setParams({ updatedPlace: undefined, updatedPlaceTargetIndex: undefined, updatedPlaceNonce: undefined, updatedPlaceSelectAfterFix: undefined });
+  }, [navigation, route.params?.updatedPlace, route.params?.updatedPlaceNonce, route.params?.updatedPlaceSelectAfterFix, route.params?.updatedPlaceTargetIndex]);
 
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
 
@@ -3135,7 +3603,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   function addCustomPlace() {
     if (placeSourceTarget === 'new') {
       const nextIndex = places.length;
-      setPlaces((current) => [...current, makeSelectedPlanPlace(current.length, current[current.length - 1]?.date || toDateInputValue())]);
+      setPlaces((current) => {
+        const nextStart = nextPlanStopDateTimeFromPlaces(current);
+        return [...current, makeSelectedPlanPlace(current.length, nextStart.date, nextStart.time)];
+      });
       setDetailPlaceIndex(nextIndex);
     } else {
       const targetIndex = placeSourceTarget;
@@ -3150,7 +3621,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
   function addReusablePlace(place: PlaceDto, explicitTarget: PlaceSourceTarget = placeSourceTarget) {
     if (explicitTarget === 'new') {
-      setPlaces((current) => [...current, selectedPlaceFromReusable(place, current.length, current[current.length - 1]?.date || toDateInputValue())]);
+      setPlaces((current) => {
+        const nextStart = nextPlanStopDateTimeFromPlaces(current);
+        return [...current, selectedPlaceFromReusable(place, current.length, nextStart.date, nextStart.time)];
+      });
     } else {
       const targetIndex = explicitTarget;
       setPlaces((current) => current.map((item, index) => {
@@ -3162,6 +3636,26 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     closePlaceSourceSheet();
     setMessage(null);
     setError(null);
+  }
+
+  function fixReusablePlace(place: PlaceDto) {
+    const targetPlaceIndex = typeof placeSourceTarget === 'number' ? placeSourceTarget : undefined;
+    closePlaceSourceSheet();
+    setMessage(null);
+    setError(null);
+    if (place.source === 'user' && Number(place.usedInPlansCount ?? 0) === 0) {
+      navigation.navigate('CreatePlace', { returnToCreatePlan: true, editPlace: place, targetPlaceIndex, selectPlaceAfterSave: true });
+      return;
+    }
+    navigation.navigate('CreatePlace', { returnToCreatePlan: true, copyFromPlace: place, targetPlaceIndex });
+  }
+
+  function chooseReusablePlace(place: PlaceDto) {
+    if (isReusablePlaceSelectable(place)) {
+      addReusablePlace(place);
+      return;
+    }
+    fixReusablePlace(place);
   }
 
   function updateSelectedPlace(index: number, patch: Partial<SelectedPlanPlaceState>) {
@@ -3206,6 +3700,18 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   function updatePlanEnd(patch: Partial<PlanEndState>) {
     setPlanEnd((current) => ({ ...current, ...patch }));
     setError(null);
+  }
+
+  function applyPlanDuration(minutes: number) {
+    if (minutes <= 0) {
+      return;
+    }
+    const endDate = schedule.startsAt ? addMinutesToIso(schedule.startsAt, minutes) : null;
+    if (!endDate) {
+      setError('Choose a start date and time before selecting a duration.');
+      return;
+    }
+    updatePlanEnd(dateAndTimeFromDate(endDate));
   }
 
   function recordAddressGuidanceLayout(placeId: string, event: LayoutChangeEvent) {
@@ -3322,6 +3828,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
   const activeList = pickerTab === 'mine' ? filteredMyPlaces : filteredLibraryPlaces;
   const detailPlace = detailPlaceIndex !== null ? places[detailPlaceIndex] : null;
+  const timeSheetPlace = timeSheet ? places[timeSheet.placeIndex] ?? null : null;
 
   return (
     <AppFixedHeaderScreen header={<AppHeader title="Create plan" onBack={() => navigation.goBack()} />}>
@@ -3344,20 +3851,12 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
               <View style={[styles.timelineDividerBlock, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
                 {places.map((place, index) => (
                   <View key={place.id}>
-                    <View style={[styles.planTimelineLineItem, styles.placeTimeLineItem, { borderTopColor: theme.color.border }]}>
-                      <View style={styles.timelineCopy}>
-                        <SemanticBadge label="Date / time" tone="time" size="sm" />
-                        <AppText style={styles.sectionTitle}>Place {index + 1}</AppText>
-                      </View>
-                      <View style={styles.twoColumnRow}>
-                        <TextField label="Date" value={place.date} onChangeText={(date) => updateSelectedPlace(index, { date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
-                        <TextField label="Time" value={place.time} onChangeText={(time) => updateSelectedPlace(index, { time })} placeholder="13:00" keyboardType="numbers-and-punctuation" />
-                      </View>
-                    </View>
                     <PlaceTimelineRow
                       place={place}
                       index={index}
                       onPress={() => setDetailPlaceIndex(index)}
+                      onDatePress={() => setTimeSheet({ placeIndex: index, mode: 'date' })}
+                      onTimePress={() => setTimeSheet({ placeIndex: index, mode: 'time' })}
                     />
                     {expandedAddressPlaceIds.includes(place.id) && place.mode === 'local' && !hasValidOfflineProviderAddress(place.providerAddress) ? (
                       <View
@@ -3397,29 +3896,16 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
                 {places.length > 0 ? (
                   <View style={[styles.planTimelineLineItem, styles.planTimelineOptionalEnd, { borderTopColor: theme.color.border }]}>
-                    <View style={styles.timelineCopy}>
-                      <SemanticBadge label="Optional" tone="time" size="sm" />
-                      <AppText style={styles.sectionTitle}>End time</AppText>
-                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>Leave empty to use the estimated end from your place times.</AppText>
-                    </View>
-                    <View style={styles.twoColumnRow}>
-                      <TextField label="End date" value={planEnd.date} onChangeText={(date) => updatePlanEnd({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
-                      <TextField label="End time" value={planEnd.time} onChangeText={(time) => updatePlanEnd({ time })} placeholder="Optional" keyboardType="numbers-and-punctuation" />
-                    </View>
-                    {endSummary ? (
-                      <View style={[styles.planEndSummaryCard, { borderColor: theme.semantic.time.border, backgroundColor: theme.semantic.time.softBg }]}>
-                        <View style={styles.timelineCopy}>
-                          <SemanticBadge label={endSummary.label} tone="time" size="sm" />
-                          <AppText style={styles.rowTitle}>{endSummary.endLabel}</AppText>
-                          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{endSummary.detail}</AppText>
-                        </View>
-                        {endSummary.manual ? <SecondaryButton label="Use estimate" onPress={() => updatePlanEnd({ date: '', time: '' })} /> : null}
-                      </View>
-                    ) : null}
+                    <PlanEndCompactRow
+                      endSummary={endSummary}
+                      onOpenCustom={() => setEndPickerMode('custom')}
+                      onReset={() => updatePlanEnd({ date: '', time: '' })}
+                    />
                   </View>
                 ) : null}
               </View>
 
+              {conflictWarning ? <InfoNotice tone="warning" title="Time conflict" body={conflictWarning} /> : null}
               {error ? <InfoNotice tone="warning" title="Check plan" body={error} /> : null}
               {places.length > 0 ? (
                 <Pressable accessibilityRole="button" onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed]}>
@@ -3491,6 +3977,27 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
             </>
           )}
         </ScrollView>
+        {timeSheet && timeSheetPlace ? (
+          <PlanDateTimePickerSheet
+            visible={Boolean(timeSheetPlace)}
+            mode={timeSheet.mode}
+            date={timeSheetPlace.date}
+            time={timeSheetPlace.time}
+            title={timeSheet.mode === 'date' ? `Place ${timeSheet.placeIndex + 1} date` : `Place ${timeSheet.placeIndex + 1} time`}
+            subtitle={timeSheetPlace.title || timeSheetPlace.sourcePlaceTitle || 'Choose when this stop happens.'}
+            onChange={(patch) => updateSelectedPlace(timeSheet.placeIndex, patch)}
+            onClose={() => setTimeSheet(null)}
+          />
+        ) : null}
+        <PlanEndPickerSheet
+          visible={Boolean(endPickerMode)}
+          mode={endPickerMode ?? 'duration'}
+          end={planEnd}
+          schedule={schedule}
+          onChange={updatePlanEnd}
+          onSelectDuration={applyPlanDuration}
+          onClose={() => setEndPickerMode(null)}
+        />
         <Modal visible={Boolean(detailPlace)} transparent animationType="slide" onRequestClose={() => setDetailPlaceIndex(null)}>
           <View style={styles.sourceSheetOverlay}>
             <Pressable accessibilityRole="button" accessibilityLabel="Close place details" onPress={() => setDetailPlaceIndex(null)} style={styles.sourceSheetScrim} />
@@ -3616,7 +4123,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                   {loadingPlaces ? <View style={styles.inlineSmallLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Places...</AppText></View> : null}
                   {!loadingPlaces && activeList.length === 0 ? <EmptyBlock title="No matching Places" body={pickerTab === 'mine' ? 'Create a Place or use a custom stop.' : 'No matching Library Places yet.'} /> : null}
                   <ScrollView style={styles.sourceListScroll} keyboardShouldPersistTaps="handled">
-                    {activeList.map((place) => <PlaceChoiceCard key={place.id} place={place} onAdd={() => addReusablePlace(place)} />)}
+                    {activeList.map((place) => <PlaceChoiceCard key={place.id} place={place} onPress={() => chooseReusablePlace(place)} />)}
                   </ScrollView>
                   <View style={[styles.sourcePickerFooter, { borderTopColor: theme.color.border }]}>
                     <SecondaryButton label="Sources" onPress={() => setPlacePickerOpen(false)} />
@@ -3720,7 +4227,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
       setNewImages([]);
       if (route.params?.returnToCreatePlan) {
         if (isEditing) {
-          navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params.targetPlaceIndex, updatedPlaceNonce: Date.now() });
+          navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params.targetPlaceIndex, updatedPlaceNonce: Date.now(), updatedPlaceSelectAfterFix: route.params.selectPlaceAfterSave });
         } else {
           navigation.navigate('CreatePlan', { createdPlace: response.place, createdPlaceTargetIndex: route.params.targetPlaceIndex, createdPlaceNonce: Date.now() });
         }
@@ -3979,15 +4486,24 @@ const styles = StyleSheet.create({
   planTimelinePlaceAction: { paddingVertical: 18 },
   planAddPlaceRow: { minHeight: 54, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
   planAddPlaceRowFirst: { borderTopWidth: 0 },
-  planTimelineOptionalEnd: { opacity: 0.9, paddingTop: 12 },
-  planEndSummaryCard: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 10 },
+  planTimelineOptionalEnd: { opacity: 0.9, paddingTop: 10 },
+  planEndSummaryRow: { gap: 8 },
   placeTimelineRow: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  planStopScheduleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 1 },
+  planStopSchedulePill: { borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, paddingVertical: 6 },
+  planStopScheduleText: { fontSize: 13, lineHeight: 17, fontWeight: '900' },
+  planStopScheduleSeparator: { fontSize: 16, lineHeight: 18, fontWeight: '900' },
+  placeTimelineRowMeta: { gap: 7 },
   planAddressGuidance: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 13, gap: 12 },
   placeDetailSheetContent: { gap: 10, paddingBottom: 12 },
   placePickerPanel: { gap: 10 },
   sourceSheetOverlay: { flex: 1, justifyContent: 'flex-end' },
   sourceSheetScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.38)' },
   sourceSheet: { maxHeight: '86%', borderTopLeftRadius: 26, borderTopRightRadius: 26, borderWidth: 1, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 24, gap: 10 },
+  planPickerSheet: { maxHeight: '78%', borderTopLeftRadius: 26, borderTopRightRadius: 26, borderWidth: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: Platform.OS === 'ios' ? 28 : 22, gap: 10 },
+  planPickerSheetContent: { gap: 13 },
+  planPickerSummaryRow: { borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, padding: 11, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  planPickerSummaryIcon: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   sourceChoiceSheet: { maxHeight: '70%', borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 15, paddingTop: 8, paddingBottom: 14, gap: 6 },
   sourceSheetHandle: { alignSelf: 'center', width: 42, height: 4, borderRadius: 999, marginBottom: 2, opacity: 0.9 },
   sourceSheetTopbar: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -4216,6 +4732,18 @@ const styles = StyleSheet.create({
   twoColumnRow: { flexDirection: 'row', gap: 10 },
   timeCard: { borderRadius: 22, borderWidth: 1, padding: 12, gap: 11 },
   timeCardHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 },
+  quickDateTimeCard: { borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, padding: 12, gap: 13 },
+  nativePickerCard: { borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, padding: 8, gap: 8, overflow: 'hidden' },
+  nativePickerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingHorizontal: 4 },
+  nativePickerDoneButton: { minHeight: 34, borderRadius: 999, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
+  nativePicker: { alignSelf: 'stretch' },
+  quickDateTimeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  quickDateTimeTitle: { fontSize: 16, lineHeight: 20, fontWeight: '900' },
+  quickPickerGroup: { gap: 8 },
+  quickPickerLabel: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.55 },
+  quickChoiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  quickChoiceButton: { minHeight: 36, borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' },
+  quickChoiceButtonText: { fontSize: 12, fontWeight: '900' },
   advancedCard: { borderRadius: 0, borderWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 13, gap: 10 },
   advancedToggle: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10 },
   advancedPanel: { gap: 12, paddingTop: 2 },

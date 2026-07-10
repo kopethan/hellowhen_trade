@@ -1,0 +1,198 @@
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+index 6ac7812..03a8b26 100644
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -85,7 +85,7 @@ async function blockedUserIdsForViewer(viewerId?: string) {
+     where: { OR: [{ blockerId: viewerId }, { blockedId: viewerId }] },
+     select: { blockerId: true, blockedId: true },
+   });
+-  return Array.from(new Set(blocks.map((block) => block.blockerId === viewerId ? block.blockedId : block.blockerId)));
++  return Array.from(new Set(blocks.map((block: { blockerId: string; blockedId: string }) => block.blockerId === viewerId ? block.blockedId : block.blockerId)));
+ }
+ 
+ function normalizePlanSearchQuery(value?: string | null) {
+@@ -480,10 +480,21 @@ function planPublicDiscussionMessageSelect() {
+   } as const;
+ }
+ 
+-function estimatePlanEndsAtFromPlaces(input: { endsAt?: string | null; places?: Array<{ startsAt?: string | null }> }) {
+-  if (input.endsAt) return input.endsAt;
+-  const estimatedPlaceEndTimes = buildEstimatedPlanPlaceEndTimes((input.places ?? []).map((place) => place.startsAt));
+-  return estimatedPlaceEndTimes[estimatedPlaceEndTimes.length - 1] ?? null;
++function dateInputToIso(value?: string | Date | null) {
++  if (!value) return null;
++  return value instanceof Date ? value.toISOString() : value;
++}
++
++function estimatePlanEndsAtFromPlaces(input: { endsAt?: string | Date | null; places?: Array<{ startsAt?: string | Date | null; endsAt?: string | Date | null }> }) {
++  const explicitEndsAt = dateInputToIso(input.endsAt);
++  if (explicitEndsAt) return explicitEndsAt;
++
++  const places = input.places ?? [];
++  const estimatedPlaceEndTimes = buildEstimatedPlanPlaceEndTimes(places.map((place) => dateInputToIso(place.startsAt))).filter((value): value is string => Boolean(value));
++  const explicitPlaceEndTimes = places.map((place) => dateInputToIso(place.endsAt)).filter((value): value is string => Boolean(value));
++  const candidates = [...estimatedPlaceEndTimes, ...explicitPlaceEndTimes];
++  if (!candidates.length) return null;
++  return candidates.reduce((latest, candidate) => new Date(candidate).getTime() > new Date(latest).getTime() ? candidate : latest);
+ }
+ 
+ function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequestSchema.parse>) {
+@@ -511,25 +522,43 @@ function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequ
+ }
+ 
+ const activeOwnedPlanTimeStatuses = ['draft', 'open', 'full', 'started'] as const;
++const PLAN_TIME_MIN_GAP_MINUTES = 60;
++const PLAN_TIME_MIN_GAP_MS = PLAN_TIME_MIN_GAP_MINUTES * 60 * 1000;
++
++type PlanScheduleInput = {
++  startsAt: string | Date;
++  endsAt?: string | Date | null;
++  places?: Array<{ startsAt?: string | Date | null; endsAt?: string | Date | null }>;
++};
+ 
+-function effectivePlanRange(input: { startsAt: string; endsAt?: string | null; places?: Array<{ startsAt?: string | null }> }) {
++function effectivePlanRange(input: PlanScheduleInput) {
+   const startsAt = new Date(input.startsAt);
+   const estimatedEndsAt = estimatePlanEndsAtFromPlaces(input);
+-  const endsAt = estimatedEndsAt ? new Date(estimatedEndsAt) : startsAt;
++  const rawEndsAt = estimatedEndsAt ? new Date(estimatedEndsAt) : startsAt;
++  const endsAt = rawEndsAt.getTime() >= startsAt.getTime() ? rawEndsAt : startsAt;
+   return { startsAt, endsAt };
+ }
+ 
+-async function findOwnedPlanTimeOverlap(ownerId: string, input: { startsAt: string; endsAt?: string | null; places?: Array<{ startsAt?: string | null }> }, excludePlanId?: string) {
+-  const { startsAt, endsAt } = effectivePlanRange(input);
++function planRangeWithGap(input: PlanScheduleInput) {
++  const range = effectivePlanRange(input);
++  return {
++    ...range,
++    startsAtWithGap: new Date(range.startsAt.getTime() - PLAN_TIME_MIN_GAP_MS),
++    endsAtWithGap: new Date(range.endsAt.getTime() + PLAN_TIME_MIN_GAP_MS),
++  };
++}
++
++async function findOwnedPlanTimeConflict(ownerId: string, input: PlanScheduleInput, excludePlanId?: string) {
++  const { startsAtWithGap, endsAtWithGap } = planRangeWithGap(input);
+   return prisma.plan.findFirst({
+     where: {
+       ownerId,
+       ...(excludePlanId ? { id: { not: excludePlanId } } : {}),
+       status: { in: [...activeOwnedPlanTimeStatuses] as any },
+-      startsAt: { lte: endsAt },
++      startsAt: { lte: endsAtWithGap },
+       OR: [
+-        { endsAt: { gte: startsAt } },
+-        { endsAt: null, startsAt: { gte: startsAt } },
++        { endsAt: { gte: startsAtWithGap } },
++        { endsAt: null, startsAt: { gte: startsAtWithGap } },
+       ],
+     },
+     select: { id: true, title: true, startsAt: true, endsAt: true },
+@@ -537,19 +566,29 @@ async function findOwnedPlanTimeOverlap(ownerId: string, input: { startsAt: stri
+   });
+ }
+ 
+-function planTimeOverlapResponse(conflict: { id: string; title: string; startsAt: Date; endsAt: Date | null }) {
++function planTimeConflictResponse(conflict: { id: string; title: string; startsAt: Date; endsAt: Date | null }, requested: PlanScheduleInput) {
++  const requestedRange = effectivePlanRange(requested);
+   return {
+     error: 'plan_time_overlap',
+-    message: `This overlaps with your existing Plan “${conflict.title}”. Choose a different time or cancel the existing Plan first.`,
++    message: `This is too close to your existing Plan “${conflict.title}”. Keep at least ${PLAN_TIME_MIN_GAP_MINUTES} minutes between Plans.`,
++    minGapMinutes: PLAN_TIME_MIN_GAP_MINUTES,
+     plan: {
+       id: conflict.id,
+       title: conflict.title,
+       startsAt: conflict.startsAt.toISOString(),
+       endsAt: conflict.endsAt ? conflict.endsAt.toISOString() : null,
+     },
++    requested: {
++      startsAt: requestedRange.startsAt.toISOString(),
++      endsAt: requestedRange.endsAt.toISOString(),
++    },
+   };
+ }
+ 
++function planPlacesForSchedule(places: Array<{ startsAt?: Date | string | null; endsAt?: Date | string | null }>) {
++  return places.map((place) => ({ startsAt: dateInputToIso(place.startsAt), endsAt: dateInputToIso(place.endsAt) }));
++}
++
+ function planUpdateData(input: ReturnType<typeof updatePlanRequestSchema.parse>) {
+   return {
+     ...(input.title !== undefined ? { title: input.title } : {}),
+@@ -824,8 +863,8 @@ plansRoutes.get('/joined', requireAuth, asyncRoute(async (req, res) => {
+ 
+ plansRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = createPlanRequestSchema.parse(req.body ?? {});
+-  const overlappingPlan = await findOwnedPlanTimeOverlap(req.user!.id, input);
+-  if (overlappingPlan) return res.status(409).json(planTimeOverlapResponse(overlappingPlan));
++  const conflictingPlan = await findOwnedPlanTimeConflict(req.user!.id, input);
++  if (conflictingPlan) return res.status(409).json(planTimeConflictResponse(conflictingPlan, input));
+   const inputPlaces = input.places ?? [];
+   const estimatedPlaceEndTimes = buildEstimatedPlanPlaceEndTimes(inputPlaces.map((placeInput) => placeInput.startsAt));
+   const placeDataDrafts = [] as any[];
+@@ -863,10 +902,22 @@ plansRoutes.patch('/:planId', requireAuth, requireActiveAccount, asyncRoute(asyn
+ 
+ plansRoutes.post('/:planId/places', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = createPlanPlaceRequestSchema.parse(req.body ?? {});
+-  const plan = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id } });
++  const plan = await prisma.plan.findFirst({
++    where: { id: req.params.planId, ownerId: req.user!.id },
++    include: { places: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
++  });
+   if (!plan) return res.status(404).json({ error: 'not_found' });
+-  const existingCount = await prisma.planPlace.count({ where: { planId: plan.id } });
++  const existingCount = plan.places.length;
+   if (existingCount >= 12) return res.status(409).json({ error: 'too_many_places', message: 'A plan can include up to 12 places for now.' });
++
++  const proposedSchedule = {
++    startsAt: plan.startsAt,
++    endsAt: plan.endsAt,
++    places: [...planPlacesForSchedule(plan.places), { startsAt: input.startsAt ?? null, endsAt: input.endsAt ?? null }],
++  };
++  const conflictingPlan = await findOwnedPlanTimeConflict(req.user!.id, proposedSchedule, plan.id);
++  if (conflictingPlan) return res.status(409).json(planTimeConflictResponse(conflictingPlan, proposedSchedule));
++
+   const place = await prisma.planPlace.create({ data: await placeCreateData(plan.id, req.user!.id, input, existingCount) as any });
+   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan_place' as any, place.id, { maxImages: PLAN_PLACE_MEDIA_LIMITS.plus });
+   const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
+@@ -875,10 +926,24 @@ plansRoutes.post('/:planId/places', requireAuth, requireActiveAccount, asyncRout
+ 
+ plansRoutes.patch('/:planId/places/:placeId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = updatePlanPlaceRequestSchema.parse(req.body ?? {});
+-  const plan = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id } });
++  const plan = await prisma.plan.findFirst({
++    where: { id: req.params.planId, ownerId: req.user!.id },
++    include: { places: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
++  });
+   if (!plan) return res.status(404).json({ error: 'not_found' });
+-  const place = await prisma.planPlace.findFirst({ where: { id: req.params.placeId, planId: plan.id } });
++  const place = plan.places.find((item: any) => item.id === req.params.placeId);
+   if (!place) return res.status(404).json({ error: 'not_found' });
++
++  const proposedPlaces = plan.places.map((item: any) => item.id === place.id
++    ? {
++      startsAt: input.startsAt !== undefined ? input.startsAt : item.startsAt,
++      endsAt: input.endsAt !== undefined ? input.endsAt : item.endsAt,
++    }
++    : item);
++  const proposedSchedule = { startsAt: plan.startsAt, endsAt: plan.endsAt, places: planPlacesForSchedule(proposedPlaces) };
++  const conflictingPlan = await findOwnedPlanTimeConflict(req.user!.id, proposedSchedule, plan.id);
++  if (conflictingPlan) return res.status(409).json(planTimeConflictResponse(conflictingPlan, proposedSchedule));
++
+   await prisma.planPlace.update({ where: { id: place.id }, data: await placeUpdateData(req.user!.id, input, place) as any });
+   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan_place' as any, place.id, { maxImages: PLAN_PLACE_MEDIA_LIMITS.plus });
+   const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
+diff --git a/apps/web/src/lib/webErrors.ts b/apps/web/src/lib/webErrors.ts
+index c1e3e74..d7dbe12 100644
+--- a/apps/web/src/lib/webErrors.ts
++++ b/apps/web/src/lib/webErrors.ts
+@@ -44,7 +44,7 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
+   if (apiError.body?.error === 'validation_error') return apiError.body.message ?? 'Please check the form fields and try again.';
+   if (apiError.body?.error === 'plans_disabled') return 'Plans are disabled by the API flag. Set PLANS_ENABLED=true in the root .env file and restart the API dev server.';
+   if (apiError.body?.error === 'plans_hidden') return 'Plans are hidden by the API visibility flag.';
+-  if (apiError.body?.error === 'plan_time_overlap') return apiError.body.message ?? 'This overlaps with another active Plan you created. Choose a different time before creating this Plan.';
++  if (apiError.body?.error === 'plan_time_overlap') return apiError.body.message ?? 'This overlaps with or is too close to another active Plan you created. Keep at least 1 hour between Plans.';
+   if (apiError.body?.error === 'saved_library_plus_required' || apiError.body?.error === 'saved_library_limit_reached') return apiError.body.message ?? 'Saved Library is included with Plus Membership. Review Membership to unlock private saves, people, and collections when upgrades are available.';
+   if (apiError.body?.error === 'saved_collections_plus_required') return apiError.body.message ?? 'Saved collections are included with Plus Membership. Review Membership to unlock private organization tools when upgrades are available.';
+   if (apiError.body?.error === 'agenda_disabled') return apiError.body.message ?? 'Agenda is disabled by the API flag.';

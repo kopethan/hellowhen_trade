@@ -3,8 +3,8 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ChangeEvent, FormEvent } from 'react';
-import type { GoogleResolvedPlace, MediaAssetDto, PlaceDto, PlaceStaticMapDto, PlanPlaceMode } from '@hellowhen/contracts';
-import { buildGeneratedPlanDisplay, parseStarterPlanIdeaKey, starterPlanIdeas, type StarterPlanIdeaStop } from '@hellowhen/shared';
+import type { GoogleResolvedPlace, MediaAssetDto, PlaceDto, PlaceStaticMapDto, PlanDto, PlanPlaceMode } from '@hellowhen/contracts';
+import { buildGeneratedPlanDisplay, parseStarterPlanIdeaKey, PLAN_MIN_STOP_START_GAP_MINUTES, starterPlanIdeas, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
@@ -36,13 +36,13 @@ type PlaceFormState = {
   uploading: boolean;
 };
 
-function makePlace(index: number, date = toDateInputValue()): PlaceFormState {
+function makePlace(index: number, date = toDateInputValue(), time?: string): PlaceFormState {
   return {
     id: `place-${Date.now()}-${index}`,
     sourcePlaceSource: 'custom',
     mode: 'local',
     date,
-    time: index === 0 ? '13:00' : '',
+    time: time ?? (index === 0 ? '13:00' : ''),
     title: '',
     location: '',
     providerAddress: emptyProviderAddressFormState(),
@@ -53,6 +53,30 @@ function makePlace(index: number, date = toDateInputValue()): PlaceFormState {
     media: null,
     uploading: false,
   };
+}
+
+
+function parsePlaceStartParts(dateValue: string, timeValue: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue.trim()) || !/^\d{2}:\d{2}$/.test(timeValue.trim())) return null;
+  const parsed = new Date(`${dateValue}T${timeValue}:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function startPartsFromDate(value: Date) {
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return {
+    date: `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`,
+    time: `${pad(value.getHours())}:${pad(value.getMinutes())}`,
+  };
+}
+
+function nextPlaceStartParts(places: PlaceFormState[]) {
+  const previous = places[places.length - 1];
+  const previousStart = previous ? parsePlaceStartParts(previous.date, previous.time) : null;
+  if (!previousStart) return { date: previous?.date || toDateInputValue(), time: places.length === 0 ? '13:00' : '' };
+  const nextStart = new Date(previousStart);
+  nextStart.setMinutes(nextStart.getMinutes() + PLAN_MIN_STOP_START_GAP_MINUTES);
+  return startPartsFromDate(nextStart);
 }
 
 function makePlaceFromPlanIdeaStop(stop: StarterPlanIdeaStop, index: number, date = toDateInputValue()): PlaceFormState {
@@ -263,6 +287,153 @@ function formatPlanDateTime(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function parseLocalPlanInput(dateValue: string, timeValue: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue.trim()) || !/^\d{2}:\d{2}$/.test(timeValue.trim())) return null;
+  const date = new Date(`${dateValue}T${timeValue}:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function padPlanDatePart(value: number) {
+  return String(value).padStart(2, '0');
+}
+
+function dateInputFromDate(date: Date) {
+  return `${date.getFullYear()}-${padPlanDatePart(date.getMonth() + 1)}-${padPlanDatePart(date.getDate())}`;
+}
+
+function planDatePresetValue(preset: 'today' | 'tomorrow' | 'weekend' | 'next_week') {
+  const today = new Date();
+  if (preset === 'today') return dateInputFromDate(today);
+  if (preset === 'tomorrow') return dateInputFromDate(addDays(today, 1));
+  if (preset === 'weekend') {
+    const day = today.getDay();
+    return dateInputFromDate(day === 6 || day === 0 ? today : addDays(today, 6 - day));
+  }
+  const day = today.getDay();
+  const daysUntilNextMonday = ((8 - day) % 7) || 7;
+  return dateInputFromDate(addDays(today, daysUntilNextMonday));
+}
+
+function planTimePresetValue(preset: 'morning' | 'afternoon' | 'evening') {
+  if (preset === 'morning') return '09:00';
+  if (preset === 'afternoon') return '13:00';
+  return '18:00';
+}
+
+function formatPlanInputDate(value: string) {
+  const parsed = parseLocalPlanInput(value, '12:00');
+  if (!parsed) return value || 'Date not set';
+  return parsed.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function formatPlanInputTime(value: string) {
+  const parsed = parseLocalPlanInput(dateInputFromDate(new Date()), value);
+  if (!parsed) return value || 'Time not set';
+  return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function durationLabel(minutes: number) {
+  if (minutes === 30) return '30 min';
+  if (minutes === 60) return '1h';
+  if (minutes === 90) return '1h30';
+  if (minutes === 120) return '2h';
+  return `${minutes} min`;
+}
+
+function endStateFromDuration(startsAt: string, minutes: number) {
+  const date = new Date(startsAt);
+  if (Number.isNaN(date.getTime())) return EMPTY_PLAN_END_STATE;
+  date.setMinutes(date.getMinutes() + minutes);
+  return { date: dateInputFromDate(date), time: `${padPlanDatePart(date.getHours())}:${padPlanDatePart(date.getMinutes())}` };
+}
+
+function selectedPlanRange(schedule: ReturnType<typeof buildPlanSchedule>, explicitEnd: ReturnType<typeof parsePlanEndOverride>) {
+  if (!schedule.startsAt) return null;
+  const start = new Date(schedule.startsAt);
+  const end = new Date(explicitEnd.endsAt || schedule.endsAt || schedule.startsAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end.getTime() < start.getTime()) return null;
+  return { start, end };
+}
+
+function createPlanConflictWarning(plans: PlanDto[], schedule: ReturnType<typeof buildPlanSchedule>, explicitEnd: ReturnType<typeof parsePlanEndOverride>) {
+  const selected = selectedPlanRange(schedule, explicitEnd);
+  if (!selected) return '';
+  const oneHour = 60 * 60 * 1000;
+  for (const plan of plans) {
+    if (plan.status === 'cancelled') continue;
+    const start = new Date(plan.startsAt);
+    const end = new Date(plan.endsAt || plan.startsAt);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
+    const bufferedStart = start.getTime() - oneHour;
+    const bufferedEnd = Math.max(start.getTime(), end.getTime()) + oneHour;
+    if (selected.start.getTime() < bufferedEnd && selected.end.getTime() > bufferedStart) {
+      return `This time overlaps or sits within 1 hour of “${plan.title || 'another Plan'}”. Leave at least 1 hour between Plans before publishing.`;
+    }
+  }
+  return '';
+}
+
+function QuickDateTimeButtons({ date, time, onChange }: { date: string; time: string; onChange: (patch: Partial<Pick<PlaceFormState, 'date' | 'time'>>) => void }) {
+  const today = planDatePresetValue('today');
+  const tomorrow = planDatePresetValue('tomorrow');
+  const weekend = planDatePresetValue('weekend');
+  const nextWeek = planDatePresetValue('next_week');
+  return (
+    <div className="plan-quick-time-card">
+      <div className="plan-quick-time-card__summary">
+        <strong>{formatPlanInputDate(date)}</strong>
+        <span>{formatPlanInputTime(time)}</span>
+      </div>
+      <div className="plan-quick-picker-group">
+        <span>Quick date</span>
+        <div className="plan-quick-button-row">
+          <button type="button" className={date === today ? 'is-active' : ''} onClick={() => onChange({ date: today })}>Today</button>
+          <button type="button" className={date === tomorrow ? 'is-active' : ''} onClick={() => onChange({ date: tomorrow })}>Tomorrow</button>
+          <button type="button" className={date === weekend ? 'is-active' : ''} onClick={() => onChange({ date: weekend })}>This weekend</button>
+          <button type="button" className={date === nextWeek ? 'is-active' : ''} onClick={() => onChange({ date: nextWeek })}>Next week</button>
+        </div>
+      </div>
+      <div className="plan-quick-picker-group">
+        <span>Quick time</span>
+        <div className="plan-quick-button-row">
+          <button type="button" className={time === planTimePresetValue('morning') ? 'is-active' : ''} onClick={() => onChange({ time: planTimePresetValue('morning') })}>Morning</button>
+          <button type="button" className={time === planTimePresetValue('afternoon') ? 'is-active' : ''} onClick={() => onChange({ time: planTimePresetValue('afternoon') })}>Afternoon</button>
+          <button type="button" className={time === planTimePresetValue('evening') ? 'is-active' : ''} onClick={() => onChange({ time: planTimePresetValue('evening') })}>Evening</button>
+        </div>
+      </div>
+      <div className="plan-timeline-row__fields plan-timeline-row__fields--compact">
+        <label>
+          <span>Custom date</span>
+          <input type="date" value={date} onChange={(event) => onChange({ date: event.target.value })} required />
+        </label>
+        <label>
+          <span>Custom time</span>
+          <input type="time" value={time} onChange={(event) => onChange({ time: event.target.value })} required />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function DurationButtons({ startsAt, onSelect }: { startsAt: string; onSelect: (minutes: number) => void }) {
+  return (
+    <div className="plan-quick-picker-group plan-quick-picker-group--duration">
+      <span>Duration helper</span>
+      <div className="plan-quick-button-row">
+        {[30, 60, 90, 120].map((minutes) => <button key={minutes} type="button" disabled={!startsAt} onClick={() => onSelect(minutes)}>{durationLabel(minutes)}</button>)}
+        <button type="button" disabled={!startsAt}>Custom</button>
+      </div>
+    </div>
+  );
 }
 
 function formatDurationMinutes(minutes?: number | null) {
@@ -539,6 +710,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   const [advancedDetailsOpen, setAdvancedDetailsOpen] = useState(false);
   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
   const [libraryPlaces, setLibraryPlaces] = useState<PlaceDto[]>([]);
+  const [myPlansForConflict, setMyPlansForConflict] = useState<PlanDto[]>([]);
   const [loadingPlaces, setLoadingPlaces] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<PlacePickerTarget | null>(null);
   const [pickerView, setPickerView] = useState<PlacePickerView>('source');
@@ -559,6 +731,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   const schedule = useMemo(() => buildPlanSchedule(schedulablePlaces), [schedulablePlaces]);
   const explicitPlanEnd = useMemo(() => parsePlanEndOverride(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
   const endSummary = useMemo(() => planEndSummary(schedule, planEnd), [schedule, planEnd]);
+  const conflictWarning = useMemo(() => createPlanConflictWarning(myPlansForConflict, schedule, explicitPlanEnd), [explicitPlanEnd, myPlansForConflict, schedule]);
   const rangeLabel = rangeLabelWithEnd(schedule, planEnd);
   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
     places: placesForGeneratedDisplay,
@@ -579,12 +752,14 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   async function loadReusablePlaces() {
     setLoadingPlaces(true);
     try {
-      const [mineResponse, libraryResponse] = await Promise.all([
+      const [mineResponse, libraryResponse, plansResponse] = await Promise.all([
         api.places.mine({ take: 100 }),
         api.places.library({ take: 100 }),
+        api.plans.mine(),
       ]);
       setMyPlaces(mineResponse.places);
       setLibraryPlaces(libraryResponse.places);
+      setMyPlansForConflict(plansResponse.plans ?? []);
     } catch (loadError) {
       setError(getFriendlyApiErrorMessage(loadError, 'Could not load Place Library. You can still add custom places.'));
     } finally {
@@ -644,11 +819,11 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
       if (isUpdateReturn) {
         return current.map((place) => place.sourcePlaceId === returnedPlace.id ? { ...place, ...applyReusablePlacePatch(returnedPlace) } : place);
       }
-      const previous = current[current.length - 1];
+      const nextStart = nextPlaceStartParts(current);
       return [
         ...current,
         {
-          ...makePlace(current.length, previous?.date || toDateInputValue()),
+          ...makePlace(current.length, nextStart.date, nextStart.time),
           ...applyReusablePlacePatch(returnedPlace),
         },
       ];
@@ -685,8 +860,8 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     if (pickerTarget === 'new') {
       const nextIndex = places.length;
       setPlaces((current) => {
-        const previous = current[current.length - 1];
-        return [...current, makePlace(current.length, previous?.date || toDateInputValue())];
+        const nextStart = nextPlaceStartParts(current);
+        return [...current, makePlace(current.length, nextStart.date, nextStart.time)];
       });
       setDetailPlaceIndex(nextIndex);
     }
@@ -752,11 +927,11 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     if (pickerTarget === null) return;
     if (pickerTarget === 'new') {
       setPlaces((current) => {
-        const previous = current[current.length - 1];
+        const nextStart = nextPlaceStartParts(current);
         return [
           ...current,
           {
-            ...makePlace(current.length, previous?.date || toDateInputValue()),
+            ...makePlace(current.length, nextStart.date, nextStart.time),
             ...applyReusablePlacePatch(place),
           },
         ];
@@ -775,6 +950,14 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   function updatePlanEnd(update: Partial<PlanEndState>) {
     setPlanEnd((current) => ({ ...current, ...update }));
     setError('');
+  }
+
+  function applyDuration(minutes: number) {
+    if (!schedule.startsAt) {
+      setError('Choose a start date and time before selecting a duration.');
+      return;
+    }
+    updatePlanEnd(endStateFromDuration(schedule.startsAt, minutes));
   }
 
   function focusMissingOfflineAddresses() {
@@ -1024,16 +1207,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                           <span className="semantic-badge time">Date / time</span>
                           <h3>Place {index + 1}</h3>
                         </div>
-                        <div className="plan-timeline-row__fields">
-                          <label>
-                            <span>Date</span>
-                            <input type="date" value={place.date} onChange={(event) => updatePlace(index, { date: event.target.value })} required />
-                          </label>
-                          <label>
-                            <span>Time</span>
-                            <input type="time" value={place.time} onChange={(event) => updatePlace(index, { time: event.target.value })} required />
-                          </label>
-                        </div>
+                        <QuickDateTimeButtons date={place.date} time={place.time} onChange={(patch) => updatePlace(index, patch)} />
                       </div>
 
                       <div className="plan-timeline-row plan-timeline-row--place">
@@ -1086,13 +1260,14 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                         <h3>Plan end time</h3>
                         <p className="meta">Leave empty to use the estimated end from your place times.</p>
                       </div>
+                      <DurationButtons startsAt={schedule.startsAt} onSelect={applyDuration} />
                       <div className="plan-timeline-row__fields">
                         <label>
-                          <span>End date</span>
+                          <span>Custom end date</span>
                           <input type="date" value={planEnd.date} onChange={(event) => updatePlanEnd({ date: event.target.value })} />
                         </label>
                         <label>
-                          <span>End time</span>
+                          <span>Custom end time</span>
                           <input type="time" value={planEnd.time} onChange={(event) => updatePlanEnd({ time: event.target.value })} />
                         </label>
                       </div>
@@ -1110,6 +1285,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                   ) : null}
                 </section>
 
+                {conflictWarning ? <p className="form-error">{conflictWarning}</p> : null}
                 {error ? <p className="form-error">{error}</p> : null}
                 {places.length > 0 ? <button className="button primary full" type="button" onClick={showPreviewStage} disabled={places.some((place) => place.uploading)}>Preview Plan</button> : null}
               </>

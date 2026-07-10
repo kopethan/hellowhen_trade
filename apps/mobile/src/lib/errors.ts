@@ -61,6 +61,8 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
     return apiError.body.message ?? 'Please check the form fields and try again.';
   }
 
+  if (apiError.body?.error === 'plan_stop_gap_too_short') return apiError.body.message ?? 'Plan places must be at least 15 minutes apart.';
+
   if (apiError.body?.error === 'saved_library_plus_required' || apiError.body?.error === 'saved_library_limit_reached') return apiError.body.message ?? 'Saved Library is a Plus feature. Upgrade to Plus to save trades, needs, offers, and people.';
   if (apiError.body?.error === 'saved_collections_plus_required') return apiError.body.message ?? 'Saved collections are a Plus feature.';
 

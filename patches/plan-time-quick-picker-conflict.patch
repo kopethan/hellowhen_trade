@@ -1,0 +1,578 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 53c59fd..64c177c 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -595,6 +595,104 @@ function parseLocalDateTime(dateValue: string, timeValue: string) {
+   return date;
+ }
+ 
++function addDaysToDate(date: Date, days: number) {
++  const next = new Date(date);
++  next.setDate(next.getDate() + days);
++  return next;
++}
++
++function toDateInputValueFromDate(date: Date) {
++  return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
++}
++
++function nextWeekendDate() {
++  const today = new Date();
++  const day = today.getDay();
++  if (day === 6 || day === 0) return today;
++  return addDaysToDate(today, 6 - day);
++}
++
++function nextWeekDate() {
++  const today = new Date();
++  const day = today.getDay();
++  const daysUntilNextMonday = ((8 - day) % 7) || 7;
++  return addDaysToDate(today, daysUntilNextMonday);
++}
++
++function datePresetValue(preset: 'today' | 'tomorrow' | 'weekend' | 'next_week') {
++  const today = new Date();
++  if (preset === 'today') return toDateInputValueFromDate(today);
++  if (preset === 'tomorrow') return toDateInputValueFromDate(addDaysToDate(today, 1));
++  if (preset === 'weekend') return toDateInputValueFromDate(nextWeekendDate());
++  return toDateInputValueFromDate(nextWeekDate());
++}
++
++function timePresetValue(preset: 'morning' | 'afternoon' | 'evening') {
++  if (preset === 'morning') return '09:00';
++  if (preset === 'afternoon') return '13:00';
++  return '18:00';
++}
++
++function formatInputDateLabel(value: string) {
++  const date = parseLocalDateTime(value, '12:00');
++  if (!date) return value || 'Date not set';
++  return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
++}
++
++function formatInputTimeLabel(value: string) {
++  if (!/^\d{2}:\d{2}$/.test(value)) return value || 'Time not set';
++  const date = parseLocalDateTime(toDateInputValueFromDate(new Date()), value);
++  if (!date) return value;
++  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
++}
++
++function addMinutesToIso(value: string, minutes: number) {
++  const date = new Date(value);
++  if (Number.isNaN(date.getTime())) return null;
++  date.setMinutes(date.getMinutes() + minutes);
++  return date;
++}
++
++function dateAndTimeFromDate(value: Date): PlanEndState {
++  return { date: toDateInputValueFromDate(value), time: `${padDatePart(value.getHours())}:${padDatePart(value.getMinutes())}` };
++}
++
++function planDurationLabel(minutes: number) {
++  if (minutes === 30) return '30 min';
++  if (minutes === 60) return '1h';
++  if (minutes === 90) return '1h30';
++  if (minutes === 120) return '2h';
++  return formatDurationMinutes(minutes);
++}
++
++function planSelectedTimeRange(schedule: ReturnType<typeof buildMobilePlanSchedule>, explicitEnd: ReturnType<typeof parseOptionalMobilePlanEnd>) {
++  if (!schedule.startsAt) return null;
++  const start = new Date(schedule.startsAt);
++  const end = new Date(explicitEnd.endsAt || schedule.endsAt || schedule.startsAt);
++  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
++  if (end.getTime() < start.getTime()) return null;
++  return { start, end };
++}
++
++function planConflictWarning(plans: PlanDto[], schedule: ReturnType<typeof buildMobilePlanSchedule>, explicitEnd: ReturnType<typeof parseOptionalMobilePlanEnd>) {
++  const selected = planSelectedTimeRange(schedule, explicitEnd);
++  if (!selected) return '';
++  const oneHour = 60 * 60 * 1000;
++  for (const plan of plans) {
++    if (plan.status === 'cancelled') continue;
++    const planStart = new Date(plan.startsAt);
++    const planEnd = new Date(plan.endsAt || plan.startsAt);
++    if (Number.isNaN(planStart.getTime()) || Number.isNaN(planEnd.getTime())) continue;
++    const bufferedStart = planStart.getTime() - oneHour;
++    const bufferedEnd = Math.max(planEnd.getTime(), planStart.getTime()) + oneHour;
++    const overlapsOrTooClose = selected.start.getTime() < bufferedEnd && selected.end.getTime() > bufferedStart;
++    if (!overlapsOrTooClose) continue;
++    const label = plan.title?.trim() || 'another Plan';
++    return `This time overlaps or sits within 1 hour of “${label}”. Leave at least 1 hour between Plans before publishing.`;
++  }
++  return '';
++}
++
+ function buildMobilePlanSchedule(places: SelectedPlanPlaceState[]) {
+   if (places.length === 0) {
+     return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: 'Add at least one place with a valid date and time.' };
+@@ -2491,6 +2589,90 @@ function TextField({
+   );
+ }
+ 
++function QuickChoiceButton({ label, active, onPress }: { label: string; active?: boolean; onPress: () => void }) {
++  const theme = useThemeTokens();
++  return (
++    <Pressable
++      accessibilityRole="button"
++      accessibilityState={{ selected: Boolean(active) }}
++      onPress={onPress}
++      style={({ pressed }) => [
++        styles.quickChoiceButton,
++        { borderColor: active ? theme.semantic.plan.border : theme.color.border, backgroundColor: active ? theme.semantic.plan.softBg : theme.color.surface },
++        pressed && styles.pressed,
++      ]}
++    >
++      <AppText style={[styles.quickChoiceButtonText, { color: active ? theme.semantic.plan.text : theme.color.text }]}>{label}</AppText>
++    </Pressable>
++  );
++}
++
++function PlanDateTimeQuickControls({ date, time, onChange }: { date: string; time: string; onChange: (patch: { date?: string; time?: string }) => void }) {
++  const theme = useThemeTokens();
++  const [customDateOpen, setCustomDateOpen] = useState(false);
++  const [customTimeOpen, setCustomTimeOpen] = useState(false);
++  const today = datePresetValue('today');
++  const tomorrow = datePresetValue('tomorrow');
++  const weekend = datePresetValue('weekend');
++  const nextWeek = datePresetValue('next_week');
++
++  return (
++    <View style={[styles.quickDateTimeCard, { borderColor: theme.semantic.time.border, backgroundColor: theme.semantic.time.softBg }]}>
++      <View style={styles.quickDateTimeHeader}>
++        <View style={styles.timelineCopy}>
++          <AppText style={styles.quickDateTimeTitle}>{formatInputDateLabel(date)}</AppText>
++          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{formatInputTimeLabel(time)}</AppText>
++        </View>
++        <MobileIcon name="calendar" color={theme.semantic.time.text} size={20} />
++      </View>
++
++      <View style={styles.quickPickerGroup}>
++        <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>Quick date</AppText>
++        <View style={styles.quickChoiceRow}>
++          <QuickChoiceButton label="Today" active={date === today} onPress={() => onChange({ date: today })} />
++          <QuickChoiceButton label="Tomorrow" active={date === tomorrow} onPress={() => onChange({ date: tomorrow })} />
++          <QuickChoiceButton label="This weekend" active={date === weekend} onPress={() => onChange({ date: weekend })} />
++          <QuickChoiceButton label="Next week" active={date === nextWeek} onPress={() => onChange({ date: nextWeek })} />
++          <QuickChoiceButton label="Custom" active={customDateOpen} onPress={() => setCustomDateOpen((open) => !open)} />
++        </View>
++        {customDateOpen ? (
++          <TextField label="Custom date" value={date} onChangeText={(nextDate) => onChange({ date: nextDate })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
++        ) : null}
++      </View>
++
++      <View style={styles.quickPickerGroup}>
++        <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>Quick time</AppText>
++        <View style={styles.quickChoiceRow}>
++          <QuickChoiceButton label="Morning" active={time === timePresetValue('morning')} onPress={() => onChange({ time: timePresetValue('morning') })} />
++          <QuickChoiceButton label="Afternoon" active={time === timePresetValue('afternoon')} onPress={() => onChange({ time: timePresetValue('afternoon') })} />
++          <QuickChoiceButton label="Evening" active={time === timePresetValue('evening')} onPress={() => onChange({ time: timePresetValue('evening') })} />
++          <QuickChoiceButton label="Custom" active={customTimeOpen} onPress={() => setCustomTimeOpen((open) => !open)} />
++        </View>
++        {customTimeOpen ? (
++          <TextField label="Custom time" value={time} onChangeText={(nextTime) => onChange({ time: nextTime })} placeholder="13:00" keyboardType="numbers-and-punctuation" />
++        ) : null}
++      </View>
++    </View>
++  );
++}
++
++function PlanDurationQuickControls({ schedule, onSelectDuration }: { schedule: ReturnType<typeof buildMobilePlanSchedule>; onSelectDuration: (minutes: number) => void }) {
++  const theme = useThemeTokens();
++  const durations = [30, 60, 90, 120];
++  return (
++    <View style={styles.quickPickerGroup}>
++      <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>Duration helper</AppText>
++      <View style={styles.quickChoiceRow}>
++        {durations.map((minutes) => (
++          <QuickChoiceButton key={minutes} label={planDurationLabel(minutes)} onPress={() => onSelectDuration(minutes)} />
++        ))}
++        <QuickChoiceButton label="Custom" onPress={() => onSelectDuration(0)} />
++      </View>
++      {!schedule.startsAt ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose a start date and time first.</AppText> : null}
++    </View>
++  );
++}
++
+ function makeGooglePlaceSessionToken() {
+   const maybeCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+   if (typeof maybeCrypto?.randomUUID === 'function') {
+@@ -2950,6 +3132,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   const [places, setPlaces] = useState<SelectedPlanPlaceState[]>([]);
+   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
+   const [libraryPlaces, setLibraryPlaces] = useState<PlaceDto[]>([]);
++  const [myPlansForConflict, setMyPlansForConflict] = useState<PlanDto[]>([]);
+   const [pickerTab, setPickerTab] = useState<PlacePickerTab>('mine');
+   const [placeQuery, setPlaceQuery] = useState('');
+   const [loadingPlaces, setLoadingPlaces] = useState(false);
+@@ -2981,6 +3164,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   const schedule = useMemo(() => buildMobilePlanSchedule(schedulablePlaces), [schedulablePlaces]);
+   const explicitPlanEnd = useMemo(() => parseOptionalMobilePlanEnd(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
+   const endSummary = useMemo(() => mobilePlanEndSummary(schedule, planEnd), [schedule, planEnd]);
++  const conflictWarning = useMemo(() => planConflictWarning(myPlansForConflict, schedule, explicitPlanEnd), [explicitPlanEnd, myPlansForConflict, schedule]);
+   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
+     places: placesForGeneratedDisplay,
+     startsAt: schedule.startsAt,
+@@ -3041,9 +3225,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     setLoadingPlaces(true);
+     setError(null);
+     try {
+-      const [mineResponse, libraryResponse] = await Promise.all([api.places.mine({ take: 100 }), api.places.library({ take: 100 })]);
++      const [mineResponse, libraryResponse, plansResponse] = await Promise.all([api.places.mine({ take: 100 }), api.places.library({ take: 100 }), api.plans.mine()]);
+       setMyPlaces(mineResponse.places ?? []);
+       setLibraryPlaces(libraryResponse.places ?? []);
++      setMyPlansForConflict(plansResponse.plans ?? []);
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError));
+     } finally {
+@@ -3208,6 +3393,18 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     setError(null);
+   }
+ 
++  function applyPlanDuration(minutes: number) {
++    if (minutes <= 0) {
++      return;
++    }
++    const endDate = schedule.startsAt ? addMinutesToIso(schedule.startsAt, minutes) : null;
++    if (!endDate) {
++      setError('Choose a start date and time before selecting a duration.');
++      return;
++    }
++    updatePlanEnd(dateAndTimeFromDate(endDate));
++  }
++
+   function recordAddressGuidanceLayout(placeId: string, event: LayoutChangeEvent) {
+     addressGuidanceOffsetsRef.current[placeId] = event.nativeEvent.layout.y;
+   }
+@@ -3349,10 +3546,11 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                         <SemanticBadge label="Date / time" tone="time" size="sm" />
+                         <AppText style={styles.sectionTitle}>Place {index + 1}</AppText>
+                       </View>
+-                      <View style={styles.twoColumnRow}>
+-                        <TextField label="Date" value={place.date} onChangeText={(date) => updateSelectedPlace(index, { date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+-                        <TextField label="Time" value={place.time} onChangeText={(time) => updateSelectedPlace(index, { time })} placeholder="13:00" keyboardType="numbers-and-punctuation" />
+-                      </View>
++                      <PlanDateTimeQuickControls
++                        date={place.date}
++                        time={place.time}
++                        onChange={(patch) => updateSelectedPlace(index, patch)}
++                      />
+                     </View>
+                     <PlaceTimelineRow
+                       place={place}
+@@ -3402,9 +3600,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                       <AppText style={styles.sectionTitle}>End time</AppText>
+                       <AppText style={[styles.metaText, { color: theme.color.muted }]}>Leave empty to use the estimated end from your place times.</AppText>
+                     </View>
++                    <PlanDurationQuickControls schedule={schedule} onSelectDuration={applyPlanDuration} />
+                     <View style={styles.twoColumnRow}>
+-                      <TextField label="End date" value={planEnd.date} onChangeText={(date) => updatePlanEnd({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+-                      <TextField label="End time" value={planEnd.time} onChangeText={(time) => updatePlanEnd({ time })} placeholder="Optional" keyboardType="numbers-and-punctuation" />
++                      <TextField label="Custom end date" value={planEnd.date} onChangeText={(date) => updatePlanEnd({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
++                      <TextField label="Custom end time" value={planEnd.time} onChangeText={(time) => updatePlanEnd({ time })} placeholder="Optional" keyboardType="numbers-and-punctuation" />
+                     </View>
+                     {endSummary ? (
+                       <View style={[styles.planEndSummaryCard, { borderColor: theme.semantic.time.border, backgroundColor: theme.semantic.time.softBg }]}>
+@@ -3420,6 +3619,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                 ) : null}
+               </View>
+ 
++              {conflictWarning ? <InfoNotice tone="warning" title="Time conflict" body={conflictWarning} /> : null}
+               {error ? <InfoNotice tone="warning" title="Check plan" body={error} /> : null}
+               {places.length > 0 ? (
+                 <Pressable accessibilityRole="button" onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed]}>
+@@ -4216,6 +4416,14 @@ const styles = StyleSheet.create({
+   twoColumnRow: { flexDirection: 'row', gap: 10 },
+   timeCard: { borderRadius: 22, borderWidth: 1, padding: 12, gap: 11 },
+   timeCardHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 },
++  quickDateTimeCard: { borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, padding: 12, gap: 13 },
++  quickDateTimeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
++  quickDateTimeTitle: { fontSize: 16, lineHeight: 20, fontWeight: '900' },
++  quickPickerGroup: { gap: 8 },
++  quickPickerLabel: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.55 },
++  quickChoiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
++  quickChoiceButton: { minHeight: 36, borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' },
++  quickChoiceButtonText: { fontSize: 12, fontWeight: '900' },
+   advancedCard: { borderRadius: 0, borderWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 13, gap: 10 },
+   advancedToggle: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10 },
+   advancedPanel: { gap: 12, paddingTop: 2 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index f930120..08665db 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -9700,6 +9700,17 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .plan-timeline-row__fields label, .plan-timeline-row__details label, .plan-stop-note label { display: grid; gap: 7px; color: var(--app-text-muted); font-size: 12px; font-weight: 950; letter-spacing: 0.04em; text-transform: uppercase; }
+ .plan-timeline-row__fields input, .plan-timeline-row__details input, .plan-stop-note textarea { width: 100%; border: 1px solid color-mix(in srgb, var(--time-border) 38%, var(--app-border-strong)); border-radius: 18px; background: color-mix(in srgb, var(--app-surface) 76%, var(--time-bg)); color: var(--app-text); padding: 12px 13px; font: inherit; font-weight: 750; outline: none; }
+ .plan-timeline-row__fields input:focus, .plan-timeline-row__details input:focus, .plan-stop-note textarea:focus { border-color: var(--time-border); box-shadow: 0 0 0 3px color-mix(in srgb, var(--time-border) 24%, transparent); }
++.plan-timeline-row__fields--compact { grid-column: 1 / -1; }
++.plan-quick-time-card { grid-column: 1 / -1; display: grid; gap: 12px; border: 1px solid color-mix(in srgb, var(--time-border) 32%, var(--app-divider)); border-radius: 22px; background: color-mix(in srgb, var(--time-bg) 24%, transparent); padding: 12px; }
++.plan-quick-time-card__summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
++.plan-quick-time-card__summary strong { color: var(--app-text); font-size: 16px; font-weight: 950; letter-spacing: -0.01em; }
++.plan-quick-time-card__summary span { color: var(--app-text-muted); font-size: 13px; font-weight: 850; }
++.plan-quick-picker-group { display: grid; gap: 8px; grid-column: 1 / -1; }
++.plan-quick-picker-group > span { color: var(--app-text-muted); font-size: 11px; font-weight: 950; letter-spacing: 0.06em; text-transform: uppercase; }
++.plan-quick-button-row { display: flex; flex-wrap: wrap; gap: 7px; }
++.plan-quick-button-row button { min-height: 36px; border: 1px solid var(--app-divider); border-radius: 999px; background: var(--app-surface); color: var(--app-text); padding: 8px 12px; font: inherit; font-size: 12px; font-weight: 950; cursor: pointer; }
++.plan-quick-button-row button.is-active { border-color: var(--plan-border); background: var(--plan-bg-soft); color: var(--plan-text); }
++.plan-quick-button-row button:disabled { cursor: not-allowed; opacity: 0.55; }
+ .plan-timeline-row__fields--optional { grid-column: 1 / -1; max-width: 360px; }
+ .plan-timeline-row__details { grid-column: 1 / -1; display: grid; gap: 10px; padding-top: 4px; }
+ .plan-starter-address-guidance { display: grid; gap: 12px; border-top: 1px solid var(--app-divider); border-bottom: 1px solid var(--app-divider); background: color-mix(in srgb, var(--place-bg) 30%, transparent); padding: 14px 0; outline: none; }
+diff --git a/apps/web/src/features/plans/PlanCreateClient.tsx b/apps/web/src/features/plans/PlanCreateClient.tsx
+index 0e7137b..96278f0 100644
+--- a/apps/web/src/features/plans/PlanCreateClient.tsx
++++ b/apps/web/src/features/plans/PlanCreateClient.tsx
+@@ -3,7 +3,7 @@
+ import Link from 'next/link';
+ import { useRouter, useSearchParams } from 'next/navigation';
+ import type { ChangeEvent, FormEvent } from 'react';
+-import type { GoogleResolvedPlace, MediaAssetDto, PlaceDto, PlaceStaticMapDto, PlanPlaceMode } from '@hellowhen/contracts';
++import type { GoogleResolvedPlace, MediaAssetDto, PlaceDto, PlaceStaticMapDto, PlanDto, PlanPlaceMode } from '@hellowhen/contracts';
+ import { buildGeneratedPlanDisplay, parseStarterPlanIdeaKey, starterPlanIdeas, type StarterPlanIdeaStop } from '@hellowhen/shared';
+ import { useEffect, useMemo, useRef, useState } from 'react';
+ import { WebIcon } from '../../components/WebIcon';
+@@ -265,6 +265,153 @@ function formatPlanDateTime(value?: string | null) {
+   return date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+ }
+ 
++function parseLocalPlanInput(dateValue: string, timeValue: string) {
++  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue.trim()) || !/^\d{2}:\d{2}$/.test(timeValue.trim())) return null;
++  const date = new Date(`${dateValue}T${timeValue}:00`);
++  if (Number.isNaN(date.getTime())) return null;
++  return date;
++}
++
++function addDays(date: Date, days: number) {
++  const next = new Date(date);
++  next.setDate(next.getDate() + days);
++  return next;
++}
++
++function padPlanDatePart(value: number) {
++  return String(value).padStart(2, '0');
++}
++
++function dateInputFromDate(date: Date) {
++  return `${date.getFullYear()}-${padPlanDatePart(date.getMonth() + 1)}-${padPlanDatePart(date.getDate())}`;
++}
++
++function planDatePresetValue(preset: 'today' | 'tomorrow' | 'weekend' | 'next_week') {
++  const today = new Date();
++  if (preset === 'today') return dateInputFromDate(today);
++  if (preset === 'tomorrow') return dateInputFromDate(addDays(today, 1));
++  if (preset === 'weekend') {
++    const day = today.getDay();
++    return dateInputFromDate(day === 6 || day === 0 ? today : addDays(today, 6 - day));
++  }
++  const day = today.getDay();
++  const daysUntilNextMonday = ((8 - day) % 7) || 7;
++  return dateInputFromDate(addDays(today, daysUntilNextMonday));
++}
++
++function planTimePresetValue(preset: 'morning' | 'afternoon' | 'evening') {
++  if (preset === 'morning') return '09:00';
++  if (preset === 'afternoon') return '13:00';
++  return '18:00';
++}
++
++function formatPlanInputDate(value: string) {
++  const parsed = parseLocalPlanInput(value, '12:00');
++  if (!parsed) return value || 'Date not set';
++  return parsed.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
++}
++
++function formatPlanInputTime(value: string) {
++  const parsed = parseLocalPlanInput(dateInputFromDate(new Date()), value);
++  if (!parsed) return value || 'Time not set';
++  return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
++}
++
++function durationLabel(minutes: number) {
++  if (minutes === 30) return '30 min';
++  if (minutes === 60) return '1h';
++  if (minutes === 90) return '1h30';
++  if (minutes === 120) return '2h';
++  return `${minutes} min`;
++}
++
++function endStateFromDuration(startsAt: string, minutes: number) {
++  const date = new Date(startsAt);
++  if (Number.isNaN(date.getTime())) return EMPTY_PLAN_END_STATE;
++  date.setMinutes(date.getMinutes() + minutes);
++  return { date: dateInputFromDate(date), time: `${padPlanDatePart(date.getHours())}:${padPlanDatePart(date.getMinutes())}` };
++}
++
++function selectedPlanRange(schedule: ReturnType<typeof buildPlanSchedule>, explicitEnd: ReturnType<typeof parsePlanEndOverride>) {
++  if (!schedule.startsAt) return null;
++  const start = new Date(schedule.startsAt);
++  const end = new Date(explicitEnd.endsAt || schedule.endsAt || schedule.startsAt);
++  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end.getTime() < start.getTime()) return null;
++  return { start, end };
++}
++
++function createPlanConflictWarning(plans: PlanDto[], schedule: ReturnType<typeof buildPlanSchedule>, explicitEnd: ReturnType<typeof parsePlanEndOverride>) {
++  const selected = selectedPlanRange(schedule, explicitEnd);
++  if (!selected) return '';
++  const oneHour = 60 * 60 * 1000;
++  for (const plan of plans) {
++    if (plan.status === 'cancelled') continue;
++    const start = new Date(plan.startsAt);
++    const end = new Date(plan.endsAt || plan.startsAt);
++    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
++    const bufferedStart = start.getTime() - oneHour;
++    const bufferedEnd = Math.max(start.getTime(), end.getTime()) + oneHour;
++    if (selected.start.getTime() < bufferedEnd && selected.end.getTime() > bufferedStart) {
++      return `This time overlaps or sits within 1 hour of “${plan.title || 'another Plan'}”. Leave at least 1 hour between Plans before publishing.`;
++    }
++  }
++  return '';
++}
++
++function QuickDateTimeButtons({ date, time, onChange }: { date: string; time: string; onChange: (patch: Partial<Pick<PlaceFormState, 'date' | 'time'>>) => void }) {
++  const today = planDatePresetValue('today');
++  const tomorrow = planDatePresetValue('tomorrow');
++  const weekend = planDatePresetValue('weekend');
++  const nextWeek = planDatePresetValue('next_week');
++  return (
++    <div className="plan-quick-time-card">
++      <div className="plan-quick-time-card__summary">
++        <strong>{formatPlanInputDate(date)}</strong>
++        <span>{formatPlanInputTime(time)}</span>
++      </div>
++      <div className="plan-quick-picker-group">
++        <span>Quick date</span>
++        <div className="plan-quick-button-row">
++          <button type="button" className={date === today ? 'is-active' : ''} onClick={() => onChange({ date: today })}>Today</button>
++          <button type="button" className={date === tomorrow ? 'is-active' : ''} onClick={() => onChange({ date: tomorrow })}>Tomorrow</button>
++          <button type="button" className={date === weekend ? 'is-active' : ''} onClick={() => onChange({ date: weekend })}>This weekend</button>
++          <button type="button" className={date === nextWeek ? 'is-active' : ''} onClick={() => onChange({ date: nextWeek })}>Next week</button>
++        </div>
++      </div>
++      <div className="plan-quick-picker-group">
++        <span>Quick time</span>
++        <div className="plan-quick-button-row">
++          <button type="button" className={time === planTimePresetValue('morning') ? 'is-active' : ''} onClick={() => onChange({ time: planTimePresetValue('morning') })}>Morning</button>
++          <button type="button" className={time === planTimePresetValue('afternoon') ? 'is-active' : ''} onClick={() => onChange({ time: planTimePresetValue('afternoon') })}>Afternoon</button>
++          <button type="button" className={time === planTimePresetValue('evening') ? 'is-active' : ''} onClick={() => onChange({ time: planTimePresetValue('evening') })}>Evening</button>
++        </div>
++      </div>
++      <div className="plan-timeline-row__fields plan-timeline-row__fields--compact">
++        <label>
++          <span>Custom date</span>
++          <input type="date" value={date} onChange={(event) => onChange({ date: event.target.value })} required />
++        </label>
++        <label>
++          <span>Custom time</span>
++          <input type="time" value={time} onChange={(event) => onChange({ time: event.target.value })} required />
++        </label>
++      </div>
++    </div>
++  );
++}
++
++function DurationButtons({ startsAt, onSelect }: { startsAt: string; onSelect: (minutes: number) => void }) {
++  return (
++    <div className="plan-quick-picker-group plan-quick-picker-group--duration">
++      <span>Duration helper</span>
++      <div className="plan-quick-button-row">
++        {[30, 60, 90, 120].map((minutes) => <button key={minutes} type="button" disabled={!startsAt} onClick={() => onSelect(minutes)}>{durationLabel(minutes)}</button>)}
++        <button type="button" disabled={!startsAt}>Custom</button>
++      </div>
++    </div>
++  );
++}
++
+ function formatDurationMinutes(minutes?: number | null) {
+   if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) return '';
+   const rounded = Math.round(minutes);
+@@ -539,6 +686,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   const [advancedDetailsOpen, setAdvancedDetailsOpen] = useState(false);
+   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
+   const [libraryPlaces, setLibraryPlaces] = useState<PlaceDto[]>([]);
++  const [myPlansForConflict, setMyPlansForConflict] = useState<PlanDto[]>([]);
+   const [loadingPlaces, setLoadingPlaces] = useState(false);
+   const [pickerTarget, setPickerTarget] = useState<PlacePickerTarget | null>(null);
+   const [pickerView, setPickerView] = useState<PlacePickerView>('source');
+@@ -559,6 +707,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   const schedule = useMemo(() => buildPlanSchedule(schedulablePlaces), [schedulablePlaces]);
+   const explicitPlanEnd = useMemo(() => parsePlanEndOverride(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
+   const endSummary = useMemo(() => planEndSummary(schedule, planEnd), [schedule, planEnd]);
++  const conflictWarning = useMemo(() => createPlanConflictWarning(myPlansForConflict, schedule, explicitPlanEnd), [explicitPlanEnd, myPlansForConflict, schedule]);
+   const rangeLabel = rangeLabelWithEnd(schedule, planEnd);
+   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
+     places: placesForGeneratedDisplay,
+@@ -579,12 +728,14 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+   async function loadReusablePlaces() {
+     setLoadingPlaces(true);
+     try {
+-      const [mineResponse, libraryResponse] = await Promise.all([
++      const [mineResponse, libraryResponse, plansResponse] = await Promise.all([
+         api.places.mine({ take: 100 }),
+         api.places.library({ take: 100 }),
++        api.plans.mine(),
+       ]);
+       setMyPlaces(mineResponse.places);
+       setLibraryPlaces(libraryResponse.places);
++      setMyPlansForConflict(plansResponse.plans ?? []);
+     } catch (loadError) {
+       setError(getFriendlyApiErrorMessage(loadError, 'Could not load Place Library. You can still add custom places.'));
+     } finally {
+@@ -777,6 +928,14 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+     setError('');
+   }
+ 
++  function applyDuration(minutes: number) {
++    if (!schedule.startsAt) {
++      setError('Choose a start date and time before selecting a duration.');
++      return;
++    }
++    updatePlanEnd(endStateFromDuration(schedule.startsAt, minutes));
++  }
++
+   function focusMissingOfflineAddresses() {
+     const nextMissingIds = incompleteOfflinePlaceIndexes(places)
+       .map((index) => places[index]?.id)
+@@ -1024,16 +1183,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                           <span className="semantic-badge time">Date / time</span>
+                           <h3>Place {index + 1}</h3>
+                         </div>
+-                        <div className="plan-timeline-row__fields">
+-                          <label>
+-                            <span>Date</span>
+-                            <input type="date" value={place.date} onChange={(event) => updatePlace(index, { date: event.target.value })} required />
+-                          </label>
+-                          <label>
+-                            <span>Time</span>
+-                            <input type="time" value={place.time} onChange={(event) => updatePlace(index, { time: event.target.value })} required />
+-                          </label>
+-                        </div>
++                        <QuickDateTimeButtons date={place.date} time={place.time} onChange={(patch) => updatePlace(index, patch)} />
+                       </div>
+ 
+                       <div className="plan-timeline-row plan-timeline-row--place">
+@@ -1086,13 +1236,14 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                         <h3>Plan end time</h3>
+                         <p className="meta">Leave empty to use the estimated end from your place times.</p>
+                       </div>
++                      <DurationButtons startsAt={schedule.startsAt} onSelect={applyDuration} />
+                       <div className="plan-timeline-row__fields">
+                         <label>
+-                          <span>End date</span>
++                          <span>Custom end date</span>
+                           <input type="date" value={planEnd.date} onChange={(event) => updatePlanEnd({ date: event.target.value })} />
+                         </label>
+                         <label>
+-                          <span>End time</span>
++                          <span>Custom end time</span>
+                           <input type="time" value={planEnd.time} onChange={(event) => updatePlanEnd({ time: event.target.value })} />
+                         </label>
+                       </div>
+@@ -1110,6 +1261,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
+                   ) : null}
+                 </section>
+ 
++                {conflictWarning ? <p className="form-error">{conflictWarning}</p> : null}
+                 {error ? <p className="form-error">{error}</p> : null}
+                 {places.length > 0 ? <button className="button primary full" type="button" onClick={showPreviewStage} disabled={places.some((place) => place.uploading)}>Preview Plan</button> : null}
+               </>

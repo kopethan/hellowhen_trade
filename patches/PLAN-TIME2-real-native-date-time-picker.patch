@@ -1,0 +1,229 @@
+diff --git a/apps/mobile/package.json b/apps/mobile/package.json
+index da6a9a1..7ceb926 100644
+--- a/apps/mobile/package.json
++++ b/apps/mobile/package.json
+@@ -21,6 +21,7 @@
+     "@hellowhen/trade-domain": "file:../../packages/trade-domain",
+     "@hellowhen/ui": "file:../../packages/ui",
+     "@react-native-async-storage/async-storage": "1.23.1",
++    "@react-native-community/datetimepicker": "^8.0.1",
+     "@react-navigation/bottom-tabs": "^6.5.20",
+     "@react-navigation/native": "^6.1.17",
+     "@react-navigation/native-stack": "^6.9.26",
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 64c177c..1a48b99 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1,5 +1,6 @@
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+ import AsyncStorage from '@react-native-async-storage/async-storage';
++import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
+ import * as Location from 'expo-location';
+ import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle, type LayoutChangeEvent } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+@@ -646,6 +647,23 @@ function formatInputTimeLabel(value: string) {
+   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+ }
+ 
++type PlanNativePickerMode = 'date' | 'time';
++
++function toTimeInputValueFromDate(date: Date) {
++  return `${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`;
++}
++
++function nativePickerDateValue(dateValue: string, timeValue: string, mode: PlanNativePickerMode) {
++  const fallbackDate = /^\d{4}-\d{2}-\d{2}$/.test(dateValue.trim()) ? dateValue.trim() : toDateInputValueFromDate(new Date());
++  const fallbackTime = /^\d{2}:\d{2}$/.test(timeValue.trim()) ? timeValue.trim() : mode === 'time' ? '13:00' : '12:00';
++  return parseLocalDateTime(fallbackDate, fallbackTime) ?? new Date();
++}
++
++function nativePickerPatch(mode: PlanNativePickerMode, selectedDate: Date) {
++  if (mode === 'date') return { date: toDateInputValueFromDate(selectedDate) };
++  return { time: toTimeInputValueFromDate(selectedDate) };
++}
++
+ function addMinutesToIso(value: string, minutes: number) {
+   const date = new Date(value);
+   if (Number.isNaN(date.getTime())) return null;
+@@ -2607,6 +2625,52 @@ function QuickChoiceButton({ label, active, onPress }: { label: string; active?:
+   );
+ }
+ 
++function PlanNativeDateTimePicker({
++  mode,
++  date,
++  time,
++  onChange,
++  onClose,
++}: {
++  mode: PlanNativePickerMode;
++  date: string;
++  time: string;
++  onChange: (patch: { date?: string; time?: string }) => void;
++  onClose: () => void;
++}) {
++  const theme = useThemeTokens();
++  const pickerValue = nativePickerDateValue(date, time, mode);
++
++  function handleNativeChange(event: DateTimePickerEvent, selectedDate?: Date) {
++    if (Platform.OS === 'android') onClose();
++    if (event.type === 'dismissed' || !selectedDate) return;
++    onChange(nativePickerPatch(mode, selectedDate));
++  }
++
++  return (
++    <View style={[styles.nativePickerCard, { borderColor: theme.color.border, backgroundColor: theme.color.surface }]}>
++      {Platform.OS === 'ios' ? (
++        <View style={styles.nativePickerHeader}>
++          <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{mode === 'date' ? 'Choose date' : 'Choose time'}</AppText>
++          <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.nativePickerDoneButton, pressed && styles.pressed]}>
++            <AppText style={[styles.quickChoiceButtonText, { color: theme.semantic.plan.text }]}>Done</AppText>
++          </Pressable>
++        </View>
++      ) : null}
++      <DateTimePicker
++        value={pickerValue}
++        mode={mode}
++        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
++        is24Hour
++        minuteInterval={mode === 'time' ? 5 : undefined}
++        onChange={handleNativeChange}
++        style={styles.nativePicker}
++      />
++      {Platform.OS === 'android' ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>Use the system picker to choose a custom {mode}.</AppText> : null}
++    </View>
++  );
++}
++
+ function PlanDateTimeQuickControls({ date, time, onChange }: { date: string; time: string; onChange: (patch: { date?: string; time?: string }) => void }) {
+   const theme = useThemeTokens();
+   const [customDateOpen, setCustomDateOpen] = useState(false);
+@@ -2633,10 +2697,10 @@ function PlanDateTimeQuickControls({ date, time, onChange }: { date: string; tim
+           <QuickChoiceButton label="Tomorrow" active={date === tomorrow} onPress={() => onChange({ date: tomorrow })} />
+           <QuickChoiceButton label="This weekend" active={date === weekend} onPress={() => onChange({ date: weekend })} />
+           <QuickChoiceButton label="Next week" active={date === nextWeek} onPress={() => onChange({ date: nextWeek })} />
+-          <QuickChoiceButton label="Custom" active={customDateOpen} onPress={() => setCustomDateOpen((open) => !open)} />
++          <QuickChoiceButton label="Custom" active={customDateOpen} onPress={() => { setCustomTimeOpen(false); setCustomDateOpen((open) => !open); }} />
+         </View>
+         {customDateOpen ? (
+-          <TextField label="Custom date" value={date} onChangeText={(nextDate) => onChange({ date: nextDate })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
++          <PlanNativeDateTimePicker mode="date" date={date} time={time} onChange={onChange} onClose={() => setCustomDateOpen(false)} />
+         ) : null}
+       </View>
+ 
+@@ -2646,10 +2710,10 @@ function PlanDateTimeQuickControls({ date, time, onChange }: { date: string; tim
+           <QuickChoiceButton label="Morning" active={time === timePresetValue('morning')} onPress={() => onChange({ time: timePresetValue('morning') })} />
+           <QuickChoiceButton label="Afternoon" active={time === timePresetValue('afternoon')} onPress={() => onChange({ time: timePresetValue('afternoon') })} />
+           <QuickChoiceButton label="Evening" active={time === timePresetValue('evening')} onPress={() => onChange({ time: timePresetValue('evening') })} />
+-          <QuickChoiceButton label="Custom" active={customTimeOpen} onPress={() => setCustomTimeOpen((open) => !open)} />
++          <QuickChoiceButton label="Custom" active={customTimeOpen} onPress={() => { setCustomDateOpen(false); setCustomTimeOpen((open) => !open); }} />
+         </View>
+         {customTimeOpen ? (
+-          <TextField label="Custom time" value={time} onChangeText={(nextTime) => onChange({ time: nextTime })} placeholder="13:00" keyboardType="numbers-and-punctuation" />
++          <PlanNativeDateTimePicker mode="time" date={date} time={time} onChange={onChange} onClose={() => setCustomTimeOpen(false)} />
+         ) : null}
+       </View>
+     </View>
+@@ -2673,6 +2737,41 @@ function PlanDurationQuickControls({ schedule, onSelectDuration }: { schedule: R
+   );
+ }
+ 
++function PlanEndNativeControls({ end, schedule, onChange }: { end: PlanEndState; schedule: ReturnType<typeof buildMobilePlanSchedule>; onChange: (patch: Partial<PlanEndState>) => void }) {
++  const theme = useThemeTokens();
++  const [customEndDateOpen, setCustomEndDateOpen] = useState(false);
++  const [customEndTimeOpen, setCustomEndTimeOpen] = useState(false);
++  const fallbackEnd = schedule.endsAt ? new Date(schedule.endsAt) : schedule.startsAt ? new Date(schedule.startsAt) : new Date();
++  const fallbackDate = Number.isNaN(fallbackEnd.getTime()) ? toDateInputValueFromDate(new Date()) : toDateInputValueFromDate(fallbackEnd);
++  const fallbackTime = Number.isNaN(fallbackEnd.getTime()) ? '13:00' : toTimeInputValueFromDate(fallbackEnd);
++  const pickerDate = end.date || fallbackDate;
++  const pickerTime = end.time || fallbackTime;
++
++  function handleEndChange(patch: { date?: string; time?: string }) {
++    onChange({
++      date: (patch.date ?? end.date) || fallbackDate,
++      time: (patch.time ?? end.time) || fallbackTime,
++    });
++  }
++
++  return (
++    <View style={styles.quickPickerGroup}>
++      <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>Custom end</AppText>
++      <View style={styles.quickChoiceRow}>
++        <QuickChoiceButton label={end.date ? formatInputDateLabel(end.date) : 'End date'} active={customEndDateOpen || Boolean(end.date)} onPress={() => { setCustomEndTimeOpen(false); setCustomEndDateOpen((open) => !open); }} />
++        <QuickChoiceButton label={end.time ? formatInputTimeLabel(end.time) : 'End time'} active={customEndTimeOpen || Boolean(end.time)} onPress={() => { setCustomEndDateOpen(false); setCustomEndTimeOpen((open) => !open); }} />
++      </View>
++      {customEndDateOpen ? (
++        <PlanNativeDateTimePicker mode="date" date={pickerDate} time={pickerTime} onChange={handleEndChange} onClose={() => setCustomEndDateOpen(false)} />
++      ) : null}
++      {customEndTimeOpen ? (
++        <PlanNativeDateTimePicker mode="time" date={pickerDate} time={pickerTime} onChange={handleEndChange} onClose={() => setCustomEndTimeOpen(false)} />
++      ) : null}
++      <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose a custom end only when the automatic estimate is not right.</AppText>
++    </View>
++  );
++}
++
+ function makeGooglePlaceSessionToken() {
+   const maybeCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+   if (typeof maybeCrypto?.randomUUID === 'function') {
+@@ -3601,10 +3700,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                       <AppText style={[styles.metaText, { color: theme.color.muted }]}>Leave empty to use the estimated end from your place times.</AppText>
+                     </View>
+                     <PlanDurationQuickControls schedule={schedule} onSelectDuration={applyPlanDuration} />
+-                    <View style={styles.twoColumnRow}>
+-                      <TextField label="Custom end date" value={planEnd.date} onChangeText={(date) => updatePlanEnd({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+-                      <TextField label="Custom end time" value={planEnd.time} onChangeText={(time) => updatePlanEnd({ time })} placeholder="Optional" keyboardType="numbers-and-punctuation" />
+-                    </View>
++                    <PlanEndNativeControls end={planEnd} schedule={schedule} onChange={updatePlanEnd} />
+                     {endSummary ? (
+                       <View style={[styles.planEndSummaryCard, { borderColor: theme.semantic.time.border, backgroundColor: theme.semantic.time.softBg }]}>
+                         <View style={styles.timelineCopy}>
+@@ -4417,6 +4513,10 @@ const styles = StyleSheet.create({
+   timeCard: { borderRadius: 22, borderWidth: 1, padding: 12, gap: 11 },
+   timeCardHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 },
+   quickDateTimeCard: { borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, padding: 12, gap: 13 },
++  nativePickerCard: { borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, padding: 8, gap: 8, overflow: 'hidden' },
++  nativePickerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingHorizontal: 4 },
++  nativePickerDoneButton: { minHeight: 34, borderRadius: 999, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
++  nativePicker: { alignSelf: 'stretch' },
+   quickDateTimeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+   quickDateTimeTitle: { fontSize: 16, lineHeight: 20, fontWeight: '900' },
+   quickPickerGroup: { gap: 8 },
+diff --git a/package-lock.json b/package-lock.json
+index 1a98b00..a81f1d7 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -63,6 +63,7 @@
+         "@hellowhen/trade-domain": "file:../../packages/trade-domain",
+         "@hellowhen/ui": "file:../../packages/ui",
+         "@react-native-async-storage/async-storage": "1.23.1",
++        "@react-native-community/datetimepicker": "^8.0.1",
+         "@react-navigation/bottom-tabs": "^6.5.20",
+         "@react-navigation/native": "^6.1.17",
+         "@react-navigation/native-stack": "^6.9.26",
+@@ -6192,6 +6193,25 @@
+         "node": ">=8"
+       }
+     },
++    "node_modules/@react-native-community/datetimepicker": {
++      "version": "8.0.1",
++      "resolved": "https://registry.npmjs.org/@react-native-community/datetimepicker/-/datetimepicker-8.0.1.tgz",
++      "integrity": "sha512-4BO0t3geMNNw9cIIm9p9FNUzwMXexdzD4pAH0AaUAycs3BS71HLrX8jHbrI7nzq/+8O7cLAXn5Gudte+YpTV8Q==",
++      "license": "MIT",
++      "dependencies": {
++        "invariant": "^2.2.4"
++      },
++      "peerDependencies": {
++        "react": "*",
++        "react-native": "*",
++        "react-native-windows": "*"
++      },
++      "peerDependenciesMeta": {
++        "react-native-windows": {
++          "optional": true
++        }
++      }
++    },
+     "node_modules/@react-native/assets-registry": {
+       "version": "0.74.87",
+       "resolved": "https://registry.npmjs.org/@react-native/assets-registry/-/assets-registry-0.74.87.tgz",
