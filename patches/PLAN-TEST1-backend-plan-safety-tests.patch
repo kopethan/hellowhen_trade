@@ -1,0 +1,159 @@
+diff --git a/apps/api/package.json b/apps/api/package.json
+index 1abc4d2..3772f75 100644
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -14,7 +14,8 @@
+     "prisma:validate": "prisma validate",
+     "prisma:seed": "prisma db seed",
+     "media:s3-migrate": "tsx src/scripts/migrateLocalMediaToS3.ts",
+-    "places:address-cleanup": "tsx src/scripts/cleanupInvalidOfflinePlaces.ts"
++    "places:address-cleanup": "tsx src/scripts/cleanupInvalidOfflinePlaces.ts",
++    "test:plans": "tsx --test src/modules/plans/__tests__/plans.safety.test.ts"
+   },
+   "dependencies": {
+     "@aws-sdk/client-s3": "^3.1077.0",
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+index e68738d..c42c45b 100644
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -40,6 +40,17 @@ import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
+ import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
+ import { buildPlaceStaticMapResult } from '../places/placeStaticMap.js';
+ import { createRandomPlaceStaticMapTemplateAssignment } from '../places/placeStaticMapTemplates.js';
++import {
++  PLAN_TIME_MIN_GAP_MINUTES,
++  PlanScheduleInput,
++  PUBLIC_PLAN_STATUSES,
++  canViewerReadPlan,
++  effectivePlanRange as effectivePlanRangeSafety,
++  findPlanRequestStopGapViolation,
++  isCancelOnlyPlanUpdate,
++  ownedPlanTimeConflictWhere,
++  publicPlanVisibilityWhere,
++} from './plans.safety.js';
+ 
+ export const plansRoutes = Router();
+ 
+@@ -50,7 +61,7 @@ const placePresenceVerificationRateLimit = createRateLimiter({
+   message: 'Too many place verification attempts. Please wait and try again.',
+ });
+ 
+-const publicPlanStatuses = ['open', 'full', 'started', 'cancelled'] as const;
++const publicPlanStatuses = PUBLIC_PLAN_STATUSES;
+ const writablePlanDiscussionStatuses = ['open', 'full', 'started'] as const;
+ const lockedPlanInteractionStatuses = ['cancelled'] as const;
+ const userSummarySelect = {
+@@ -269,11 +280,9 @@ function serializePlan(plan: any, viewerId: string | null, surface: 'detail' | '
+ 
+ async function loadPlanForViewer(planId: string, viewerId?: string | null) {
+   const plan = await prisma.plan.findUnique({ where: { id: planId }, include: planInclude() });
+-  if (!plan || plan.deletedAt) return null;
+-  if (!viewerId || plan.ownerId !== viewerId) {
+-    if (!publicPlanStatuses.includes(plan.status as any)) return null;
+-  }
++  if (!plan) return null;
+   const isOwner = Boolean(viewerId && plan.ownerId === viewerId);
++  if (!canViewerReadPlan(plan, isOwner)) return null;
+   if (!isOwner) {
+     const owner = await prisma.user.findUnique({ where: { id: plan.ownerId }, select: { trustTier: true } });
+     if (!owner || owner.trustTier === 'restricted') return null;
+@@ -498,11 +507,6 @@ function placeCoordinatesForVerification(place: { latitude: number | null; longi
+   return { latitude, longitude };
+ }
+ 
+-function isCancelOnlyPlanUpdate(input: ReturnType<typeof updatePlanRequestSchema.parse>) {
+-  const keys = Object.keys(input);
+-  return keys.length === 1 && input.status === 'cancelled';
+-}
+-
+ function planPublicDiscussionMessageSelect() {
+   return {
+     id: true,
+@@ -561,61 +565,18 @@ function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequ
+   };
+ }
+ 
+-const activeOwnedPlanTimeStatuses = ['draft', 'open', 'full', 'started'] as const;
+-const PLAN_TIME_MIN_GAP_MINUTES = 60;
+-const PLAN_TIME_MIN_GAP_MS = PLAN_TIME_MIN_GAP_MINUTES * 60 * 1000;
+-
+-type PlanScheduleInput = {
+-  startsAt: string | Date;
+-  endsAt?: string | Date | null;
+-  places?: Array<{ startsAt?: string | Date | null; endsAt?: string | Date | null }>;
+-};
+-
+ function effectivePlanRange(input: PlanScheduleInput) {
+-  const startsAt = new Date(input.startsAt);
+-  const estimatedEndsAt = estimatePlanEndsAtFromPlaces(input);
+-  const rawEndsAt = estimatedEndsAt ? new Date(estimatedEndsAt) : startsAt;
+-  const endsAt = rawEndsAt.getTime() >= startsAt.getTime() ? rawEndsAt : startsAt;
+-  return { startsAt, endsAt };
+-}
+-
+-function planRangeWithGap(input: PlanScheduleInput) {
+-  const range = effectivePlanRange(input);
+-  return {
+-    ...range,
+-    startsAtWithGap: new Date(range.startsAt.getTime() - PLAN_TIME_MIN_GAP_MS),
+-    endsAtWithGap: new Date(range.endsAt.getTime() + PLAN_TIME_MIN_GAP_MS),
+-  };
++  return effectivePlanRangeSafety(input, (schedule) => estimatePlanEndsAtFromPlaces(schedule));
+ }
+ 
+ async function findOwnedPlanTimeConflict(ownerId: string, input: PlanScheduleInput, excludePlanId?: string) {
+-  const { startsAtWithGap, endsAtWithGap } = planRangeWithGap(input);
+   return prisma.plan.findFirst({
+-    where: {
+-      ownerId,
+-      ...(excludePlanId ? { id: { not: excludePlanId } } : {}),
+-      deletedAt: null,
+-      status: { in: [...activeOwnedPlanTimeStatuses] as any },
+-      startsAt: { lte: endsAtWithGap },
+-      OR: [
+-        { endsAt: { gte: startsAtWithGap } },
+-        { endsAt: null, startsAt: { gte: startsAtWithGap } },
+-      ],
+-    },
++    where: ownedPlanTimeConflictWhere(ownerId, input, (schedule) => estimatePlanEndsAtFromPlaces(schedule), excludePlanId) as any,
+     select: { id: true, title: true, startsAt: true, endsAt: true },
+     orderBy: [{ startsAt: 'asc' }, { createdAt: 'desc' }],
+   });
+ }
+ 
+-
+-function findPlanRequestStopGapViolation(input: PlanScheduleInput) {
+-  const startsAtInRouteOrder = (input.places ?? [])
+-    .map((place, index) => ({ startsAt: place.startsAt ?? null, order: typeof (place as { order?: unknown }).order === 'number' ? (place as { order?: number }).order! : index }))
+-    .sort((left, right) => left.order - right.order)
+-    .map((place) => place.startsAt);
+-  return findPlanStopStartGapViolation(startsAtInRouteOrder);
+-}
+-
+ function planStopGapViolationResponse(violation: NonNullable<ReturnType<typeof findPlanRequestStopGapViolation>>) {
+   return {
+     error: 'plan_stop_gap_too_short',
+@@ -876,8 +837,7 @@ plansRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
+   const blockedOwnerIds = await blockedUserIdsForViewer(req.user?.id);
+   const plans = await prisma.plan.findMany({
+     where: {
+-      deletedAt: null,
+-      status: input.status ?? { in: [...publicPlanStatuses] },
++      ...publicPlanVisibilityWhere(input.status),
+       ...(input.q ? {
+         OR: [
+           { title: { contains: input.q, mode: 'insensitive' as const } },
+diff --git a/package.json b/package.json
+index 19aef0c..ae3eb16 100644
+--- a/package.json
++++ b/package.json
+@@ -37,7 +37,8 @@
+     "media:s3-migrate": "npm run media:s3-migrate -w @hellowhen/api --",
+     "places:address-audit": "npm run places:address-cleanup -w @hellowhen/api -- --dry-run",
+     "places:address-cleanup": "npm run places:address-cleanup -w @hellowhen/api --",
+-    "places:address-provider-smoke": "node scripts/place-address-provider-smoke.mjs"
++    "places:address-provider-smoke": "node scripts/place-address-provider-smoke.mjs",
++    "plans:test": "npm run test:plans -w @hellowhen/api"
+   },
+   "devDependencies": {
+     "typescript": "^5.4.5"

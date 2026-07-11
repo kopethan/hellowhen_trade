@@ -52,6 +52,7 @@ const placePresenceVerificationRateLimit = createRateLimiter({
 
 const publicPlanStatuses = ['open', 'full', 'started', 'cancelled'] as const;
 const writablePlanDiscussionStatuses = ['open', 'full', 'started'] as const;
+const lockedPlanInteractionStatuses = ['cancelled'] as const;
 const userSummarySelect = {
   id: true,
   profile: { select: { displayName: true, handle: true, avatarUrl: true, countryCode: true } },
@@ -148,8 +149,8 @@ async function logPlanSearch(req: any, input: { q?: string; status?: unknown; mo
 }
 
 async function syncPlanCapacityStatus(planId: string) {
-  const plan = await prisma.plan.findUnique({ where: { id: planId }, select: { id: true, status: true, maxParticipants: true } });
-  if (!plan?.maxParticipants || !['open', 'full'].includes(plan.status as string)) return;
+  const plan = await prisma.plan.findUnique({ where: { id: planId }, select: { id: true, status: true, maxParticipants: true, deletedAt: true } });
+  if (!plan || plan.deletedAt || !plan.maxParticipants || !['open', 'full'].includes(plan.status as string)) return;
   const acceptedCount = await prisma.planParticipant.count({ where: { planId, status: 'accepted' as any } });
   if (acceptedCount >= plan.maxParticipants && plan.status === 'open') {
     await prisma.plan.update({ where: { id: planId }, data: { status: 'full' as any } });
@@ -192,6 +193,24 @@ async function decoratePlans(plans: any[], viewerId?: string | null) {
 
 function createPlanRequestError(code: string, publicMessage: string, statusCode = 400) {
   return Object.assign(new Error(publicMessage), { code, publicMessage, statusCode });
+}
+
+function isPlanInteractionLocked(status: string) {
+  return lockedPlanInteractionStatuses.includes(status as any);
+}
+
+function planInteractionLockedResponse() {
+  return {
+    error: 'plan_cancelled',
+    message: 'This Plan was cancelled. Joining, participant changes, public replies, and presence verification are closed.',
+  };
+}
+
+function assertPlanInteractionUnlocked(status: string) {
+  if (isPlanInteractionLocked(status)) {
+    const response = planInteractionLockedResponse();
+    throw createPlanRequestError(response.error, response.message, 409);
+  }
 }
 
 function cleanReusablePlaceForViewer(place: any, canSeePrivateDetails: boolean, viewerId?: string | null, surface: 'detail' | 'list' | 'preview' = 'detail') {
@@ -271,6 +290,21 @@ async function loadReadablePlanForDiscussion(planId: string, actorId?: string | 
   if (!plan || plan.deletedAt || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') return null;
   if (actorId && plan.ownerId !== actorId && await usersHaveBlockBetween(actorId, plan.ownerId)) return null;
   return plan;
+}
+
+async function deletedPlanKnownToActor(planId: string, actorId: string) {
+  const plan = await prisma.plan.findFirst({
+    where: {
+      id: planId,
+      deletedAt: { not: null },
+      OR: [
+        { ownerId: actorId },
+        { participants: { some: { userId: actorId } } },
+      ],
+    },
+    select: { id: true },
+  });
+  return Boolean(plan);
 }
 
 function canWritePlanPublicDiscussion(plan: { status: string }) {
@@ -420,6 +454,7 @@ async function loadPlanPlaceForPresenceVerification(planId: string, planPlaceId:
       id: true,
       ownerId: true,
       status: true,
+      deletedAt: true,
       owner: { select: { trustTier: true } },
       places: {
         where: { id: planPlaceId },
@@ -439,13 +474,17 @@ async function loadPlanPlaceForPresenceVerification(planId: string, planPlaceId:
   });
 
   if (!plan || plan.owner?.trustTier === 'restricted') return null;
+  const participant = plan.participants[0];
+  if (plan.deletedAt) {
+    return plan.ownerId === userId || Boolean(participant) ? { error: 'plan_deleted' as const } : null;
+  }
+  if (isPlanInteractionLocked(plan.status)) return { error: 'plan_cancelled' as const };
   if (!verificationPlanStatuses.includes(plan.status as any)) return null;
   if (plan.ownerId !== userId && await usersHaveBlockBetween(userId, plan.ownerId)) return null;
 
   const place = plan.places[0];
   if (!place) return { error: 'place_not_found' as const };
 
-  const participant = plan.participants[0];
   const canVerify = plan.ownerId === userId || participant?.status === 'accepted';
   if (!canVerify) return { error: 'not_plan_participant' as const };
 
@@ -635,7 +674,7 @@ function planStopsLockedResponse() {
 function planDeletedResponse() {
   return {
     error: 'plan_deleted',
-    message: 'This Plan was deleted and is no longer visible in feeds.',
+    message: 'This Plan was deleted and is no longer available.',
   };
 }
 
@@ -751,9 +790,21 @@ async function joinPlanFreely(planId: string, userId: string, message?: string |
     where: { id: planId },
     include: { participants: true, owner: { select: { trustTier: true } } },
   });
-  if (!plan || plan.deletedAt || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') {
+  if (!plan || plan.owner?.trustTier === 'restricted') {
     throw createPlanRequestError('not_found', 'Plan not found.', 404);
   }
+  if (plan.deletedAt) {
+    const knownParticipant = (plan.participants ?? []).some((participant: any) => participant.userId === userId);
+    if (plan.ownerId === userId || knownParticipant) {
+      const response = planDeletedResponse();
+      throw createPlanRequestError(response.error, response.message, 410);
+    }
+    throw createPlanRequestError('not_found', 'Plan not found.', 404);
+  }
+  if (!publicPlanStatuses.includes(plan.status as any)) {
+    throw createPlanRequestError('not_found', 'Plan not found.', 404);
+  }
+  assertPlanInteractionUnlocked(plan.status);
   if (plan.status !== 'open') {
     throw createPlanRequestError('plan_not_joinable', 'This plan is not open for joining.', 409);
   }
@@ -800,8 +851,16 @@ async function joinPlanFreely(planId: string, userId: string, message?: string |
 }
 
 async function leaveJoinedPlan(planId: string, userId: string) {
-  const participant = await prisma.planParticipant.findUnique({ where: { planId_userId: { planId, userId } } });
+  const participant = await prisma.planParticipant.findUnique({
+    where: { planId_userId: { planId, userId } },
+    include: { plan: { select: { status: true, deletedAt: true } } },
+  });
   if (!participant) throw createPlanRequestError('not_found', 'You have not joined this plan.', 404);
+  if (participant.plan.deletedAt) {
+    const response = planDeletedResponse();
+    throw createPlanRequestError(response.error, response.message, 410);
+  }
+  assertPlanInteractionUnlocked(participant.plan.status);
   if (participant.status !== 'accepted') {
     throw createPlanRequestError('cannot_leave_plan', 'Only joined participants can leave a plan.', 409);
   }
@@ -907,7 +966,8 @@ plansRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req, 
 plansRoutes.patch('/:planId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const input = updatePlanRequestSchema.parse(req.body ?? {});
   const existing = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id } });
-  if (!existing || existing.deletedAt) return res.status(404).json({ error: 'not_found' });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  if (existing.deletedAt) return res.status(410).json(planDeletedResponse());
   if (!isCancelOnlyPlanUpdate(input)) {
     return res.status(409).json(planContentLockedResponse());
   }
@@ -918,7 +978,8 @@ plansRoutes.patch('/:planId', requireAuth, requireActiveAccount, asyncRoute(asyn
 
 plansRoutes.delete('/:planId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const existing = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id } });
-  if (!existing || existing.deletedAt) return res.status(404).json({ error: 'not_found' });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  if (existing.deletedAt) return res.status(410).json(planDeletedResponse());
 
   const plan = await prisma.plan.update({
     where: { id: existing.id },
@@ -930,19 +991,21 @@ plansRoutes.delete('/:planId', requireAuth, requireActiveAccount, asyncRoute(asy
 
 plansRoutes.post('/:planId/places', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const plan = await prisma.plan.findFirst({
-    where: { id: req.params.planId, ownerId: req.user!.id, deletedAt: null },
+    where: { id: req.params.planId, ownerId: req.user!.id },
     include: { places: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
   });
   if (!plan) return res.status(404).json({ error: 'not_found' });
+  if (plan.deletedAt) return res.status(410).json(planDeletedResponse());
   return res.status(409).json(planStopsLockedResponse());
 }));
 
 plansRoutes.patch('/:planId/places/:placeId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const plan = await prisma.plan.findFirst({
-    where: { id: req.params.planId, ownerId: req.user!.id, deletedAt: null },
+    where: { id: req.params.planId, ownerId: req.user!.id },
     include: { places: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
   });
   if (!plan) return res.status(404).json({ error: 'not_found' });
+  if (plan.deletedAt) return res.status(410).json(planDeletedResponse());
   const place = plan.places.find((item: any) => item.id === req.params.placeId);
   if (!place) return res.status(404).json({ error: 'not_found' });
   return res.status(409).json(planStopsLockedResponse());
@@ -950,10 +1013,11 @@ plansRoutes.patch('/:planId/places/:placeId', requireAuth, requireActiveAccount,
 
 plansRoutes.delete('/:planId/places/:placeId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const plan = await prisma.plan.findFirst({
-    where: { id: req.params.planId, ownerId: req.user!.id, deletedAt: null },
+    where: { id: req.params.planId, ownerId: req.user!.id },
     include: { places: { select: { id: true } } },
   });
   if (!plan) return res.status(404).json({ error: 'not_found' });
+  if (plan.deletedAt) return res.status(410).json(planDeletedResponse());
   const place = plan.places.find((item: any) => item.id === req.params.placeId);
   if (!place) return res.status(404).json({ error: 'not_found' });
   return res.status(409).json(planStopsLockedResponse());
@@ -972,6 +1036,8 @@ plansRoutes.post('/:planId/places/:placeId/verify-presence', requireAuth, requir
   const loaded = await loadPlanPlaceForPresenceVerification(planId, planPlaceId, req.user!.id);
   if (!loaded) return res.status(404).json({ error: 'not_found' });
   if ('error' in loaded) {
+    if (loaded.error === 'plan_deleted') return res.status(410).json(planDeletedResponse());
+    if (loaded.error === 'plan_cancelled') return res.status(409).json(planInteractionLockedResponse());
     if (loaded.error === 'not_plan_participant') return res.status(403).json({ error: loaded.error, message: 'Join this plan before verifying your presence at its offline places.' });
     return res.status(404).json({ error: loaded.error });
   }
@@ -1126,16 +1192,19 @@ plansRoutes.post('/:planId/join-requests', requireAuth, requireActiveAccount, as
 }));
 
 plansRoutes.get('/:planId/join-requests', requireAuth, asyncRoute(async (req, res) => {
-  const plan = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id, deletedAt: null } });
+  const plan = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id } });
   if (!plan) return res.status(404).json({ error: 'not_found' });
+  if (plan.deletedAt) return res.status(410).json(planDeletedResponse());
   const participants = await prisma.planParticipant.findMany({ where: { planId: plan.id }, include: { user: { select: userSummarySelect } }, orderBy: { createdAt: 'asc' } });
   res.json({ participants });
 }));
 
 plansRoutes.patch('/:planId/join-requests/:participantId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const input = updatePlanParticipantRequestSchema.parse(req.body ?? {});
-  const plan = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id, deletedAt: null }, include: { participants: true } });
+  const plan = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id }, include: { participants: true } });
   if (!plan) return res.status(404).json({ error: 'not_found' });
+  if (plan.deletedAt) return res.status(410).json(planDeletedResponse());
+  if (isPlanInteractionLocked(plan.status)) return res.status(409).json(planInteractionLockedResponse());
   const participant = (plan.participants ?? []).find((item: any) => item.id === req.params.participantId);
   if (!participant) return res.status(404).json({ error: 'not_found' });
   if (input.status === 'accepted') {
@@ -1167,8 +1236,13 @@ plansRoutes.patch('/:planId/my-join-request', requireAuth, requireActiveAccount,
     const participant = await leaveJoinedPlan(planId, req.user!.id);
     return res.json({ participant });
   }
-  const participant = await prisma.planParticipant.findUnique({ where: { planId_userId: { planId, userId: req.user!.id } } });
+  const participant = await prisma.planParticipant.findUnique({
+    where: { planId_userId: { planId, userId: req.user!.id } },
+    include: { plan: { select: { status: true, deletedAt: true } } },
+  });
   if (!participant) return res.status(404).json({ error: 'not_found' });
+  if (participant.plan.deletedAt) return res.status(410).json(planDeletedResponse());
+  if (isPlanInteractionLocked(participant.plan.status)) return res.status(409).json(planInteractionLockedResponse());
   if (input.status === 'cancelled' && participant.status !== 'pending') return res.status(409).json({ error: 'cannot_cancel_join_request', message: 'Only pending join requests can be cancelled.' });
   const updated = await prisma.planParticipant.update({
     where: { id: participant.id },
@@ -1207,7 +1281,10 @@ plansRoutes.post('/:planId/public-messages', requireAuth, requireActiveAccount, 
   const planId = req.params.planId;
   if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
   const plan = await loadReadablePlanForDiscussion(planId, actorId);
-  if (!plan) return res.status(404).json({ error: 'not_found' });
+  if (!plan) {
+    if (await deletedPlanKnownToActor(planId, actorId)) return res.status(410).json(planDeletedResponse());
+    return res.status(404).json({ error: 'not_found' });
+  }
   if (!canWritePlanPublicDiscussion(plan)) {
     return res.status(409).json({ error: 'public_discussion_closed', message: 'Public discussion is closed for this plan.' });
   }
@@ -1252,7 +1329,13 @@ plansRoutes.patch('/:planId/public-messages/:messageId', requireAuth, requireAct
   const messageId = req.params.messageId;
   if (!planId || !messageId) return res.status(400).json({ error: 'invalid_message_id' });
   const plan = await loadReadablePlanForDiscussion(planId, actorId);
-  if (!plan) return res.status(404).json({ error: 'not_found' });
+  if (!plan) {
+    if (await deletedPlanKnownToActor(planId, actorId)) return res.status(410).json(planDeletedResponse());
+    return res.status(404).json({ error: 'not_found' });
+  }
+  if (!canWritePlanPublicDiscussion(plan)) {
+    return res.status(409).json({ error: 'public_discussion_closed', message: 'Public discussion is closed for this plan.' });
+  }
 
   const existing = await prisma.planPublicMessage.findUnique({ where: { id: messageId } });
   if (!existing || existing.planId !== plan.id || existing.status === 'hidden') return res.status(404).json({ error: 'not_found' });
@@ -1301,7 +1384,10 @@ plansRoutes.delete('/:planId/public-messages/:messageId', requireAuth, requireAc
   const messageId = req.params.messageId;
   if (!planId || !messageId) return res.status(400).json({ error: 'invalid_message_id' });
   const plan = await loadReadablePlanForDiscussion(planId, actorId);
-  if (!plan) return res.status(404).json({ error: 'not_found' });
+  if (!plan) {
+    if (await deletedPlanKnownToActor(planId, actorId)) return res.status(410).json(planDeletedResponse());
+    return res.status(404).json({ error: 'not_found' });
+  }
 
   const existing = await prisma.planPublicMessage.findUnique({ where: { id: messageId } });
   if (!existing || existing.planId !== plan.id || existing.status === 'hidden') return res.status(404).json({ error: 'not_found' });

@@ -22,6 +22,12 @@ type ActionState = {
   error: string;
 };
 
+function isPlanUnavailableError(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { status?: number; body?: { error?: string } };
+  return candidate.status === 404 || candidate.status === 410 || candidate.body?.error === 'not_found' || candidate.body?.error === 'plan_deleted';
+}
+
 function participantName(participant: PlanParticipantDto) {
   return participant.user?.profile?.displayName || participant.user?.profile?.handle || 'Hellowhen user';
 }
@@ -540,10 +546,11 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
   const [presenceNotices, setPresenceNotices] = useState<Record<string, PlanPlacePresenceNotice>>({});
 
   const isOwner = Boolean(auth.user?.id && plan?.ownerId === auth.user.id);
+  const isCancelled = plan?.status === 'cancelled';
   const currentParticipantStatus = plan?.myParticipantStatus ?? null;
   const canJoin = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner && plan.status === 'open' && canJoinFromParticipantStatus(currentParticipantStatus));
-  const canLeave = Boolean(!isOwner && currentParticipantStatus === 'accepted');
-  const canVerifyPresence = Boolean(auth.hydrated && auth.isAuthenticated && plan && (isOwner || currentParticipantStatus === 'accepted'));
+  const canLeave = Boolean(!isCancelled && !isOwner && currentParticipantStatus === 'accepted');
+  const canVerifyPresence = Boolean(!isCancelled && auth.hydrated && auth.isAuthenticated && plan && (isOwner || currentParticipantStatus === 'accepted'));
   const canCancelPlan = Boolean(isOwner && plan && plan.status !== 'cancelled');
   const canDeletePlan = Boolean(isOwner && plan);
   const participantCopy = !isOwner ? participantStateCopy(currentParticipantStatus) : '';
@@ -629,26 +636,44 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
 
   async function sharePlan() {
     if (!plan) return;
-    const url = buildPublicPlanUrl(plan.id);
-    const shareData = { title: plan.title, text: `Open this Plan on Hellowhen: ${plan.title}`, url };
-    const webNavigator = typeof navigator !== 'undefined' ? navigator as Navigator & { share?: (data: typeof shareData) => Promise<void> } : null;
-
     setShareLoading(true);
     setShareNotice('');
     try {
-      if (webNavigator?.share) {
-        await webNavigator.share(shareData);
-        setShareNotice('Share sheet opened.');
+      let currentPlan: PlanDto;
+      try {
+        const response = await api.plans.get(plan.id);
+        currentPlan = response.plan;
+        setPlan(currentPlan);
+      } catch (cause) {
+        const message = getFriendlyApiErrorMessage(cause, 'Could not confirm that this Plan is still available.');
+        if (isPlanUnavailableError(cause)) {
+          setPlan(null);
+          setError(message);
+        } else {
+          setShareNotice(message);
+        }
         return;
       }
 
-      const copied = await copyTextToClipboard(url);
-      setShareNotice(copied ? 'Plan link copied.' : 'Could not copy the Plan link.');
-    } catch (cause) {
-      const aborted = typeof DOMException !== 'undefined' && cause instanceof DOMException && cause.name === 'AbortError';
-      if (!aborted) {
+      const url = buildPublicPlanUrl(currentPlan.id);
+      const shareData = { title: currentPlan.title, text: `Open this Plan on Hellowhen: ${currentPlan.title}`, url };
+      const webNavigator = typeof navigator !== 'undefined' ? navigator as Navigator & { share?: (data: typeof shareData) => Promise<void> } : null;
+
+      try {
+        if (webNavigator?.share) {
+          await webNavigator.share(shareData);
+          setShareNotice('Share sheet opened.');
+          return;
+        }
+
         const copied = await copyTextToClipboard(url);
         setShareNotice(copied ? 'Plan link copied.' : 'Could not copy the Plan link.');
+      } catch (cause) {
+        const aborted = typeof DOMException !== 'undefined' && cause instanceof DOMException && cause.name === 'AbortError';
+        if (!aborted) {
+          const copied = await copyTextToClipboard(url);
+          setShareNotice(copied ? 'Plan link copied.' : 'Could not copy the Plan link.');
+        }
       }
     } finally {
       setShareLoading(false);
@@ -799,7 +824,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
                   <span className="trade-thread-action-card__icon trade-thread-action-card__icon--public"><WebIcon name="activity" size={20} decorative /></span>
                   <span className="trade-thread-action-card__body">
                     <strong>Public discussion</strong>
-                    <small>Ask visible questions about joining, timing, places, or plan details.</small>
+                    <small>{isCancelled ? 'Read earlier comments. New public replies are closed for this cancelled Plan.' : 'Ask visible questions about joining, timing, places, or plan details.'}</small>
                   </span>
                   <span className="trade-thread-action-card__cta">Open<WebIcon name="arrow-right" size={14} decorative /></span>
                 </Link>
@@ -870,15 +895,15 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
             <section className="plan-social-section plan-actions-section">
               <div className="plan-section-heading">
                 <p className="eyebrow">Actions</p>
-                <h2>{isOwner ? 'Manage this Plan' : canLeave ? 'You joined this Plan' : 'Join this Plan'}</h2>
-                <p>{isOwner && plan ? 'Share, cancel, or delete this Plan. Plan content editing is locked after publishing.' : plan ? planJoinActionCopy(plan) : ''}</p>
+                <h2>{isCancelled ? 'This Plan was cancelled' : isOwner ? 'Manage this Plan' : canLeave ? 'You joined this Plan' : 'Join this Plan'}</h2>
+                <p>{isCancelled ? 'It remains visible for context, but joining, participant changes, public replies, and place verification are closed.' : isOwner && plan ? 'Share, cancel, or delete this Plan. Plan content editing is locked after publishing.' : plan ? planJoinActionCopy(plan) : ''}</p>
               </div>
               <div className="plan-detail-actions plan-detail-actions--social">
                 {isOwner ? (
                   <div className="plan-action-status plan-action-status--owner">
                     <span className="semantic-badge trade">Owner</span>
                     <strong>Manage Plan</strong>
-                    <p className="meta">You can share, cancel, or delete this Plan. Editing places and times is locked after publishing.</p>
+                    <p className="meta">{isCancelled ? 'You can share or delete this cancelled Plan. Editing places and times remains locked.' : 'You can share, cancel, or delete this Plan. Editing places and times is locked after publishing.'}</p>
                   </div>
                 ) : null}
                 {isOwner ? (
@@ -896,14 +921,14 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
                     {action.loading ? 'Updating...' : 'Delete Plan'}
                   </button>
                 ) : null}
-                {isOwner && plan.status === 'cancelled' ? (
-                  <div className="plan-action-status plan-action-status--joined">
+                {isCancelled ? (
+                  <div className="plan-action-status plan-action-status--cancelled">
                     <span className="semantic-badge danger">Cancelled</span>
                     <strong>This Plan is cancelled</strong>
-                    <p className="meta">It remains visible for context, but people can no longer join.</p>
+                    <p className="meta">It remains visible for context. Joining, leaving, participant changes, public replies, and presence verification are no longer available.</p>
                   </div>
                 ) : null}
-                {!auth.isAuthenticated ? <Link className="button primary" href={`/auth?next=/plans/${plan.id}`}>Log in to join</Link> : null}
+                {!auth.isAuthenticated && plan.status === 'open' ? <Link className="button primary" href={`/auth?next=/plans/${plan.id}`}>Log in to join</Link> : null}
                 {canJoin ? (
                   <div className="plan-action-primary">
                     <button type="button" className="button primary" disabled={action.loading} onClick={joinPlan}>{action.loading ? 'Joining...' : 'Join Plan'}</button>
@@ -919,7 +944,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
                 ) : null}
                 {canLeave ? <button type="button" className="button secondary" disabled={action.loading} onClick={leavePlan}>Leave Plan</button> : null}
               </div>
-              {!isOwner && auth.isAuthenticated && participantCopy && !canLeave ? <p className="plan-action-note meta">{participantCopy}</p> : null}
+              {!isCancelled && !isOwner && auth.isAuthenticated && participantCopy && !canLeave ? <p className="plan-action-note meta">{participantCopy}</p> : null}
               {action.message ? <p className="success-message">{action.message}</p> : null}
               {action.error ? <p className="form-error">{action.error}</p> : null}
             </section>
@@ -930,7 +955,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
                 <h2>{capacityLabel} joined</h2>
               </div>
               <div className="plan-participant-list">
-                {visibleParticipants.map((participant) => <ParticipantRow key={participant.id} participant={participant} ownerControls={isOwner} onRemove={removeParticipant} />)}
+                {visibleParticipants.map((participant) => <ParticipantRow key={participant.id} participant={participant} ownerControls={isOwner && !isCancelled} onRemove={removeParticipant} />)}
                 {visibleParticipants.length === 0 ? <p className="meta">No participants yet.</p> : null}
               </div>
             </section>

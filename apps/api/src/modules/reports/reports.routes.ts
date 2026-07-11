@@ -80,12 +80,30 @@ export async function findReportTarget(targetType: ReportTargetType, targetId: s
 
   if (targetType === 'plan') {
     const plan = await prisma.plan.findUnique({ where: { id: targetId }, include: { owner: { select: reportUserSelect } } });
-    return plan ? { type: targetType, id: plan.id, label: plan.title, ownerId: plan.ownerId, owner: plan.owner, status: plan.status, isPublic: ['open', 'full', 'started'].includes(plan.status), url: `/plans/${plan.id}` } : null;
+    return plan ? {
+      type: targetType,
+      id: plan.id,
+      label: plan.title,
+      ownerId: plan.ownerId,
+      owner: plan.owner,
+      status: plan.status,
+      isPublic: !plan.deletedAt && ['open', 'full', 'started'].includes(plan.status),
+      url: plan.deletedAt ? null : `/plans/${plan.id}`,
+    } : null;
   }
 
   if (targetType === 'plan_place') {
     const place = await prisma.planPlace.findUnique({ where: { id: targetId }, include: { plan: { include: { owner: { select: reportUserSelect } } } } });
-    return place ? { type: targetType, id: place.id, label: place.title, ownerId: place.plan.ownerId, owner: place.plan.owner, status: place.plan.status, isPublic: ['open', 'full', 'started'].includes(place.plan.status), url: `/plans/${place.planId}` } : null;
+    return place ? {
+      type: targetType,
+      id: place.id,
+      label: place.title,
+      ownerId: place.plan.ownerId,
+      owner: place.plan.owner,
+      status: place.plan.status,
+      isPublic: !place.plan.deletedAt && ['open', 'full', 'started'].includes(place.plan.status),
+      url: place.plan.deletedAt ? null : `/plans/${place.planId}`,
+    } : null;
   }
 
   if (targetType === 'proposal') {
@@ -126,10 +144,19 @@ export async function findReportTarget(targetType: ReportTargetType, targetId: s
 
     const planMessage = await prisma.planPublicMessage.findUnique({
       where: { id: targetId },
-      include: { author: { select: reportUserSelect }, plan: { select: { id: true, title: true, ownerId: true, status: true } } },
+      include: { author: { select: reportUserSelect }, plan: { select: { id: true, title: true, ownerId: true, status: true, deletedAt: true } } },
     });
     const label = planMessage?.body?.trim() ? `${planMessage.body.trim().slice(0, 72)}${planMessage.body.trim().length > 72 ? '…' : ''}` : 'Plan discussion message';
-    return planMessage ? { type: targetType, id: planMessage.id, label, ownerId: planMessage.authorId, owner: planMessage.author, status: planMessage.status, isPublic: visiblePlanStatuses.includes(planMessage.plan?.status as any), url: planMessage.planId ? `/plans/${planMessage.planId}` : null } : null;
+    return planMessage ? {
+      type: targetType,
+      id: planMessage.id,
+      label,
+      ownerId: planMessage.authorId,
+      owner: planMessage.author,
+      status: planMessage.status,
+      isPublic: !planMessage.plan?.deletedAt && visiblePlanStatuses.includes(planMessage.plan?.status as any),
+      url: planMessage.planId && !planMessage.plan?.deletedAt ? `/plans/${planMessage.planId}` : null,
+    } : null;
   }
 
   const media = await prisma.mediaAsset.findUnique({ where: { id: targetId }, include: { owner: { select: reportUserSelect } } });
@@ -240,6 +267,7 @@ async function canReportTarget(actorId: string, target: ReportTargetSummary): Pr
         status: 'visible',
         author: { trustTier: { not: 'restricted' } },
         plan: {
+          deletedAt: null,
           OR: [
             { status: { in: [...visiblePlanStatuses] } },
             { participants: { some: { userId: actorId } } },
@@ -256,6 +284,7 @@ async function canReportTarget(actorId: string, target: ReportTargetSummary): Pr
     const plan = await prisma.plan.findFirst({
       where: {
         id: target.id,
+        deletedAt: null,
         OR: [
           { status: { in: [...visiblePlanStatuses] } },
           { participants: { some: { userId: actorId } } },
@@ -272,6 +301,7 @@ async function canReportTarget(actorId: string, target: ReportTargetSummary): Pr
       where: {
         id: target.id,
         plan: {
+          deletedAt: null,
           OR: [
             { status: { in: [...visiblePlanStatuses] } },
             { participants: { some: { userId: actorId } } },

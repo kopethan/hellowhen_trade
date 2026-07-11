@@ -1,0 +1,155 @@
+diff --git a/apps/api/package.json b/apps/api/package.json
+index 1abc4d2..3772f75 100644
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -14,7 +14,8 @@
+     "prisma:validate": "prisma validate",
+     "prisma:seed": "prisma db seed",
+     "media:s3-migrate": "tsx src/scripts/migrateLocalMediaToS3.ts",
+-    "places:address-cleanup": "tsx src/scripts/cleanupInvalidOfflinePlaces.ts"
++    "places:address-cleanup": "tsx src/scripts/cleanupInvalidOfflinePlaces.ts",
++    "test:plans": "tsx --test src/modules/plans/__tests__/plans.safety.test.ts"
+   },
+   "dependencies": {
+     "@aws-sdk/client-s3": "^3.1077.0",
+diff --git a/apps/api/src/modules/plans/__tests__/plans.safety.test.ts b/apps/api/src/modules/plans/__tests__/plans.safety.test.ts
+new file mode 100644
+index 0000000..fbcc428
+--- /dev/null
++++ b/apps/api/src/modules/plans/__tests__/plans.safety.test.ts
+@@ -0,0 +1,55 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import {
++  ACTIVE_PLAN_TIME_STATUSES,
++  canReadPlan,
++  findStopGapViolation,
++  isCancelOnlyUpdate,
++  rangesConflictWithRequiredGap,
++} from '../plans.safety.testkit.js';
++
++const at = (hour: number, minute = 0) => `2026-07-20T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000Z`;
++
++test('active plans reserve the required one-hour scheduling gap', () => {
++  assert.equal(rangesConflictWithRequiredGap({ startsAt: at(10), endsAt: at(11) }, { startsAt: at(12), endsAt: at(13) }), true);
++  assert.equal(rangesConflictWithRequiredGap({ startsAt: at(10), endsAt: at(11) }, { startsAt: at(12, 1), endsAt: at(13) }), false);
++});
++
++test('only active statuses participate in owned-plan conflict checks', () => {
++  assert.deepEqual(ACTIVE_PLAN_TIME_STATUSES, ['draft', 'open', 'full', 'started']);
++  assert.equal(ACTIVE_PLAN_TIME_STATUSES.includes('cancelled' as never), false);
++  assert.equal(ACTIVE_PLAN_TIME_STATUSES.includes('deleted' as never), false);
++});
++
++test('cancelled and deleted plans do not block future scheduling', () => {
++  const blockingStatuses = new Set(ACTIVE_PLAN_TIME_STATUSES);
++  assert.equal(blockingStatuses.has('cancelled' as never), false);
++  assert.equal(blockingStatuses.has('deleted' as never), false);
++});
++
++test('stop starts less than 15 minutes apart are rejected', () => {
++  assert.deepEqual(findStopGapViolation({ startsAt: at(10), places: [{ startsAt: at(10) }, { startsAt: at(10, 14) }] }), { previousIndex: 0, currentIndex: 1 });
++});
++
++test('exactly 15 minutes between stop starts is accepted', () => {
++  assert.equal(findStopGapViolation({ startsAt: at(10), places: [{ startsAt: at(10) }, { startsAt: at(10, 15) }] }), null);
++});
++
++test('created plan content remains immutable while cancellation is allowed', () => {
++  assert.equal(isCancelOnlyUpdate({ status: 'cancelled' }), true);
++  assert.equal(isCancelOnlyUpdate({ title: 'Changed' }), false);
++  assert.equal(isCancelOnlyUpdate({ status: 'cancelled', title: 'Changed' }), false);
++  assert.equal(isCancelOnlyUpdate({ places: [] }), false);
++});
++
++test('deleted plans are hidden from public and owner detail access', () => {
++  const deleted = { status: 'cancelled', deletedAt: new Date() };
++  assert.equal(canReadPlan(deleted, false), false);
++  assert.equal(canReadPlan(deleted, true), false);
++});
++
++test('owners can read non-public drafts while public viewers cannot', () => {
++  const draft = { status: 'draft', deletedAt: null };
++  assert.equal(canReadPlan(draft, true), true);
++  assert.equal(canReadPlan(draft, false), false);
++});
+diff --git a/apps/api/src/modules/plans/plans.safety.testkit.ts b/apps/api/src/modules/plans/plans.safety.testkit.ts
+new file mode 100644
+index 0000000..136d623
+--- /dev/null
++++ b/apps/api/src/modules/plans/plans.safety.testkit.ts
+@@ -0,0 +1,60 @@
++export const ACTIVE_PLAN_TIME_STATUSES = ['draft', 'open', 'full', 'started'] as const;
++export const PUBLIC_PLAN_STATUSES = ['open', 'full', 'started', 'cancelled'] as const;
++export const PLAN_TIME_MIN_GAP_MINUTES = 60;
++export const PLAN_STOP_MIN_GAP_MINUTES = 15;
++
++export type PlanScheduleInput = {
++  startsAt: string | Date;
++  endsAt?: string | Date | null;
++  places?: Array<{ startsAt?: string | Date | null; endsAt?: string | Date | null; order?: number }>;
++};
++
++function asDate(value: string | Date) {
++  return value instanceof Date ? value : new Date(value);
++}
++
++export function effectivePlanRange(input: PlanScheduleInput) {
++  const startsAt = asDate(input.startsAt);
++  const placeEnds = (input.places ?? [])
++    .map((place) => place.endsAt ?? place.startsAt ?? null)
++    .filter((value): value is string | Date => Boolean(value))
++    .map(asDate);
++  const explicitEnd = input.endsAt ? asDate(input.endsAt) : null;
++  const candidates = explicitEnd ? [...placeEnds, explicitEnd] : placeEnds;
++  const latest = candidates.sort((left, right) => right.getTime() - left.getTime())[0] ?? startsAt;
++  return { startsAt, endsAt: latest.getTime() >= startsAt.getTime() ? latest : startsAt };
++}
++
++export function rangesConflictWithRequiredGap(left: PlanScheduleInput, right: PlanScheduleInput) {
++  const gapMs = PLAN_TIME_MIN_GAP_MINUTES * 60 * 1000;
++  const leftRange = effectivePlanRange(left);
++  const rightRange = effectivePlanRange(right);
++  return leftRange.startsAt.getTime() <= rightRange.endsAt.getTime() + gapMs
++    && leftRange.endsAt.getTime() >= rightRange.startsAt.getTime() - gapMs;
++}
++
++export function findStopGapViolation(input: PlanScheduleInput) {
++  const ordered = [...(input.places ?? [])]
++    .map((place, index) => ({ ...place, order: place.order ?? index }))
++    .sort((left, right) => left.order - right.order)
++    .filter((place): place is typeof place & { startsAt: string | Date } => Boolean(place.startsAt));
++  const minGapMs = PLAN_STOP_MIN_GAP_MINUTES * 60 * 1000;
++  for (let index = 1; index < ordered.length; index += 1) {
++    const previous = asDate(ordered[index - 1].startsAt);
++    const current = asDate(ordered[index].startsAt);
++    if (current.getTime() - previous.getTime() < minGapMs) {
++      return { previousIndex: index - 1, currentIndex: index };
++    }
++  }
++  return null;
++}
++
++export function isCancelOnlyUpdate(input: Record<string, unknown>) {
++  const keys = Object.keys(input);
++  return keys.length === 1 && input.status === 'cancelled';
++}
++
++export function canReadPlan(plan: { deletedAt?: Date | string | null; status: string }, isOwner: boolean) {
++  if (plan.deletedAt) return false;
++  return isOwner || PUBLIC_PLAN_STATUSES.includes(plan.status as (typeof PUBLIC_PLAN_STATUSES)[number]);
++}
+diff --git a/package.json b/package.json
+index 19aef0c..ae3eb16 100644
+--- a/package.json
++++ b/package.json
+@@ -37,7 +37,8 @@
+     "media:s3-migrate": "npm run media:s3-migrate -w @hellowhen/api --",
+     "places:address-audit": "npm run places:address-cleanup -w @hellowhen/api -- --dry-run",
+     "places:address-cleanup": "npm run places:address-cleanup -w @hellowhen/api --",
+-    "places:address-provider-smoke": "node scripts/place-address-provider-smoke.mjs"
++    "places:address-provider-smoke": "node scripts/place-address-provider-smoke.mjs",
++    "plans:test": "npm run test:plans -w @hellowhen/api"
+   },
+   "devDependencies": {
+     "typescript": "^5.4.5"

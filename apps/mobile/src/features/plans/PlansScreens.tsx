@@ -41,6 +41,12 @@ type PlaceListScope = 'mine' | 'library';
 type PlanFeedListItem = ReturnType<typeof buildPlanFeedItems>[number];
 type PlanRowListItem = { type: 'plan'; key: string; plan: PlanDto };
 
+function isPlanUnavailableError(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { status?: number; body?: { error?: string } };
+  return candidate.status === 404 || candidate.status === 410 || candidate.body?.error === 'not_found' || candidate.body?.error === 'plan_deleted';
+}
+
 type PlanFilterOption = { label: string; value: string; body?: string };
 type PlanFilterGroup = { title: string; body: string; options: PlanFilterOption[] };
 
@@ -291,6 +297,12 @@ type SelectedPlanPlaceState = {
   onlineUrl: string;
   existingMedia?: MediaAssetDto | null;
   existingStaticMap?: PlaceStaticMapDto | null;
+  draftReview?: PlanDraftPlaceReviewState;
+};
+
+type PlanDraftPlaceReviewState = {
+  status: 'checking' | 'needs_review';
+  reason?: string;
 };
 
 type AdvancedPlanDetailsState = {
@@ -309,6 +321,8 @@ type PlanCreateStage = 'build' | 'preview';
 
 const PLAN_OFFLINE_ADDRESS_TOP_ERROR = 'Some offline places need an address. Choose a verified address for each offline place, or delete the places you do not want to use.';
 const PLAN_OFFLINE_ADDRESS_INLINE_ERROR = 'Choose a verified address for this place, or delete it.';
+const PLAN_DRAFT_PLACE_REVIEW_ERROR = 'Some restored Places need review. Replace, fix, or remove each highlighted Place before previewing or publishing this Plan.';
+const PLAN_DRAFT_PLACE_CHECKING_ERROR = 'Wait while Hellowhen checks the saved Places restored from this draft.';
 
 type PlaceTranslationFormValue = { languageCode: DiscoveryLanguage; title: string; description: string };
 
@@ -720,6 +734,69 @@ function selectedPlaceFromReusable(place: PlaceDto, index: number, date = toDate
   };
 }
 
+type DraftPlaceValidationResult = {
+  draftPlaceId: string;
+  sourcePlaceId: string;
+  livePlace?: PlaceDto;
+  review?: PlanDraftPlaceReviewState;
+};
+
+function draftPlaceApiStatus(error: unknown) {
+  if (!error || typeof error !== 'object') return undefined;
+  return typeof (error as { status?: unknown }).status === 'number' ? (error as { status: number }).status : undefined;
+}
+
+function reusableDraftPlaceReviewReason(place: PlaceDto) {
+  if (place.status === 'archived') return 'This saved Place was archived and cannot be used in a new Plan.';
+  if (place.status === 'hidden') return 'This saved Place is hidden and cannot be used in a new Plan.';
+  if (place.status === 'draft') return 'This saved Place is still a draft. Finish it before using it in a Plan.';
+  if (place.status !== 'active') return 'This saved Place is not available for new Plans.';
+  return reusablePlaceDisabledReason(place);
+}
+
+async function validateRestoredDraftPlace(place: SelectedPlanPlaceState): Promise<DraftPlaceValidationResult | null> {
+  if (!place.sourcePlaceId) return null;
+  try {
+    const response = await api.places.get(place.sourcePlaceId);
+    const reason = reusableDraftPlaceReviewReason(response.place);
+    return {
+      draftPlaceId: place.id,
+      sourcePlaceId: place.sourcePlaceId,
+      livePlace: response.place,
+      review: reason ? { status: 'needs_review', reason } : undefined,
+    };
+  } catch (error) {
+    return {
+      draftPlaceId: place.id,
+      sourcePlaceId: place.sourcePlaceId,
+      review: {
+        status: 'needs_review',
+        reason: draftPlaceApiStatus(error) === 404
+          ? 'This saved Place is missing, deleted, or no longer available to your account.'
+          : 'Hellowhen could not confirm this saved Place. Check your connection, then try again or replace it.',
+      },
+    };
+  }
+}
+
+function applyDraftPlaceValidationResult(place: SelectedPlanPlaceState, index: number, result: DraftPlaceValidationResult) {
+  if (place.id !== result.draftPlaceId || place.sourcePlaceId !== result.sourcePlaceId) return place;
+  if (result.livePlace && !result.review) {
+    return {
+      ...selectedPlaceFromReusable(result.livePlace, index, place.date || toDateInputValue(), place.time),
+      id: place.id,
+      date: place.date,
+      time: place.time,
+      draftReview: undefined,
+    };
+  }
+  return {
+    ...place,
+    sourcePlaceTitle: result.livePlace?.title ?? place.sourcePlaceTitle,
+    draftReview: result.review,
+  };
+}
+
 function selectedPlaceMediaIds(_place: SelectedPlanPlaceState) {
   // Reusable Place images already belong to the saved Place. Plan Places render
   // those images through the source-place media fallback after creation, so do
@@ -737,6 +814,7 @@ function resetSelectedPlaceToCustom(place: SelectedPlanPlaceState): SelectedPlan
     providerAddress: place.sourcePlaceId ? null : place.providerAddress,
     existingMedia: null,
     existingStaticMap: null,
+    draftReview: undefined,
   };
 }
 
@@ -1020,12 +1098,16 @@ function mergeUniquePlaceIds(currentIds: string[], nextIds: string[]) {
 }
 
 function isReusablePlaceSelectable(place: PlaceDto) {
+  if (place.status !== 'active') return false;
   if (place.mode === 'remote') return hasValidOnlineDestinationFields(place);
   return hasValidOfflineProviderAddress(placeAddressFromReusablePlace(place));
 }
 
 function reusablePlaceDisabledReason(place: PlaceDto) {
   if (isReusablePlaceSelectable(place)) return '';
+  if (place.status === 'draft') return 'Finish this saved Place before using it in a Plan.';
+  if (place.status === 'archived') return 'This saved Place is archived.';
+  if (place.status === 'hidden') return 'This saved Place is hidden.';
   if (place.mode === 'remote') return 'Add a valid online URL before using this Place.';
   return 'Fix this Place first by selecting a confirmed Google address.';
 }
@@ -2338,11 +2420,20 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
     setActionMessage(null);
     setActionError(null);
     try {
-      const url = buildPublicPlanUrl(plan.id);
-      await Share.share({ title: plan.title, message: `${plan.title}\n${url}`, url });
+      const response = await api.plans.get(plan.id);
+      const currentPlan = response.plan;
+      setPlan(currentPlan);
+      const url = buildPublicPlanUrl(currentPlan.id);
+      await Share.share({ title: currentPlan.title, message: `${currentPlan.title}\n${url}`, url });
       setActionMessage('Share sheet opened.');
-    } catch {
-      setActionError('Could not open sharing on this device.');
+    } catch (caughtError) {
+      const message = getFriendlyApiErrorMessage(caughtError, 'Could not confirm that this Plan is still available.');
+      if (isPlanUnavailableError(caughtError)) {
+        setPlan(null);
+        setError(message);
+      } else {
+        setActionError(message === 'Something went wrong. Please try again.' ? 'Could not open sharing on this device.' : message);
+      }
     } finally {
       setSharing(false);
     }
@@ -2430,6 +2521,13 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
 
   async function verifyPlanPlacePresence(place: PlanPlaceDto) {
     if (!plan || verifyingPlaceId) return;
+    if (plan.status === 'cancelled') {
+      setPresenceNotices((current) => ({
+        ...current,
+        [place.id]: { tone: 'warning', title: 'Plan cancelled', body: 'Presence verification is closed because this Plan was cancelled.' },
+      }));
+      return;
+    }
     if (!auth.user) {
       setPresenceNotices((current) => ({
         ...current,
@@ -2487,10 +2585,11 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
 
   const isOwner = Boolean(auth.user?.id && plan?.ownerId === auth.user.id);
+  const isCancelled = plan?.status === 'cancelled';
   const participantStatus = plan?.myParticipantStatus ?? null;
   const isJoined = participantStatus === 'accepted';
   const canJoin = Boolean(plan && auth.user && !isOwner && canJoinPlanFromParticipantStatus(participantStatus) && plan.status === 'open');
-  const canLeave = Boolean(plan && !isOwner && isJoined);
+  const canLeave = Boolean(plan && !isCancelled && !isOwner && isJoined);
   const canCancelPlan = Boolean(plan && isOwner && plan.status !== 'cancelled');
   const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus) : '';
   const places = plan ? sortedPlanPlaces(plan) : [];
@@ -2522,7 +2621,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
       <AppConfirmSheet
         visible={cancelConfirmVisible}
         title="Cancel Plan?"
-        body="People will no longer be able to join, but the Plan will remain visible with a Cancelled status."
+        body="The Plan will remain visible with a Cancelled status, but joining, participant changes, new public replies, and presence verification will close."
         cancelLabel="Keep Plan"
         confirmLabel="Cancel Plan"
         tone="danger"
@@ -2592,7 +2691,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                 isLast={index === places.length - 1}
                 planStartsAt={plan.startsAt}
                 showReport={showReportActions}
-                canVerifyPresence={Boolean(auth.user && (isOwner || isJoined))}
+                canVerifyPresence={Boolean(!isCancelled && auth.user && (isOwner || isJoined))}
                 isVerifyingPresence={verifyingPlaceId === place.id}
                 presenceNotice={presenceNotices[place.id]}
                 onVerifyPresence={(nextPlace) => { void verifyPlanPlacePresence(nextPlace); }}
@@ -2656,7 +2755,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
               </View>
               <View style={styles.feedTitleWrap}>
                 <AppText style={styles.planDiscussionTitle}>Open public comments</AppText>
-                <AppText style={[styles.metaText, { color: theme.color.muted }]}>Ask questions, coordinate details, or reply to people interested in this Plan.</AppText>
+                <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? 'Read earlier comments. New public replies are closed for this cancelled Plan.' : 'Ask questions, coordinate details, or reply to people interested in this Plan.'}</AppText>
               </View>
               <MobileIcon name="chevron-right" size={18} color={theme.color.muted} />
             </Pressable>
@@ -2668,7 +2767,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
             <View style={styles.detailSectionHeader}>
               <View style={styles.detailSectionCopy}>
                 <AppText style={styles.sectionTitle}>Actions</AppText>
-                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isOwner ? 'Share, cancel, or delete this Plan. Editing is locked after publishing.' : getPlanJoinActionCopy(plan)}</AppText>
+                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isCancelled ? 'It remains visible for context, but joining, participant changes, public replies, and presence verification are closed.' : isOwner ? 'Share, cancel, or delete this Plan. Editing is locked after publishing.' : getPlanJoinActionCopy(plan)}</AppText>
               </View>
               {!isOwner ? <SemanticBadge label={getPlanJoinModeLabel(plan)} tone="proposal" size="sm" /> : <SemanticBadge label="Owner" tone="plan" size="sm" />}
             </View>
@@ -2678,7 +2777,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                   <MobileIcon name="profile" size={18} color={theme.semantic.plan.text} />
                   <View style={styles.feedTitleWrap}>
                     <AppText style={styles.planOwnerManageTitle}>Manage Plan</AppText>
-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>Share, cancel, or delete this Plan. Places and times are locked after publishing.</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? 'Share or delete this cancelled Plan. Places and times remain locked.' : 'Share, cancel, or delete this Plan. Places and times are locked after publishing.'}</AppText>
                   </View>
                 </View>
               ) : null}
@@ -2697,12 +2796,12 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                   <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? 'Updating...' : 'Delete plan'}</AppText>
                 </Pressable>
               ) : null}
-              {isOwner && plan.status === 'cancelled' ? (
+              {isCancelled ? (
                 <View style={[styles.joinedState, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }]}>
                   <MobileIcon name="close" size={18} color={theme.semantic.danger.text} />
                   <View style={styles.feedTitleWrap}>
                     <AppText style={[styles.joinedStateText, { color: theme.semantic.danger.text }]}>This Plan is cancelled</AppText>
-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>It remains visible for context, but people can no longer join.</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>It remains visible for context. Joining, leaving, participant changes, public replies, and presence verification are no longer available.</AppText>
                   </View>
                 </View>
               ) : null}
@@ -2714,7 +2813,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                   <AppText style={[styles.metaText, styles.planActionFootnote, { color: theme.color.muted }]}>{plan.joinApprovalMode === 'automatic' ? 'Free join · leave anytime.' : 'Join request · owner review.'}</AppText>
                 </View>
               ) : null}
-              {isJoined ? (
+              {isJoined && !isCancelled ? (
                 <View style={[styles.joinedState, { backgroundColor: theme.semantic.success.softBg, borderColor: theme.semantic.success.border }]}>
                   <MobileIcon name="proposal-accepted" size={18} color={theme.semantic.success.text} />
                   <View style={styles.feedTitleWrap}>
@@ -2734,7 +2833,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                   <AppText style={[styles.metaText, { color: theme.color.muted }]}>{participantStateCopy}</AppText>
                 </View>
               ) : null}
-              {!auth.user ? <InfoNotice tone="info" title="Log in to join" body="Log in first, then join this plan when it is open." /> : null}
+              {!auth.user && plan.status === 'open' ? <InfoNotice tone="info" title="Log in to join" body="Log in first, then join this plan when it is open." /> : null}
               {actionMessage ? <InfoNotice tone="success" title="Done" body={actionMessage} /> : null}
               {actionError ? <InfoNotice tone="warning" title="Plan action failed" body={actionError} /> : null}
               {showReportActions ? <ReportContentPanel targetType="plan" targetId={plan.id} labelKey="report.button" helperKey="report.helper.content" /> : null}
@@ -3615,6 +3714,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   const [stage, setStage] = useState<PlanCreateStage>('build');
   const [createPlanMenuOpen, setCreatePlanMenuOpen] = useState(false);
   const [draftPrompt, setDraftPrompt] = useState<PlanCreateDraftState | null>(null);
+  const [restoringDraft, setRestoringDraft] = useState(false);
   const [clearDraftConfirmVisible, setClearDraftConfirmVisible] = useState(false);
   const [placeSourceSheetOpen, setPlaceSourceSheetOpen] = useState(false);
   const [placePickerOpen, setPlacePickerOpen] = useState(false);
@@ -3640,6 +3740,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   const filteredLibraryPlaces = useMemo(() => filterPlaces(libraryPlaces, placeQuery), [libraryPlaces, placeQuery]);
   const incompleteOfflineIndexes = useMemo(() => incompleteOfflinePlanPlaceIndexes(places), [places]);
   const incompleteOfflineIds = useMemo(() => incompleteOfflineIndexes.map((index) => places[index]?.id).filter((id): id is string => Boolean(id)), [incompleteOfflineIndexes, places]);
+  const draftPlacesChecking = useMemo(() => places.filter((place) => place.draftReview?.status === 'checking'), [places]);
+  const draftPlacesNeedingReview = useMemo(() => places.filter((place) => place.draftReview?.status === 'needs_review'), [places]);
+  const draftPlaceValidationBlocked = restoringDraft || draftPlacesChecking.length > 0 || draftPlacesNeedingReview.length > 0;
   const placesForGeneratedDisplay = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceTitle?.trim()), [places]);
   const schedulablePlaces = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceId), [places]);
   const schedule = useMemo(() => buildMobilePlanSchedule(schedulablePlaces), [schedulablePlaces]);
@@ -3822,6 +3925,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   }
 
   function resetCreatePlanDraftState() {
+    setRestoringDraft(false);
     setPlaces([]);
     setAdvancedDetails(makeAdvancedPlanDetails());
     setPlanEnd({ date: '', time: '' });
@@ -3841,19 +3945,37 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     addressGuidanceOffsetsRef.current = {};
   }
 
-  function restoreCreatePlanDraft(draft: PlanCreateDraftState) {
+  async function restoreCreatePlanDraft(draft: PlanCreateDraftState) {
     createPlanDraftHydratingRef.current = true;
-    setPlaces(draft.places.map(selectedPlanPlaceFromDraft));
+    setRestoringDraft(true);
+    setDraftPrompt(null);
+    setMessage('Checking saved Places in this draft...');
+    setError(null);
+    const restoredPlaces = draft.places.map((place, index) => {
+      const restored = selectedPlanPlaceFromDraft(place, index);
+      return restored.sourcePlaceId ? { ...restored, draftReview: { status: 'checking' as const } } : restored;
+    });
+    setPlaces(restoredPlaces);
     setAdvancedDetails(draft.advancedDetails);
     setPlanEnd(draft.planEnd);
-    setStage(draft.stage);
-    setMessage(`Draft restored from ${formatCreatePlanDraftSavedAt(draft.updatedAt)}.`);
-    setError(null);
-    setDraftPrompt(null);
-    setTimeout(() => {
+    setStage('build');
+    try {
+      const results = (await Promise.all(restoredPlaces.map(validateRestoredDraftPlace))).filter((result): result is DraftPlaceValidationResult => Boolean(result));
+      const resultByDraftPlaceId = new Map(results.map((result) => [result.draftPlaceId, result]));
+      const needsReviewCount = results.filter((result) => result.review?.status === 'needs_review').length;
+      setPlaces((current) => current.map((place, index) => {
+        const result = resultByDraftPlaceId.get(place.id);
+        return result ? applyDraftPlaceValidationResult(place, index, result) : { ...place, draftReview: undefined };
+      }));
+      setStage(needsReviewCount > 0 ? 'build' : draft.stage);
+      setMessage(needsReviewCount > 0
+        ? `Draft restored. ${needsReviewCount} ${needsReviewCount === 1 ? 'Place needs' : 'Places need'} review before preview or publish.`
+        : `Draft restored from ${formatCreatePlanDraftSavedAt(draft.updatedAt)}. Saved Places were checked and refreshed.`);
+    } finally {
+      setRestoringDraft(false);
       createPlanDraftHydratingRef.current = false;
       createPlanDraftReadyRef.current = true;
-    }, 0);
+    }
   }
 
   function startNewInsteadOfDraft() {
@@ -3959,6 +4081,19 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     setError(null);
   }
 
+  async function retryDraftPlaceReview(placeId: string) {
+    const place = places.find((item) => item.id === placeId);
+    if (!place?.sourcePlaceId) return;
+    const sourcePlaceId = place.sourcePlaceId;
+    setPlaces((current) => current.map((item) => item.id === placeId && item.sourcePlaceId === sourcePlaceId
+      ? { ...item, draftReview: { status: 'checking' } }
+      : item));
+    setError(null);
+    const result = await validateRestoredDraftPlace(place);
+    if (!result) return;
+    setPlaces((current) => current.map((item, index) => applyDraftPlaceValidationResult(item, index, result)));
+  }
+
   function moveSelectedPlace(index: number, direction: -1 | 1) {
     setPlaces((current) => {
       const nextIndex = index + direction;
@@ -4051,9 +4186,24 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     return true;
   }
 
+  function focusDraftPlacesNeedingReview() {
+    if (restoringDraft || draftPlacesChecking.length > 0) {
+      setStage('build');
+      setError(PLAN_DRAFT_PLACE_CHECKING_ERROR);
+      return true;
+    }
+    if (draftPlacesNeedingReview.length > 0) {
+      setStage('build');
+      setError(PLAN_DRAFT_PLACE_REVIEW_ERROR);
+      return true;
+    }
+    return false;
+  }
+
   function showPreviewStage() {
     setError(null);
     if (places.length === 0) { setError('Add at least one place before preview.'); return; }
+    if (focusDraftPlacesNeedingReview()) return;
     if (focusMissingOfflineAddresses()) return;
     if (schedule.error) { setError(schedule.error); return; }
     const addressRuleError = getPlanPlacesAddressRuleError(schedulablePlaces);
@@ -4071,6 +4221,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     const customTags = parsePlanTagsInput(advancedDetails.tags);
     const nextExplicitEnd = parseOptionalMobilePlanEnd(planEnd, nextSchedule.startsAt);
     if (usablePlaces.length === 0) { setError('Add at least one place.'); return; }
+    if (focusDraftPlacesNeedingReview()) return;
     if (focusMissingOfflineAddresses()) return;
     if (nextSchedule.error || !nextSchedule.startsAt) { setError(nextSchedule.error || 'Add at least one place.'); return; }
     const addressRuleError = getPlanPlacesAddressRuleError(usablePlaces);
@@ -4157,6 +4308,16 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
             <PillButton label="Preview" active={stage === 'preview'} onPress={showPreviewStage} />
           </View>
 
+          {stage === 'build' && (restoringDraft || draftPlacesChecking.length > 0) ? (
+            <InfoNotice tone="info" title="Checking saved Places" body="Hellowhen is confirming that the saved Places in this restored draft are still available and usable." />
+          ) : null}
+          {stage === 'build' && draftPlacesNeedingReview.length > 0 ? (
+            <InfoNotice
+              tone="warning"
+              title="Draft needs review"
+              body={`${draftPlacesNeedingReview.length} ${draftPlacesNeedingReview.length === 1 ? 'Place needs' : 'Places need'} attention. Replace, fix, or remove the highlighted ${draftPlacesNeedingReview.length === 1 ? 'Place' : 'Places'} before preview or publish.`}
+            />
+          ) : null}
           {stage === 'build' && addressGuidanceNotice ? <InfoNotice tone="warning" title="Address needed" body={addressGuidanceNotice} /> : null}
 
           {stage === 'build' ? (
@@ -4171,6 +4332,26 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                       onDatePress={() => setTimeSheet({ placeIndex: index, mode: 'date' })}
                       onTimePress={() => setTimeSheet({ placeIndex: index, mode: 'time' })}
                     />
+                    {place.draftReview ? (
+                      <View style={[styles.planDraftReview, { borderTopColor: theme.color.border, backgroundColor: theme.semantic.warning.softBg }]}>
+                        <View style={styles.planDraftReviewHeader}>
+                          {place.draftReview.status === 'checking' ? <ActivityIndicator size="small" color={theme.semantic.warning.text} /> : <MobileIcon name="warning" size={18} color={theme.semantic.warning.text} />}
+                          <View style={styles.timelineCopy}>
+                            <SemanticBadge label={place.draftReview.status === 'checking' ? 'Checking saved Place' : 'Needs review'} tone="warning" size="sm" />
+                            <AppText style={[styles.metaText, { color: theme.semantic.warning.text }]}>
+                              {place.draftReview.status === 'checking' ? 'Confirming that this saved Place is still available.' : place.draftReview.reason || 'This saved Place cannot be used until it is reviewed.'}
+                            </AppText>
+                          </View>
+                        </View>
+                        {place.draftReview.status === 'needs_review' ? (
+                          <View style={styles.actionGrid}>
+                            <SecondaryButton label="Check again" onPress={() => { void retryDraftPlaceReview(place.id); }} />
+                            <SecondaryButton label="Change place" onPress={() => openPlaceSourceSheet(index)} />
+                            <SecondaryButton label="Remove" icon="close" onPress={() => removeSelectedPlace(index)} />
+                          </View>
+                        ) : null}
+                      </View>
+                    ) : null}
                     {expandedAddressPlaceIds.includes(place.id) && place.mode === 'local' && !hasValidOfflineProviderAddress(place.providerAddress) ? (
                       <View
                         onLayout={(event) => recordAddressGuidanceLayout(place.id, event)}
@@ -4221,7 +4402,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
               {conflictWarning ? <InfoNotice tone="warning" title="Time conflict" body={conflictWarning} /> : null}
               {error ? <InfoNotice tone="warning" title="Check plan" body={error} /> : null}
               {places.length > 0 ? (
-                <Pressable accessibilityRole="button" onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed]}>
+                <Pressable accessibilityRole="button" disabled={draftPlaceValidationBlocked} onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, draftPlaceValidationBlocked && styles.disabled]}>
                   <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Preview Plan</AppText>
                 </Pressable>
               ) : null}
@@ -4283,7 +4464,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
               {error && !validationNotice ? <InfoNotice tone="warning" title="Could not save" body={error} /> : null}
               <View style={styles.actionGrid}>
                 <SecondaryButton label="Back" onPress={() => setStage('build')} />
-                <Pressable accessibilityRole="button" disabled={saving} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg, flex: 1 }, pressed && styles.pressed, saving && styles.disabled]}>
+                <Pressable accessibilityRole="button" disabled={saving || draftPlaceValidationBlocked} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg, flex: 1 }, pressed && styles.pressed, (saving || draftPlaceValidationBlocked) && styles.disabled]}>
                   <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? 'Creating...' : 'Create Plan'}</AppText>
                 </Pressable>
               </View>
@@ -4828,6 +5009,8 @@ const styles = StyleSheet.create({
   planStopScheduleSeparator: { fontSize: 16, lineHeight: 18, fontWeight: '900' },
   placeTimelineRowMeta: { gap: 7 },
   planAddressGuidance: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 13, gap: 12 },
+  planDraftReview: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 13, paddingHorizontal: 2, gap: 12 },
+  planDraftReviewHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   placeDetailSheetContent: { gap: 10, paddingBottom: 12 },
   placePickerPanel: { gap: 10 },
   sourceSheetOverlay: { flex: 1, justifyContent: 'flex-end' },

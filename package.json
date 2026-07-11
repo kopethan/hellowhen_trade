@@ -37,7 +37,8 @@
     "media:s3-migrate": "npm run media:s3-migrate -w @hellowhen/api --",
     "places:address-audit": "npm run places:address-cleanup -w @hellowhen/api -- --dry-run",
     "places:address-cleanup": "npm run places:address-cleanup -w @hellowhen/api --",
-    "places:address-provider-smoke": "node scripts/place-address-provider-smoke.mjs"
+    "places:address-provider-smoke": "node scripts/place-address-provider-smoke.mjs",
+    "plans:test": "npm run test:plans -w @hellowhen/api"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

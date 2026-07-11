@@ -402,7 +402,7 @@ export function PublicDiscussionMessageList<TMessage extends PublicDiscussionMes
 
               {menuOpen && ownMessage ? (
                 <div className="public-message__menu">
-                  <button type="button" className="button secondary" onClick={() => onBeginEdit(message)}>{labels.edit}</button>
+                  {canWrite ? <button type="button" className="button secondary" onClick={() => onBeginEdit(message)}>{labels.edit}</button> : null}
                   <button type="button" className="button secondary danger-text" onClick={() => onRequestDelete(message)}>{labels.deleteMessage}</button>
                 </div>
               ) : null}

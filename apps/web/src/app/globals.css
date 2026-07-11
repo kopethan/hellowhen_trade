@@ -10498,6 +10498,10 @@ html[data-theme="dark"] .onboarding-guide-primary {
   background: color-mix(in srgb, #22c55e 9%, var(--app-surface));
   border-color: color-mix(in srgb, #22c55e 24%, var(--app-border));
 }
+.plan-action-status--cancelled {
+  background: color-mix(in srgb, #ef4444 8%, var(--app-surface));
+  border-color: color-mix(in srgb, #ef4444 24%, var(--app-border));
+}
 .plan-action-note {
   margin: 0;
   border: 1px solid var(--app-border);

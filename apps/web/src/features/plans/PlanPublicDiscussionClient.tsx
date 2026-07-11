@@ -67,7 +67,8 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<PublicDiscussionNotice | null>(null);
 
-  const canWrite = auth.isAuthenticated && auth.user?.trustTier !== 'restricted';
+  const discussionClosed = plan?.status === 'cancelled';
+  const canWrite = auth.isAuthenticated && auth.user?.trustTier !== 'restricted' && !discussionClosed;
   const trimmedBody = body.trim();
   const trimmedEditingBody = editingBody.trim();
   const composerReady = trimmedBody.length > 0;
@@ -138,6 +139,7 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
   }
 
   function beginEdit(message: PlanPublicMessageDto) {
+    if (!canWrite) return;
     setEditingId(message.id);
     setEditingBody(message.body);
     setOpenMenuId(null);
@@ -151,7 +153,7 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
 
   async function saveEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!editingId || trimmedEditingBody.length < 1) return;
+    if (!canWrite || !editingId || trimmedEditingBody.length < 1) return;
     setSending(true);
     setNotice(null);
     try {
@@ -200,6 +202,7 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
   }
 
   function focusComposerWithReply(message: PlanPublicMessageDto) {
+    if (!canWrite) return;
     const mention = getPublicDiscussionMessageMention(message);
     if (mention) {
       setBody((current) => {
@@ -359,7 +362,9 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
         )}
       </section>
 
-      {canWrite ? (
+      {discussionClosed ? (
+        <p className="notice-box warning public-discussion-bottom-notice">This Plan was cancelled. Earlier comments remain visible, but new replies and comment edits are closed.</p>
+      ) : canWrite ? (
         <PublicDiscussionComposer
           id="plan-public-discussion-message"
           ready={composerReady}
