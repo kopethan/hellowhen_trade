@@ -522,7 +522,9 @@ function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequ
   };
 }
 
-const activeOwnedPlanTimeStatuses = ['draft', 'open', 'full', 'started'] as const;
+const planTimeConflictBlockingStatuses = ['draft', 'open', 'full', 'started'] as const;
+// Cancelled, hidden, and soft-deleted Plans intentionally do not reserve time.
+// They are history/status records only, so users can create a new overlapping Plan after cancelling or deleting the old one.
 const PLAN_TIME_MIN_GAP_MINUTES = 60;
 const PLAN_TIME_MIN_GAP_MS = PLAN_TIME_MIN_GAP_MINUTES * 60 * 1000;
 
@@ -556,7 +558,7 @@ async function findOwnedPlanTimeConflict(ownerId: string, input: PlanScheduleInp
       ownerId,
       ...(excludePlanId ? { id: { not: excludePlanId } } : {}),
       deletedAt: null,
-      status: { in: [...activeOwnedPlanTimeStatuses] as any },
+      status: { in: [...planTimeConflictBlockingStatuses] as any },
       startsAt: { lte: endsAtWithGap },
       OR: [
         { endsAt: { gte: startsAtWithGap } },
