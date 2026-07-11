@@ -46,6 +46,7 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
   if (apiError.body?.error === 'plans_hidden') return 'Plans are hidden by the API visibility flag.';
   if (apiError.body?.error === 'plan_time_overlap') return apiError.body.message ?? 'This overlaps with or is too close to another active Plan you created. Keep at least 1 hour between Plans.';
   if (apiError.body?.error === 'plan_stop_gap_too_short') return apiError.body.message ?? 'Plan places must be at least 15 minutes apart.';
+  if (apiError.body?.error === 'plan_deleted') return apiError.body.message ?? 'This Plan was deleted and is no longer visible.';
   if (apiError.body?.error === 'saved_library_plus_required' || apiError.body?.error === 'saved_library_limit_reached') return apiError.body.message ?? 'Saved Library is included with Plus Membership. Review Membership to unlock private saves, people, and collections when upgrades are available.';
   if (apiError.body?.error === 'saved_collections_plus_required') return apiError.body.message ?? 'Saved collections are included with Plus Membership. Review Membership to unlock private organization tools when upgrades are available.';
   if (apiError.body?.error === 'agenda_disabled') return apiError.body.message ?? 'Agenda is disabled by the API flag.';

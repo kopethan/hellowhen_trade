@@ -287,6 +287,8 @@ export declare const planSchema: z.ZodObject<{
     createdAt: z.ZodString;
     updatedAt: z.ZodString;
     cancelledAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    deletedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    deletedById: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     owner: z.ZodOptional<z.ZodNullable<z.ZodObject<{
         id: z.ZodString;
         profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{

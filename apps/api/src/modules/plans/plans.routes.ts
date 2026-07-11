@@ -250,7 +250,7 @@ function serializePlan(plan: any, viewerId: string | null, surface: 'detail' | '
 
 async function loadPlanForViewer(planId: string, viewerId?: string | null) {
   const plan = await prisma.plan.findUnique({ where: { id: planId }, include: planInclude() });
-  if (!plan) return null;
+  if (!plan || plan.deletedAt) return null;
   if (!viewerId || plan.ownerId !== viewerId) {
     if (!publicPlanStatuses.includes(plan.status as any)) return null;
   }
@@ -266,9 +266,9 @@ async function loadPlanForViewer(planId: string, viewerId?: string | null) {
 async function loadReadablePlanForDiscussion(planId: string, actorId?: string | null) {
   const plan = await prisma.plan.findUnique({
     where: { id: planId },
-    select: { id: true, ownerId: true, status: true, owner: { select: { trustTier: true } } },
+    select: { id: true, ownerId: true, status: true, deletedAt: true, owner: { select: { trustTier: true } } },
   });
-  if (!plan || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') return null;
+  if (!plan || plan.deletedAt || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') return null;
   if (actorId && plan.ownerId !== actorId && await usersHaveBlockBetween(actorId, plan.ownerId)) return null;
   return plan;
 }
@@ -555,6 +555,7 @@ async function findOwnedPlanTimeConflict(ownerId: string, input: PlanScheduleInp
     where: {
       ownerId,
       ...(excludePlanId ? { id: { not: excludePlanId } } : {}),
+      deletedAt: null,
       status: { in: [...activeOwnedPlanTimeStatuses] as any },
       startsAt: { lte: endsAtWithGap },
       OR: [
@@ -626,6 +627,13 @@ function planStopsLockedResponse() {
   return {
     ...planLockedAfterCreationResponse(),
     lockedFields: ['places', 'place_order', 'place_times', 'place_duration', 'place_location'],
+  };
+}
+
+function planDeletedResponse() {
+  return {
+    error: 'plan_deleted',
+    message: 'This Plan was deleted and is no longer visible in feeds.',
   };
 }
 
@@ -741,7 +749,7 @@ async function joinPlanFreely(planId: string, userId: string, message?: string |
     where: { id: planId },
     include: { participants: true, owner: { select: { trustTier: true } } },
   });
-  if (!plan || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') {
+  if (!plan || plan.deletedAt || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') {
     throw createPlanRequestError('not_found', 'Plan not found.', 404);
   }
   if (plan.status !== 'open') {
@@ -809,6 +817,7 @@ plansRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
   const blockedOwnerIds = await blockedUserIdsForViewer(req.user?.id);
   const plans = await prisma.plan.findMany({
     where: {
+      deletedAt: null,
       status: input.status ?? { in: [...publicPlanStatuses] },
       ...(input.q ? {
         OR: [
@@ -842,7 +851,7 @@ plansRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
 
 plansRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
   const plans = await prisma.plan.findMany({
-    where: { ownerId: req.user!.id },
+    where: { ownerId: req.user!.id, deletedAt: null },
     include: planInclude(),
     orderBy: [{ startsAt: 'asc' }, { createdAt: 'desc' }],
     take: 100,
@@ -854,6 +863,7 @@ plansRoutes.get('/joined', requireAuth, asyncRoute(async (req, res) => {
   const blockedOwnerIds = await blockedUserIdsForViewer(req.user!.id);
   const plans = await prisma.plan.findMany({
     where: {
+      deletedAt: null,
       participants: { some: { userId: req.user!.id, status: 'accepted' as any } },
       status: { in: [...publicPlanStatuses] },
       owner: { trustTier: { not: 'restricted' } },
@@ -895,7 +905,7 @@ plansRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req, 
 plansRoutes.patch('/:planId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const input = updatePlanRequestSchema.parse(req.body ?? {});
   const existing = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id } });
-  if (!existing) return res.status(404).json({ error: 'not_found' });
+  if (!existing || existing.deletedAt) return res.status(404).json({ error: 'not_found' });
   if (!isCancelOnlyPlanUpdate(input)) {
     return res.status(409).json(planContentLockedResponse());
   }
@@ -904,9 +914,21 @@ plansRoutes.patch('/:planId', requireAuth, requireActiveAccount, asyncRoute(asyn
   res.json({ plan: await decoratePlan(updated, req.user!.id) });
 }));
 
+plansRoutes.delete('/:planId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const existing = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id } });
+  if (!existing || existing.deletedAt) return res.status(404).json({ error: 'not_found' });
+
+  const plan = await prisma.plan.update({
+    where: { id: existing.id },
+    data: { status: 'hidden' as any, deletedAt: new Date(), deletedById: req.user!.id } as any,
+  });
+  const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
+  return res.json({ plan: await decoratePlan(updated, req.user!.id), ...planDeletedResponse() });
+}));
+
 plansRoutes.post('/:planId/places', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const plan = await prisma.plan.findFirst({
-    where: { id: req.params.planId, ownerId: req.user!.id },
+    where: { id: req.params.planId, ownerId: req.user!.id, deletedAt: null },
     include: { places: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
   });
   if (!plan) return res.status(404).json({ error: 'not_found' });
@@ -915,7 +937,7 @@ plansRoutes.post('/:planId/places', requireAuth, requireActiveAccount, asyncRout
 
 plansRoutes.patch('/:planId/places/:placeId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const plan = await prisma.plan.findFirst({
-    where: { id: req.params.planId, ownerId: req.user!.id },
+    where: { id: req.params.planId, ownerId: req.user!.id, deletedAt: null },
     include: { places: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
   });
   if (!plan) return res.status(404).json({ error: 'not_found' });
@@ -926,7 +948,7 @@ plansRoutes.patch('/:planId/places/:placeId', requireAuth, requireActiveAccount,
 
 plansRoutes.delete('/:planId/places/:placeId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const plan = await prisma.plan.findFirst({
-    where: { id: req.params.planId, ownerId: req.user!.id },
+    where: { id: req.params.planId, ownerId: req.user!.id, deletedAt: null },
     include: { places: { select: { id: true } } },
   });
   if (!plan) return res.status(404).json({ error: 'not_found' });
@@ -1102,7 +1124,7 @@ plansRoutes.post('/:planId/join-requests', requireAuth, requireActiveAccount, as
 }));
 
 plansRoutes.get('/:planId/join-requests', requireAuth, asyncRoute(async (req, res) => {
-  const plan = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id } });
+  const plan = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id, deletedAt: null } });
   if (!plan) return res.status(404).json({ error: 'not_found' });
   const participants = await prisma.planParticipant.findMany({ where: { planId: plan.id }, include: { user: { select: userSummarySelect } }, orderBy: { createdAt: 'asc' } });
   res.json({ participants });
@@ -1110,7 +1132,7 @@ plansRoutes.get('/:planId/join-requests', requireAuth, asyncRoute(async (req, re
 
 plansRoutes.patch('/:planId/join-requests/:participantId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const input = updatePlanParticipantRequestSchema.parse(req.body ?? {});
-  const plan = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id }, include: { participants: true } });
+  const plan = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id, deletedAt: null }, include: { participants: true } });
   if (!plan) return res.status(404).json({ error: 'not_found' });
   const participant = (plan.participants ?? []).find((item: any) => item.id === req.params.participantId);
   if (!participant) return res.status(404).json({ error: 'not_found' });

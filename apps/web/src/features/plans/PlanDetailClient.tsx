@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { MediaAssetDto, PlacePresenceVerificationResponse, PlanDto, PlanJoinApprovalMode, PlanParticipantDto, PlanPlaceDto, PlanStatus } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { ReportContentButton } from '../../components/ReportContentButton';
@@ -527,6 +528,7 @@ type PlanDetailClientProps = {
 
 export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDetailClientProps) {
   const auth = useWebAuth();
+  const router = useRouter();
   const [plan, setPlan] = useState<PlanDto | null>(null);
   const [joinRequests, setJoinRequests] = useState<PlanParticipantDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -543,6 +545,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
   const canLeave = Boolean(!isOwner && currentParticipantStatus === 'accepted');
   const canVerifyPresence = Boolean(auth.hydrated && auth.isAuthenticated && plan && (isOwner || currentParticipantStatus === 'accepted'));
   const canCancelPlan = Boolean(isOwner && plan && plan.status !== 'cancelled');
+  const canDeletePlan = Boolean(isOwner && plan);
   const participantCopy = !isOwner ? participantStateCopy(currentParticipantStatus) : '';
   const showReportActions = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner);
   const places = plan?.places ?? [];
@@ -664,6 +667,22 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
       setAction({ loading: false, message: 'Plan cancelled. It remains visible with a Cancelled status.', error: '' });
     } catch (cancelError) {
       setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(cancelError, 'Could not cancel this Plan.') });
+    }
+  }
+
+
+  async function deletePlan() {
+    if (!plan || !canDeletePlan) return;
+    const confirmed = window.confirm('Delete this Plan? It will disappear from feeds, search, and public detail pages.');
+    if (!confirmed) return;
+
+    setAction({ loading: true, message: '', error: '' });
+    try {
+      await api.plans.delete(plan.id);
+      router.push('/plans');
+      router.refresh();
+    } catch (deleteError) {
+      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(deleteError, 'Could not delete this Plan.') });
     }
   }
 
@@ -852,14 +871,14 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
               <div className="plan-section-heading">
                 <p className="eyebrow">Actions</p>
                 <h2>{isOwner ? 'Manage this Plan' : canLeave ? 'You joined this Plan' : 'Join this Plan'}</h2>
-                <p>{isOwner && plan ? 'Share this Plan or cancel it. Plan content editing is locked after publishing.' : plan ? planJoinActionCopy(plan) : ''}</p>
+                <p>{isOwner && plan ? 'Share, cancel, or delete this Plan. Plan content editing is locked after publishing.' : plan ? planJoinActionCopy(plan) : ''}</p>
               </div>
               <div className="plan-detail-actions plan-detail-actions--social">
                 {isOwner ? (
                   <div className="plan-action-status plan-action-status--owner">
                     <span className="semantic-badge trade">Owner</span>
                     <strong>Manage Plan</strong>
-                    <p className="meta">You can share this Plan or cancel it. Editing places and times is locked after publishing.</p>
+                    <p className="meta">You can share, cancel, or delete this Plan. Editing places and times is locked after publishing.</p>
                   </div>
                 ) : null}
                 {isOwner ? (
@@ -870,6 +889,11 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
                 {canCancelPlan ? (
                   <button type="button" className="button danger" disabled={action.loading} onClick={() => void cancelPlan()}>
                     {action.loading ? 'Cancelling...' : 'Cancel Plan'}
+                  </button>
+                ) : null}
+                {canDeletePlan ? (
+                  <button type="button" className="button danger" disabled={action.loading} onClick={() => void deletePlan()}>
+                    {action.loading ? 'Updating...' : 'Delete Plan'}
                   </button>
                 ) : null}
                 {isOwner && plan.status === 'cancelled' ? (

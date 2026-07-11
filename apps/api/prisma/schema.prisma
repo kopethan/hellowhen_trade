@@ -2768,6 +2768,8 @@ model Plan {
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
   cancelledAt      DateTime?
+  deletedAt        DateTime?
+  deletedById      String?
 
   owner        User              @relation("OwnedPlans", fields: [ownerId], references: [id], onDelete: Cascade)
   places       PlanPlace[]
@@ -2777,6 +2779,8 @@ model Plan {
 
   @@index([status, startsAt])
   @@index([ownerId, status, startsAt])
+  @@index([deletedAt])
+  @@index([ownerId, deletedAt, startsAt])
   @@index([category])
   @@index([mode])
 }

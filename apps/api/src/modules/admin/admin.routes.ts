@@ -1161,10 +1161,11 @@ function toAdminPlanPublicMessageDto(message: any, reports: any[] = []) {
 }
 
 function toAdminPlanDto(plan: any, reportsCount = 0, recentReports: any[] = []) {
+  const isDeleted = Boolean(plan.deletedAt);
   return {
     ...plan,
-    visibility: adminPlanVisibility(plan.status),
-    publicDiscoverable: adminPlanIsPublicReadable(plan.status),
+    visibility: isDeleted ? 'deleted' : adminPlanVisibility(plan.status),
+    publicDiscoverable: !isDeleted && adminPlanIsPublicReadable(plan.status),
     statusTone: adminPlanStatusTone(plan.status),
     placeCount: plan._count?.places ?? plan.places?.length ?? 0,
     participantCount: plan._count?.participants ?? plan.participants?.length ?? 0,
@@ -1303,8 +1304,8 @@ adminRoutes.patch('/plans/:planId/action', asyncRoute(async (req, res) => {
     targetType: 'plan',
     targetId: planId,
     reason: note,
-    previousValue: { status: existing.status, cancelledAt: existing.cancelledAt },
-    nextValue: { status: updated.status, cancelledAt: updated.cancelledAt },
+    previousValue: { status: existing.status, cancelledAt: existing.cancelledAt, deletedAt: existing.deletedAt ?? null },
+    nextValue: { status: updated.status, cancelledAt: updated.cancelledAt, deletedAt: updated.deletedAt ?? null },
     metadata: { ownerId: existing.ownerId, title: existing.title },
   });
 

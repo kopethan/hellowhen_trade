@@ -184,6 +184,8 @@ export const planSchema = z.object({
     createdAt: z.string(),
     updatedAt: z.string(),
     cancelledAt: z.string().nullable().optional(),
+    deletedAt: z.string().nullable().optional(),
+    deletedById: z.string().nullable().optional(),
     owner: publicUserSummarySchema.nullable().optional(),
     places: z.array(planPlaceSchema).optional(),
     media: z.array(mediaAssetSchema).optional(),
