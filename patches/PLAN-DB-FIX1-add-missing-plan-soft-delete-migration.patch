@@ -1,0 +1,13 @@
+diff --git a/apps/api/prisma/migrations/20260712120000_plan_soft_delete/migration.sql b/apps/api/prisma/migrations/20260712120000_plan_soft_delete/migration.sql
+new file mode 100644
+index 0000000..7dd6426
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260712120000_plan_soft_delete/migration.sql
+@@ -0,0 +1,7 @@
++-- Add the Plan soft-delete fields used by the API and Prisma schema.
++ALTER TABLE "Plan"
++  ADD COLUMN "deletedAt" TIMESTAMP(3),
++  ADD COLUMN "deletedById" TEXT;
++
++CREATE INDEX "Plan_deletedAt_idx" ON "Plan"("deletedAt");
++CREATE INDEX "Plan_ownerId_deletedAt_startsAt_idx" ON "Plan"("ownerId", "deletedAt", "startsAt");
