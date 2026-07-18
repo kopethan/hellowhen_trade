@@ -5,7 +5,7 @@ import type { DiscoveryLanguage } from '@hellowhen/contracts';
 type InventoryTranslationTargetType = 'need' | 'offer' | 'place';
 type InventoryTranslationInput = { languageCode: DiscoveryLanguage; title: string; description: string };
 type StoredInventoryTranslation = InventoryTranslationLike & { id?: string; targetType?: InventoryTranslationTargetType; targetId?: string; createdAt?: Date; updatedAt?: Date };
-type InventoryWithId = { id: string; defaultLanguage?: string | null; title?: string | null; description?: string | null; translations?: StoredInventoryTranslation[] | null };
+type InventoryWithId = { id: string; defaultLanguage?: string | null; title?: string | null; description?: string | null; originalTitle?: string | null; originalDescription?: string | null; translations?: StoredInventoryTranslation[] | null };
 type TxClient = PrismaClient | Prisma.TransactionClient;
 
 function normalizeTranslations(input: InventoryTranslationInput[] | undefined, defaultLanguage: string) {
@@ -86,7 +86,12 @@ export async function withInventoryTranslations<T extends InventoryWithId>(
   items: T[],
 ): Promise<T[]> {
   const translationsByTargetId = await loadInventoryTranslationsByTargetIds(prisma, targetType, items.map((item) => item.id));
-  return items.map((item) => ({ ...item, translations: translationsByTargetId.get(item.id) ?? [] }));
+  return items.map((item) => ({
+    ...item,
+    originalTitle: item.originalTitle ?? item.title ?? '',
+    originalDescription: item.originalDescription ?? item.description ?? '',
+    translations: translationsByTargetId.get(item.id) ?? [],
+  }));
 }
 
 export async function withOneInventoryTranslation<T extends InventoryWithId>(
@@ -95,7 +100,12 @@ export async function withOneInventoryTranslation<T extends InventoryWithId>(
   item: T,
 ): Promise<T> {
   const [hydrated] = await withInventoryTranslations(prisma, targetType, [item]);
-  return hydrated ?? ({ ...item, translations: [] } as T);
+  return hydrated ?? ({
+    ...item,
+    originalTitle: item.originalTitle ?? item.title ?? '',
+    originalDescription: item.originalDescription ?? item.description ?? '',
+    translations: [],
+  } as T);
 }
 
 export function applyInventoryDisplayLanguage<T extends InventoryWithId>(items: T[], viewerLanguage?: string | null, preferredLanguages?: readonly (string | null | undefined)[] | null): T[] {

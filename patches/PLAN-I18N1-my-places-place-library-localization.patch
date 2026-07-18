@@ -1,0 +1,339 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 146ca15..800d281 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1616,6 +1616,7 @@ function PlaceRow({
+   archiving?: boolean;
+ }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const isLibrary = place.source === 'hellowhen_library';
+   const mediaUrl = placeVisualUrl(activeMedia(place.media)[0], place.staticMap, theme.mode);
+   const content = (
+@@ -1626,21 +1627,21 @@ function PlaceRow({
+         </View>
+         <View style={styles.placeRowCopy}>
+           <View style={styles.rowTop}>
+-            <SemanticBadge label={isLibrary ? 'Library place' : 'My place'} tone="place" size="sm" />
+-            <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
++            <SemanticBadge label={isLibrary ? t('places.list.badges.library') : t('places.list.badges.mine')} tone="place" size="sm" />
++            <SemanticBadge label={place.mode === 'remote' ? t('places.list.badges.online') : t('places.list.badges.offline')} tone="muted" size="sm" />
+             {placeDisplayLanguageLabel(place) ? <SemanticBadge label={placeDisplayLanguageLabel(place) ?? ''} tone="instruction" size="sm" /> : null}
+           </View>
+           <AppText style={styles.rowTitle}>{place.title}</AppText>
+-          <AppText style={[styles.rowBody, { color: theme.color.muted }]} numberOfLines={2}>{place.description || 'Reusable place for future Plans.'}</AppText>
++          <AppText style={[styles.rowBody, { color: theme.color.muted }]} numberOfLines={2}>{place.description || t('places.list.fallback.description')}</AppText>
+           <View style={styles.metaRow}>
+             <MobileIcon name={place.mode === 'remote' ? 'send' : 'calendar'} size={15} color={theme.color.muted} />
+-            <AppText style={[styles.metaText, { color: theme.color.muted }]} numberOfLines={1}>{place.mode === 'remote' ? (place.onlineLabel || place.onlineUrl || 'Online place') : (place.formattedAddress || place.areaLabel || place.addressPublicText || 'Offline place')}</AppText>
++            <AppText style={[styles.metaText, { color: theme.color.muted }]} numberOfLines={1}>{place.mode === 'remote' ? (place.onlineLabel || place.onlineUrl || t('places.list.fallback.online')) : (place.formattedAddress || place.areaLabel || place.addressPublicText || t('places.list.fallback.offline'))}</AppText>
+           </View>
+         </View>
+       </View>
+       {onEdit || onArchive ? (
+         <View style={[styles.placeManageActions, { borderTopColor: theme.color.border }]}>
+-          {onEdit ? <SecondaryButton label="Edit" onPress={onEdit} /> : null}
++          {onEdit ? <SecondaryButton label={t('places.list.actions.edit')} onPress={onEdit} /> : null}
+           {onArchive ? (
+             <Pressable
+               accessibilityRole="button"
+@@ -1648,7 +1649,7 @@ function PlaceRow({
+               onPress={onArchive}
+               style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.semantic.danger.border, backgroundColor: theme.semantic.danger.bg, flex: 1 }, pressed && styles.pressed, archiving && styles.disabled]}
+             >
+-              <AppText style={[styles.secondaryButtonText, { color: theme.semantic.danger.text }]}>{archiving ? 'Deleting...' : 'Delete'}</AppText>
++              <AppText style={[styles.secondaryButtonText, { color: theme.semantic.danger.text }]}>{archiving ? t('places.list.actions.deleting') : t('places.list.actions.delete')}</AppText>
+             </Pressable>
+           ) : null}
+         </View>
+@@ -1875,11 +1876,12 @@ const PlanIdeaDeckSection = React.memo(function PlanIdeaDeckSection({ ideaKey, i
+ 
+ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'> }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const [places, setPlaces] = useState<PlaceDto[]>([]);
+   const [loading, setLoading] = useState(true);
+   const [refreshing, setRefreshing] = useState(false);
+-  const [error, setError] = useState<string | null>(null);
+-  const [message, setMessage] = useState<string | null>(null);
++  const [error, setError] = useState<{ title: string; body: string } | null>(null);
++  const [removedPlaceTitle, setRemovedPlaceTitle] = useState<string | null>(null);
+   const [archivingPlaceId, setArchivingPlaceId] = useState<string | null>(null);
+   const [archiveConfirmPlace, setArchiveConfirmPlace] = useState<PlaceDto | null>(null);
+ 
+@@ -1890,14 +1892,14 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
+     try {
+       const response = scope === 'library' ? await api.places.library() : await api.places.mine();
+       setPlaces((response.places ?? []).filter((place) => place.status !== 'archived'));
+-    } catch (caughtError) {
+-      setError(getFriendlyApiErrorMessage(caughtError));
++    } catch {
++      setError({ title: t('places.list.errors.load'), body: t('places.list.errors.tryAgain') });
+       setPlaces([]);
+     } finally {
+       setLoading(false);
+       setRefreshing(false);
+     }
+-  }, [scope]);
++  }, [scope, t]);
+ 
+   useFocusEffect(useCallback(() => { void load(); }, [load]));
+ 
+@@ -1910,26 +1912,26 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
+     setArchiveConfirmPlace(null);
+     setArchivingPlaceId(place.id);
+     setError(null);
+-    setMessage(null);
++    setRemovedPlaceTitle(null);
+     try {
+       await api.places.archive(place.id);
+       setPlaces((current) => current.filter((item) => item.id !== place.id));
+-      setMessage(`${place.title} was removed from My Places.`);
+-    } catch (caughtError) {
+-      setError(getFriendlyApiErrorMessage(caughtError, 'Could not delete Place.'));
++      setRemovedPlaceTitle(place.title);
++    } catch {
++      setError({ title: t('places.list.errors.delete'), body: t('places.list.errors.tryAgain') });
+     } finally {
+       setArchivingPlaceId(null);
+     }
+   }
+ 
+   if (loading) {
+-    return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Places...</AppText></View>;
++    return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('places.list.loading')}</AppText></View>;
+   }
+ 
+-  if (error) return <InfoNotice tone="warning" title="Could not load Places" body={error} />;
++  if (error) return <InfoNotice tone="warning" title={error.title} body={error.body} />;
+ 
+   if (places.length === 0) {
+-    return <EmptyBlock title={scope === 'library' ? 'Library is empty' : 'No Places yet'} body={scope === 'library' ? 'Hellowhen Place Library items will appear here later.' : 'Create reusable Places first, then pick them while creating a Plan.'} actionLabel={scope === 'mine' ? 'Create place' : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined} />;
++    return <EmptyBlock title={scope === 'library' ? t('places.list.empty.libraryTitle') : t('places.list.empty.mineTitle')} body={scope === 'library' ? t('places.list.empty.libraryBody') : t('places.list.empty.mineBody')} actionLabel={scope === 'mine' ? t('places.list.actions.create') : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined} />;
+   }
+ 
+   return (
+@@ -1939,8 +1941,8 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
+         showsVerticalScrollIndicator={false}
+         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
+       >
+-        {message ? <InfoNotice tone="success" title="My Places" body={message} /> : null}
+-        {scope === 'mine' ? <InfoNotice tone="info" title="Reusable Places" body="Edit your saved Places here. Delete archives the Place from future pickers, while existing Plans keep their saved details." /> : null}
++        {removedPlaceTitle ? <InfoNotice tone="success" title={t('places.list.messages.title')} body={t('places.list.messages.removed', { title: removedPlaceTitle })} /> : null}
++        {scope === 'mine' ? <InfoNotice tone="info" title={t('places.list.notice.title')} body={t('places.list.notice.body')} /> : null}
+         {places.map((place) => (
+           <PlaceRow
+             key={place.id}
+@@ -1953,10 +1955,10 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
+       </ScrollView>
+       <AppConfirmSheet
+         visible={Boolean(archiveConfirmPlace)}
+-        title="Delete Place?"
+-        body="This removes the Place from My Places and future Plan pickers. Existing Plans keep their saved Place details."
+-        cancelLabel="Cancel"
+-        confirmLabel="Delete Place"
++        title={t('places.list.confirmDelete.title')}
++        body={t('places.list.confirmDelete.body')}
++        cancelLabel={t('places.list.actions.cancel')}
++        confirmLabel={t('places.list.confirmDelete.confirm')}
+         tone="danger"
+         confirmDisabled={Boolean(archivingPlaceId)}
+         onCancel={() => setArchiveConfirmPlace(null)}
+@@ -2908,13 +2910,15 @@ export function JoinedPlansScreen({ navigation }: SimpleScreenProps<'JoinedPlans
+ }
+ 
+ export function MyPlacesScreen({ navigation }: SimpleScreenProps<'MyPlaces'>) {
++  const { t } = useTranslation();
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+-  return <AppFixedHeaderScreen header={<AppHeader title="My places" onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label="Create Place" onPress={() => navigation.navigate('CreatePlace')} />} />}><PlaceList scope="mine" navigation={navigation} /></AppFixedHeaderScreen>;
++  return <AppFixedHeaderScreen header={<AppHeader title={t('places.list.headers.myPlaces')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label={t('places.list.actions.create')} onPress={() => navigation.navigate('CreatePlace')} />} />}><PlaceList scope="mine" navigation={navigation} /></AppFixedHeaderScreen>;
+ }
+ 
+ export function PlaceLibraryScreen({ navigation }: SimpleScreenProps<'PlaceLibrary'>) {
++  const { t } = useTranslation();
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+-  return <AppFixedHeaderScreen header={<AppHeader title="Place Library" onBack={() => navigation.goBack()} />}><PlaceList scope="library" navigation={navigation} /></AppFixedHeaderScreen>;
++  return <AppFixedHeaderScreen header={<AppHeader title={t('places.list.headers.library')} onBack={() => navigation.goBack()} />}><PlaceList scope="library" navigation={navigation} /></AppFixedHeaderScreen>;
+ }
+ 
+ function ModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (value: PlanPlaceMode) => void }) {
+diff --git a/packages/i18n/src/locales/en/places.ts b/packages/i18n/src/locales/en/places.ts
+index 5370260..46c34b0 100644
+--- a/packages/i18n/src/locales/en/places.ts
++++ b/packages/i18n/src/locales/en/places.ts
+@@ -4,6 +4,55 @@ export const places = {
+     fr: 'French',
+     es: 'Spanish',
+   },
++  list: {
++    headers: {
++      myPlaces: 'My places',
++      library: 'Place Library',
++    },
++    badges: {
++      mine: 'My place',
++      library: 'Library place',
++      online: 'Online',
++      offline: 'Offline',
++    },
++    fallback: {
++      description: 'Reusable place for future Plans.',
++      online: 'Online place',
++      offline: 'Offline place',
++    },
++    notice: {
++      title: 'Reusable Places',
++      body: 'Edit your saved Places here. Delete archives the Place from future pickers, while existing Plans keep their saved details.',
++    },
++    loading: 'Loading Places...',
++    errors: {
++      load: 'Could not load Places.',
++      delete: 'Could not delete Place.',
++      tryAgain: 'Check your connection and try again.',
++    },
++    empty: {
++      mineTitle: 'No Places yet',
++      mineBody: 'Create reusable Places first, then pick them while creating a Plan.',
++      libraryTitle: 'Library is empty',
++      libraryBody: 'Hellowhen Place Library items will appear here later.',
++    },
++    actions: {
++      create: 'Create Place',
++      edit: 'Edit',
++      delete: 'Delete',
++      deleting: 'Deleting...',
++      cancel: 'Cancel',
++    },
++    messages: {
++      title: 'My Places',
++      removed: '{{title}} was removed from My Places.',
++    },
++    confirmDelete: {
++      title: 'Delete Place?',
++      body: 'This removes the Place from My Places and future Plan pickers. Existing Plans keep their saved Place details.',
++      confirm: 'Delete Place',
++    },
++  },
+   editor: {
+     header: {
+       create: 'Create place',
+diff --git a/packages/i18n/src/locales/es/places.ts b/packages/i18n/src/locales/es/places.ts
+index bc164a1..19f4e2e 100644
+--- a/packages/i18n/src/locales/es/places.ts
++++ b/packages/i18n/src/locales/es/places.ts
+@@ -4,6 +4,55 @@ export const places = {
+     fr: 'Francés',
+     es: 'Español',
+   },
++  list: {
++    headers: {
++      myPlaces: 'Mis lugares',
++      library: 'Biblioteca de lugares',
++    },
++    badges: {
++      mine: 'Mi lugar',
++      library: 'Lugar de la biblioteca',
++      online: 'En línea',
++      offline: 'Presencial',
++    },
++    fallback: {
++      description: 'Lugar reutilizable para futuros Planes.',
++      online: 'Lugar en línea',
++      offline: 'Lugar presencial',
++    },
++    notice: {
++      title: 'Lugares reutilizables',
++      body: 'Edita aquí tus lugares guardados. Eliminar archiva el lugar de los selectores futuros, mientras que los Planes existentes conservan los datos que ya guardaron.',
++    },
++    loading: 'Cargando lugares…',
++    errors: {
++      load: 'No se pudieron cargar los lugares.',
++      delete: 'No se pudo eliminar el lugar.',
++      tryAgain: 'Comprueba tu conexión y vuelve a intentarlo.',
++    },
++    empty: {
++      mineTitle: 'Aún no hay lugares',
++      mineBody: 'Crea primero lugares reutilizables y selecciónalos después al crear un Plan.',
++      libraryTitle: 'La biblioteca está vacía',
++      libraryBody: 'Los lugares de la biblioteca de Hellowhen aparecerán aquí más adelante.',
++    },
++    actions: {
++      create: 'Crear lugar',
++      edit: 'Editar',
++      delete: 'Eliminar',
++      deleting: 'Eliminando…',
++      cancel: 'Cancelar',
++    },
++    messages: {
++      title: 'Mis lugares',
++      removed: 'Se eliminó «{{title}}» de Mis lugares.',
++    },
++    confirmDelete: {
++      title: '¿Eliminar este lugar?',
++      body: 'Esto elimina el lugar de Mis lugares y de los futuros selectores de Plan. Los Planes existentes conservan los datos del lugar que ya guardaron.',
++      confirm: 'Eliminar lugar',
++    },
++  },
+   editor: {
+     header: {
+       create: 'Crear lugar',
+diff --git a/packages/i18n/src/locales/fr/places.ts b/packages/i18n/src/locales/fr/places.ts
+index 8749fc6..2a14789 100644
+--- a/packages/i18n/src/locales/fr/places.ts
++++ b/packages/i18n/src/locales/fr/places.ts
+@@ -4,6 +4,55 @@ export const places = {
+     fr: 'Français',
+     es: 'Espagnol',
+   },
++  list: {
++    headers: {
++      myPlaces: 'Mes lieux',
++      library: 'Bibliothèque de lieux',
++    },
++    badges: {
++      mine: 'Mon lieu',
++      library: 'Lieu de la bibliothèque',
++      online: 'En ligne',
++      offline: 'Sur place',
++    },
++    fallback: {
++      description: 'Lieu réutilisable pour de futurs Plans.',
++      online: 'Lieu en ligne',
++      offline: 'Lieu sur place',
++    },
++    notice: {
++      title: 'Lieux réutilisables',
++      body: 'Modifiez vos lieux enregistrés ici. La suppression archive le lieu dans les futurs sélecteurs, tandis que les Plans existants conservent leurs informations enregistrées.',
++    },
++    loading: 'Chargement des lieux…',
++    errors: {
++      load: 'Impossible de charger les lieux.',
++      delete: 'Impossible de supprimer le lieu.',
++      tryAgain: 'Vérifiez votre connexion, puis réessayez.',
++    },
++    empty: {
++      mineTitle: 'Aucun lieu pour le moment',
++      mineBody: 'Créez d’abord des lieux réutilisables, puis sélectionnez-les lors de la création d’un Plan.',
++      libraryTitle: 'La bibliothèque est vide',
++      libraryBody: 'Les lieux de la bibliothèque Hellowhen apparaîtront ici ultérieurement.',
++    },
++    actions: {
++      create: 'Créer un lieu',
++      edit: 'Modifier',
++      delete: 'Supprimer',
++      deleting: 'Suppression…',
++      cancel: 'Annuler',
++    },
++    messages: {
++      title: 'Mes lieux',
++      removed: 'Le lieu « {{title}} » a été retiré de Mes lieux.',
++    },
++    confirmDelete: {
++      title: 'Supprimer ce lieu ?',
++      body: 'Cette action retire le lieu de Mes lieux et des futurs sélecteurs de Plan. Les Plans existants conservent les informations du lieu déjà enregistrées.',
++      confirm: 'Supprimer le lieu',
++    },
++  },
+   editor: {
+     header: {
+       create: 'Créer un lieu',

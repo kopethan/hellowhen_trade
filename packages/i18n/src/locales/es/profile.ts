@@ -52,6 +52,11 @@ export const profile = {
     linkUnavailable: 'Este enlace de perfil público ya no está disponible.',
     couldNotLoad: 'No se pudo cargar este perfil público.',
   },
+  accessibility: {
+    ...enProfile.accessibility,
+    openPublicProfile: 'Abrir el perfil público de {{name}}',
+    publicProfileHint: 'Muestra únicamente información pública del perfil del marketplace.',
+  },
   actions: {
     ...enProfile.actions,
     openApplicantProfile: 'Abrir perfil público del solicitante',

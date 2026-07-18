@@ -2,6 +2,60 @@ export const navigation = {
   brand: 'Hellowhen Trade',
   primary: 'Navigation principale',
   goBack: 'Retour',
+  authRequired: {
+    default: {
+      title: 'Connexion requise',
+      body: 'Connectez-vous pour continuer avec vos besoins, offres, propositions et paramètres de compte.',
+    },
+    manageNeeds: {
+      title: 'Connectez-vous pour gérer vos besoins',
+      body: 'Le fil public reste accessible. Connectez-vous pour créer, modifier et gérer vos propres besoins.',
+    },
+    manageOffers: {
+      title: 'Connectez-vous pour gérer vos offres',
+      body: 'Le fil public reste accessible. Connectez-vous pour créer, modifier et gérer vos propres offres.',
+    },
+    account: {
+      title: 'Connectez-vous pour ouvrir votre compte',
+      body: 'Connectez-vous pour accéder à votre profil, vos paramètres, l’assistance et les outils du compte.',
+    },
+    planDiscussion: {
+      title: 'Connectez-vous pour voir la discussion du Plan',
+      body: 'La discussion publique du Plan est réservée aux membres connectés afin de maintenir une modération responsable.',
+    },
+    createPlan: {
+      title: 'Connectez-vous pour créer un Plan',
+      body: 'Connectez-vous avant de créer un Plan afin qu’il reste associé à votre compte.',
+    },
+    createPlace: {
+      title: 'Connectez-vous pour créer un lieu',
+      body: 'Connectez-vous avant de créer des lieux réutilisables afin qu’ils restent associés à votre compte.',
+    },
+    createNeed: {
+      title: 'Connectez-vous pour créer un besoin',
+      body: 'Connectez-vous avant de créer un besoin afin qu’il reste associé à votre compte.',
+    },
+    createOffer: {
+      title: 'Connectez-vous pour créer une offre',
+      body: 'Connectez-vous avant de créer une offre afin qu’elle reste associée à votre compte.',
+    },
+    createTrade: {
+      title: 'Connectez-vous pour créer un échange',
+      body: 'Parcourez le fil public maintenant. Connectez-vous lorsque vous êtes prêt à publier un échange.',
+    },
+    sendProposal: {
+      title: 'Connectez-vous pour envoyer une proposition',
+      body: 'Les messages de proposition sont privés. Un compte est donc nécessaire avant de proposer un échange.',
+    },
+    tradeDiscussion: {
+      title: 'Connectez-vous pour voir la discussion publique',
+      body: 'La discussion publique est réservée aux membres connectés afin de maintenir une modération responsable.',
+    },
+    privateProposals: {
+      title: 'Connectez-vous pour voir les propositions privées',
+      body: 'Les conversations de proposition privées sont visibles uniquement par le propriétaire de l’échange et chaque candidat.',
+    },
+  },
   tabs: {
     trades: 'Échanges',
     needs: 'Besoins',

@@ -125,12 +125,12 @@ type MainTabParamList = Record<typeof normalAppNavItems[number]['mobileTabName']
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-function AuthRequiredNotice({ title, body }: { title?: string; body?: string }) {
+function AuthRequiredNotice({ titleKey, bodyKey }: { titleKey?: string; bodyKey?: string }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const theme = useThemeTokens();
   const { t } = useTranslation();
-  const displayTitle = title ?? 'Login required';
-  const displayBody = body ?? 'Sign in to continue with your saved needs, offers, proposals, and account settings.';
+  const displayTitle = t(titleKey ?? 'navigation.authRequired.default.title');
+  const displayBody = t(bodyKey ?? 'navigation.authRequired.default.body');
 
   return (
     <AppScreen>
@@ -152,29 +152,29 @@ function AuthRequiredNotice({ title, body }: { title?: string; body?: string }) 
   );
 }
 
-function withAuth<P extends object>(Component: React.ComponentType<P>, title?: string, body?: string) {
+function withAuth<P extends object>(Component: React.ComponentType<P>, titleKey?: string, bodyKey?: string) {
   function ProtectedScreen(props: P) {
     const auth = useAuth();
-    if (!auth.isAuthenticated) return <AuthRequiredNotice title={title} body={body} />;
+    if (!auth.isAuthenticated) return <AuthRequiredNotice titleKey={titleKey} bodyKey={bodyKey} />;
     return <Component {...props} />;
   }
   return ProtectedScreen;
 }
 
-const ProtectedMyNeedsScreen = withAuth(MyNeedsScreen, 'Login to manage needs', 'The public feed is open. Sign in to create, edit, and manage your own needs.');
-const ProtectedMyOffersScreen = withAuth(MyOffersScreen, 'Login to manage offers', 'The public feed is open. Sign in to create, edit, and manage your own offers.');
-const ProtectedAccountScreen = withAuth(AccountScreen, 'Login to open account', 'Sign in to access your profile, settings, support, and account tools.');
+const ProtectedMyNeedsScreen = withAuth(MyNeedsScreen, 'navigation.authRequired.manageNeeds.title', 'navigation.authRequired.manageNeeds.body');
+const ProtectedMyOffersScreen = withAuth(MyOffersScreen, 'navigation.authRequired.manageOffers.title', 'navigation.authRequired.manageOffers.body');
+const ProtectedAccountScreen = withAuth(AccountScreen, 'navigation.authRequired.account.title', 'navigation.authRequired.account.body');
 const ProtectedProfileScreen = withAuth(ProfileScreen);
 const ProtectedNotificationsScreen = withAuth(NotificationsScreen);
 const ProtectedSavedLibraryScreen = withAuth(SavedLibraryScreen);
 const ProtectedAgendaScreen = withAuth(AgendaScreen);
-const ProtectedPlanPublicDiscussionScreen = withAuth(PlanPublicDiscussionScreen, 'Login to view Plan discussion', 'Public Plan discussion is available to logged-in members so moderation stays accountable.');
+const ProtectedPlanPublicDiscussionScreen = withAuth(PlanPublicDiscussionScreen, 'navigation.authRequired.planDiscussion.title', 'navigation.authRequired.planDiscussion.body');
 const ProtectedMyPlansScreen = withAuth(MyPlansScreen);
 const ProtectedJoinedPlansScreen = withAuth(JoinedPlansScreen);
 const ProtectedMyPlacesScreen = withAuth(MyPlacesScreen);
 const ProtectedPlaceLibraryScreen = withAuth(PlaceLibraryScreen);
-const ProtectedCreatePlanScreen = withAuth(CreatePlanScreen, 'Login to create a plan', 'Create Plans after signing in so they stay attached to your account.');
-const ProtectedCreatePlaceScreen = withAuth(CreatePlaceScreen, 'Login to create a place', 'Create reusable Places after signing in so they stay attached to your account.');
+const ProtectedCreatePlanScreen = withAuth(CreatePlanScreen, 'navigation.authRequired.createPlan.title', 'navigation.authRequired.createPlan.body');
+const ProtectedCreatePlaceScreen = withAuth(CreatePlaceScreen, 'navigation.authRequired.createPlace.title', 'navigation.authRequired.createPlace.body');
 const ProtectedSavedCollectionDetailScreen = withAuth(SavedCollectionDetailScreen);
 const ProtectedMembershipScreen = withAuth(MembershipScreen);
 const ProtectedPlanSelectionScreen = withAuth(PlanSelectionScreen);
@@ -188,19 +188,19 @@ const ProtectedBuyCreditsScreen = withAuth(BuyCreditsScreen);
 const ProtectedSupportCenterScreen = withAuth(SupportCenterScreen);
 const ProtectedAccountDeletionScreen = withAuth(AccountDeletionScreen);
 const ProtectedSupportTicketDetailScreen = withAuth(SupportTicketDetailScreen);
-const ProtectedCreateNeedScreen = withAuth(CreateNeedScreen, 'Login to create a need', 'Create needs after signing in so they stay attached to your account.');
-const ProtectedCreateNeedFullScreen = withAuth(CreateNeedFullScreen, 'Login to create a need', 'Create needs after signing in so they stay attached to your account.');
+const ProtectedCreateNeedScreen = withAuth(CreateNeedScreen, 'navigation.authRequired.createNeed.title', 'navigation.authRequired.createNeed.body');
+const ProtectedCreateNeedFullScreen = withAuth(CreateNeedFullScreen, 'navigation.authRequired.createNeed.title', 'navigation.authRequired.createNeed.body');
 const ProtectedNeedDetailScreen = withAuth(NeedDetailScreen);
-const ProtectedCreateOfferScreen = withAuth(CreateOfferScreen, 'Login to create an offer', 'Create offers after signing in so they stay attached to your account.');
-const ProtectedCreateOfferFullScreen = withAuth(CreateOfferFullScreen, 'Login to create an offer', 'Create offers after signing in so they stay attached to your account.');
+const ProtectedCreateOfferScreen = withAuth(CreateOfferScreen, 'navigation.authRequired.createOffer.title', 'navigation.authRequired.createOffer.body');
+const ProtectedCreateOfferFullScreen = withAuth(CreateOfferFullScreen, 'navigation.authRequired.createOffer.title', 'navigation.authRequired.createOffer.body');
 const ProtectedOfferDetailScreen = withAuth(OfferDetailScreen);
-const ProtectedCreateTradeScreen = withAuth(CreateTradeScreen, 'Login to create a trade', 'Browse the public feed now. Sign in when you are ready to publish a trade.');
-const ProtectedCreateTradeFullScreen = withAuth(CreateTradeFullScreen, 'Login to create a trade', 'Browse the public feed now. Sign in when you are ready to publish a trade.');
+const ProtectedCreateTradeScreen = withAuth(CreateTradeScreen, 'navigation.authRequired.createTrade.title', 'navigation.authRequired.createTrade.body');
+const ProtectedCreateTradeFullScreen = withAuth(CreateTradeFullScreen, 'navigation.authRequired.createTrade.title', 'navigation.authRequired.createTrade.body');
 const ProtectedTradeSidePickerScreen = withAuth(TradeSidePickerScreen);
-const ProtectedCreateProposalScreen = withAuth(CreateProposalScreen, 'Login to send a proposal', 'Proposal messages are private, so you need an account before asking to trade.');
+const ProtectedCreateProposalScreen = withAuth(CreateProposalScreen, 'navigation.authRequired.sendProposal.title', 'navigation.authRequired.sendProposal.body');
 const ProtectedProposalDetailScreen = withAuth(ProposalDetailScreen);
-const ProtectedTradePublicDiscussionScreen = withAuth(TradePublicDiscussionScreen, 'Login to view public discussion', 'Public discussion is available to logged-in members so moderation stays accountable.');
-const ProtectedTradePrivateProposalsScreen = withAuth(TradePrivateProposalsScreen, 'Login to view private proposals', 'Private proposal conversations are visible only to the trade owner and each applicant.');
+const ProtectedTradePublicDiscussionScreen = withAuth(TradePublicDiscussionScreen, 'navigation.authRequired.tradeDiscussion.title', 'navigation.authRequired.tradeDiscussion.body');
+const ProtectedTradePrivateProposalsScreen = withAuth(TradePrivateProposalsScreen, 'navigation.authRequired.privateProposals.title', 'navigation.authRequired.privateProposals.body');
 
 function MeHomeScreen() {
   const auth = useAuth();

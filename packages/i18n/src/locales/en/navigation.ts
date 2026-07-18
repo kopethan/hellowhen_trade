@@ -2,6 +2,60 @@ export const navigation = {
   brand: 'Hellowhen Trade',
   primary: 'Primary navigation',
   goBack: 'Go back',
+  authRequired: {
+    default: {
+      title: 'Login required',
+      body: 'Sign in to continue with your saved needs, offers, proposals, and account settings.',
+    },
+    manageNeeds: {
+      title: 'Login to manage needs',
+      body: 'The public feed stays open. Sign in to create, edit, and manage your own needs.',
+    },
+    manageOffers: {
+      title: 'Login to manage offers',
+      body: 'The public feed stays open. Sign in to create, edit, and manage your own offers.',
+    },
+    account: {
+      title: 'Login to open your account',
+      body: 'Sign in to access your profile, settings, support, and account tools.',
+    },
+    planDiscussion: {
+      title: 'Login to view Plan discussion',
+      body: 'Public Plan discussion is available to logged-in members so moderation stays accountable.',
+    },
+    createPlan: {
+      title: 'Login to create a Plan',
+      body: 'Create Plans after signing in so they stay attached to your account.',
+    },
+    createPlace: {
+      title: 'Login to create a Place',
+      body: 'Create reusable Places after signing in so they stay attached to your account.',
+    },
+    createNeed: {
+      title: 'Login to create a Need',
+      body: 'Create Needs after signing in so they stay attached to your account.',
+    },
+    createOffer: {
+      title: 'Login to create an Offer',
+      body: 'Create Offers after signing in so they stay attached to your account.',
+    },
+    createTrade: {
+      title: 'Login to create a Trade',
+      body: 'Browse the public feed now. Sign in when you are ready to publish a Trade.',
+    },
+    sendProposal: {
+      title: 'Login to send a proposal',
+      body: 'Proposal messages are private, so you need an account before asking to trade.',
+    },
+    tradeDiscussion: {
+      title: 'Login to view public discussion',
+      body: 'Public discussion is available to logged-in members so moderation stays accountable.',
+    },
+    privateProposals: {
+      title: 'Login to view private proposals',
+      body: 'Private proposal conversations are visible only to the Trade owner and each applicant.',
+    },
+  },
   tabs: {
     trades: 'Trades',
     needs: 'Needs',

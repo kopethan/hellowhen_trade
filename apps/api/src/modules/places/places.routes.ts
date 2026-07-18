@@ -31,6 +31,7 @@ import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
 import { googlePlacesRoutes } from './googlePlaces.routes.js';
 import { buildPlaceStaticMapResult } from './placeStaticMap.js';
 import { createRandomPlaceStaticMapTemplateAssignment, isPlaceStaticMapTemplateFamily } from './placeStaticMapTemplates.js';
+import { canUpdatePlaceLockedByPlan, isArchiveOnlyPlaceUpdate, isTranslationOnlyPlaceUpdate } from './placeUpdatePolicy.js';
 
 export const placesRoutes = Router();
 
@@ -346,11 +347,6 @@ function updatePlaceData(input: ReturnType<typeof updatePlaceRequestSchema.parse
   return data;
 }
 
-function isArchiveOnlyPlaceUpdate(input: ReturnType<typeof updatePlaceRequestSchema.parse>) {
-  const keys = Object.keys(input);
-  return keys.length === 1 && input.status === 'archived';
-}
-
 async function loadPlaceUsageCounts(placeIds: string[]) {
   const ids = Array.from(new Set(placeIds.filter(Boolean)));
   if (!ids.length) return new Map<string, number>();
@@ -521,12 +517,19 @@ placesRoutes.patch('/:placeId', requireAuth, requireActiveAccount, asyncRoute(as
   });
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const usedInPlansCount = await placeUsedInPlansCount(existing.id);
-  if (existing.source === 'user' && usedInPlansCount > 0 && !isArchiveOnlyPlaceUpdate(input)) {
+  const lockedByPlan = existing.source === 'user' && usedInPlansCount > 0;
+  if (lockedByPlan && !canUpdatePlaceLockedByPlan(input)) {
     return res.status(409).json({
       error: 'place_locked_by_plan',
-      message: 'This Place is already used in a Plan. Archive it or create a new Place to change the details.',
+      message: 'This Place is already used in a Plan. Its main details are locked, but manual translations can still be updated.',
       usedInPlansCount,
     });
+  }
+  if (lockedByPlan && isTranslationOnlyPlaceUpdate(input)) {
+    await syncInventoryTranslations(prisma, 'place', existing.id, req.user!.id, (existing as any).defaultLanguage ?? 'en', input.translations);
+    const refreshed = await prisma.place.findUnique({ where: { id: existing.id }, include: placeInclude() });
+    const languagePreferences = await resolveContentLanguagePreferences(req.user!.id, req.headers['accept-language']);
+    return res.json({ place: await decoratePlace(refreshed, req.user!.id, 'owner', actor.role, languagePreferences) });
   }
   const normalized = normalizeUpdateInput(input, existing as any, actor);
   const [mediaLimit, canChooseTemplate] = await Promise.all([

@@ -95,6 +95,10 @@ export const profile = {
       uploadReturnedNoImage: 'Upload completed but no image was returned.',
     },
   },
+  accessibility: {
+    openPublicProfile: "Open {{name}}'s public profile",
+    publicProfileHint: 'Shows public marketplace profile information only.',
+  },
   actions: {
     openApplicantProfile: 'Open applicant public profile',
   },

@@ -7,6 +7,7 @@ import { legal } from './legal';
 import { navigation } from './navigation';
 import { onboarding } from './onboarding';
 import { places } from './places';
+import { plans } from './plans';
 import { profile } from './profile';
 import { report } from './report';
 import { settings } from './settings';
@@ -24,6 +25,7 @@ export const en = {
   navigation,
   onboarding,
   places,
+  plans,
   profile,
   report,
   settings,

@@ -1,0 +1,2087 @@
+diff --git a/apps/mobile/src/features/plans/PlanPublicDiscussionScreen.tsx b/apps/mobile/src/features/plans/PlanPublicDiscussionScreen.tsx
+index 99c4ba7..43e2615 100644
+--- a/apps/mobile/src/features/plans/PlanPublicDiscussionScreen.tsx
++++ b/apps/mobile/src/features/plans/PlanPublicDiscussionScreen.tsx
+@@ -45,9 +45,10 @@ function dayKey(value: string | null | undefined) {
+   return date.toISOString().slice(0, 10);
+ }
+ 
+-function dateSeparatorLabel(value: string | null | undefined, language: SupportedLanguage) {
+-  if (!value) return 'Unknown date';
+-  return formatLocalizedDate(value, language, 'Unknown date');
++function dateSeparatorLabel(value: string | null | undefined, language: SupportedLanguage, t: TFunction) {
++  const fallback = t('plans.discussion.unknownDate');
++  if (!value) return fallback;
++  return formatLocalizedDate(value, language, fallback);
+ }
+ 
+ function timeLabel(value: string | null | undefined, language: SupportedLanguage) {
+@@ -55,9 +56,9 @@ function timeLabel(value: string | null | undefined, language: SupportedLanguage
+   return formatLocalizedDateTime(value, language, '');
+ }
+ 
+-function messageDisplayName(message: PlanPublicMessageItem, currentUserId: string | undefined) {
+-  if (message.authorId === currentUserId) return 'You';
+-  return message.author?.profile?.displayName || message.author?.profile?.handle || 'Hellowhen member';
++function messageDisplayName(message: PlanPublicMessageItem, currentUserId: string | undefined, t: TFunction) {
++  if (message.authorId === currentUserId) return t('plans.discussion.you');
++  return message.author?.profile?.displayName || message.author?.profile?.handle || t('plans.common.member');
+ }
+ 
+ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+@@ -94,11 +95,11 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+     } catch (caughtError) {
+       setMessages([]);
+       setPlanStatus(null);
+-      setError(getFriendlyApiErrorMessage(caughtError, 'Could not load Plan discussion.'));
++      setError(getFriendlyApiErrorMessage(caughtError, t('plans.discussion.errors.load')));
+     } finally {
+       setLoading(false);
+     }
+-  }, [route.params.planId]);
++  }, [route.params.planId, t]);
+ 
+   useFocusEffect(useCallback(() => { void loadMessages(); }, [loadMessages]));
+ 
+@@ -108,13 +109,13 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+     for (const message of messages) {
+       const nextDay = dayKey(message.createdAt);
+       if (nextDay !== previousDay) {
+-        rows.push({ type: 'date', key: `date-${nextDay}-${message.id}`, label: dateSeparatorLabel(message.createdAt, language) });
++        rows.push({ type: 'date', key: `date-${nextDay}-${message.id}`, label: dateSeparatorLabel(message.createdAt, language, t) });
+         previousDay = nextDay;
+       }
+       rows.push({ type: 'message', key: message.id, message });
+     }
+     return rows;
+-  }, [language, messages]);
++  }, [language, messages, t]);
+ 
+   async function sendMessage() {
+     const body = draft.trim();
+@@ -128,7 +129,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+       setDraft('');
+       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+     } catch (caughtError) {
+-      setError(getFriendlyApiErrorMessage(caughtError, 'Could not send your comment.'));
++      setError(getFriendlyApiErrorMessage(caughtError, t('plans.discussion.errors.send')));
+     } finally {
+       setSending(false);
+     }
+@@ -147,7 +148,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+       setActionSheet(null);
+       setEditDraft('');
+     } catch (caughtError) {
+-      setError(getFriendlyApiErrorMessage(caughtError, 'Could not update your comment.'));
++      setError(getFriendlyApiErrorMessage(caughtError, t('plans.discussion.errors.update')));
+     } finally {
+       setSending(false);
+     }
+@@ -160,11 +161,11 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+     try {
+       const result = await api.plans.deletePublicMessage(route.params.planId, messageId) as MessageResponse;
+       setMessages((current) => current.map((message) => message.id === messageId ? result.message : message));
+-      setNotice('Comment deleted.');
++      setNotice(t('plans.discussion.feedback.deleted'));
+       setActionTarget(null);
+       setActionSheet(null);
+     } catch (caughtError) {
+-      setError(getFriendlyApiErrorMessage(caughtError, 'Could not delete your comment.'));
++      setError(getFriendlyApiErrorMessage(caughtError, t('plans.discussion.errors.delete')));
+     } finally {
+       setSending(false);
+     }
+@@ -193,7 +194,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+     actionSheetActions = [
+       ...(canWrite ? [{
+         key: 'edit',
+-        label: 'Edit comment',
++        label: t('plans.discussion.actions.edit'),
+         icon: 'more',
+         onPress: () => {
+           setActionTarget({ messageId: message.id, mode: 'edit' });
+@@ -203,8 +204,8 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+       } satisfies AppActionSheetAction] : []),
+       {
+         key: 'delete',
+-        label: 'Delete comment',
+-        helper: 'Deleted comments stay as a small trace in the public discussion.',
++        label: t('plans.discussion.actions.delete'),
++        helper: t('plans.discussion.actions.deleteHelper'),
+         icon: 'report-flag',
+         tone: 'danger',
+         onPress: () => {
+@@ -218,13 +219,13 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+     actionSheetActions = [
+       {
+         key: 'report',
+-        label: 'Report comment',
+-        helper: 'Report spam, scams, harassment, or unsafe content.',
++        label: t('plans.discussion.actions.report'),
++        helper: t('plans.discussion.actions.reportHelper'),
+         icon: 'report-flag',
+         tone: 'danger',
+         onPress: () => {
+           setActionSheet(null);
+-          setFullScreenMode({ type: 'report', title: 'Report comment', targetType: 'public_message', targetId: message.id, labelKey: 'report.publicMessage', helperKey: 'report.helper.publicMessage' });
++          setFullScreenMode({ type: 'report', title: t('plans.discussion.actions.report'), targetType: 'public_message', targetId: message.id, labelKey: 'report.publicMessage', helperKey: 'report.helper.publicMessage' });
+         },
+       },
+     ];
+@@ -233,8 +234,8 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+   const threadMenuActions: AppActionSheetAction[] = [
+     {
+       key: 'details',
+-      label: 'See Plan details',
+-      helper: 'Go back to the route, details, and join actions.',
++      label: t('plans.discussion.menu.details'),
++      helper: t('plans.discussion.menu.detailsHelper'),
+       icon: 'plan',
+       onPress: () => {
+         setThreadMenuVisible(false);
+@@ -243,8 +244,8 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+     },
+     {
+       key: 'guide',
+-      label: 'How public comments work',
+-      helper: 'A short guide for Plan discussion.',
++      label: t('plans.discussion.menu.guide'),
++      helper: t('plans.discussion.menu.guideHelper'),
+       icon: 'help',
+       onPress: () => {
+         setThreadMenuVisible(false);
+@@ -253,27 +254,27 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+     },
+     {
+       key: 'report',
+-      label: 'Report this Plan',
+-      helper: 'Report the Plan if the public page feels unsafe or misleading.',
++      label: t('plans.discussion.menu.reportPlan'),
++      helper: t('plans.discussion.menu.reportPlanHelper'),
+       icon: 'report-flag',
+       tone: 'danger',
+       onPress: () => {
+         setThreadMenuVisible(false);
+-        setFullScreenMode({ type: 'report', title: 'Report Plan', targetType: 'plan', targetId: route.params.planId, labelKey: 'report.button', helperKey: 'report.helper.content' });
++        setFullScreenMode({ type: 'report', title: t('plans.discussion.menu.reportPlanTitle'), targetType: 'plan', targetId: route.params.planId, labelKey: 'report.button', helperKey: 'report.helper.content' });
+       },
+     },
+   ];
+ 
+   function startReply(message: PlanPublicMessageItem) {
+     if (!canWrite || message.status === 'deleted') return;
+-    const authorName = messageDisplayName(message, auth.user?.id);
++    const authorName = messageDisplayName(message, auth.user?.id, t);
+     const mention = `@${authorName} `;
+     setDraft((current) => current.trim().length ? `${current.trimEnd()}\n${mention}` : mention);
+     requestAnimationFrame(() => composerInputRef.current?.focus());
+   }
+ 
+   const canSend = canWrite && draft.trim().length > 0 && !sending;
+-  const contextTitle = route.params.title || 'Plan';
++  const contextTitle = route.params.title || t('plans.detail.headerTitle');
+ 
+   if (fullScreenMode?.type === 'guide') {
+     return <PlanThreadGuideScreen onClose={() => setFullScreenMode(null)} />;
+@@ -284,12 +285,12 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+   }
+ 
+   return (
+-    <AppFixedHeaderScreen header={<AppHeader title="Public discussion" onBack={() => navigation.goBack()} rightSlot={<ThreadMenuButton label="Discussion options" onPress={() => setThreadMenuVisible(true)} />} />}>
++    <AppFixedHeaderScreen header={<AppHeader title={t('plans.discussion.title')} onBack={() => navigation.goBack()} rightSlot={<ThreadMenuButton label={t('plans.discussion.options')} onPress={() => setThreadMenuVisible(true)} />} />}>
+       <KeyboardAvoidingView style={styles.shell} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}>
+         <PublicThreadContextStrip
+-          label="Plan context"
++          label={t('plans.discussion.context')}
+           title={contextTitle}
+-          actionLabel="View Plan"
++          actionLabel={t('plans.discussion.viewPlan')}
+           theme={theme}
+           onPress={openPlanDetail}
+         />
+@@ -302,10 +303,10 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+           keyboardDismissMode="interactive"
+           refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadMessages(); }} />}
+         >
+-          {error ? <InfoNotice tone="danger" title="Discussion unavailable" body={error} /> : null}
++          {error ? <InfoNotice tone="danger" title={t('plans.discussion.errors.unavailableTitle')} body={error} /> : null}
+           {notice ? <AppText style={[styles.feedbackText, { color: theme.color.muted }]}>{notice}</AppText> : null}
+           {groupedRows.length === 0 && loading ? <LoadingDiscussion theme={theme} label={t('common.states.loading')} /> : null}
+-          {groupedRows.length === 0 && !loading ? <EmptyDiscussion theme={theme} /> : null}
++          {groupedRows.length === 0 && !loading ? <EmptyDiscussion theme={theme} t={t} /> : null}
+           {groupedRows.map((row) => row.type === 'date' ? (
+             <View key={row.key} style={styles.dateSeparator}><View style={[styles.dateLine, { backgroundColor: theme.color.border }]} /><AppText style={[styles.dateText, { color: theme.color.muted }]}>{row.label}</AppText><View style={[styles.dateLine, { backgroundColor: theme.color.border }]} /></View>
+           ) : (
+@@ -332,7 +333,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+         <KeyboardDoneAccessory />
+         {isCancelled ? (
+           <View style={[styles.closedComposer, { backgroundColor: theme.color.background, borderColor: theme.color.border, paddingBottom: Math.max(10, insets.bottom + 8) }]}>
+-            <InfoNotice tone="warning" title="This Plan was cancelled" body="Earlier comments remain visible, but new replies and comment edits are closed." />
++            <InfoNotice tone="warning" title={t('plans.discussion.cancelled.title')} body={t('plans.discussion.cancelled.body')} />
+           </View>
+         ) : (
+           <View style={[styles.composer, { backgroundColor: theme.color.background, borderColor: theme.color.border, paddingBottom: Math.max(10, insets.bottom + 8) }]}>
+@@ -341,7 +342,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+                 ref={composerInputRef}
+                 value={draft}
+                 onChangeText={setDraft}
+-                placeholder="Comment publicly on this Plan..."
++                placeholder={t('plans.discussion.composer.placeholder')}
+                 placeholderTextColor={theme.color.muted}
+                 multiline
+                 editable={!sending}
+@@ -361,26 +362,26 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+       </KeyboardAvoidingView>
+       <AppActionSheet
+         visible={Boolean(actionSheet)}
+-        title="Comment actions"
+-        body={actionSheet?.type === 'own' ? 'Edit or delete your public comment.' : actionSheet?.type === 'report' ? 'Report this comment if it breaks community rules.' : undefined}
++        title={t('plans.discussion.actions.title')}
++        body={actionSheet?.type === 'own' ? t('plans.discussion.actions.ownBody') : actionSheet?.type === 'report' ? t('plans.discussion.actions.reportBody') : undefined}
+         actions={actionSheetActions}
+         cancelLabel={t('common.actions.cancel')}
+         onClose={() => setActionSheet(null)}
+       />
+       <AppActionSheet
+         visible={threadMenuVisible}
+-        title="Public discussion"
+-        body="Comments are public and visible to logged-in members. Keep details safe and respectful."
++        title={t('plans.discussion.title')}
++        body={t('plans.discussion.menu.body')}
+         actions={threadMenuActions}
+         cancelLabel={t('common.actions.cancel')}
+         onClose={() => setThreadMenuVisible(false)}
+       />
+       <AppConfirmSheet
+         visible={Boolean(deleteTarget)}
+-        title="Delete comment?"
+-        body="This removes the comment text from the public discussion."
++        title={t('plans.discussion.confirmDelete.title')}
++        body={t('plans.discussion.confirmDelete.body')}
+         cancelLabel={t('common.actions.cancel')}
+-        confirmLabel="Delete comment"
++        confirmLabel={t('plans.discussion.actions.delete')}
+         tone="danger"
+         confirmDisabled={sending}
+         onCancel={() => setDeleteTarget(null)}
+@@ -404,17 +405,18 @@ function ThreadMenuButton({ label, onPress }: { label: string; onPress: () => vo
+ 
+ function PlanThreadGuideScreen({ onClose }: { onClose: () => void }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const items = [
+-    { title: 'Public by default', body: 'These comments are visible to logged-in Hellowhen members who can open this Plan.' },
+-    { title: 'Use it for questions', body: 'Ask about the route, timing, meeting point, or whether there is still room to join.' },
+-    { title: 'Stay safe', body: 'Do not post private addresses, passwords, payment details, or sensitive documents in public comments.' },
++    { title: t('plans.discussion.guide.publicTitle'), body: t('plans.discussion.guide.publicBody') },
++    { title: t('plans.discussion.guide.questionsTitle'), body: t('plans.discussion.guide.questionsBody') },
++    { title: t('plans.discussion.guide.safetyTitle'), body: t('plans.discussion.guide.safetyBody') },
+   ];
+ 
+   return (
+-    <AppFixedHeaderScreen header={<AppHeader title="Plan discussion" onBack={onClose} />}>
++    <AppFixedHeaderScreen header={<AppHeader title={t('plans.discussion.guide.header')} onBack={onClose} />}>
+       <ScrollView contentContainerStyle={styles.infoContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
+-        <AppText style={styles.infoTitle}>How Plan comments work</AppText>
+-        <AppText style={[styles.infoBody, { color: theme.color.muted }]}>Use the public discussion for visible questions and updates. Private Plan threads can come later.</AppText>
++        <AppText style={styles.infoTitle}>{t('plans.discussion.guide.title')}</AppText>
++        <AppText style={[styles.infoBody, { color: theme.color.muted }]}>{t('plans.discussion.guide.body')}</AppText>
+         <View style={[styles.fullBleedDivider, { backgroundColor: theme.color.border }]} />
+         {items.map((item) => (
+           <View key={item.title} style={styles.infoSection}>
+@@ -461,11 +463,11 @@ function LoadingDiscussion({ theme, label }: { theme: ThemeTokens; label: string
+   );
+ }
+ 
+-function EmptyDiscussion({ theme }: { theme: ThemeTokens }) {
++function EmptyDiscussion({ theme, t }: { theme: ThemeTokens; t: TFunction }) {
+   return (
+     <View style={styles.emptyBox}>
+-      <AppText style={styles.emptyTitle}>No comments yet</AppText>
+-      <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>Ask a public question or start a friendly discussion around this Plan.</AppText>
++      <AppText style={styles.emptyTitle}>{t('plans.discussion.empty.title')}</AppText>
++      <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{t('plans.discussion.empty.body')}</AppText>
+     </View>
+   );
+ }
+@@ -477,7 +479,7 @@ function PlanPublicMessageRow({ message, currentUserId, canWrite, actionTarget,
+   return (
+     <Pressable onLongPress={isOwn ? onOwnActions : onReport} style={[styles.messageRow, { borderColor: theme.color.border }]}>
+       <View style={styles.messageHeader}>
+-        <UserIdentityPressable user={message.author} userId={message.authorId} displayName={messageDisplayName(message, currentUserId)} variant="row" subtitle={timeLabel(message.createdAt, language)} style={styles.messageIdentity} />
++        <UserIdentityPressable user={message.author} userId={message.authorId} displayName={messageDisplayName(message, currentUserId, t)} variant="row" subtitle={timeLabel(message.createdAt, language)} style={styles.messageIdentity} />
+         {deleted ? null : (
+           <Pressable accessibilityRole="button" onPress={isOwn ? onOwnActions : onReport} style={({ pressed }) => [styles.messageMenuButton, pressed && styles.pressed]}>
+             <MobileIcon name="more" size={19} color={theme.color.muted} />
+@@ -494,12 +496,12 @@ function PlanPublicMessageRow({ message, currentUserId, canWrite, actionTarget,
+         </View>
+       ) : (
+         <>
+-          <AppText style={[deleted ? styles.deletedBody : styles.messageBody, { color: deleted ? theme.color.muted : theme.color.text }]}>{deleted ? 'Comment deleted.' : message.body}</AppText>
+-          {message.editedAt && !deleted ? <AppText style={[styles.traceText, { color: theme.color.muted }]}>Edited {timeLabel(message.editedAt, language)}</AppText> : null}
++          <AppText style={[deleted ? styles.deletedBody : styles.messageBody, { color: deleted ? theme.color.muted : theme.color.text }]}>{deleted ? t('plans.discussion.feedback.deleted') : message.body}</AppText>
++          {message.editedAt && !deleted ? <AppText style={[styles.traceText, { color: theme.color.muted }]}>{t('plans.discussion.editedAt', { time: timeLabel(message.editedAt, language) })}</AppText> : null}
+           {!deleted ? (
+             <View style={styles.messageActionRow}>
+               {canWrite ? <InlineCommentAction label={t('trade.proposals.reply')} theme={theme} onPress={onReply} /> : null}
+-              <InlineCommentAction label={isOwn ? 'Comment actions' : 'Report comment'} tone={isOwn ? 'default' : 'danger'} theme={theme} onPress={isOwn ? onOwnActions : onReport} />
++              <InlineCommentAction label={isOwn ? t('plans.discussion.actions.title') : t('plans.discussion.actions.report')} tone={isOwn ? 'default' : 'danger'} theme={theme} onPress={isOwn ? onOwnActions : onReport} />
+             </View>
+           ) : null}
+         </>
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index bf3768a..c9ea2d6 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -237,7 +237,7 @@ function getPlanMeta(plan: PlanDto, t?: Translate) {
+ }
+ 
+ function planStatusLabel(status: string, t: Translate) {
+-  const knownStatuses = new Set(['open', 'full', 'started', 'completed', 'cancelled', 'draft']);
++  const knownStatuses = new Set(['open', 'full', 'started', 'completed', 'cancelled', 'draft', 'expired', 'hidden']);
+   return knownStatuses.has(status) ? t(`plans.status.${status}`) : status;
+ }
+ 
+@@ -1211,42 +1211,30 @@ function getAcceptedParticipants(plan: PlanDto) {
+   return [...(plan.participants ?? [])].filter((participant) => participant.status === 'accepted').sort((first, second) => new Date(first.createdAt).getTime() - new Date(second.createdAt).getTime());
+ }
+ 
+-function getParticipantName(participant: PlanParticipantDto) {
+-  return participant.user?.profile?.displayName || participant.user?.profile?.handle || 'Hellowhen user';
++function getParticipantName(participant: PlanParticipantDto, t?: PlanTranslationFunction) {
++  return participant.user?.profile?.displayName || participant.user?.profile?.handle || (t ? t('plans.detail.people.memberFallback') : 'Hellowhen user');
+ }
+ 
+-function getParticipantInitial(participant: PlanParticipantDto) {
+-  return getParticipantName(participant).trim().slice(0, 1).toUpperCase() || 'H';
++function getParticipantInitial(participant: PlanParticipantDto, t?: PlanTranslationFunction) {
++  return getParticipantName(participant, t).trim().slice(0, 1).toUpperCase() || 'H';
+ }
+ 
+-function formatPlanDateRange(plan: PlanDto) {
+-  if (!plan.endsAt) return formatDate(plan.startsAt);
+-  return `${formatDate(plan.startsAt)} – ${formatDate(plan.endsAt)}`;
++function formatPlanDateRange(plan: PlanDto, language: SupportedLanguage, t: PlanTranslationFunction) {
++  if (!plan.endsAt) return formatDate(plan.startsAt, language, t);
++  return `${formatDate(plan.startsAt, language, t)} – ${formatDate(plan.endsAt, language, t)}`;
+ }
+ 
+-function getPlanLocationLabel(plan: PlanDto) {
+-  if (plan.locationLabel) return plan.locationLabel;
+-  const firstPlace = [...(plan.places ?? [])].sort((first, second) => first.order - second.order)[0];
+-  if (!firstPlace) return 'Places selected by the organizer';
+-  if (firstPlace.mode === 'remote') return firstPlace.onlineLabel || firstPlace.onlineUrl || 'Online Plan';
+-  return firstPlace.addressPublicText || firstPlace.sourcePlace?.areaLabel || 'Offline Plan';
+-}
+-
+-function getPlanModeLabel(plan: PlanDto) {
+-  if (plan.mode === 'remote') return 'Online';
+-  if (plan.mode === 'local') return 'Local';
+-  if (plan.mode === 'hybrid') return 'Local/Online';
++function getPlanModeLabel(plan: PlanDto, t: PlanTranslationFunction) {
++  if (plan.mode === 'remote') return t('plans.detail.values.online');
++  if (plan.mode === 'local') return t('plans.detail.values.local');
++  if (plan.mode === 'hybrid') return t('plans.detail.values.hybrid');
+   const places = plan.places ?? [];
+   const hasRemote = places.some((place) => place.mode === 'remote');
+   const hasLocal = places.some((place) => place.mode !== 'remote');
+-  if (hasRemote && hasLocal) return 'Local/Online';
+-  if (hasRemote) return 'Online';
+-  if (hasLocal) return 'Local';
+-  return 'Local/Online';
+-}
+-
+-function formatPlanStatusLabel(status: string) {
+-  return status.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
++  if (hasRemote && hasLocal) return t('plans.detail.values.hybrid');
++  if (hasRemote) return t('plans.detail.values.online');
++  if (hasLocal) return t('plans.detail.values.local');
++  return t('plans.detail.values.hybrid');
+ }
+ 
+ function getPlanStatusTone(status: string) {
+@@ -1257,24 +1245,24 @@ function getPlanStatusTone(status: string) {
+   return 'muted' as const;
+ }
+ 
+-function getPlanJoinModeLabel(plan: PlanDto) {
+-  return plan.joinApprovalMode === 'automatic' ? 'Free join' : 'Request to join';
++function getPlanJoinModeLabel(plan: PlanDto, t: PlanTranslationFunction) {
++  return plan.joinApprovalMode === 'automatic' ? t('plans.detail.values.freeJoin') : t('plans.detail.values.requestToJoin');
+ }
+ 
+-function getPlanJoinActionCopy(plan: PlanDto) {
+-  if (plan.status === 'full') return 'This plan is full right now.';
+-  if (plan.status === 'started') return 'This plan has already started.';
+-  if (plan.status !== 'open') return `This plan is ${formatPlanStatusLabel(plan.status).toLowerCase()}.`;
+-  return plan.joinApprovalMode === 'automatic' ? 'Free join is open. You can leave later.' : 'Send your interest to join this plan.';
++function getPlanJoinActionCopy(plan: PlanDto, t: PlanTranslationFunction) {
++  if (plan.status === 'full') return t('plans.detail.actions.full');
++  if (plan.status === 'started') return t('plans.detail.actions.started');
++  if (plan.status !== 'open') return t('plans.detail.actions.statusUnavailable', { status: planStatusLabel(plan.status, t) });
++  return plan.joinApprovalMode === 'automatic' ? t('plans.detail.actions.freeJoinOpen') : t('plans.detail.actions.requestJoinOpen');
+ }
+ 
+-function getPlanParticipantStateCopy(status: PlanDto['myParticipantStatus']) {
+-  if (status === 'pending') return 'Your join request is waiting for the owner.';
+-  if (status === 'left') return 'You left this plan.';
+-  if (status === 'removed') return 'The owner removed you from this plan.';
+-  if (status === 'declined') return 'The owner declined this request.';
+-  if (status === 'cancelled') return 'Your join request was cancelled.';
+-  return status ? `Your status: ${status}` : '';
++function getPlanParticipantStateCopy(status: PlanDto['myParticipantStatus'], t: PlanTranslationFunction) {
++  if (status === 'pending') return t('plans.detail.participantState.pending');
++  if (status === 'left') return t('plans.detail.participantState.left');
++  if (status === 'removed') return t('plans.detail.participantState.removed');
++  if (status === 'declined') return t('plans.detail.participantState.declined');
++  if (status === 'cancelled') return t('plans.detail.participantState.cancelled');
++  return status ? t('plans.detail.participantState.other', { status }) : '';
+ }
+ 
+ function canJoinPlanFromParticipantStatus(status: PlanDto['myParticipantStatus']) {
+@@ -1376,17 +1364,17 @@ function buildGoogleMapsDirectionsUrl(queries: string[]) {
+   return `https://www.google.com/maps/dir/?${params.join('&')}`;
+ }
+ 
+-function buildPlanRouteMapsLink(places: PlanPlaceDto[]): PlanRouteMapsLink | null {
++function buildPlanRouteMapsLink(places: PlanPlaceDto[], t: PlanTranslationFunction): PlanRouteMapsLink | null {
+   const offlineQueries = places.map(getPlanPlaceMapsQuery).filter((value): value is string => Boolean(value));
+   if (!offlineQueries.length) return null;
+   const includedQueries = offlineQueries.slice(0, GOOGLE_MAPS_MAX_ROUTE_STOPS);
+   const skippedOnlineCount = places.filter((place) => place.mode === 'remote').length;
+   const truncatedCount = Math.max(offlineQueries.length - includedQueries.length, 0);
+-  const routeLabel = includedQueries.length > 1 ? 'Open route in Google Maps' : 'Open in Google Maps';
++  const routeLabel = includedQueries.length > 1 ? t('plans.detail.route.openRoute') : t('plans.detail.route.openSingle');
+   const bodyParts = [
+-    includedQueries.length > 1 ? `${includedQueries.length} offline stops` : '1 offline stop',
+-    skippedOnlineCount ? `${skippedOnlineCount} online ${skippedOnlineCount === 1 ? 'place is' : 'places are'} skipped` : '',
+-    truncatedCount ? `${truncatedCount} later ${truncatedCount === 1 ? 'stop is' : 'stops are'} skipped` : '',
++    t(includedQueries.length === 1 ? 'plans.detail.route.offlineStopOne' : 'plans.detail.route.offlineStopMany', { count: includedQueries.length }),
++    skippedOnlineCount ? t(skippedOnlineCount === 1 ? 'plans.detail.route.skippedOnlineOne' : 'plans.detail.route.skippedOnlineMany', { count: skippedOnlineCount }) : '',
++    truncatedCount ? t(truncatedCount === 1 ? 'plans.detail.route.skippedLaterOne' : 'plans.detail.route.skippedLaterMany', { count: truncatedCount }) : '',
+   ].filter(Boolean);
+   return {
+     href: buildGoogleMapsDirectionsUrl(includedQueries),
+@@ -1398,11 +1386,11 @@ function buildPlanRouteMapsLink(places: PlanPlaceDto[]): PlanRouteMapsLink | nul
+   };
+ }
+ 
+-async function openPlanRouteMaps(routeMaps: PlanRouteMapsLink) {
++async function openPlanRouteMaps(routeMaps: PlanRouteMapsLink, t: PlanTranslationFunction) {
+   try {
+     await Linking.openURL(routeMaps.href);
+   } catch {
+-    Alert.alert('Could not open Google Maps', 'Try opening one address from the route instead.');
++    Alert.alert(t('plans.detail.route.openErrorTitle'), t('plans.detail.route.openErrorBody'));
+   }
+ }
+ 
+@@ -1413,49 +1401,40 @@ function buildNativeMapsUrl(value: string) {
+   return buildMapsSearchUrl(value);
+ }
+ 
+-function getPlanPlaceLocationDetails(place: PlanPlaceDto): PlanPlaceLocationDetails | null {
++function getPlanPlaceLocationDetails(place: PlanPlaceDto, t: PlanTranslationFunction): PlanPlaceLocationDetails | null {
+   if (place.mode === 'remote') {
+     const value = place.onlineUrl || place.onlineLabel || null;
+     if (!value) return null;
+     return {
+       kind: 'remote',
+-      label: place.onlineLabel && place.onlineUrl ? place.onlineLabel : 'Online place',
++      label: place.onlineLabel && place.onlineUrl ? place.onlineLabel : t('plans.detail.location.onlinePlace'),
+       value,
+       href: place.onlineUrl || undefined,
+-      actionLabel: place.onlineUrl ? 'Open link' : undefined,
++      actionLabel: place.onlineUrl ? t('plans.detail.location.openLink') : undefined,
+     };
+   }
+   const value = place.addressPublicText || place.sourcePlace?.addressPublicText || place.sourcePlace?.areaLabel || null;
+   if (!value) return null;
+   return {
+     kind: 'local',
+-    label: 'Offline address',
++    label: t('plans.detail.location.offlineAddress'),
+     value,
+     href: buildMapsSearchUrl(value),
+-    actionLabel: 'Open in Maps',
++    actionLabel: t('plans.detail.location.openMaps'),
+   };
+ }
+ 
+-function getPlanPlaceLocationLabel(place: PlanPlaceDto) {
+-  return getPlanPlaceLocationDetails(place)?.value ?? null;
+-}
+-
+-function getPlanPlaceModeDisplay(place: PlanPlaceDto) {
+-  return place.mode === 'remote' ? 'Online' : 'Local';
++function getPlanPlaceModeDisplay(place: PlanPlaceDto, t: PlanTranslationFunction) {
++  return place.mode === 'remote' ? t('plans.detail.values.online') : t('plans.detail.values.local');
+ }
+ 
+-function getPlanPlaceTimeLabel(place: PlanPlaceDto, planStartsAt: string) {
+-  const start = formatDate(place.startsAt ?? planStartsAt);
+-  const end = place.endsAt ? formatDate(place.endsAt) : '';
++function getPlanPlaceTimeLabel(place: PlanPlaceDto, planStartsAt: string, language: SupportedLanguage, t: PlanTranslationFunction) {
++  const start = formatDate(place.startsAt ?? planStartsAt, language, t);
++  const end = place.endsAt ? formatDate(place.endsAt, language, t) : '';
+   return end && end !== start ? `${start} → ${end}` : start;
+ }
+ 
+-function getPlanPlaceLocationPrefix(place: PlanPlaceDto) {
+-  if (place.mode === 'remote') return place.onlineLabel && place.onlineUrl ? place.onlineLabel : 'Online';
+-  return 'Address';
+-}
+-
+-async function openPlanPlaceLocation(location: PlanPlaceLocationDetails) {
++async function openPlanPlaceLocation(location: PlanPlaceLocationDetails, t: PlanTranslationFunction) {
+   if (!location.href) return;
+   const preferredHref = location.kind === 'local' ? buildNativeMapsUrl(location.value) : location.href;
+   try {
+@@ -1470,18 +1449,18 @@ async function openPlanPlaceLocation(location: PlanPlaceLocationDetails) {
+         // Fall through to the user-facing message below.
+       }
+     }
+-    Alert.alert('Could not open location', 'Try sharing the address and opening it in your maps app.');
++    Alert.alert(t('plans.detail.location.openErrorTitle'), t('plans.detail.location.openErrorBody'));
+   }
+ }
+ 
+-async function sharePlanPlaceLocation(location: PlanPlaceLocationDetails) {
++async function sharePlanPlaceLocation(location: PlanPlaceLocationDetails, t: PlanTranslationFunction) {
+   try {
+     await Share.share({
+       title: location.label,
+       message: location.value,
+     });
+   } catch {
+-    Alert.alert('Could not share location', 'Try opening the address and copying it from your maps app.');
++    Alert.alert(t('plans.detail.location.shareErrorTitle'), t('plans.detail.location.shareErrorBody'));
+   }
+ }
+ 
+@@ -1502,60 +1481,60 @@ function isOfflinePlanPlace(place: PlanPlaceDto) {
+   return place.mode !== 'remote';
+ }
+ 
+-function formatPresenceDistance(value?: number | null) {
++function formatPresenceDistance(value: number | null | undefined, language: SupportedLanguage) {
+   if (typeof value !== 'number' || !Number.isFinite(value)) return '';
+-  if (value < 1000) return `${Math.round(value)}m away`;
+-  return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}km away`;
++  if (value < 1000) return `${Math.round(value)} m`;
++  return `${new Intl.NumberFormat(PLAN_DATE_LOCALES[language], { maximumFractionDigits: value < 10_000 ? 1 : 0 }).format(value / 1000)} km`;
+ }
+ 
+-function presenceNoticeFromVerificationResponse(response: PlacePresenceVerificationResponse): PlanPlacePresenceNotice {
+-  const distanceLabel = formatPresenceDistance(response.distanceMeters ?? response.verification.distanceMeters);
++function presenceNoticeFromVerificationResponse(response: PlacePresenceVerificationResponse, language: SupportedLanguage, t: PlanTranslationFunction): PlanPlacePresenceNotice {
++  const distanceLabel = formatPresenceDistance(response.distanceMeters ?? response.verification.distanceMeters, language);
+   if (response.accepted) {
+     return {
+       tone: 'success',
+-      title: response.alreadyVerified ? 'Already verified here' : 'Verified at this place',
+-      body: distanceLabel ? `Your device location was accepted · ${distanceLabel}.` : 'Your device location was accepted for this offline place.',
++      title: response.alreadyVerified ? t('plans.detail.presence.alreadyVerifiedTitle') : t('plans.detail.presence.verifiedTitle'),
++      body: distanceLabel ? t('plans.detail.presence.acceptedWithDistance', { distance: distanceLabel }) : t('plans.detail.presence.acceptedBody'),
+     };
+   }
+   if (response.verification.rejectionReason === 'gps_accuracy_too_low') {
+     return {
+       tone: 'warning',
+-      title: 'GPS accuracy too low',
+-      body: 'Move closer to the place, step outside if possible, and try again with a stronger location signal.',
++      title: t('plans.detail.presence.lowAccuracyTitle'),
++      body: t('plans.detail.presence.lowAccuracyBody'),
+     };
+   }
+   if (response.verification.rejectionReason === 'too_far_from_place') {
+     return {
+       tone: 'warning',
+-      title: 'Too far from this place',
+-      body: distanceLabel ? `Your device seems ${distanceLabel}. Move closer and try again.` : 'Move closer to the selected offline place and try again.',
++      title: t('plans.detail.presence.tooFarTitle'),
++      body: distanceLabel ? t('plans.detail.presence.tooFarWithDistance', { distance: distanceLabel }) : t('plans.detail.presence.tooFarBody'),
+     };
+   }
+   if (response.verification.rejectionReason === 'mock_location_detected') {
+     return {
+       tone: 'warning',
+-      title: 'Mock location detected',
+-      body: 'Turn off mock location tools and try again from your real device location.',
++      title: t('plans.detail.presence.mockTitle'),
++      body: t('plans.detail.presence.mockBody'),
+     };
+   }
+   if (response.verification.rejectionReason === 'location_timestamp_stale' || response.verification.rejectionReason === 'location_timestamp_future') {
+     return {
+       tone: 'warning',
+-      title: 'Location check expired',
+-      body: 'Refresh your location and try again. We only accept fresh device location checks.',
++      title: t('plans.detail.presence.expiredTitle'),
++      body: t('plans.detail.presence.expiredBody'),
+     };
+   }
+   if (response.verification.rejectionReason === 'suspicious_location_jump') {
+     return {
+       tone: 'warning',
+-      title: 'Location jump looks unusual',
+-      body: 'Wait a bit before verifying again. This protects offline trust stats from impossible travel patterns.',
++      title: t('plans.detail.presence.jumpTitle'),
++      body: t('plans.detail.presence.jumpBody'),
+     };
+   }
+   return {
+     tone: 'warning',
+-    title: 'Could not verify presence',
+-    body: 'Try again when your device has a stronger location signal.',
++    title: t('plans.detail.presence.failedTitle'),
++    body: t('plans.detail.presence.failedBody'),
+   };
+ }
+ 
+@@ -1563,10 +1542,10 @@ function getPlanPlaceDescription(place: PlanPlaceDto) {
+   return place.sourcePlace?.description?.trim() || '';
+ }
+ 
+-function getPlanPlaceSourceLabel(place: PlanPlaceDto) {
+-  if (place.source === 'hellowhen_library') return 'Library place';
+-  if (place.source === 'my_place') return 'My place';
+-  return 'Custom stop';
++function getPlanPlaceSourceLabel(place: PlanPlaceDto, t: PlanTranslationFunction) {
++  if (place.source === 'hellowhen_library') return t('plans.detail.placeSource.library');
++  if (place.source === 'my_place') return t('plans.detail.placeSource.mine');
++  return t('plans.detail.placeSource.custom');
+ }
+ 
+ function DisabledPlansScreen({ onBack }: { onBack: () => void }) {
+@@ -2237,14 +2216,15 @@ function PlanDetailInfoRow({ label, value }: { label: string; value: string }) {
+ 
+ function PlanOwnerRow({ plan }: { plan: PlanDto }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   return (
+     <View style={[styles.planOwnerRow, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
+       <View style={[styles.planOwnerAvatar, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+         <AppText style={[styles.planOwnerInitial, { color: theme.semantic.plan.text }]}>{getOwnerInitial(plan)}</AppText>
+       </View>
+       <View style={styles.planOwnerCopy}>
+-        <AppText style={[styles.planOwnerLabel, { color: theme.color.muted }]}>Posted by</AppText>
+-        <AppText style={styles.planOwnerName}>{getOwnerName(plan)}</AppText>
++        <AppText style={[styles.planOwnerLabel, { color: theme.color.muted }]}>{t('plans.detail.hero.postedBy')}</AppText>
++        <AppText style={styles.planOwnerName}>{getOwnerName(plan, t)}</AppText>
+       </View>
+     </View>
+   );
+@@ -2257,14 +2237,15 @@ function PlanSectionDivider() {
+ 
+ function ParticipantCompactRow({ participant }: { participant: PlanParticipantDto }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   return (
+     <View style={[styles.participantRow, { borderBottomColor: theme.color.border }]}>
+       <View style={[styles.participantAvatar, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+-        <AppText style={[styles.participantInitial, { color: theme.semantic.plan.text }]}>{getParticipantInitial(participant)}</AppText>
++        <AppText style={[styles.participantInitial, { color: theme.semantic.plan.text }]}>{getParticipantInitial(participant, t)}</AppText>
+       </View>
+       <View style={styles.participantCopy}>
+-        <AppText style={styles.participantName}>{getParticipantName(participant)}</AppText>
+-        <AppText style={[styles.participantStatus, { color: theme.color.muted }]}>{participant.status === 'accepted' ? 'Joined' : participant.status}</AppText>
++        <AppText style={styles.participantName}>{getParticipantName(participant, t)}</AppText>
++        <AppText style={[styles.participantStatus, { color: theme.color.muted }]}>{participantStatusLabel(participant.status, t)}</AppText>
+       </View>
+     </View>
+   );
+@@ -2272,16 +2253,17 @@ function ParticipantCompactRow({ participant }: { participant: PlanParticipantDt
+ 
+ function PlanPlaceLocationSheet({ location, visible, onClose }: { location: PlanPlaceLocationDetails | null; visible: boolean; onClose: () => void }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   if (!location) return null;
+ 
+   const isLocal = location.kind === 'local';
+-  const openLabel = isLocal ? 'Open in Maps' : 'Open link';
+-  const shareLabel = isLocal ? 'Copy / share address' : 'Copy / share link';
++  const openLabel = isLocal ? t('plans.detail.location.openMaps') : t('plans.detail.location.openLink');
++  const shareLabel = isLocal ? t('plans.detail.location.shareAddress') : t('plans.detail.location.shareLink');
+ 
+   return (
+     <Modal animationType="fade" transparent visible={visible} onRequestClose={onClose}>
+       <View style={styles.locationSheetRoot}>
+-        <Pressable accessibilityRole="button" accessibilityLabel="Close address actions" style={styles.locationSheetBackdrop} onPress={onClose} />
++        <Pressable accessibilityRole="button" accessibilityLabel={t('plans.detail.location.closeActions')} style={styles.locationSheetBackdrop} onPress={onClose} />
+         <View style={[styles.locationSheet, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
+           <View style={styles.locationSheetHeader}>
+             <View style={[styles.locationSheetIcon, { backgroundColor: isLocal ? theme.semantic.place.softBg : theme.semantic.plan.softBg, borderColor: isLocal ? theme.semantic.place.border : theme.semantic.plan.border }]}>
+@@ -2289,9 +2271,9 @@ function PlanPlaceLocationSheet({ location, visible, onClose }: { location: Plan
+             </View>
+             <View style={styles.locationSheetHeaderCopy}>
+               <AppText style={styles.locationSheetTitle}>{location.label}</AppText>
+-              <AppText style={[styles.locationSheetHint, { color: theme.color.muted }]}>{isLocal ? 'Choose how to open or share this stop.' : 'Open or share this online place.'}</AppText>
++              <AppText style={[styles.locationSheetHint, { color: theme.color.muted }]}>{isLocal ? t('plans.detail.location.localHint') : t('plans.detail.location.onlineHint')}</AppText>
+             </View>
+-            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={({ pressed }) => [styles.locationSheetClose, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
++            <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.close')} onPress={onClose} style={({ pressed }) => [styles.locationSheetClose, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
+               <MobileIcon name="close" size={17} color={theme.color.muted} />
+             </Pressable>
+           </View>
+@@ -2307,7 +2289,7 @@ function PlanPlaceLocationSheet({ location, visible, onClose }: { location: Plan
+                 accessibilityLabel={openLabel}
+                 onPress={() => {
+                   onClose();
+-                  void openPlanPlaceLocation(location);
++                  void openPlanPlaceLocation(location, t);
+                 }}
+                 style={({ pressed }) => [styles.locationSheetAction, { backgroundColor: isLocal ? theme.semantic.place.bg : theme.semantic.plan.bg, borderColor: isLocal ? theme.semantic.place.border : theme.semantic.plan.border }, pressed && styles.pressed]}
+               >
+@@ -2320,7 +2302,7 @@ function PlanPlaceLocationSheet({ location, visible, onClose }: { location: Plan
+               accessibilityLabel={shareLabel}
+               onPress={() => {
+                 onClose();
+-                void sharePlanPlaceLocation(location);
++                void sharePlanPlaceLocation(location, t);
+               }}
+               style={({ pressed }) => [styles.locationSheetAction, styles.locationSheetActionSecondary, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
+             >
+@@ -2356,8 +2338,9 @@ function PlanPlaceTimelineCard({
+   onVerifyPresence: (place: PlanPlaceDto) => void;
+ }) {
+   const theme = useThemeTokens();
++  const { t, language } = useTranslation();
+   const mediaUrl = placeVisualUrl(getPlanPlaceMedia(place), place.staticMap ?? place.sourcePlace?.staticMap ?? null, theme.mode);
+-  const locationDetails = getPlanPlaceLocationDetails(place);
++  const locationDetails = getPlanPlaceLocationDetails(place, t);
+   const [locationSheetVisible, setLocationSheetVisible] = useState(false);
+   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+   const description = getPlanPlaceDescription(place);
+@@ -2368,13 +2351,13 @@ function PlanPlaceTimelineCard({
+   });
+   const routeDescription = languageSelection.description?.trim() ?? '';
+   const shouldClampDescription = routeDescription.length > 150 || routeDescription.split(/\r?\n/).length > 3;
+-  const sourceLabel = getPlanPlaceSourceLabel(place);
++  const sourceLabel = getPlanPlaceSourceLabel(place, t);
+   const hasVerificationCoordinates = Boolean(getPlanPlaceVerificationCoordinates(place));
+   const showPresenceVerification = isOfflinePlanPlace(place) && (canVerifyPresence || presenceNotice || hasVerificationCoordinates);
+   const verificationDisabled = isVerifyingPresence || !hasVerificationCoordinates || !canVerifyPresence;
+   const presenceToneColor = presenceNotice?.tone === 'success' ? theme.semantic.success.text : presenceNotice?.tone === 'warning' ? theme.semantic.warning.text : hasVerificationCoordinates ? theme.semantic.place.text : theme.color.muted;
+-  const presenceTitle = presenceNotice?.title ?? (hasVerificationCoordinates ? 'Presence verification' : 'GPS verification unavailable');
+-  const presenceBody = presenceNotice?.body ?? (hasVerificationCoordinates ? 'Verify when you reach this stop.' : 'Google-confirmed location needed first.');
++  const presenceTitle = presenceNotice?.title ?? (hasVerificationCoordinates ? t('plans.detail.presence.title') : t('plans.detail.presence.unavailableTitle'));
++  const presenceBody = presenceNotice?.body ?? (hasVerificationCoordinates ? t('plans.detail.presence.readyBody') : t('plans.detail.presence.unavailableBody'));
+ 
+   useEffect(() => {
+     setDescriptionExpanded(false);
+@@ -2392,8 +2375,8 @@ function PlanPlaceTimelineCard({
+ 
+         <View style={styles.planRouteCopy}>
+           <View style={styles.planRouteTimeRow}>
+-            <AppText style={[styles.planRouteTime, { color: theme.semantic.time.text }]}>{getPlanPlaceTimeLabel(place, planStartsAt)}</AppText>
+-            <AppText style={[styles.planRouteSource, { color: theme.color.muted }]}>{getPlanPlaceModeDisplay(place)} · {sourceLabel}</AppText>
++            <AppText style={[styles.planRouteTime, { color: theme.semantic.time.text }]}>{getPlanPlaceTimeLabel(place, planStartsAt, language, t)}</AppText>
++            <AppText style={[styles.planRouteSource, { color: theme.color.muted }]}>{getPlanPlaceModeDisplay(place, t)} · {sourceLabel}</AppText>
+           </View>
+ 
+           <AppText style={styles.planRouteTitle}>{languageSelection.title}</AppText>
+@@ -2402,7 +2385,7 @@ function PlanPlaceTimelineCard({
+           {locationDetails ? (
+             <Pressable
+               accessibilityRole="button"
+-              accessibilityLabel={`Open ${locationDetails.label} actions`}
++              accessibilityLabel={t('plans.detail.location.openActions', { label: locationDetails.label })}
+               onPress={() => setLocationSheetVisible(true)}
+               style={({ pressed }) => [styles.planRouteLocationRow, pressed && styles.pressed]}
+             >
+@@ -2423,12 +2406,12 @@ function PlanPlaceTimelineCard({
+               {shouldClampDescription ? (
+                 <Pressable
+                   accessibilityRole="button"
+-                  accessibilityLabel={descriptionExpanded ? 'Show less place description' : 'See more place description'}
++                  accessibilityLabel={descriptionExpanded ? t('plans.detail.placeDescription.showLessAccessibility') : t('plans.detail.placeDescription.seeMoreAccessibility')}
+                   onPress={() => setDescriptionExpanded((value) => !value)}
+                   hitSlop={8}
+                   style={({ pressed }) => [styles.planRouteDescriptionToggle, pressed && styles.pressed]}
+                 >
+-                  <AppText style={[styles.planRouteDescriptionToggleText, { color: theme.semantic.place.text }]}>{descriptionExpanded ? 'Show less' : 'See more'}</AppText>
++                  <AppText style={[styles.planRouteDescriptionToggleText, { color: theme.semantic.place.text }]}>{descriptionExpanded ? t('plans.detail.placeDescription.showLess') : t('plans.detail.placeDescription.seeMore')}</AppText>
+                 </Pressable>
+               ) : null}
+             </View>
+@@ -2449,7 +2432,7 @@ function PlanPlaceTimelineCard({
+               {hasVerificationCoordinates ? (
+                 <Pressable
+                   accessibilityRole="button"
+-                  accessibilityLabel="Verify I am here"
++                  accessibilityLabel={t('plans.detail.presence.verifyAccessibility')}
+                   disabled={verificationDisabled}
+                   onPress={() => onVerifyPresence(place)}
+                   style={({ pressed }) => [
+@@ -2460,7 +2443,7 @@ function PlanPlaceTimelineCard({
+                   ]}
+                 >
+                   {isVerifyingPresence ? <ActivityIndicator size="small" color={canVerifyPresence ? theme.color.background : theme.color.muted} /> : <MobileIcon name="location-on" size={15} color={canVerifyPresence ? theme.color.background : theme.color.muted} />}
+-                  <AppText style={[styles.planPresenceButtonText, { color: canVerifyPresence ? theme.color.background : theme.color.muted }]}>{isVerifyingPresence ? 'Checking...' : 'Verify'}</AppText>
++                  <AppText style={[styles.planPresenceButtonText, { color: canVerifyPresence ? theme.color.background : theme.color.muted }]}>{isVerifyingPresence ? t('plans.detail.presence.checking') : t('plans.detail.presence.verify')}</AppText>
+                 </Pressable>
+               ) : null}
+             </View>
+@@ -2479,6 +2462,7 @@ function PlanPlaceTimelineCard({
+ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   const auth = useAuth();
+   const theme = useThemeTokens();
++  const { t, language } = useTranslation();
+   const [plan, setPlan] = useState<PlanDto | null>(null);
+   const [loading, setLoading] = useState(isPlansVisible());
+   const [busy, setBusy] = useState(false);
+@@ -2506,13 +2490,13 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+         setPublicMessageCount(0);
+       }
+     } catch (caughtError) {
+-      setError(getFriendlyApiErrorMessage(caughtError));
++      setError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.loadBody')));
+       setPlan(null);
+       setPublicMessageCount(0);
+     } finally {
+       setLoading(false);
+     }
+-  }, [route.params.planId]);
++  }, [route.params.planId, t]);
+ 
+   useFocusEffect(useCallback(() => { void load(); }, [load]));
+ 
+@@ -2527,14 +2511,13 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+       setPlan(currentPlan);
+       const url = buildPublicPlanUrl(currentPlan.id);
+       await Share.share({ title: currentPlan.title, message: `${currentPlan.title}\n${url}`, url });
+-      setActionMessage('Share sheet opened.');
++      setActionMessage(t('plans.detail.feedback.shareOpened'));
+     } catch (caughtError) {
+-      const message = getFriendlyApiErrorMessage(caughtError, 'Could not confirm that this Plan is still available.');
+       if (isPlanUnavailableError(caughtError)) {
+         setPlan(null);
+-        setError(message);
++        setError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.shareAvailability')));
+       } else {
+-        setActionError(message === 'Something went wrong. Please try again.' ? 'Could not open sharing on this device.' : message);
++        setActionError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.shareDevice')));
+       }
+     } finally {
+       setSharing(false);
+@@ -2549,10 +2532,10 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+     setActionError(null);
+     try {
+       await api.plans.join(plan.id);
+-      setActionMessage('You joined this Plan.');
++      setActionMessage(t('plans.detail.feedback.joined'));
+       await load();
+     } catch (caughtError) {
+-      setActionError(getFriendlyApiErrorMessage(caughtError));
++      setActionError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.actionBody')));
+     } finally {
+       setBusy(false);
+     }
+@@ -2566,10 +2549,10 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+     setActionError(null);
+     try {
+       await api.plans.leave(plan.id);
+-      setActionMessage('You left this Plan.');
++      setActionMessage(t('plans.detail.feedback.left'));
+       await load();
+     } catch (caughtError) {
+-      setActionError(getFriendlyApiErrorMessage(caughtError));
++      setActionError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.actionBody')));
+     } finally {
+       setBusy(false);
+     }
+@@ -2589,10 +2572,10 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+     setActionError(null);
+     try {
+       await api.plans.update(plan.id, { status: 'cancelled' });
+-      setActionMessage('Plan cancelled. It remains visible with a Cancelled status.');
++      setActionMessage(t('plans.detail.feedback.cancelled'));
+       await load();
+     } catch (caughtError) {
+-      setActionError(getFriendlyApiErrorMessage(caughtError));
++      setActionError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.actionBody')));
+     } finally {
+       setBusy(false);
+     }
+@@ -2615,7 +2598,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+       await api.plans.delete(plan.id);
+       navigation.navigate('Plans');
+     } catch (caughtError) {
+-      setActionError(getFriendlyApiErrorMessage(caughtError));
++      setActionError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.actionBody')));
+     } finally {
+       setBusy(false);
+     }
+@@ -2626,21 +2609,21 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+     if (plan.status === 'cancelled') {
+       setPresenceNotices((current) => ({
+         ...current,
+-        [place.id]: { tone: 'warning', title: 'Plan cancelled', body: 'Presence verification is closed because this Plan was cancelled.' },
++        [place.id]: { tone: 'warning', title: t('plans.detail.presence.planCancelledTitle'), body: t('plans.detail.presence.planCancelledBody') },
+       }));
+       return;
+     }
+     if (!auth.user) {
+       setPresenceNotices((current) => ({
+         ...current,
+-        [place.id]: { tone: 'info', title: 'Log in to verify', body: 'Log in first, then use your device GPS when you reach this offline place.' },
++        [place.id]: { tone: 'info', title: t('plans.detail.presence.loginTitle'), body: t('plans.detail.presence.loginBody') },
+       }));
+       return;
+     }
+     if (!isOwner && !isJoined) {
+       setPresenceNotices((current) => ({
+         ...current,
+-        [place.id]: { tone: 'info', title: 'Join this plan first', body: 'Presence verification is only available to the owner or joined participants.' },
++        [place.id]: { tone: 'info', title: t('plans.detail.presence.joinFirstTitle'), body: t('plans.detail.presence.joinFirstBody') },
+       }));
+       return;
+     }
+@@ -2648,7 +2631,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+     if (!getPlanPlaceVerificationCoordinates(place)) {
+       setPresenceNotices((current) => ({
+         ...current,
+-        [place.id]: { tone: 'warning', title: 'Map position needed', body: 'This offline place needs a Google-confirmed map position before GPS verification can work.' },
++        [place.id]: { tone: 'warning', title: t('plans.detail.presence.mapPositionTitle'), body: t('plans.detail.presence.mapPositionBody') },
+       }));
+       return;
+     }
+@@ -2660,7 +2643,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+       if (permission.status !== 'granted') {
+         setPresenceNotices((current) => ({
+           ...current,
+-          [place.id]: { tone: 'warning', title: 'Location permission needed', body: 'Allow location access only when you want to verify that you are at this place.' },
++          [place.id]: { tone: 'warning', title: t('plans.detail.presence.permissionTitle'), body: t('plans.detail.presence.permissionBody') },
+         }));
+         return;
+       }
+@@ -2673,11 +2656,11 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+         isMockedLocation: (position as { mocked?: boolean }).mocked === true,
+         platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'unknown',
+       });
+-      setPresenceNotices((current) => ({ ...current, [place.id]: presenceNoticeFromVerificationResponse(response) }));
++      setPresenceNotices((current) => ({ ...current, [place.id]: presenceNoticeFromVerificationResponse(response, language, t) }));
+     } catch (caughtError) {
+       setPresenceNotices((current) => ({
+         ...current,
+-        [place.id]: { tone: 'warning', title: 'Verification failed', body: getFriendlyApiErrorMessage(caughtError) },
++        [place.id]: { tone: 'warning', title: t('plans.detail.presence.failedTitle'), body: getFriendlyApiErrorMessage(caughtError, t('plans.detail.presence.failedBody')) },
+       }));
+     } finally {
+       setVerifyingPlaceId(null);
+@@ -2693,21 +2676,21 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   const canJoin = Boolean(plan && auth.user && !isOwner && canJoinPlanFromParticipantStatus(participantStatus) && plan.status === 'open');
+   const canLeave = Boolean(plan && !isCancelled && !isOwner && isJoined);
+   const canCancelPlan = Boolean(plan && isOwner && plan.status !== 'cancelled');
+-  const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus) : '';
++  const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus, t) : '';
+   const places = plan ? sortedPlanPlaces(plan) : [];
+-  const routeMaps = buildPlanRouteMapsLink(places);
++  const routeMaps = buildPlanRouteMapsLink(places, t);
+   const acceptedParticipants = plan ? getAcceptedParticipants(plan) : [];
+   const joinedCount = plan?.participantCount ?? acceptedParticipants.length;
+   const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
+   const showReportActions = Boolean(auth.user && plan && !isOwner);
+   const header = (
+     <AppHeader
+-      title="Plan"
++      title={t('plans.detail.headerTitle')}
+       onBack={() => navigation.goBack()}
+       rightSlot={plan ? (
+         <Pressable
+           accessibilityRole="button"
+-          accessibilityLabel="Share Plan"
++          accessibilityLabel={t('plans.detail.shareAccessibility')}
+           disabled={sharing}
+           onPress={() => { void sharePlan(); }}
+           style={({ pressed }) => [styles.planHeaderShareButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (pressed || sharing) && styles.pressed]}
+@@ -2722,10 +2705,10 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+     <AppFixedHeaderScreen header={header}>
+       <AppConfirmSheet
+         visible={cancelConfirmVisible}
+-        title="Cancel Plan?"
+-        body="The Plan will remain visible with a Cancelled status, but joining, participant changes, new public replies, and presence verification will close."
+-        cancelLabel="Keep Plan"
+-        confirmLabel="Cancel Plan"
++        title={t('plans.detail.confirm.cancelTitle')}
++        body={t('plans.detail.confirm.cancelBody')}
++        cancelLabel={t('plans.detail.confirm.keepPlan')}
++        confirmLabel={t('plans.detail.confirm.cancelPlan')}
+         tone="danger"
+         confirmDisabled={busy}
+         onCancel={() => setCancelConfirmVisible(false)}
+@@ -2733,32 +2716,32 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+       />
+       <AppConfirmSheet
+         visible={deleteConfirmVisible}
+-        title="Delete Plan?"
+-        body="This removes the Plan from feeds, search, and public detail pages. Admin history is kept for safety."
+-        cancelLabel="Keep Plan"
+-        confirmLabel="Delete Plan"
++        title={t('plans.detail.confirm.deleteTitle')}
++        body={t('plans.detail.confirm.deleteBody')}
++        cancelLabel={t('plans.detail.confirm.keepPlan')}
++        confirmLabel={t('plans.detail.confirm.deletePlan')}
+         tone="danger"
+         confirmDisabled={busy}
+         onCancel={() => setDeleteConfirmVisible(false)}
+         onConfirm={() => { void confirmDeletePlan(); }}
+       />
+-      {loading ? <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Plan...</AppText></View> : null}
+-      {!loading && error ? <View style={styles.contentPad}><InfoNotice tone="warning" title="Could not load Plan" body={error} /></View> : null}
++      {loading ? <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('plans.detail.loading')}</AppText></View> : null}
++      {!loading && error ? <View style={styles.contentPad}><InfoNotice tone="warning" title={t('plans.detail.errors.loadTitle')} body={error} /></View> : null}
+       {!loading && plan ? (
+         <ScrollView contentContainerStyle={styles.planDetailContent} showsVerticalScrollIndicator={false}>
+           <View style={styles.planDetailHero}>
+-            <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{`${formatPlanStatusLabel(plan.status)} · Plan`}</AppText>
++            <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{t('plans.detail.hero.eyebrow', { status: planStatusLabel(plan.status, t) })}</AppText>
+             <AppText style={styles.planDetailTitle}>{plan.title}</AppText>
+-            <AppText style={[styles.planDetailStart, { color: theme.color.muted }]}>Starts {formatDate(plan.startsAt)}</AppText>
++            <AppText style={[styles.planDetailStart, { color: theme.color.muted }]}>{t('plans.detail.hero.starts', { date: formatDate(plan.startsAt, language, t) })}</AppText>
+             <View style={styles.planDetailOwnerLine}>
+-              <AppText style={[styles.planDetailOwnerPrefix, { color: theme.color.muted }]}>Posted by</AppText>
+-              <AppText style={styles.planDetailOwnerName}>{getOwnerName(plan)}</AppText>
++              <AppText style={[styles.planDetailOwnerPrefix, { color: theme.color.muted }]}>{t('plans.detail.hero.postedBy')}</AppText>
++              <AppText style={styles.planDetailOwnerName}>{getOwnerName(plan, t)}</AppText>
+             </View>
+             <View style={styles.planDetailChips}>
+-              <SemanticBadge label={formatPlanStatusLabel(plan.status)} tone={getPlanStatusTone(plan.status)} size="sm" />
+-              <SemanticBadge label={getPlanJoinModeLabel(plan)} tone="proposal" size="sm" />
+-              <SemanticBadge label={`${places.length} ${places.length === 1 ? 'place' : 'places'}`} tone="place" size="sm" />
+-              <SemanticBadge label={getPlanModeLabel(plan)} tone="muted" size="sm" />
++              <SemanticBadge label={planStatusLabel(plan.status, t)} tone={getPlanStatusTone(plan.status)} size="sm" />
++              <SemanticBadge label={getPlanJoinModeLabel(plan, t)} tone="proposal" size="sm" />
++              <SemanticBadge label={t(places.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: places.length })} tone="place" size="sm" />
++              <SemanticBadge label={getPlanModeLabel(plan, t)} tone="muted" size="sm" />
+             </View>
+             {plan.description ? <AppText style={[styles.planDetailDescription, { color: theme.color.text }]}>{plan.description}</AppText> : null}
+           </View>
+@@ -2768,14 +2751,14 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+           <View style={styles.planDetailSectionFlat}>
+             <View style={styles.planRouteSectionHeader}>
+               <View style={styles.sectionTitleRow}>
+-                <AppText style={styles.sectionTitle}>Route</AppText>
++                <AppText style={styles.sectionTitle}>{t('plans.detail.sections.route')}</AppText>
+                 <SemanticBadge label={`${places.length}`} tone="place" size="sm" />
+               </View>
+               {routeMaps ? (
+                 <Pressable
+                   accessibilityRole="button"
+                   accessibilityLabel={routeMaps.label}
+-                  onPress={() => { void openPlanRouteMaps(routeMaps); }}
++                  onPress={() => { void openPlanRouteMaps(routeMaps, t); }}
+                   style={({ pressed }) => [styles.planRouteMapsButton, { backgroundColor: theme.semantic.place.bg, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}
+                 >
+                   <MobileIcon name="location-on" size={15} color={theme.color.background} />
+@@ -2784,7 +2767,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+               ) : null}
+             </View>
+             {routeMaps ? <AppText style={[styles.planRouteMapsHint, { color: theme.color.muted }]}>{routeMaps.body}</AppText> : null}
+-            {places.length === 0 ? <EmptyBlock title="No places yet" body="This Plan does not have places attached yet." /> : null}
++            {places.length === 0 ? <EmptyBlock title={t('plans.detail.route.emptyTitle')} body={t('plans.detail.route.emptyBody')} /> : null}
+             {places.map((place, index) => (
+               <PlanPlaceTimelineCard
+                 key={place.id}
+@@ -2804,21 +2787,21 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+           <PlanSectionDivider />
+ 
+           <View style={styles.planDetailSectionFlat}>
+-            <AppText style={styles.sectionTitle}>Details</AppText>
++            <AppText style={styles.sectionTitle}>{t('plans.detail.sections.details')}</AppText>
+             <View style={styles.planDetailInfoList}>
+-              <PlanDetailInfoRow label="Status" value={formatPlanStatusLabel(plan.status)} />
+-              <PlanDetailInfoRow label="Visibility" value={plan.status === 'hidden' ? 'Hidden' : 'Public'} />
+-              <PlanDetailInfoRow label="Join mode" value={getPlanJoinModeLabel(plan)} />
+-              <PlanDetailInfoRow label="Time" value={formatPlanDateRange(plan)} />
+-              <PlanDetailInfoRow label="Place mode" value={getPlanModeLabel(plan)} />
+-              <PlanDetailInfoRow label="Created" value={formatDate(plan.createdAt)} />
++              <PlanDetailInfoRow label={t('plans.detail.fields.status')} value={planStatusLabel(plan.status, t)} />
++              <PlanDetailInfoRow label={t('plans.detail.fields.visibility')} value={plan.status === 'hidden' ? t('plans.detail.values.hidden') : t('plans.detail.values.public')} />
++              <PlanDetailInfoRow label={t('plans.detail.fields.joinMode')} value={getPlanJoinModeLabel(plan, t)} />
++              <PlanDetailInfoRow label={t('plans.detail.fields.time')} value={formatPlanDateRange(plan, language, t)} />
++              <PlanDetailInfoRow label={t('plans.detail.fields.placeMode')} value={getPlanModeLabel(plan, t)} />
++              <PlanDetailInfoRow label={t('plans.detail.fields.created')} value={formatDate(plan.createdAt, language, t)} />
+             </View>
+           </View>
+ 
+           <PlanSectionDivider />
+ 
+           <View style={styles.planDetailSectionFlat}>
+-            <AppText style={styles.sectionTitle}>Owner</AppText>
++            <AppText style={styles.sectionTitle}>{t('plans.detail.sections.owner')}</AppText>
+             <PlanOwnerRow plan={plan} />
+           </View>
+ 
+@@ -2827,12 +2810,12 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+           <View style={styles.planDetailSectionFlat}>
+             <View style={styles.detailSectionHeader}>
+               <View style={styles.detailSectionCopy}>
+-                <AppText style={styles.sectionTitle}>Joined people</AppText>
+-                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{capacityLabel} joined · {getPlanJoinModeLabel(plan)}</AppText>
++                <AppText style={styles.sectionTitle}>{t('plans.detail.sections.joinedPeople')}</AppText>
++                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{t('plans.detail.people.joinedSummary', { capacity: capacityLabel, mode: getPlanJoinModeLabel(plan, t) })}</AppText>
+               </View>
+               <SemanticBadge label={String(joinedCount)} tone="proposal" size="sm" />
+             </View>
+-            {acceptedParticipants.length === 0 ? <AppText style={[styles.rowBody, { color: theme.color.muted }]}>No participants yet.</AppText> : null}
++            {acceptedParticipants.length === 0 ? <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{t('plans.detail.people.empty')}</AppText> : null}
+             {acceptedParticipants.map((participant) => <ParticipantCompactRow key={participant.id} participant={participant} />)}
+           </View>
+ 
+@@ -2841,14 +2824,14 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+           <View style={styles.planDetailSectionFlat}>
+             <View style={styles.detailSectionHeader}>
+               <View style={styles.detailSectionCopy}>
+-                <AppText style={styles.sectionTitle}>Public discussion</AppText>
+-                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{publicMessageCount} {publicMessageCount === 1 ? 'comment' : 'comments'} · visible to logged-in members</AppText>
++                <AppText style={styles.sectionTitle}>{t('plans.detail.sections.discussion')}</AppText>
++                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{t(publicMessageCount === 1 ? 'plans.detail.discussion.summaryOne' : 'plans.detail.discussion.summaryMany', { count: publicMessageCount })}</AppText>
+               </View>
+-              <SemanticBadge label="Public" tone="plan" size="sm" />
++              <SemanticBadge label={t('plans.detail.values.public')} tone="plan" size="sm" />
+             </View>
+             <Pressable
+               accessibilityRole="button"
+-              accessibilityLabel="Open Plan public discussion"
++              accessibilityLabel={t('plans.detail.discussion.openAccessibility')}
+               onPress={() => navigation.navigate('PlanPublicDiscussion', { planId: plan.id, title: plan.title })}
+               style={({ pressed }) => [styles.planDiscussionRow, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}
+             >
+@@ -2856,8 +2839,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+                 <MobileIcon name="proposal" size={18} color={theme.semantic.plan.text} />
+               </View>
+               <View style={styles.feedTitleWrap}>
+-                <AppText style={styles.planDiscussionTitle}>Open public comments</AppText>
+-                <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? 'Read earlier comments. New public replies are closed for this cancelled Plan.' : 'Ask questions, coordinate details, or reply to people interested in this Plan.'}</AppText>
++                <AppText style={styles.planDiscussionTitle}>{t('plans.detail.discussion.open')}</AppText>
++                <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.discussion.cancelledBody') : t('plans.detail.discussion.body')}</AppText>
+               </View>
+               <MobileIcon name="chevron-right" size={18} color={theme.color.muted} />
+             </Pressable>
+@@ -2868,65 +2851,65 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+           <View style={styles.planDetailSectionFlat}>
+             <View style={styles.detailSectionHeader}>
+               <View style={styles.detailSectionCopy}>
+-                <AppText style={styles.sectionTitle}>Actions</AppText>
+-                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isCancelled ? 'It remains visible for context, but joining, participant changes, public replies, and presence verification are closed.' : isOwner ? 'Share, cancel, or delete this Plan. Editing is locked after publishing.' : getPlanJoinActionCopy(plan)}</AppText>
++                <AppText style={styles.sectionTitle}>{t('plans.detail.sections.actions')}</AppText>
++                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.actions.cancelledBody') : isOwner ? t('plans.detail.actions.ownerBody') : getPlanJoinActionCopy(plan, t)}</AppText>
+               </View>
+-              {!isOwner ? <SemanticBadge label={getPlanJoinModeLabel(plan)} tone="proposal" size="sm" /> : <SemanticBadge label="Owner" tone="plan" size="sm" />}
++              {!isOwner ? <SemanticBadge label={getPlanJoinModeLabel(plan, t)} tone="proposal" size="sm" /> : <SemanticBadge label={t('plans.detail.values.owner')} tone="plan" size="sm" />}
+             </View>
+             <View style={styles.detailActionStack}>
+               {isOwner ? (
+                 <View style={[styles.planOwnerManageRow, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+                   <MobileIcon name="profile" size={18} color={theme.semantic.plan.text} />
+                   <View style={styles.feedTitleWrap}>
+-                    <AppText style={styles.planOwnerManageTitle}>Manage Plan</AppText>
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? 'Share or delete this cancelled Plan. Places and times remain locked.' : 'Share, cancel, or delete this Plan. Places and times are locked after publishing.'}</AppText>
++                    <AppText style={styles.planOwnerManageTitle}>{t('plans.detail.actions.manageTitle')}</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.actions.manageCancelledBody') : t('plans.detail.actions.manageBody')}</AppText>
+                   </View>
+                 </View>
+               ) : null}
+               {isOwner ? (
+                 <Pressable disabled={sharing} accessibilityRole="button" onPress={() => { void sharePlan(); }} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, sharing && styles.disabled]}>
+-                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{sharing ? 'Sharing...' : 'Share plan'}</AppText>
++                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{sharing ? t('plans.detail.actions.sharing') : t('plans.detail.actions.share')}</AppText>
+                 </Pressable>
+               ) : null}
+               {canCancelPlan ? (
+                 <Pressable disabled={busy} accessibilityRole="button" onPress={cancelPlan} style={({ pressed }) => [styles.dangerButton, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, busy && styles.disabled]}>
+-                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? 'Cancelling...' : 'Cancel plan'}</AppText>
++                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? t('plans.detail.actions.cancelling') : t('plans.detail.actions.cancel')}</AppText>
+                 </Pressable>
+               ) : null}
+               {isOwner ? (
+                 <Pressable disabled={busy} accessibilityRole="button" onPress={deletePlan} style={({ pressed }) => [styles.dangerButton, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, busy && styles.disabled]}>
+-                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? 'Updating...' : 'Delete plan'}</AppText>
++                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? t('plans.detail.actions.updating') : t('plans.detail.actions.delete')}</AppText>
+                 </Pressable>
+               ) : null}
+               {isCancelled ? (
+                 <View style={[styles.joinedState, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }]}>
+                   <MobileIcon name="close" size={18} color={theme.semantic.danger.text} />
+                   <View style={styles.feedTitleWrap}>
+-                    <AppText style={[styles.joinedStateText, { color: theme.semantic.danger.text }]}>This Plan is cancelled</AppText>
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>It remains visible for context. Joining, leaving, participant changes, public replies, and presence verification are no longer available.</AppText>
++                    <AppText style={[styles.joinedStateText, { color: theme.semantic.danger.text }]}>{t('plans.detail.actions.cancelledTitle')}</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.detail.actions.cancelledLongBody')}</AppText>
+                   </View>
+                 </View>
+               ) : null}
+               {canJoin ? (
+                 <View style={styles.planPrimaryActionBlock}>
+                   <Pressable disabled={busy} accessibilityRole="button" onPress={joinPlan} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed, busy && styles.disabled]}>
+-                    <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{busy ? 'Joining...' : 'Join plan'}</AppText>
++                    <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{busy ? t('plans.detail.actions.joining') : t('plans.detail.actions.join')}</AppText>
+                   </Pressable>
+-                  <AppText style={[styles.metaText, styles.planActionFootnote, { color: theme.color.muted }]}>{plan.joinApprovalMode === 'automatic' ? 'Free join · leave anytime.' : 'Join request · owner review.'}</AppText>
++                  <AppText style={[styles.metaText, styles.planActionFootnote, { color: theme.color.muted }]}>{plan.joinApprovalMode === 'automatic' ? t('plans.detail.actions.freeJoinFootnote') : t('plans.detail.actions.requestJoinFootnote')}</AppText>
+                 </View>
+               ) : null}
+               {isJoined && !isCancelled ? (
+                 <View style={[styles.joinedState, { backgroundColor: theme.semantic.success.softBg, borderColor: theme.semantic.success.border }]}>
+                   <MobileIcon name="proposal-accepted" size={18} color={theme.semantic.success.text} />
+                   <View style={styles.feedTitleWrap}>
+-                    <AppText style={[styles.joinedStateText, { color: theme.semantic.success.text }]}>You joined this plan</AppText>
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>You can leave if this Plan is no longer useful.</AppText>
++                    <AppText style={[styles.joinedStateText, { color: theme.semantic.success.text }]}>{t('plans.detail.actions.joinedTitle')}</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.detail.actions.joinedBody')}</AppText>
+                   </View>
+                 </View>
+               ) : null}
+               {canLeave ? (
+                 <Pressable disabled={busy} accessibilityRole="button" onPress={leavePlan} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, busy && styles.disabled]}>
+-                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{busy ? 'Updating...' : 'Leave plan'}</AppText>
++                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{busy ? t('plans.detail.actions.updating') : t('plans.detail.actions.leave')}</AppText>
+                 </Pressable>
+               ) : null}
+               {auth.user && participantStateCopy && !isJoined ? (
+@@ -2935,9 +2918,9 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+                   <AppText style={[styles.metaText, { color: theme.color.muted }]}>{participantStateCopy}</AppText>
+                 </View>
+               ) : null}
+-              {!auth.user && plan.status === 'open' ? <InfoNotice tone="info" title="Log in to join" body="Log in first, then join this plan when it is open." /> : null}
+-              {actionMessage ? <InfoNotice tone="success" title="Done" body={actionMessage} /> : null}
+-              {actionError ? <InfoNotice tone="warning" title="Plan action failed" body={actionError} /> : null}
++              {!auth.user && plan.status === 'open' ? <InfoNotice tone="info" title={t('plans.detail.actions.loginTitle')} body={t('plans.detail.actions.loginBody')} /> : null}
++              {actionMessage ? <InfoNotice tone="success" title={t('common.states.done')} body={actionMessage} /> : null}
++              {actionError ? <InfoNotice tone="warning" title={t('plans.detail.errors.actionTitle')} body={actionError} /> : null}
+               {showReportActions ? <ReportContentPanel targetType="plan" targetId={plan.id} labelKey="report.button" helperKey="report.helper.content" /> : null}
+             </View>
+           </View>
+@@ -3126,7 +3109,7 @@ function PlanPickerSheetFrame({
+               <AppText style={styles.sourceSheetTitle}>{title}</AppText>
+               {subtitle ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>{subtitle}</AppText> : null}
+             </View>
+-            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={[styles.headerAction, { borderColor: theme.color.border }]}>
++            <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.close')} onPress={onClose} style={[styles.headerAction, { borderColor: theme.color.border }]}>
+               <MobileIcon name="close" color={theme.color.text} size={18} />
+             </Pressable>
+           </View>
+@@ -4526,7 +4509,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                   <View style={styles.previewInlineMeta}>
+                     <SemanticBadge label={schedule.startsAt ? formatDate(schedule.startsAt) : 'Start not set'} tone="time" size="sm" />
+                     {endSummary ? <SemanticBadge label={`${endSummary.label}: ${endSummary.endLabel}`} tone="time" size="sm" /> : null}
+-                    <SemanticBadge label={`${places.length} ${places.length === 1 ? 'place' : 'places'}`} tone="place" size="sm" />
++                    <SemanticBadge label={t(places.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: places.length })} tone="place" size="sm" />
+                     <SemanticBadge label="Free join" tone="plan" size="sm" />
+                     <SemanticBadge label="Open" tone="plan" size="sm" />
+                   </View>
+diff --git a/packages/i18n/src/locales/en/plans.ts b/packages/i18n/src/locales/en/plans.ts
+index e6da540..e178070 100644
+--- a/packages/i18n/src/locales/en/plans.ts
++++ b/packages/i18n/src/locales/en/plans.ts
+@@ -58,6 +58,8 @@ export const plans = {
+     completed: 'Completed',
+     cancelled: 'Cancelled',
+     draft: 'Draft',
++    expired: 'Expired',
++    hidden: 'Hidden',
+   },
+   participantStatus: {
+     accepted: 'Joined',
+@@ -139,6 +141,257 @@ export const plans = {
+       },
+     },
+   },
++  detail: {
++    headerTitle: 'Plan',
++    shareAccessibility: 'Share Plan',
++    loading: 'Loading Plan…',
++    hero: {
++      eyebrow: '{{status}} · Plan',
++      starts: 'Starts {{date}}',
++      postedBy: 'Posted by',
++    },
++    sections: {
++      route: 'Route',
++      details: 'Details',
++      owner: 'Owner',
++      joinedPeople: 'Joined people',
++      discussion: 'Public discussion',
++      actions: 'Actions',
++    },
++    fields: {
++      status: 'Status',
++      visibility: 'Visibility',
++      joinMode: 'Join mode',
++      time: 'Time',
++      placeMode: 'Place mode',
++      created: 'Created',
++    },
++    values: {
++      public: 'Public',
++      hidden: 'Hidden',
++      owner: 'Owner',
++      online: 'Online',
++      local: 'Local',
++      hybrid: 'Local / Online',
++      freeJoin: 'Free join',
++      requestToJoin: 'Request to join',
++    },
++    route: {
++      openRoute: 'Open route in Google Maps',
++      openSingle: 'Open in Google Maps',
++      offlineStopOne: '{{count}} offline stop',
++      offlineStopMany: '{{count}} offline stops',
++      skippedOnlineOne: '{{count}} online place is skipped',
++      skippedOnlineMany: '{{count}} online places are skipped',
++      skippedLaterOne: '{{count}} later stop is skipped',
++      skippedLaterMany: '{{count}} later stops are skipped',
++      openErrorTitle: 'Could not open Google Maps',
++      openErrorBody: 'Try opening one address from the route instead.',
++      emptyTitle: 'No places yet',
++      emptyBody: 'This Plan does not have places attached yet.',
++    },
++    location: {
++      onlinePlace: 'Online place',
++      offlineAddress: 'Offline address',
++      openMaps: 'Open in Maps',
++      openLink: 'Open link',
++      shareAddress: 'Copy / share address',
++      shareLink: 'Copy / share link',
++      closeActions: 'Close address actions',
++      localHint: 'Choose how to open or share this stop.',
++      onlineHint: 'Open or share this online place.',
++      openActions: 'Open {{label}} actions',
++      openErrorTitle: 'Could not open location',
++      openErrorBody: 'Try sharing the address and opening it in your maps app.',
++      shareErrorTitle: 'Could not share location',
++      shareErrorBody: 'Try opening the address and copying it from your maps app.',
++    },
++    placeDescription: {
++      seeMore: 'See more',
++      showLess: 'Show less',
++      seeMoreAccessibility: 'See more place description',
++      showLessAccessibility: 'Show less place description',
++    },
++    placeSource: {
++      library: 'Library place',
++      mine: 'My place',
++      custom: 'Custom stop',
++    },
++    people: {
++      memberFallback: 'Hellowhen user',
++      joinedSummary: '{{capacity}} joined · {{mode}}',
++      empty: 'No participants yet.',
++    },
++    participantState: {
++      pending: 'Your join request is waiting for the owner.',
++      left: 'You left this Plan.',
++      removed: 'The owner removed you from this Plan.',
++      declined: 'The owner declined this request.',
++      cancelled: 'Your join request was cancelled.',
++      other: 'Your status: {{status}}',
++    },
++    discussion: {
++      summaryOne: '{{count}} comment · visible to logged-in members',
++      summaryMany: '{{count}} comments · visible to logged-in members',
++      open: 'Open public comments',
++      openAccessibility: 'Open Plan public discussion',
++      body: 'Ask questions, coordinate details, or reply to people interested in this Plan.',
++      cancelledBody: 'Read earlier comments. New public replies are closed for this cancelled Plan.',
++    },
++    actions: {
++      ownerBody: 'Share, cancel, or delete this Plan. Editing is locked after publishing.',
++      cancelledBody: 'It remains visible for context, but joining, participant changes, public replies, and presence verification are closed.',
++      manageTitle: 'Manage Plan',
++      manageBody: 'Share, cancel, or delete this Plan. Places and times are locked after publishing.',
++      manageCancelledBody: 'Share or delete this cancelled Plan. Places and times remain locked.',
++      share: 'Share Plan',
++      sharing: 'Sharing…',
++      cancel: 'Cancel Plan',
++      cancelling: 'Cancelling…',
++      delete: 'Delete Plan',
++      updating: 'Updating…',
++      join: 'Join Plan',
++      joining: 'Joining…',
++      leave: 'Leave Plan',
++      cancelledTitle: 'This Plan is cancelled',
++      cancelledLongBody: 'It remains visible for context. Joining, leaving, participant changes, public replies, and presence verification are no longer available.',
++      joinedTitle: 'You joined this Plan',
++      joinedBody: 'You can leave if this Plan is no longer useful.',
++      freeJoinFootnote: 'Free join · leave anytime.',
++      requestJoinFootnote: 'Join request · owner review.',
++      loginTitle: 'Log in to join',
++      loginBody: 'Log in first, then join this Plan when it is open.',
++      full: 'This Plan is full right now.',
++      started: 'This Plan has already started.',
++      statusUnavailable: 'This Plan is {{status}}.',
++      freeJoinOpen: 'Free join is open. You can leave later.',
++      requestJoinOpen: 'Send your interest to join this Plan.',
++    },
++    confirm: {
++      cancelTitle: 'Cancel Plan?',
++      cancelBody: 'The Plan will remain visible with a Cancelled status, but joining, participant changes, new public replies, and presence verification will close.',
++      keepPlan: 'Keep Plan',
++      cancelPlan: 'Cancel Plan',
++      deleteTitle: 'Delete Plan?',
++      deleteBody: 'This removes the Plan from feeds, search, and public detail pages. Admin history is kept for safety.',
++      deletePlan: 'Delete Plan',
++    },
++    feedback: {
++      shareOpened: 'Share sheet opened.',
++      joined: 'You joined this Plan.',
++      left: 'You left this Plan.',
++      cancelled: 'Plan cancelled. It remains visible with a Cancelled status.',
++    },
++    errors: {
++      loadTitle: 'Could not load Plan',
++      loadBody: 'Check your connection and try again.',
++      actionTitle: 'Plan action failed',
++      actionBody: 'Could not update this Plan. Try again.',
++      shareAvailability: 'Could not confirm that this Plan is still available.',
++      shareDevice: 'Could not open sharing on this device.',
++    },
++    presence: {
++      title: 'Presence verification',
++      unavailableTitle: 'GPS verification unavailable',
++      readyBody: 'Verify when you reach this stop.',
++      unavailableBody: 'A Google-confirmed location is needed first.',
++      verifyAccessibility: 'Verify I am here',
++      verify: 'Verify',
++      checking: 'Checking…',
++      alreadyVerifiedTitle: 'Already verified here',
++      verifiedTitle: 'Verified at this place',
++      acceptedWithDistance: 'Your device location was accepted · {{distance}} away.',
++      acceptedBody: 'Your device location was accepted for this offline place.',
++      lowAccuracyTitle: 'GPS accuracy too low',
++      lowAccuracyBody: 'Move closer to the place, step outside if possible, and try again with a stronger location signal.',
++      tooFarTitle: 'Too far from this place',
++      tooFarWithDistance: 'Your device seems {{distance}} away. Move closer and try again.',
++      tooFarBody: 'Move closer to the selected offline place and try again.',
++      mockTitle: 'Mock location detected',
++      mockBody: 'Turn off mock location tools and try again from your real device location.',
++      expiredTitle: 'Location check expired',
++      expiredBody: 'Refresh your location and try again. We only accept fresh device location checks.',
++      jumpTitle: 'Location jump looks unusual',
++      jumpBody: 'Wait a bit before verifying again. This protects offline trust stats from impossible travel patterns.',
++      failedTitle: 'Could not verify presence',
++      failedBody: 'Try again when your device has a stronger location signal.',
++      planCancelledTitle: 'Plan cancelled',
++      planCancelledBody: 'Presence verification is closed because this Plan was cancelled.',
++      loginTitle: 'Log in to verify',
++      loginBody: 'Log in first, then use your device GPS when you reach this offline place.',
++      joinFirstTitle: 'Join this Plan first',
++      joinFirstBody: 'Presence verification is only available to the owner or joined participants.',
++      mapPositionTitle: 'Map position needed',
++      mapPositionBody: 'This offline place needs a Google-confirmed map position before GPS verification can work.',
++      permissionTitle: 'Location permission needed',
++      permissionBody: 'Allow location access only when you want to verify that you are at this place.',
++    },
++  },
++  discussion: {
++    title: 'Public discussion',
++    options: 'Discussion options',
++    context: 'Plan context',
++    viewPlan: 'View Plan',
++    unknownDate: 'Unknown date',
++    you: 'You',
++    editedAt: 'Edited {{time}}',
++    errors: {
++      load: 'Could not load Plan discussion.',
++      send: 'Could not send your comment.',
++      update: 'Could not update your comment.',
++      delete: 'Could not delete your comment.',
++      unavailableTitle: 'Discussion unavailable',
++    },
++    feedback: {
++      deleted: 'Comment deleted.',
++    },
++    empty: {
++      title: 'No comments yet',
++      body: 'Ask a public question or start a friendly discussion around this Plan.',
++    },
++    composer: {
++      placeholder: 'Comment publicly on this Plan…',
++    },
++    cancelled: {
++      title: 'This Plan was cancelled',
++      body: 'Earlier comments remain visible, but new replies and comment edits are closed.',
++    },
++    actions: {
++      title: 'Comment actions',
++      edit: 'Edit comment',
++      delete: 'Delete comment',
++      deleteHelper: 'Deleted comments stay as a small trace in the public discussion.',
++      report: 'Report comment',
++      reportHelper: 'Report spam, scams, harassment, or unsafe content.',
++      ownBody: 'Edit or delete your public comment.',
++      reportBody: 'Report this comment if it breaks community rules.',
++    },
++    menu: {
++      body: 'Comments are public and visible to logged-in members. Keep details safe and respectful.',
++      details: 'See Plan details',
++      detailsHelper: 'Go back to the route, details, and join actions.',
++      guide: 'How public comments work',
++      guideHelper: 'A short guide for Plan discussion.',
++      reportPlan: 'Report this Plan',
++      reportPlanHelper: 'Report the Plan if the public page feels unsafe or misleading.',
++      reportPlanTitle: 'Report Plan',
++    },
++    confirmDelete: {
++      title: 'Delete comment?',
++      body: 'This removes the comment text from the public discussion.',
++    },
++    guide: {
++      header: 'Plan discussion',
++      title: 'How Plan comments work',
++      body: 'Use the public discussion for visible questions and updates. Private Plan threads can come later.',
++      publicTitle: 'Public by default',
++      publicBody: 'These comments are visible to logged-in Hellowhen members who can open this Plan.',
++      questionsTitle: 'Use it for questions',
++      questionsBody: 'Ask about the route, timing, meeting point, or whether there is still room to join.',
++      safetyTitle: 'Stay safe',
++      safetyBody: 'Do not post private addresses, passwords, payment details, or sensitive documents in public comments.',
++    },
++  },
+   workspace: {
+     myPlans: { title: 'My plans', body: 'Plans you created.' },
+     joinedPlans: { title: 'Joined plans', body: 'Plans you joined freely.' },
+diff --git a/packages/i18n/src/locales/es/plans.ts b/packages/i18n/src/locales/es/plans.ts
+index 8175b0a..1e8a80c 100644
+--- a/packages/i18n/src/locales/es/plans.ts
++++ b/packages/i18n/src/locales/es/plans.ts
+@@ -58,6 +58,8 @@ export const plans = {
+     completed: 'Completado',
+     cancelled: 'Cancelado',
+     draft: 'Borrador',
++    expired: 'Caducado',
++    hidden: 'Oculto',
+   },
+   participantStatus: {
+     accepted: 'Unido',
+@@ -139,6 +141,257 @@ export const plans = {
+       },
+     },
+   },
++  detail: {
++    headerTitle: 'Plan',
++    shareAccessibility: 'Compartir Plan',
++    loading: 'Cargando Plan…',
++    hero: {
++      eyebrow: '{{status}} · Plan',
++      starts: 'Empieza {{date}}',
++      postedBy: 'Publicado por',
++    },
++    sections: {
++      route: 'Ruta',
++      details: 'Detalles',
++      owner: 'Organizador',
++      joinedPeople: 'Participantes',
++      discussion: 'Conversación pública',
++      actions: 'Acciones',
++    },
++    fields: {
++      status: 'Estado',
++      visibility: 'Visibilidad',
++      joinMode: 'Modo de unión',
++      time: 'Horario',
++      placeMode: 'Modalidad de lugares',
++      created: 'Creado',
++    },
++    values: {
++      public: 'Público',
++      hidden: 'Oculto',
++      owner: 'Organizador',
++      online: 'En línea',
++      local: 'Presencial',
++      hybrid: 'Presencial / En línea',
++      freeJoin: 'Unión libre',
++      requestToJoin: 'Solicitud para unirse',
++    },
++    route: {
++      openRoute: 'Abrir ruta en Google Maps',
++      openSingle: 'Abrir en Google Maps',
++      offlineStopOne: '{{count}} parada presencial',
++      offlineStopMany: '{{count}} paradas presenciales',
++      skippedOnlineOne: 'Se omite {{count}} lugar en línea',
++      skippedOnlineMany: 'Se omiten {{count}} lugares en línea',
++      skippedLaterOne: 'Se omite {{count}} parada posterior',
++      skippedLaterMany: 'Se omiten {{count}} paradas posteriores',
++      openErrorTitle: 'No se pudo abrir Google Maps',
++      openErrorBody: 'Prueba a abrir una dirección de la ruta.',
++      emptyTitle: 'Todavía no hay lugares',
++      emptyBody: 'Este Plan todavía no tiene lugares asociados.',
++    },
++    location: {
++      onlinePlace: 'Lugar en línea',
++      offlineAddress: 'Dirección presencial',
++      openMaps: 'Abrir en Mapas',
++      openLink: 'Abrir enlace',
++      shareAddress: 'Copiar / compartir dirección',
++      shareLink: 'Copiar / compartir enlace',
++      closeActions: 'Cerrar acciones de dirección',
++      localHint: 'Elige cómo abrir o compartir esta parada.',
++      onlineHint: 'Abre o comparte este lugar en línea.',
++      openActions: 'Abrir acciones de {{label}}',
++      openErrorTitle: 'No se pudo abrir el lugar',
++      openErrorBody: 'Prueba a compartir la dirección y abrirla en tu aplicación de mapas.',
++      shareErrorTitle: 'No se pudo compartir el lugar',
++      shareErrorBody: 'Prueba a abrir la dirección y copiarla desde tu aplicación de mapas.',
++    },
++    placeDescription: {
++      seeMore: 'Ver más',
++      showLess: 'Ver menos',
++      seeMoreAccessibility: 'Ver más descripción del lugar',
++      showLessAccessibility: 'Ver menos descripción del lugar',
++    },
++    placeSource: {
++      library: 'Lugar de la biblioteca',
++      mine: 'Mi lugar',
++      custom: 'Parada personalizada',
++    },
++    people: {
++      memberFallback: 'Miembro de Hellowhen',
++      joinedSummary: '{{capacity}} participantes · {{mode}}',
++      empty: 'Todavía no hay participantes.',
++    },
++    participantState: {
++      pending: 'Tu solicitud para unirte está esperando al organizador.',
++      left: 'Has salido de este Plan.',
++      removed: 'El organizador te ha eliminado de este Plan.',
++      declined: 'El organizador ha rechazado esta solicitud.',
++      cancelled: 'Tu solicitud para unirte ha sido cancelada.',
++      other: 'Tu estado: {{status}}',
++    },
++    discussion: {
++      summaryOne: '{{count}} comentario · visible para miembros conectados',
++      summaryMany: '{{count}} comentarios · visibles para miembros conectados',
++      open: 'Abrir comentarios públicos',
++      openAccessibility: 'Abrir conversación pública del Plan',
++      body: 'Haz preguntas, coordina detalles o responde a personas interesadas en este Plan.',
++      cancelledBody: 'Lee los comentarios anteriores. Las nuevas respuestas públicas están cerradas para este Plan cancelado.',
++    },
++    actions: {
++      ownerBody: 'Comparte, cancela o elimina este Plan. La edición queda bloqueada después de publicarlo.',
++      cancelledBody: 'Sigue visible como contexto, pero se cierran las uniones, los cambios de participantes, las respuestas públicas y la verificación de presencia.',
++      manageTitle: 'Gestionar Plan',
++      manageBody: 'Comparte, cancela o elimina este Plan. Los lugares y horarios quedan bloqueados después de publicarlo.',
++      manageCancelledBody: 'Comparte o elimina este Plan cancelado. Los lugares y horarios siguen bloqueados.',
++      share: 'Compartir Plan',
++      sharing: 'Compartiendo…',
++      cancel: 'Cancelar Plan',
++      cancelling: 'Cancelando…',
++      delete: 'Eliminar Plan',
++      updating: 'Actualizando…',
++      join: 'Unirse al Plan',
++      joining: 'Uniéndose…',
++      leave: 'Salir del Plan',
++      cancelledTitle: 'Este Plan está cancelado',
++      cancelledLongBody: 'Sigue visible como contexto. Ya no se puede unir, salir, cambiar participantes, responder públicamente ni verificar la presencia.',
++      joinedTitle: 'Te has unido a este Plan',
++      joinedBody: 'Puedes salir si este Plan ya no te resulta útil.',
++      freeJoinFootnote: 'Unión libre · puedes salir cuando quieras.',
++      requestJoinFootnote: 'Solicitud de unión · revisión del organizador.',
++      loginTitle: 'Inicia sesión para unirte',
++      loginBody: 'Inicia sesión y después únete a este Plan cuando esté abierto.',
++      full: 'Este Plan está completo ahora mismo.',
++      started: 'Este Plan ya ha empezado.',
++      statusUnavailable: 'Este Plan está {{status}}.',
++      freeJoinOpen: 'La unión libre está abierta. Podrás salir más tarde.',
++      requestJoinOpen: 'Envía tu interés para unirte a este Plan.',
++    },
++    confirm: {
++      cancelTitle: '¿Cancelar Plan?',
++      cancelBody: 'El Plan seguirá visible con estado Cancelado, pero se cerrarán las uniones, los cambios de participantes, las nuevas respuestas públicas y la verificación de presencia.',
++      keepPlan: 'Conservar Plan',
++      cancelPlan: 'Cancelar Plan',
++      deleteTitle: '¿Eliminar Plan?',
++      deleteBody: 'Esto elimina el Plan de los feeds, la búsqueda y las páginas públicas de detalle. El historial administrativo se conserva por seguridad.',
++      deletePlan: 'Eliminar Plan',
++    },
++    feedback: {
++      shareOpened: 'Se abrió la hoja para compartir.',
++      joined: 'Te has unido a este Plan.',
++      left: 'Has salido de este Plan.',
++      cancelled: 'Plan cancelado. Sigue visible con estado Cancelado.',
++    },
++    errors: {
++      loadTitle: 'No se pudo cargar el Plan',
++      loadBody: 'Comprueba tu conexión e inténtalo de nuevo.',
++      actionTitle: 'Falló la acción del Plan',
++      actionBody: 'No se pudo actualizar este Plan. Inténtalo de nuevo.',
++      shareAvailability: 'No se pudo confirmar que este Plan siga disponible.',
++      shareDevice: 'No se pudo abrir la opción de compartir en este dispositivo.',
++    },
++    presence: {
++      title: 'Verificación de presencia',
++      unavailableTitle: 'Verificación GPS no disponible',
++      readyBody: 'Verifica tu presencia cuando llegues a esta parada.',
++      unavailableBody: 'Primero se necesita una ubicación confirmada por Google.',
++      verifyAccessibility: 'Verificar que estoy aquí',
++      verify: 'Verificar',
++      checking: 'Verificando…',
++      alreadyVerifiedTitle: 'Presencia ya verificada aquí',
++      verifiedTitle: 'Presencia verificada en este lugar',
++      acceptedWithDistance: 'Se aceptó la ubicación de tu dispositivo · a {{distance}}.',
++      acceptedBody: 'Se aceptó la ubicación de tu dispositivo para este lugar presencial.',
++      lowAccuracyTitle: 'Precisión GPS demasiado baja',
++      lowAccuracyBody: 'Acércate al lugar, sal al exterior si es posible y vuelve a intentarlo con una señal más fuerte.',
++      tooFarTitle: 'Estás demasiado lejos de este lugar',
++      tooFarWithDistance: 'Tu dispositivo parece estar a {{distance}}. Acércate y vuelve a intentarlo.',
++      tooFarBody: 'Acércate al lugar presencial seleccionado y vuelve a intentarlo.',
++      mockTitle: 'Se detectó una ubicación simulada',
++      mockBody: 'Desactiva las herramientas de ubicación simulada y vuelve a intentarlo desde la ubicación real de tu dispositivo.',
++      expiredTitle: 'La verificación de ubicación ha caducado',
++      expiredBody: 'Actualiza tu ubicación y vuelve a intentarlo. Solo aceptamos comprobaciones recientes.',
++      jumpTitle: 'El salto de ubicación parece inusual',
++      jumpBody: 'Espera un poco antes de volver a verificar. Esto protege las estadísticas de confianza frente a desplazamientos imposibles.',
++      failedTitle: 'No se pudo verificar la presencia',
++      failedBody: 'Vuelve a intentarlo cuando tu dispositivo tenga una señal de ubicación más fuerte.',
++      planCancelledTitle: 'Plan cancelado',
++      planCancelledBody: 'La verificación de presencia está cerrada porque este Plan fue cancelado.',
++      loginTitle: 'Inicia sesión para verificar',
++      loginBody: 'Inicia sesión y usa el GPS de tu dispositivo cuando llegues a este lugar presencial.',
++      joinFirstTitle: 'Únete primero a este Plan',
++      joinFirstBody: 'La verificación de presencia solo está disponible para el organizador o los participantes unidos.',
++      mapPositionTitle: 'Se necesita una posición en el mapa',
++      mapPositionBody: 'Este lugar presencial necesita una posición confirmada por Google antes de poder usar la verificación GPS.',
++      permissionTitle: 'Se necesita permiso de ubicación',
++      permissionBody: 'Permite el acceso a la ubicación solo cuando quieras verificar que estás en este lugar.',
++    },
++  },
++  discussion: {
++    title: 'Conversación pública',
++    options: 'Opciones de conversación',
++    context: 'Contexto del Plan',
++    viewPlan: 'Ver Plan',
++    unknownDate: 'Fecha desconocida',
++    you: 'Tú',
++    editedAt: 'Editado {{time}}',
++    errors: {
++      load: 'No se pudo cargar la conversación del Plan.',
++      send: 'No se pudo enviar tu comentario.',
++      update: 'No se pudo actualizar tu comentario.',
++      delete: 'No se pudo eliminar tu comentario.',
++      unavailableTitle: 'Conversación no disponible',
++    },
++    feedback: {
++      deleted: 'Comentario eliminado.',
++    },
++    empty: {
++      title: 'Todavía no hay comentarios',
++      body: 'Haz una pregunta pública o inicia una conversación amistosa sobre este Plan.',
++    },
++    composer: {
++      placeholder: 'Comentar públicamente este Plan…',
++    },
++    cancelled: {
++      title: 'Este Plan fue cancelado',
++      body: 'Los comentarios anteriores siguen visibles, pero las nuevas respuestas y ediciones están cerradas.',
++    },
++    actions: {
++      title: 'Acciones del comentario',
++      edit: 'Editar comentario',
++      delete: 'Eliminar comentario',
++      deleteHelper: 'Los comentarios eliminados permanecen como una pequeña marca en la conversación pública.',
++      report: 'Denunciar comentario',
++      reportHelper: 'Denuncia spam, estafas, acoso o contenido inseguro.',
++      ownBody: 'Edita o elimina tu comentario público.',
++      reportBody: 'Denuncia este comentario si infringe las normas de la comunidad.',
++    },
++    menu: {
++      body: 'Los comentarios son públicos y visibles para miembros conectados. Protege tus datos y sé respetuoso.',
++      details: 'Ver detalles del Plan',
++      detailsHelper: 'Volver a la ruta, los detalles y las acciones para unirse.',
++      guide: 'Cómo funcionan los comentarios públicos',
++      guideHelper: 'Una guía breve para la conversación del Plan.',
++      reportPlan: 'Denunciar este Plan',
++      reportPlanHelper: 'Denuncia el Plan si la página pública parece insegura o engañosa.',
++      reportPlanTitle: 'Denunciar Plan',
++    },
++    confirmDelete: {
++      title: '¿Eliminar comentario?',
++      body: 'Esto elimina el texto del comentario de la conversación pública.',
++    },
++    guide: {
++      header: 'Conversación del Plan',
++      title: 'Cómo funcionan los comentarios del Plan',
++      body: 'Usa la conversación pública para preguntas y actualizaciones visibles. Los hilos privados del Plan pueden llegar más adelante.',
++      publicTitle: 'Público por defecto',
++      publicBody: 'Estos comentarios son visibles para miembros de Hellowhen conectados que pueden abrir este Plan.',
++      questionsTitle: 'Úsalo para preguntas',
++      questionsBody: 'Pregunta por la ruta, el horario, el punto de encuentro o si todavía hay espacio para unirse.',
++      safetyTitle: 'Mantente seguro',
++      safetyBody: 'No publiques direcciones privadas, contraseñas, datos de pago ni documentos sensibles en comentarios públicos.',
++    },
++  },
+   workspace: {
+     myPlans: { title: 'Mis Planes', body: 'Los Planes que has creado.' },
+     joinedPlans: { title: 'Planes unidos', body: 'Los Planes a los que te has unido libremente.' },
+diff --git a/packages/i18n/src/locales/fr/plans.ts b/packages/i18n/src/locales/fr/plans.ts
+index 2d8a34d..93f4c6c 100644
+--- a/packages/i18n/src/locales/fr/plans.ts
++++ b/packages/i18n/src/locales/fr/plans.ts
+@@ -58,6 +58,8 @@ export const plans = {
+     completed: 'Terminé',
+     cancelled: 'Annulé',
+     draft: 'Brouillon',
++    expired: 'Expiré',
++    hidden: 'Masqué',
+   },
+   participantStatus: {
+     accepted: 'Rejoint',
+@@ -139,6 +141,257 @@ export const plans = {
+       },
+     },
+   },
++  detail: {
++    headerTitle: 'Plan',
++    shareAccessibility: 'Partager le Plan',
++    loading: 'Chargement du Plan…',
++    hero: {
++      eyebrow: '{{status}} · Plan',
++      starts: 'Commence {{date}}',
++      postedBy: 'Publié par',
++    },
++    sections: {
++      route: 'Parcours',
++      details: 'Détails',
++      owner: 'Organisateur',
++      joinedPeople: 'Participants',
++      discussion: 'Discussion publique',
++      actions: 'Actions',
++    },
++    fields: {
++      status: 'Statut',
++      visibility: 'Visibilité',
++      joinMode: 'Mode de participation',
++      time: 'Horaire',
++      placeMode: 'Mode des lieux',
++      created: 'Créé le',
++    },
++    values: {
++      public: 'Public',
++      hidden: 'Masqué',
++      owner: 'Organisateur',
++      online: 'En ligne',
++      local: 'Sur place',
++      hybrid: 'Sur place / En ligne',
++      freeJoin: 'Participation libre',
++      requestToJoin: 'Demande de participation',
++    },
++    route: {
++      openRoute: 'Ouvrir le parcours dans Google Maps',
++      openSingle: 'Ouvrir dans Google Maps',
++      offlineStopOne: '{{count}} étape sur place',
++      offlineStopMany: '{{count}} étapes sur place',
++      skippedOnlineOne: '{{count}} lieu en ligne ignoré',
++      skippedOnlineMany: '{{count}} lieux en ligne ignorés',
++      skippedLaterOne: '{{count}} étape suivante ignorée',
++      skippedLaterMany: '{{count}} étapes suivantes ignorées',
++      openErrorTitle: 'Impossible d’ouvrir Google Maps',
++      openErrorBody: 'Essayez plutôt d’ouvrir une adresse du parcours.',
++      emptyTitle: 'Aucun lieu pour le moment',
++      emptyBody: 'Aucun lieu n’est encore associé à ce Plan.',
++    },
++    location: {
++      onlinePlace: 'Lieu en ligne',
++      offlineAddress: 'Adresse sur place',
++      openMaps: 'Ouvrir la carte',
++      openLink: 'Ouvrir le lien',
++      shareAddress: 'Copier / partager l’adresse',
++      shareLink: 'Copier / partager le lien',
++      closeActions: 'Fermer les actions de l’adresse',
++      localHint: 'Choisissez comment ouvrir ou partager cette étape.',
++      onlineHint: 'Ouvrez ou partagez ce lieu en ligne.',
++      openActions: 'Ouvrir les actions de {{label}}',
++      openErrorTitle: 'Impossible d’ouvrir le lieu',
++      openErrorBody: 'Essayez de partager l’adresse puis de l’ouvrir dans votre application de cartographie.',
++      shareErrorTitle: 'Impossible de partager le lieu',
++      shareErrorBody: 'Essayez d’ouvrir l’adresse puis de la copier depuis votre application de cartographie.',
++    },
++    placeDescription: {
++      seeMore: 'Voir plus',
++      showLess: 'Voir moins',
++      seeMoreAccessibility: 'Afficher davantage de description du lieu',
++      showLessAccessibility: 'Réduire la description du lieu',
++    },
++    placeSource: {
++      library: 'Lieu de la bibliothèque',
++      mine: 'Mon lieu',
++      custom: 'Étape personnalisée',
++    },
++    people: {
++      memberFallback: 'Membre Hellowhen',
++      joinedSummary: '{{capacity}} participant(s) · {{mode}}',
++      empty: 'Aucun participant pour le moment.',
++    },
++    participantState: {
++      pending: 'Votre demande de participation attend la réponse de l’organisateur.',
++      left: 'Vous avez quitté ce Plan.',
++      removed: 'L’organisateur vous a retiré de ce Plan.',
++      declined: 'L’organisateur a refusé cette demande.',
++      cancelled: 'Votre demande de participation a été annulée.',
++      other: 'Votre statut : {{status}}',
++    },
++    discussion: {
++      summaryOne: '{{count}} commentaire · visible par les membres connectés',
++      summaryMany: '{{count}} commentaires · visibles par les membres connectés',
++      open: 'Ouvrir les commentaires publics',
++      openAccessibility: 'Ouvrir la discussion publique du Plan',
++      body: 'Posez des questions, coordonnez les détails ou répondez aux personnes intéressées par ce Plan.',
++      cancelledBody: 'Consultez les anciens commentaires. Les nouvelles réponses publiques sont fermées pour ce Plan annulé.',
++    },
++    actions: {
++      ownerBody: 'Partagez, annulez ou supprimez ce Plan. La modification est verrouillée après publication.',
++      cancelledBody: 'Il reste visible à titre de contexte, mais les participations, les changements de participants, les réponses publiques et la vérification de présence sont fermés.',
++      manageTitle: 'Gérer le Plan',
++      manageBody: 'Partagez, annulez ou supprimez ce Plan. Les lieux et horaires sont verrouillés après publication.',
++      manageCancelledBody: 'Partagez ou supprimez ce Plan annulé. Les lieux et horaires restent verrouillés.',
++      share: 'Partager le Plan',
++      sharing: 'Partage…',
++      cancel: 'Annuler le Plan',
++      cancelling: 'Annulation…',
++      delete: 'Supprimer le Plan',
++      updating: 'Mise à jour…',
++      join: 'Rejoindre le Plan',
++      joining: 'Participation…',
++      leave: 'Quitter le Plan',
++      cancelledTitle: 'Ce Plan est annulé',
++      cancelledLongBody: 'Il reste visible à titre de contexte. Il n’est plus possible de rejoindre ou quitter le Plan, de modifier les participants, de répondre publiquement ni de vérifier une présence.',
++      joinedTitle: 'Vous avez rejoint ce Plan',
++      joinedBody: 'Vous pouvez le quitter s’il ne vous est plus utile.',
++      freeJoinFootnote: 'Participation libre · départ possible à tout moment.',
++      requestJoinFootnote: 'Demande de participation · validation par l’organisateur.',
++      loginTitle: 'Connectez-vous pour participer',
++      loginBody: 'Connectez-vous d’abord, puis rejoignez ce Plan lorsqu’il est ouvert.',
++      full: 'Ce Plan est complet pour le moment.',
++      started: 'Ce Plan a déjà commencé.',
++      statusUnavailable: 'Ce Plan est {{status}}.',
++      freeJoinOpen: 'La participation libre est ouverte. Vous pourrez quitter le Plan plus tard.',
++      requestJoinOpen: 'Envoyez votre demande pour rejoindre ce Plan.',
++    },
++    confirm: {
++      cancelTitle: 'Annuler le Plan ?',
++      cancelBody: 'Le Plan restera visible avec le statut Annulé, mais les participations, les changements de participants, les nouvelles réponses publiques et la vérification de présence seront fermés.',
++      keepPlan: 'Conserver le Plan',
++      cancelPlan: 'Annuler le Plan',
++      deleteTitle: 'Supprimer le Plan ?',
++      deleteBody: 'Le Plan sera retiré des fils, de la recherche et des pages publiques. L’historique administratif est conservé pour la sécurité.',
++      deletePlan: 'Supprimer le Plan',
++    },
++    feedback: {
++      shareOpened: 'La feuille de partage est ouverte.',
++      joined: 'Vous avez rejoint ce Plan.',
++      left: 'Vous avez quitté ce Plan.',
++      cancelled: 'Plan annulé. Il reste visible avec le statut Annulé.',
++    },
++    errors: {
++      loadTitle: 'Impossible de charger le Plan',
++      loadBody: 'Vérifiez votre connexion, puis réessayez.',
++      actionTitle: 'Échec de l’action sur le Plan',
++      actionBody: 'Impossible de mettre à jour ce Plan. Réessayez.',
++      shareAvailability: 'Impossible de confirmer que ce Plan est toujours disponible.',
++      shareDevice: 'Impossible d’ouvrir le partage sur cet appareil.',
++    },
++    presence: {
++      title: 'Vérification de présence',
++      unavailableTitle: 'Vérification GPS indisponible',
++      readyBody: 'Vérifiez votre présence lorsque vous arrivez à cette étape.',
++      unavailableBody: 'Une position confirmée par Google est d’abord nécessaire.',
++      verifyAccessibility: 'Vérifier ma présence ici',
++      verify: 'Vérifier',
++      checking: 'Vérification…',
++      alreadyVerifiedTitle: 'Présence déjà vérifiée ici',
++      verifiedTitle: 'Présence vérifiée à ce lieu',
++      acceptedWithDistance: 'La position de votre appareil a été acceptée · à {{distance}}.',
++      acceptedBody: 'La position de votre appareil a été acceptée pour ce lieu sur place.',
++      lowAccuracyTitle: 'Précision GPS insuffisante',
++      lowAccuracyBody: 'Rapprochez-vous du lieu, sortez si possible, puis réessayez avec un meilleur signal.',
++      tooFarTitle: 'Vous êtes trop loin de ce lieu',
++      tooFarWithDistance: 'Votre appareil semble être à {{distance}}. Rapprochez-vous puis réessayez.',
++      tooFarBody: 'Rapprochez-vous du lieu sélectionné puis réessayez.',
++      mockTitle: 'Position simulée détectée',
++      mockBody: 'Désactivez les outils de position simulée puis réessayez avec la position réelle de votre appareil.',
++      expiredTitle: 'Vérification de position expirée',
++      expiredBody: 'Actualisez votre position puis réessayez. Seules les vérifications récentes sont acceptées.',
++      jumpTitle: 'Le déplacement de position semble inhabituel',
++      jumpBody: 'Attendez un peu avant de réessayer. Cela protège les statistiques de confiance contre les déplacements impossibles.',
++      failedTitle: 'Impossible de vérifier la présence',
++      failedBody: 'Réessayez lorsque votre appareil dispose d’un meilleur signal de localisation.',
++      planCancelledTitle: 'Plan annulé',
++      planCancelledBody: 'La vérification de présence est fermée car ce Plan a été annulé.',
++      loginTitle: 'Connectez-vous pour vérifier',
++      loginBody: 'Connectez-vous d’abord, puis utilisez le GPS de votre appareil lorsque vous arrivez à ce lieu sur place.',
++      joinFirstTitle: 'Rejoignez d’abord ce Plan',
++      joinFirstBody: 'La vérification de présence est réservée à l’organisateur et aux participants ayant rejoint le Plan.',
++      mapPositionTitle: 'Position sur la carte nécessaire',
++      mapPositionBody: 'Ce lieu sur place doit disposer d’une position confirmée par Google avant de permettre la vérification GPS.',
++      permissionTitle: 'Autorisation de localisation nécessaire',
++      permissionBody: 'Autorisez la localisation uniquement lorsque vous souhaitez vérifier votre présence à ce lieu.',
++    },
++  },
++  discussion: {
++    title: 'Discussion publique',
++    options: 'Options de la discussion',
++    context: 'Contexte du Plan',
++    viewPlan: 'Voir le Plan',
++    unknownDate: 'Date inconnue',
++    you: 'Vous',
++    editedAt: 'Modifié {{time}}',
++    errors: {
++      load: 'Impossible de charger la discussion du Plan.',
++      send: 'Impossible d’envoyer votre commentaire.',
++      update: 'Impossible de modifier votre commentaire.',
++      delete: 'Impossible de supprimer votre commentaire.',
++      unavailableTitle: 'Discussion indisponible',
++    },
++    feedback: {
++      deleted: 'Commentaire supprimé.',
++    },
++    empty: {
++      title: 'Aucun commentaire pour le moment',
++      body: 'Posez une question publique ou lancez une discussion amicale autour de ce Plan.',
++    },
++    composer: {
++      placeholder: 'Commenter publiquement ce Plan…',
++    },
++    cancelled: {
++      title: 'Ce Plan a été annulé',
++      body: 'Les anciens commentaires restent visibles, mais les nouvelles réponses et modifications sont fermées.',
++    },
++    actions: {
++      title: 'Actions du commentaire',
++      edit: 'Modifier le commentaire',
++      delete: 'Supprimer le commentaire',
++      deleteHelper: 'Les commentaires supprimés restent visibles sous forme de petite trace dans la discussion publique.',
++      report: 'Signaler le commentaire',
++      reportHelper: 'Signalez les spams, escroqueries, comportements de harcèlement ou contenus dangereux.',
++      ownBody: 'Modifiez ou supprimez votre commentaire public.',
++      reportBody: 'Signalez ce commentaire s’il enfreint les règles de la communauté.',
++    },
++    menu: {
++      body: 'Les commentaires sont publics et visibles par les membres connectés. Protégez vos informations et restez respectueux.',
++      details: 'Voir les détails du Plan',
++      detailsHelper: 'Revenir au parcours, aux détails et aux actions de participation.',
++      guide: 'Fonctionnement des commentaires publics',
++      guideHelper: 'Un guide rapide de la discussion du Plan.',
++      reportPlan: 'Signaler ce Plan',
++      reportPlanHelper: 'Signalez le Plan si sa page publique semble dangereuse ou trompeuse.',
++      reportPlanTitle: 'Signaler le Plan',
++    },
++    confirmDelete: {
++      title: 'Supprimer le commentaire ?',
++      body: 'Le texte du commentaire sera retiré de la discussion publique.',
++    },
++    guide: {
++      header: 'Discussion du Plan',
++      title: 'Fonctionnement des commentaires du Plan',
++      body: 'Utilisez la discussion publique pour les questions et mises à jour visibles. Des fils privés de Plan pourront être ajoutés plus tard.',
++      publicTitle: 'Public par défaut',
++      publicBody: 'Ces commentaires sont visibles par les membres Hellowhen connectés qui peuvent ouvrir ce Plan.',
++      questionsTitle: 'Posez vos questions ici',
++      questionsBody: 'Demandez des précisions sur le parcours, l’horaire, le point de rencontre ou les places encore disponibles.',
++      safetyTitle: 'Restez prudent',
++      safetyBody: 'Ne publiez pas d’adresses privées, de mots de passe, d’informations de paiement ni de documents sensibles dans les commentaires publics.',
++    },
++  },
+   workspace: {
+     myPlans: { title: 'Mes Plans', body: 'Les Plans que vous avez créés.' },
+     joinedPlans: { title: 'Plans rejoints', body: 'Les Plans que vous avez rejoints librement.' },

@@ -1,6 +1,40 @@
 export const onboarding = {
   ariaLabel: 'Guide de démarrage Hellowhen',
   progress: '{{current}} / {{total}}',
+  hub: {
+    title: 'Guides',
+    eyebrow: 'Bibliothèque de guides',
+    heroTitle: 'Revoir les guides à tout moment',
+    heroBody: 'Choisissez le guide de l’app, de Plans ou de Trade. Les fils publics restent accessibles et ces guides sont toujours disponibles dans Me.',
+    choices: {
+      global: {
+        title: 'Guide de l’app',
+        body: 'Revoyez le guide général pour la navigation, Me, les fils publics et les bases de sécurité.',
+        badge: 'App',
+        action: 'Revoir le guide de l’app',
+      },
+      plans: {
+        title: 'Guide Plans',
+        body: 'Comprenez les Plans, les lieux, la participation, la création et la sécurité.',
+        badge: 'Plans',
+        action: 'Ouvrir le guide Plans',
+      },
+      trade: {
+        title: 'Guide Trade',
+        body: 'Comprenez les cartes Trade, les besoins et offres, les propositions et les accords sûrs.',
+        badge: 'Trade',
+        action: 'Ouvrir le guide Trade',
+      },
+    },
+  },
+  prompt: {
+    start: 'Commencer le guide',
+    dismiss: 'Ignorer',
+    startAccessibility: 'Commencer {{title}}',
+    dismissAccessibility: 'Ignorer l’invitation {{title}}',
+    tradeTitle: 'Vous découvrez Trade ?',
+    tradeBody: 'Comprenez les cartes Trade, les besoins et offres, les propositions et les accords sûrs.',
+  },
   actions: {
     skip: 'Passer',
     back: 'Retour',

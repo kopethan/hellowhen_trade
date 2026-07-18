@@ -45,9 +45,10 @@ function dayKey(value: string | null | undefined) {
   return date.toISOString().slice(0, 10);
 }
 
-function dateSeparatorLabel(value: string | null | undefined, language: SupportedLanguage) {
-  if (!value) return 'Unknown date';
-  return formatLocalizedDate(value, language, 'Unknown date');
+function dateSeparatorLabel(value: string | null | undefined, language: SupportedLanguage, t: TFunction) {
+  const fallback = t('plans.discussion.unknownDate');
+  if (!value) return fallback;
+  return formatLocalizedDate(value, language, fallback);
 }
 
 function timeLabel(value: string | null | undefined, language: SupportedLanguage) {
@@ -55,9 +56,9 @@ function timeLabel(value: string | null | undefined, language: SupportedLanguage
   return formatLocalizedDateTime(value, language, '');
 }
 
-function messageDisplayName(message: PlanPublicMessageItem, currentUserId: string | undefined) {
-  if (message.authorId === currentUserId) return 'You';
-  return message.author?.profile?.displayName || message.author?.profile?.handle || 'Hellowhen member';
+function messageDisplayName(message: PlanPublicMessageItem, currentUserId: string | undefined, t: TFunction) {
+  if (message.authorId === currentUserId) return t('plans.discussion.you');
+  return message.author?.profile?.displayName || message.author?.profile?.handle || t('plans.common.member');
 }
 
 export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
@@ -94,11 +95,11 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
     } catch (caughtError) {
       setMessages([]);
       setPlanStatus(null);
-      setError(getFriendlyApiErrorMessage(caughtError, 'Could not load Plan discussion.'));
+      setError(getFriendlyApiErrorMessage(caughtError, t('plans.discussion.errors.load')));
     } finally {
       setLoading(false);
     }
-  }, [route.params.planId]);
+  }, [route.params.planId, t]);
 
   useFocusEffect(useCallback(() => { void loadMessages(); }, [loadMessages]));
 
@@ -108,13 +109,13 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
     for (const message of messages) {
       const nextDay = dayKey(message.createdAt);
       if (nextDay !== previousDay) {
-        rows.push({ type: 'date', key: `date-${nextDay}-${message.id}`, label: dateSeparatorLabel(message.createdAt, language) });
+        rows.push({ type: 'date', key: `date-${nextDay}-${message.id}`, label: dateSeparatorLabel(message.createdAt, language, t) });
         previousDay = nextDay;
       }
       rows.push({ type: 'message', key: message.id, message });
     }
     return rows;
-  }, [language, messages]);
+  }, [language, messages, t]);
 
   async function sendMessage() {
     const body = draft.trim();
@@ -128,7 +129,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
       setDraft('');
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
     } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError, 'Could not send your comment.'));
+      setError(getFriendlyApiErrorMessage(caughtError, t('plans.discussion.errors.send')));
     } finally {
       setSending(false);
     }
@@ -147,7 +148,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
       setActionSheet(null);
       setEditDraft('');
     } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError, 'Could not update your comment.'));
+      setError(getFriendlyApiErrorMessage(caughtError, t('plans.discussion.errors.update')));
     } finally {
       setSending(false);
     }
@@ -160,11 +161,11 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
     try {
       const result = await api.plans.deletePublicMessage(route.params.planId, messageId) as MessageResponse;
       setMessages((current) => current.map((message) => message.id === messageId ? result.message : message));
-      setNotice('Comment deleted.');
+      setNotice(t('plans.discussion.feedback.deleted'));
       setActionTarget(null);
       setActionSheet(null);
     } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError, 'Could not delete your comment.'));
+      setError(getFriendlyApiErrorMessage(caughtError, t('plans.discussion.errors.delete')));
     } finally {
       setSending(false);
     }
@@ -193,7 +194,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
     actionSheetActions = [
       ...(canWrite ? [{
         key: 'edit',
-        label: 'Edit comment',
+        label: t('plans.discussion.actions.edit'),
         icon: 'more',
         onPress: () => {
           setActionTarget({ messageId: message.id, mode: 'edit' });
@@ -203,8 +204,8 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
       } satisfies AppActionSheetAction] : []),
       {
         key: 'delete',
-        label: 'Delete comment',
-        helper: 'Deleted comments stay as a small trace in the public discussion.',
+        label: t('plans.discussion.actions.delete'),
+        helper: t('plans.discussion.actions.deleteHelper'),
         icon: 'report-flag',
         tone: 'danger',
         onPress: () => {
@@ -218,13 +219,13 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
     actionSheetActions = [
       {
         key: 'report',
-        label: 'Report comment',
-        helper: 'Report spam, scams, harassment, or unsafe content.',
+        label: t('plans.discussion.actions.report'),
+        helper: t('plans.discussion.actions.reportHelper'),
         icon: 'report-flag',
         tone: 'danger',
         onPress: () => {
           setActionSheet(null);
-          setFullScreenMode({ type: 'report', title: 'Report comment', targetType: 'public_message', targetId: message.id, labelKey: 'report.publicMessage', helperKey: 'report.helper.publicMessage' });
+          setFullScreenMode({ type: 'report', title: t('plans.discussion.actions.report'), targetType: 'public_message', targetId: message.id, labelKey: 'report.publicMessage', helperKey: 'report.helper.publicMessage' });
         },
       },
     ];
@@ -233,8 +234,8 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
   const threadMenuActions: AppActionSheetAction[] = [
     {
       key: 'details',
-      label: 'See Plan details',
-      helper: 'Go back to the route, details, and join actions.',
+      label: t('plans.discussion.menu.details'),
+      helper: t('plans.discussion.menu.detailsHelper'),
       icon: 'plan',
       onPress: () => {
         setThreadMenuVisible(false);
@@ -243,8 +244,8 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
     },
     {
       key: 'guide',
-      label: 'How public comments work',
-      helper: 'A short guide for Plan discussion.',
+      label: t('plans.discussion.menu.guide'),
+      helper: t('plans.discussion.menu.guideHelper'),
       icon: 'help',
       onPress: () => {
         setThreadMenuVisible(false);
@@ -253,27 +254,27 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
     },
     {
       key: 'report',
-      label: 'Report this Plan',
-      helper: 'Report the Plan if the public page feels unsafe or misleading.',
+      label: t('plans.discussion.menu.reportPlan'),
+      helper: t('plans.discussion.menu.reportPlanHelper'),
       icon: 'report-flag',
       tone: 'danger',
       onPress: () => {
         setThreadMenuVisible(false);
-        setFullScreenMode({ type: 'report', title: 'Report Plan', targetType: 'plan', targetId: route.params.planId, labelKey: 'report.button', helperKey: 'report.helper.content' });
+        setFullScreenMode({ type: 'report', title: t('plans.discussion.menu.reportPlanTitle'), targetType: 'plan', targetId: route.params.planId, labelKey: 'report.button', helperKey: 'report.helper.content' });
       },
     },
   ];
 
   function startReply(message: PlanPublicMessageItem) {
     if (!canWrite || message.status === 'deleted') return;
-    const authorName = messageDisplayName(message, auth.user?.id);
+    const authorName = messageDisplayName(message, auth.user?.id, t);
     const mention = `@${authorName} `;
     setDraft((current) => current.trim().length ? `${current.trimEnd()}\n${mention}` : mention);
     requestAnimationFrame(() => composerInputRef.current?.focus());
   }
 
   const canSend = canWrite && draft.trim().length > 0 && !sending;
-  const contextTitle = route.params.title || 'Plan';
+  const contextTitle = route.params.title || t('plans.detail.headerTitle');
 
   if (fullScreenMode?.type === 'guide') {
     return <PlanThreadGuideScreen onClose={() => setFullScreenMode(null)} />;
@@ -284,12 +285,12 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
   }
 
   return (
-    <AppFixedHeaderScreen header={<AppHeader title="Public discussion" onBack={() => navigation.goBack()} rightSlot={<ThreadMenuButton label="Discussion options" onPress={() => setThreadMenuVisible(true)} />} />}>
+    <AppFixedHeaderScreen header={<AppHeader title={t('plans.discussion.title')} onBack={() => navigation.goBack()} rightSlot={<ThreadMenuButton label={t('plans.discussion.options')} onPress={() => setThreadMenuVisible(true)} />} />}>
       <KeyboardAvoidingView style={styles.shell} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}>
         <PublicThreadContextStrip
-          label="Plan context"
+          label={t('plans.discussion.context')}
           title={contextTitle}
-          actionLabel="View Plan"
+          actionLabel={t('plans.discussion.viewPlan')}
           theme={theme}
           onPress={openPlanDetail}
         />
@@ -302,10 +303,10 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
           keyboardDismissMode="interactive"
           refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadMessages(); }} />}
         >
-          {error ? <InfoNotice tone="danger" title="Discussion unavailable" body={error} /> : null}
+          {error ? <InfoNotice tone="danger" title={t('plans.discussion.errors.unavailableTitle')} body={error} /> : null}
           {notice ? <AppText style={[styles.feedbackText, { color: theme.color.muted }]}>{notice}</AppText> : null}
           {groupedRows.length === 0 && loading ? <LoadingDiscussion theme={theme} label={t('common.states.loading')} /> : null}
-          {groupedRows.length === 0 && !loading ? <EmptyDiscussion theme={theme} /> : null}
+          {groupedRows.length === 0 && !loading ? <EmptyDiscussion theme={theme} t={t} /> : null}
           {groupedRows.map((row) => row.type === 'date' ? (
             <View key={row.key} style={styles.dateSeparator}><View style={[styles.dateLine, { backgroundColor: theme.color.border }]} /><AppText style={[styles.dateText, { color: theme.color.muted }]}>{row.label}</AppText><View style={[styles.dateLine, { backgroundColor: theme.color.border }]} /></View>
           ) : (
@@ -332,7 +333,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
         <KeyboardDoneAccessory />
         {isCancelled ? (
           <View style={[styles.closedComposer, { backgroundColor: theme.color.background, borderColor: theme.color.border, paddingBottom: Math.max(10, insets.bottom + 8) }]}>
-            <InfoNotice tone="warning" title="This Plan was cancelled" body="Earlier comments remain visible, but new replies and comment edits are closed." />
+            <InfoNotice tone="warning" title={t('plans.discussion.cancelled.title')} body={t('plans.discussion.cancelled.body')} />
           </View>
         ) : (
           <View style={[styles.composer, { backgroundColor: theme.color.background, borderColor: theme.color.border, paddingBottom: Math.max(10, insets.bottom + 8) }]}>
@@ -341,7 +342,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
                 ref={composerInputRef}
                 value={draft}
                 onChangeText={setDraft}
-                placeholder="Comment publicly on this Plan..."
+                placeholder={t('plans.discussion.composer.placeholder')}
                 placeholderTextColor={theme.color.muted}
                 multiline
                 editable={!sending}
@@ -361,26 +362,26 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
       </KeyboardAvoidingView>
       <AppActionSheet
         visible={Boolean(actionSheet)}
-        title="Comment actions"
-        body={actionSheet?.type === 'own' ? 'Edit or delete your public comment.' : actionSheet?.type === 'report' ? 'Report this comment if it breaks community rules.' : undefined}
+        title={t('plans.discussion.actions.title')}
+        body={actionSheet?.type === 'own' ? t('plans.discussion.actions.ownBody') : actionSheet?.type === 'report' ? t('plans.discussion.actions.reportBody') : undefined}
         actions={actionSheetActions}
         cancelLabel={t('common.actions.cancel')}
         onClose={() => setActionSheet(null)}
       />
       <AppActionSheet
         visible={threadMenuVisible}
-        title="Public discussion"
-        body="Comments are public and visible to logged-in members. Keep details safe and respectful."
+        title={t('plans.discussion.title')}
+        body={t('plans.discussion.menu.body')}
         actions={threadMenuActions}
         cancelLabel={t('common.actions.cancel')}
         onClose={() => setThreadMenuVisible(false)}
       />
       <AppConfirmSheet
         visible={Boolean(deleteTarget)}
-        title="Delete comment?"
-        body="This removes the comment text from the public discussion."
+        title={t('plans.discussion.confirmDelete.title')}
+        body={t('plans.discussion.confirmDelete.body')}
         cancelLabel={t('common.actions.cancel')}
-        confirmLabel="Delete comment"
+        confirmLabel={t('plans.discussion.actions.delete')}
         tone="danger"
         confirmDisabled={sending}
         onCancel={() => setDeleteTarget(null)}
@@ -404,17 +405,18 @@ function ThreadMenuButton({ label, onPress }: { label: string; onPress: () => vo
 
 function PlanThreadGuideScreen({ onClose }: { onClose: () => void }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const items = [
-    { title: 'Public by default', body: 'These comments are visible to logged-in Hellowhen members who can open this Plan.' },
-    { title: 'Use it for questions', body: 'Ask about the route, timing, meeting point, or whether there is still room to join.' },
-    { title: 'Stay safe', body: 'Do not post private addresses, passwords, payment details, or sensitive documents in public comments.' },
+    { title: t('plans.discussion.guide.publicTitle'), body: t('plans.discussion.guide.publicBody') },
+    { title: t('plans.discussion.guide.questionsTitle'), body: t('plans.discussion.guide.questionsBody') },
+    { title: t('plans.discussion.guide.safetyTitle'), body: t('plans.discussion.guide.safetyBody') },
   ];
 
   return (
-    <AppFixedHeaderScreen header={<AppHeader title="Plan discussion" onBack={onClose} />}>
+    <AppFixedHeaderScreen header={<AppHeader title={t('plans.discussion.guide.header')} onBack={onClose} />}>
       <ScrollView contentContainerStyle={styles.infoContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
-        <AppText style={styles.infoTitle}>How Plan comments work</AppText>
-        <AppText style={[styles.infoBody, { color: theme.color.muted }]}>Use the public discussion for visible questions and updates. Private Plan threads can come later.</AppText>
+        <AppText style={styles.infoTitle}>{t('plans.discussion.guide.title')}</AppText>
+        <AppText style={[styles.infoBody, { color: theme.color.muted }]}>{t('plans.discussion.guide.body')}</AppText>
         <View style={[styles.fullBleedDivider, { backgroundColor: theme.color.border }]} />
         {items.map((item) => (
           <View key={item.title} style={styles.infoSection}>
@@ -461,11 +463,11 @@ function LoadingDiscussion({ theme, label }: { theme: ThemeTokens; label: string
   );
 }
 
-function EmptyDiscussion({ theme }: { theme: ThemeTokens }) {
+function EmptyDiscussion({ theme, t }: { theme: ThemeTokens; t: TFunction }) {
   return (
     <View style={styles.emptyBox}>
-      <AppText style={styles.emptyTitle}>No comments yet</AppText>
-      <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>Ask a public question or start a friendly discussion around this Plan.</AppText>
+      <AppText style={styles.emptyTitle}>{t('plans.discussion.empty.title')}</AppText>
+      <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{t('plans.discussion.empty.body')}</AppText>
     </View>
   );
 }
@@ -477,7 +479,7 @@ function PlanPublicMessageRow({ message, currentUserId, canWrite, actionTarget, 
   return (
     <Pressable onLongPress={isOwn ? onOwnActions : onReport} style={[styles.messageRow, { borderColor: theme.color.border }]}>
       <View style={styles.messageHeader}>
-        <UserIdentityPressable user={message.author} userId={message.authorId} displayName={messageDisplayName(message, currentUserId)} variant="row" subtitle={timeLabel(message.createdAt, language)} style={styles.messageIdentity} />
+        <UserIdentityPressable user={message.author} userId={message.authorId} displayName={messageDisplayName(message, currentUserId, t)} variant="row" subtitle={timeLabel(message.createdAt, language)} style={styles.messageIdentity} />
         {deleted ? null : (
           <Pressable accessibilityRole="button" onPress={isOwn ? onOwnActions : onReport} style={({ pressed }) => [styles.messageMenuButton, pressed && styles.pressed]}>
             <MobileIcon name="more" size={19} color={theme.color.muted} />
@@ -494,12 +496,12 @@ function PlanPublicMessageRow({ message, currentUserId, canWrite, actionTarget, 
         </View>
       ) : (
         <>
-          <AppText style={[deleted ? styles.deletedBody : styles.messageBody, { color: deleted ? theme.color.muted : theme.color.text }]}>{deleted ? 'Comment deleted.' : message.body}</AppText>
-          {message.editedAt && !deleted ? <AppText style={[styles.traceText, { color: theme.color.muted }]}>Edited {timeLabel(message.editedAt, language)}</AppText> : null}
+          <AppText style={[deleted ? styles.deletedBody : styles.messageBody, { color: deleted ? theme.color.muted : theme.color.text }]}>{deleted ? t('plans.discussion.feedback.deleted') : message.body}</AppText>
+          {message.editedAt && !deleted ? <AppText style={[styles.traceText, { color: theme.color.muted }]}>{t('plans.discussion.editedAt', { time: timeLabel(message.editedAt, language) })}</AppText> : null}
           {!deleted ? (
             <View style={styles.messageActionRow}>
               {canWrite ? <InlineCommentAction label={t('trade.proposals.reply')} theme={theme} onPress={onReply} /> : null}
-              <InlineCommentAction label={isOwn ? 'Comment actions' : 'Report comment'} tone={isOwn ? 'default' : 'danger'} theme={theme} onPress={isOwn ? onOwnActions : onReport} />
+              <InlineCommentAction label={isOwn ? t('plans.discussion.actions.title') : t('plans.discussion.actions.report')} tone={isOwn ? 'default' : 'danger'} theme={theme} onPress={isOwn ? onOwnActions : onReport} />
             </View>
           ) : null}
         </>

@@ -1,0 +1,417 @@
+diff --git a/apps/api/package.json b/apps/api/package.json
+index 3772f75d3c3493a322338a841d1f472560cced74..ace9dbf58651aaee2dabb1f5a1668c09fba5eea6 100644
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -15,7 +15,8 @@
+     "prisma:seed": "prisma db seed",
+     "media:s3-migrate": "tsx src/scripts/migrateLocalMediaToS3.ts",
+     "places:address-cleanup": "tsx src/scripts/cleanupInvalidOfflinePlaces.ts",
+-    "test:plans": "tsx --test src/modules/plans/__tests__/plans.safety.test.ts"
++    "test:plans": "tsx --test src/modules/plans/__tests__/plans.safety.test.ts",
++    "test:places": "tsx --test src/modules/places/__tests__/placeUpdatePolicy.test.ts"
+   },
+   "dependencies": {
+     "@aws-sdk/client-s3": "^3.1077.0",
+diff --git a/apps/api/src/modules/places/__tests__/placeUpdatePolicy.test.ts b/apps/api/src/modules/places/__tests__/placeUpdatePolicy.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..fce18b5d336703c4d7b76fd7c34038808ba1470b
+--- /dev/null
++++ b/apps/api/src/modules/places/__tests__/placeUpdatePolicy.test.ts
+@@ -0,0 +1,26 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import {
++  canUpdatePlaceLockedByPlan,
++  isArchiveOnlyPlaceUpdate,
++  isTranslationOnlyPlaceUpdate,
++} from '../placeUpdatePolicy.js';
++
++test('a locked Place can update manual translations only', () => {
++  assert.equal(isTranslationOnlyPlaceUpdate({ translations: [] }), true);
++  assert.equal(isTranslationOnlyPlaceUpdate({ translations: [{ languageCode: 'fr', title: 'Musée', description: 'Description' }] }), true);
++  assert.equal(canUpdatePlaceLockedByPlan({ translations: [] }), true);
++});
++
++test('translation updates cannot include base Place changes', () => {
++  assert.equal(isTranslationOnlyPlaceUpdate({ translations: [], title: 'Changed' }), false);
++  assert.equal(isTranslationOnlyPlaceUpdate({ translations: [], mediaIds: [] }), false);
++  assert.equal(isTranslationOnlyPlaceUpdate({ defaultLanguage: 'fr', translations: [] }), false);
++  assert.equal(canUpdatePlaceLockedByPlan({ translations: [], addressPublicText: 'Changed' }), false);
++});
++
++test('archive-only updates remain allowed for locked Places', () => {
++  assert.equal(isArchiveOnlyPlaceUpdate({ status: 'archived' }), true);
++  assert.equal(canUpdatePlaceLockedByPlan({ status: 'archived' }), true);
++  assert.equal(canUpdatePlaceLockedByPlan({ status: 'archived', translations: [] }), false);
++});
+diff --git a/apps/api/src/modules/places/placeUpdatePolicy.ts b/apps/api/src/modules/places/placeUpdatePolicy.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..163229292e5da55de2e2d46abc95a40c5cfd0fca
+--- /dev/null
++++ b/apps/api/src/modules/places/placeUpdatePolicy.ts
+@@ -0,0 +1,13 @@
++export function isArchiveOnlyPlaceUpdate(input: Record<string, unknown>) {
++  const keys = Object.keys(input);
++  return keys.length === 1 && input.status === 'archived';
++}
++
++export function isTranslationOnlyPlaceUpdate(input: Record<string, unknown>) {
++  const keys = Object.keys(input);
++  return keys.length === 1 && Object.prototype.hasOwnProperty.call(input, 'translations');
++}
++
++export function canUpdatePlaceLockedByPlan(input: Record<string, unknown>) {
++  return isArchiveOnlyPlaceUpdate(input) || isTranslationOnlyPlaceUpdate(input);
++}
+diff --git a/apps/api/src/modules/places/places.routes.ts b/apps/api/src/modules/places/places.routes.ts
+index 4c9a7546fdab2fc18037c0e1a5e8950d2ffb297d..764ef0e3217e9e4937d169599c86d803c5af0d50 100644
+--- a/apps/api/src/modules/places/places.routes.ts
++++ b/apps/api/src/modules/places/places.routes.ts
+@@ -31,6 +31,7 @@ import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
+ import { googlePlacesRoutes } from './googlePlaces.routes.js';
+ import { buildPlaceStaticMapResult } from './placeStaticMap.js';
+ import { createRandomPlaceStaticMapTemplateAssignment, isPlaceStaticMapTemplateFamily } from './placeStaticMapTemplates.js';
++import { canUpdatePlaceLockedByPlan, isArchiveOnlyPlaceUpdate, isTranslationOnlyPlaceUpdate } from './placeUpdatePolicy.js';
+ 
+ export const placesRoutes = Router();
+ 
+@@ -346,11 +347,6 @@ function updatePlaceData(input: ReturnType<typeof updatePlaceRequestSchema.parse
+   return data;
+ }
+ 
+-function isArchiveOnlyPlaceUpdate(input: ReturnType<typeof updatePlaceRequestSchema.parse>) {
+-  const keys = Object.keys(input);
+-  return keys.length === 1 && input.status === 'archived';
+-}
+-
+ async function loadPlaceUsageCounts(placeIds: string[]) {
+   const ids = Array.from(new Set(placeIds.filter(Boolean)));
+   if (!ids.length) return new Map<string, number>();
+@@ -521,13 +517,20 @@ placesRoutes.patch('/:placeId', requireAuth, requireActiveAccount, asyncRoute(as
+   });
+   if (!existing) return res.status(404).json({ error: 'not_found' });
+   const usedInPlansCount = await placeUsedInPlansCount(existing.id);
+-  if (existing.source === 'user' && usedInPlansCount > 0 && !isArchiveOnlyPlaceUpdate(input)) {
++  const lockedByPlan = existing.source === 'user' && usedInPlansCount > 0;
++  if (lockedByPlan && !canUpdatePlaceLockedByPlan(input)) {
+     return res.status(409).json({
+       error: 'place_locked_by_plan',
+-      message: 'This Place is already used in a Plan. Archive it or create a new Place to change the details.',
++      message: 'This Place is already used in a Plan. Its main details are locked, but manual translations can still be updated.',
+       usedInPlansCount,
+     });
+   }
++  if (lockedByPlan && isTranslationOnlyPlaceUpdate(input)) {
++    await syncInventoryTranslations(prisma, 'place', existing.id, req.user!.id, (existing as any).defaultLanguage ?? 'en', input.translations);
++    const refreshed = await prisma.place.findUnique({ where: { id: existing.id }, include: placeInclude() });
++    const languagePreferences = await resolveContentLanguagePreferences(req.user!.id, req.headers['accept-language']);
++    return res.json({ place: await decoratePlace(refreshed, req.user!.id, 'owner', actor.role, languagePreferences) });
++  }
+   const normalized = normalizeUpdateInput(input, existing as any, actor);
+   const [mediaLimit, canChooseTemplate] = await Promise.all([
+     placeMediaLimitFor(actor, existing.source),
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 02f0cf43ddace1931464f754415d2e2fca48150b..146ca154400cc72e96e2064de65b8d147f202fb1 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1281,6 +1281,9 @@ function getPlaceUploadErrorMessage(error: unknown, t?: PlanTranslationFunction)
+   if (error instanceof SelectedImageUploadError) {
+     return t?.('places.editor.errors.uploadFailed', { current: error.current, total: error.total }) ?? `Image upload failed (${error.current}/${error.total}). Try a smaller image or upload again.`;
+   }
++  if (error && typeof error === 'object' && (error as { body?: { error?: string } }).body?.error === 'place_locked_by_plan') {
++    return t?.('places.editor.errors.lockedByPlan') ?? 'This Place is already used in a Plan. Its main details are locked, but manual translations can still be updated.';
++  }
+   return getFriendlyApiErrorMessage(error);
+ }
+ 
+@@ -4709,9 +4712,10 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+   const copyFromPlace = route.params?.copyFromPlace;
+   const returnToPlan = Boolean(route.params?.returnToCreatePlan);
+   const isEditing = Boolean(editPlace);
++  const translationOnlyMode = Boolean(isEditing && editPlace?.source === 'user' && Number(editPlace.usedInPlansCount ?? 0) > 0);
+   const [state, setState] = useState<PlaceCreateFormState>(() => editPlace ? placeCreateFormFromPlace(editPlace) : copyFromPlace ? placeCreateFormFromPlace(copyFromPlace) : makePlaceCreateForm(normalizePlaceLanguage(language)));
+   const [step, setStep] = useState<PlaceCreateStep>('details');
+-  const [translationPanelOpen, setTranslationPanelOpen] = useState(() => placeHasTranslationContent(editPlace ?? copyFromPlace));
++  const [translationPanelOpen, setTranslationPanelOpen] = useState(() => translationOnlyMode || placeHasTranslationContent(editPlace ?? copyFromPlace));
+   const [existingMedia, setExistingMedia] = useState<MediaAssetDto[]>(() => isEditing ? reusablePlaceMediaForEdit(editPlace) : []);
+   const [newImages, setNewImages] = useState<SelectedLocalImage[]>([]);
+   const [uploadProgress, setUploadProgress] = useState<SelectedImageUploadProgress | null>(null);
+@@ -4752,6 +4756,33 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+     setExistingMedia((current) => current.filter((item) => item.id !== mediaId));
+   }
+ 
++  async function submitTranslationsOnly() {
++    if (!editPlace) return;
++    const translationError = validatePlaceTranslations(state);
++    if (translationError) {
++      setTranslationPanelOpen(true);
++      setError(placeTranslationValidationMessage(translationError, t));
++      return;
++    }
++    setSaving(true);
++    setError(null);
++    setMessage(null);
++    try {
++      const response = await api.places.update(editPlace.id, {
++        translations: normalizePlaceTranslationsForPayload(state),
++      });
++      if (returnToPlan) {
++        navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params?.targetPlaceIndex, updatedPlaceNonce: Date.now(), updatedPlaceSelectAfterFix: route.params?.selectPlaceAfterSave });
++        return;
++      }
++      navigation.goBack();
++    } catch (caughtError) {
++      setError(getPlaceUploadErrorMessage(caughtError, t));
++    } finally {
++      setSaving(false);
++    }
++  }
++
+   async function submit() {
+     if (state.title.trim().length < 3) { setError(t('places.editor.errors.addName')); setStep('details'); return; }
+     if (state.mode === 'local') {
+@@ -4826,55 +4857,63 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+           <View style={styles.placeCreateCompactHeader}>
+             <SemanticBadge label={t('places.editor.badge')} tone="place" />
+             <AppText style={styles.placeCreateTitle}>{isEditing ? t('places.editor.title.edit') : t('places.editor.title.create')}</AppText>
+-            <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? t('places.editor.subtitle.edit') : copyFromPlace ? t('places.editor.subtitle.copy') : t('places.editor.subtitle.create')}</AppText>
+-          </View>
+-          <View style={styles.placeStepRow}>
+-            <PillButton label={t('places.editor.steps.details')} active={step === 'details'} disabled={saving} onPress={() => setStep('details')} />
+-            <PillButton label={t('places.editor.steps.image')} active={step === 'image'} disabled={saving} onPress={goToImageStep} />
++            <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{translationOnlyMode ? t('places.editor.locked.subtitle') : isEditing ? t('places.editor.subtitle.edit') : copyFromPlace ? t('places.editor.subtitle.copy') : t('places.editor.subtitle.create')}</AppText>
+           </View>
++          {!translationOnlyMode ? (
++            <View style={styles.placeStepRow}>
++              <PillButton label={t('places.editor.steps.details')} active={step === 'details'} disabled={saving} onPress={() => setStep('details')} />
++              <PillButton label={t('places.editor.steps.image')} active={step === 'image'} disabled={saving} onPress={goToImageStep} />
++            </View>
++          ) : null}
+           {step === 'details' ? (
+             <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: 'transparent', borderColor: theme.semantic.place.border }]}>
+-              <View style={styles.placeCreateSectionHeader}>
+-                <View style={styles.feedTitleWrap}>
+-                  <AppText style={styles.sectionTitle}>{t('places.editor.details.title')}</AppText>
+-                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.details.privateByDefault')}</AppText>
+-                </View>
+-              </View>
+-              <View style={styles.placeCreateDividerBlock}>
+-                <ModeSegment
+-                  value={state.mode}
+-                  onChange={(mode) => setState((current) => ({
+-                    ...current,
+-                    mode,
+-                    location: mode === 'remote' ? '' : current.location,
+-                    providerAddress: mode === 'local' ? current.providerAddress : null,
+-                    onlineLabel: mode === 'remote' ? current.onlineLabel : '',
+-                    onlineUrl: mode === 'remote' ? current.onlineUrl : '',
+-                  }))}
+-                />
+-              </View>
+-              <TextField label={t('places.editor.fields.name')} value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder={t('places.editor.fields.namePlaceholder')} maxLength={120} />
+-              {state.mode === 'remote' ? (
+-                <>
+-                  <TextField label={t('places.editor.fields.onlineLabel')} value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} maxLength={120} />
+-                  <TextField label={t('places.editor.fields.onlineUrl')} value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
+-                  <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: state.onlineUrl }, t)} />
+-                </>
++              {translationOnlyMode ? (
++                <InfoNotice tone="warning" title={t('places.editor.locked.title')} body={t('places.editor.locked.body')} />
+               ) : (
+                 <>
+-                  <GooglePlacePicker
+-                    label={t('places.editor.fields.address')}
+-                    value={state.location}
+-                    onChangeText={(location) => setState((current) => ({ ...current, location }))}
+-                    onResolvedPlace={(place) => setState((current) => ({ ...current, providerAddress: place ? placeAddressFromGoogleResolvedPlace(place) : null }))}
+-                    placeholder={t('places.editor.fields.addressPlaceholder')}
+-                    helperText={t('places.editor.fields.addressHelp')}
+-                    languageCode={language}
+-                  />
+-                  {!hasValidOfflineProviderAddress(state.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(state.providerAddress, t)} /> : null}
++                  <View style={styles.placeCreateSectionHeader}>
++                    <View style={styles.feedTitleWrap}>
++                      <AppText style={styles.sectionTitle}>{t('places.editor.details.title')}</AppText>
++                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.details.privateByDefault')}</AppText>
++                    </View>
++                  </View>
++                  <View style={styles.placeCreateDividerBlock}>
++                    <ModeSegment
++                      value={state.mode}
++                      onChange={(mode) => setState((current) => ({
++                        ...current,
++                        mode,
++                        location: mode === 'remote' ? '' : current.location,
++                        providerAddress: mode === 'local' ? current.providerAddress : null,
++                        onlineLabel: mode === 'remote' ? current.onlineLabel : '',
++                        onlineUrl: mode === 'remote' ? current.onlineUrl : '',
++                      }))}
++                    />
++                  </View>
++                  <TextField label={t('places.editor.fields.name')} value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder={t('places.editor.fields.namePlaceholder')} maxLength={120} />
++                  {state.mode === 'remote' ? (
++                    <>
++                      <TextField label={t('places.editor.fields.onlineLabel')} value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} maxLength={120} />
++                      <TextField label={t('places.editor.fields.onlineUrl')} value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
++                      <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: state.onlineUrl }, t)} />
++                    </>
++                  ) : (
++                    <>
++                      <GooglePlacePicker
++                        label={t('places.editor.fields.address')}
++                        value={state.location}
++                        onChangeText={(location) => setState((current) => ({ ...current, location }))}
++                        onResolvedPlace={(place) => setState((current) => ({ ...current, providerAddress: place ? placeAddressFromGoogleResolvedPlace(place) : null }))}
++                        placeholder={t('places.editor.fields.addressPlaceholder')}
++                        helperText={t('places.editor.fields.addressHelp')}
++                        languageCode={language}
++                      />
++                      {!hasValidOfflineProviderAddress(state.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(state.providerAddress, t)} /> : null}
++                    </>
++                  )}
++                  <TextField label={t('places.editor.fields.description')} value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder={t('places.editor.fields.descriptionPlaceholder')} multiline maxLength={2000} />
+                 </>
+               )}
+-              <TextField label={t('places.editor.fields.description')} value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder={t('places.editor.fields.descriptionPlaceholder')} multiline maxLength={2000} />
+               <View style={styles.placeTranslationBlock}>
+                 <Pressable
+                   accessibilityRole="button"
+@@ -4902,10 +4941,17 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+                     <View style={[styles.placeTranslationFields, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }]}>
+                       <View style={styles.feedTitleWrap}>
+                         <AppText style={styles.formLabel}>{t('places.editor.language.originalLabel')}</AppText>
+-                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.language.originalHelp')}</AppText>
++                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{translationOnlyMode ? t('places.editor.locked.originalLanguage') : t('places.editor.language.originalHelp')}</AppText>
+                       </View>
+                       <View style={styles.placeLanguageChips}>
+-                        {placeLanguageOptions.map((languageCode) => (
++                        {translationOnlyMode ? (
++                          <PillButton
++                            label={placeLanguageLabel(state.defaultLanguage, t)}
++                            active
++                            disabled
++                            onPress={() => undefined}
++                          />
++                        ) : placeLanguageOptions.map((languageCode) => (
+                           <PillButton
+                             key={languageCode}
+                             label={placeLanguageLabel(languageCode, t)}
+@@ -4961,7 +5007,15 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+               {message ? <InfoNotice tone="success" body={message} /> : null}
+               {error ? <InfoNotice tone="danger" body={error} /> : null}
+               <View style={[styles.placeCreateActionFooter, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
+-                <PrimaryButton label={t('places.editor.actions.continueToImage')} onPress={goToImageStep} disabled={saving || !placeDetailsReady} />
++                {translationOnlyMode ? (
++                  <PrimaryButton
++                    label={saving ? t('places.editor.actions.savingTranslations') : t('places.editor.actions.saveTranslations')}
++                    onPress={() => { void submitTranslationsOnly(); }}
++                    disabled={saving}
++                  />
++                ) : (
++                  <PrimaryButton label={t('places.editor.actions.continueToImage')} onPress={goToImageStep} disabled={saving || !placeDetailsReady} />
++                )}
+               </View>
+             </View>
+           ) : (
+diff --git a/packages/i18n/src/locales/en/places.ts b/packages/i18n/src/locales/en/places.ts
+index 0d749f38a945aaf321528b75100e12d206056e07..537026089d5fa70fd19b2924e780a4d895f53522 100644
+--- a/packages/i18n/src/locales/en/places.ts
++++ b/packages/i18n/src/locales/en/places.ts
+@@ -20,6 +20,12 @@ export const places = {
+       edit: 'Update details and image for this reusable Place.',
+       copy: 'Save a private copy, add an optional image, then return to your Plan.',
+     },
++    locked: {
++      title: 'Translations only',
++      subtitle: 'This Place is used in a Plan, so only its manual translations can be updated.',
++      body: 'Main details, original language, address, online destination, and image are locked because this Place is already used in a Plan. You can still add, edit, or remove manual translations.',
++      originalLanguage: 'The original Place language is locked while this Place is used in a Plan.',
++    },
+     steps: {
+       details: '1. Details',
+       image: '2. Image',
+@@ -91,6 +97,8 @@ export const places = {
+       save: 'Save Place',
+       uploading: 'Uploading...',
+       saving: 'Saving...',
++      saveTranslations: 'Save translations',
++      savingTranslations: 'Saving translations...',
+       remove: 'Remove',
+     },
+     messages: {
+@@ -104,6 +112,7 @@ export const places = {
+       onlineUrl: 'Add a valid online URL starting with http:// or https://.',
+       translationIncomplete: 'Complete both translated title and description, or remove that language.',
+       translationNameTooShort: 'Translated Place name must be at least 3 characters.',
++      lockedByPlan: 'This Place is already used in a Plan. Its main details are locked, but manual translations can still be updated.',
+       uploadFailed: 'Image upload failed ({{current}}/{{total}}). Try a smaller image or upload again.',
+     },
+     provider: {
+diff --git a/packages/i18n/src/locales/es/places.ts b/packages/i18n/src/locales/es/places.ts
+index cfe0c0afcc1acb562ac2ae4e93637fd9c6ffd040..bc164a1c2b9256cea4609613e3a3417b0015c575 100644
+--- a/packages/i18n/src/locales/es/places.ts
++++ b/packages/i18n/src/locales/es/places.ts
+@@ -20,6 +20,12 @@ export const places = {
+       edit: 'Actualiza los datos y la imagen de este lugar reutilizable.',
+       copy: 'Guarda una copia privada, añade una imagen opcional y vuelve a tu Plan.',
+     },
++    locked: {
++      title: 'Solo traducciones',
++      subtitle: 'Este lugar se usa en un Plan, así que solo se pueden actualizar sus traducciones manuales.',
++      body: 'Los datos principales, el idioma original, la dirección, el destino en línea y la imagen están bloqueados porque este lugar ya se usa en un Plan. Aún puedes añadir, editar o eliminar traducciones manuales.',
++      originalLanguage: 'El idioma original del lugar está bloqueado mientras este lugar se use en un Plan.',
++    },
+     steps: {
+       details: '1. Detalles',
+       image: '2. Imagen',
+@@ -91,6 +97,8 @@ export const places = {
+       save: 'Guardar lugar',
+       uploading: 'Subiendo…',
+       saving: 'Guardando…',
++      saveTranslations: 'Guardar traducciones',
++      savingTranslations: 'Guardando traducciones…',
+       remove: 'Eliminar',
+     },
+     messages: {
+@@ -104,6 +112,7 @@ export const places = {
+       onlineUrl: 'Añade una URL válida que empiece por http:// o https://.',
+       translationIncomplete: 'Completa el título y la descripción traducidos, o elimina ese idioma.',
+       translationNameTooShort: 'El nombre del lugar traducido debe tener al menos 3 caracteres.',
++      lockedByPlan: 'Este lugar ya se usa en un Plan. Sus datos principales están bloqueados, pero todavía puedes actualizar sus traducciones manuales.',
+       uploadFailed: 'Error al subir la imagen ({{current}}/{{total}}). Prueba con una imagen más pequeña o vuelve a intentarlo.',
+     },
+     provider: {
+diff --git a/packages/i18n/src/locales/fr/places.ts b/packages/i18n/src/locales/fr/places.ts
+index c9f9d9e566ec120f50d8554e021ec1ef330c45d6..8749fc62802714e7bac655573c214bf08f829461 100644
+--- a/packages/i18n/src/locales/fr/places.ts
++++ b/packages/i18n/src/locales/fr/places.ts
+@@ -20,6 +20,12 @@ export const places = {
+       edit: 'Mettez à jour les informations et l’image de ce lieu réutilisable.',
+       copy: 'Enregistrez une copie privée, ajoutez éventuellement une image, puis revenez à votre Plan.',
+     },
++    locked: {
++      title: 'Traductions uniquement',
++      subtitle: 'Ce lieu est utilisé dans un Plan : seules ses traductions manuelles peuvent être modifiées.',
++      body: 'Les informations principales, la langue originale, l’adresse, la destination en ligne et l’image sont verrouillées, car ce lieu est déjà utilisé dans un Plan. Vous pouvez toujours ajouter, modifier ou retirer des traductions manuelles.',
++      originalLanguage: 'La langue originale du lieu est verrouillée tant que ce lieu est utilisé dans un Plan.',
++    },
+     steps: {
+       details: '1. Informations',
+       image: '2. Image',
+@@ -91,6 +97,8 @@ export const places = {
+       save: 'Enregistrer le lieu',
+       uploading: 'Importation…',
+       saving: 'Enregistrement…',
++      saveTranslations: 'Enregistrer les traductions',
++      savingTranslations: 'Enregistrement des traductions…',
+       remove: 'Retirer',
+     },
+     messages: {
+@@ -104,6 +112,7 @@ export const places = {
+       onlineUrl: 'Ajoutez une URL valide commençant par http:// ou https://.',
+       translationIncomplete: 'Complétez le titre et la description traduits, ou retirez cette langue.',
+       translationNameTooShort: 'Le nom du lieu traduit doit contenir au moins 3 caractères.',
++      lockedByPlan: 'Ce lieu est déjà utilisé dans un Plan. Ses informations principales sont verrouillées, mais vous pouvez toujours modifier ses traductions manuelles.',
+       uploadFailed: 'Échec de l’importation de l’image ({{current}}/{{total}}). Essayez une image plus petite ou recommencez.',
+     },
+     provider: {

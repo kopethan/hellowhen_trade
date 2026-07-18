@@ -4,6 +4,55 @@ export const places = {
     fr: 'French',
     es: 'Spanish',
   },
+  list: {
+    headers: {
+      myPlaces: 'My places',
+      library: 'Place Library',
+    },
+    badges: {
+      mine: 'My place',
+      library: 'Library place',
+      online: 'Online',
+      offline: 'Offline',
+    },
+    fallback: {
+      description: 'Reusable place for future Plans.',
+      online: 'Online place',
+      offline: 'Offline place',
+    },
+    notice: {
+      title: 'Reusable Places',
+      body: 'Edit your saved Places here. Delete archives the Place from future pickers, while existing Plans keep their saved details.',
+    },
+    loading: 'Loading Places...',
+    errors: {
+      load: 'Could not load Places.',
+      delete: 'Could not delete Place.',
+      tryAgain: 'Check your connection and try again.',
+    },
+    empty: {
+      mineTitle: 'No Places yet',
+      mineBody: 'Create reusable Places first, then pick them while creating a Plan.',
+      libraryTitle: 'Library is empty',
+      libraryBody: 'Hellowhen Place Library items will appear here later.',
+    },
+    actions: {
+      create: 'Create Place',
+      edit: 'Edit',
+      delete: 'Delete',
+      deleting: 'Deleting...',
+      cancel: 'Cancel',
+    },
+    messages: {
+      title: 'My Places',
+      removed: '{{title}} was removed from My Places.',
+    },
+    confirmDelete: {
+      title: 'Delete Place?',
+      body: 'This removes the Place from My Places and future Plan pickers. Existing Plans keep their saved Place details.',
+      confirm: 'Delete Place',
+    },
+  },
   editor: {
     header: {
       create: 'Create place',
@@ -19,6 +68,17 @@ export const places = {
       create: 'Save an offline or online Place with an optional image.',
       edit: 'Update details and image for this reusable Place.',
       copy: 'Save a private copy, add an optional image, then return to your Plan.',
+    },
+    locked: {
+      title: 'Translations only',
+      subtitle: 'This Place is used in a Plan, so only its manual translations can be updated.',
+      body: 'Main details, original language, address, online destination, and image are locked because this Place is already used in a Plan. You can still add, edit, or remove manual translations.',
+      originalLanguage: 'The original Place language is locked while this Place is used in a Plan.',
+    },
+    unsaved: {
+      title: 'Discard Place changes?',
+      body: 'You have unsaved Place changes. Stay here to finish, or discard them and leave.',
+      discard: 'Discard changes',
     },
     steps: {
       details: '1. Details',
@@ -91,6 +151,8 @@ export const places = {
       save: 'Save Place',
       uploading: 'Uploading...',
       saving: 'Saving...',
+      saveTranslations: 'Save translations',
+      savingTranslations: 'Saving translations...',
       remove: 'Remove',
     },
     messages: {
@@ -104,6 +166,7 @@ export const places = {
       onlineUrl: 'Add a valid online URL starting with http:// or https://.',
       translationIncomplete: 'Complete both translated title and description, or remove that language.',
       translationNameTooShort: 'Translated Place name must be at least 3 characters.',
+      lockedByPlan: 'This Place is already used in a Plan. Its main details are locked, but manual translations can still be updated.',
       uploadFailed: 'Image upload failed ({{current}}/{{total}}). Try a smaller image or upload again.',
     },
     provider: {

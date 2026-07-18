@@ -1,0 +1,769 @@
+diff --git a/apps/mobile/src/components/AppHeader.tsx b/apps/mobile/src/components/AppHeader.tsx
+index df148ea..15a5e9a 100644
+--- a/apps/mobile/src/components/AppHeader.tsx
++++ b/apps/mobile/src/components/AppHeader.tsx
+@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
+ import { AppText } from './AppText';
+ import { MobileIcon } from './MobileIcon';
+ import { useThemeTokens } from '../providers/ThemeProvider';
++import { useTranslation } from '../providers/MobileI18nProvider';
+ 
+ type AppHeaderProps = {
+   title: string;
+@@ -12,12 +13,13 @@ type AppHeaderProps = {
+ 
+ export function AppHeader({ title, onBack, rightSlot }: AppHeaderProps) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+ 
+   return (
+     <View style={styles.headerRow}>
+       <Pressable
+         accessibilityRole="button"
+-        accessibilityLabel="Go back"
++        accessibilityLabel={t('navigation.goBack')}
+         onPress={onBack}
+         style={({ pressed }) => [
+           styles.backButton,
+diff --git a/apps/mobile/src/features/onboarding-guide/FeatureGuidePromptCard.tsx b/apps/mobile/src/features/onboarding-guide/FeatureGuidePromptCard.tsx
+index f2ced5a..6c1ccdb 100644
+--- a/apps/mobile/src/features/onboarding-guide/FeatureGuidePromptCard.tsx
++++ b/apps/mobile/src/features/onboarding-guide/FeatureGuidePromptCard.tsx
+@@ -5,6 +5,7 @@ import type { SemanticColorName } from '@hellowhen/theme';
+ import { AppText } from '../../components/AppText';
+ import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
++import { useTranslation } from '../../providers/MobileI18nProvider';
+ 
+ type FeatureGuidePromptCardProps = {
+   title: string;
+@@ -18,6 +19,7 @@ type FeatureGuidePromptCardProps = {
+ export function FeatureGuidePromptCard({ title, body, icon, tone, onStart, onDismiss }: FeatureGuidePromptCardProps) {
+   const theme = useThemeTokens();
+   const semanticTone = theme.semantic[tone];
++  const { t } = useTranslation();
+ 
+   return (
+     <View style={[styles.card, { backgroundColor: theme.color.surface, borderColor: semanticTone.border }]}>
+@@ -33,19 +35,19 @@ export function FeatureGuidePromptCard({ title, body, icon, tone, onStart, onDis
+       <View style={styles.actions}>
+         <Pressable
+           accessibilityRole="button"
+-          accessibilityLabel={`Start ${title.replace('?', '')} guide`}
++          accessibilityLabel={t('onboarding.prompt.startAccessibility', { title })}
+           onPress={onStart}
+           style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}
+         >
+-          <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Start guide</AppText>
++          <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('onboarding.prompt.start')}</AppText>
+         </Pressable>
+         <Pressable
+           accessibilityRole="button"
+-          accessibilityLabel={`Dismiss ${title.replace('?', '')} guide prompt`}
++          accessibilityLabel={t('onboarding.prompt.dismissAccessibility', { title })}
+           onPress={onDismiss}
+           style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.color.border, backgroundColor: theme.color.subtleSurface }, pressed && styles.pressed]}
+         >
+-          <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>Dismiss</AppText>
++          <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{t('onboarding.prompt.dismiss')}</AppText>
+         </Pressable>
+       </View>
+     </View>
+diff --git a/apps/mobile/src/features/onboarding-guide/GuideHubScreen.tsx b/apps/mobile/src/features/onboarding-guide/GuideHubScreen.tsx
+index 98d63a3..3f100bd 100644
+--- a/apps/mobile/src/features/onboarding-guide/GuideHubScreen.tsx
++++ b/apps/mobile/src/features/onboarding-guide/GuideHubScreen.tsx
+@@ -9,15 +9,16 @@ import { AppText } from '../../components/AppText';
+ import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
++import { useTranslation } from '../../providers/MobileI18nProvider';
+ import type { OnboardingGuideType } from './onboardingGuide.slides';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'GuideHub'>;
+ 
+ type GuideChoice = {
+-  title: string;
+-  body: string;
+-  badge: string;
+-  action: string;
++  titleKey: string;
++  bodyKey: string;
++  badgeKey: string;
++  actionKey: string;
+   guide: OnboardingGuideType;
+   icon: MobileIconName;
+   tone: SemanticColorName;
+@@ -25,28 +26,28 @@ type GuideChoice = {
+ 
+ const guideChoices: GuideChoice[] = [
+   {
+-    title: 'App guide',
+-    body: 'Replay the global app guide for navigation, Me, public feeds, and safety basics.',
+-    badge: 'App',
+-    action: 'Replay app guide',
++    titleKey: 'onboarding.hub.choices.global.title',
++    bodyKey: 'onboarding.hub.choices.global.body',
++    badgeKey: 'onboarding.hub.choices.global.badge',
++    actionKey: 'onboarding.hub.choices.global.action',
+     guide: 'global',
+     icon: 'help',
+     tone: 'info',
+   },
+   {
+-    title: 'Plans guide',
+-    body: 'Learn how plans, places, joining, creating, and safety work.',
+-    badge: 'Plans',
+-    action: 'Open Plans guide',
++    titleKey: 'onboarding.hub.choices.plans.title',
++    bodyKey: 'onboarding.hub.choices.plans.body',
++    badgeKey: 'onboarding.hub.choices.plans.badge',
++    actionKey: 'onboarding.hub.choices.plans.action',
+     guide: 'plans',
+     icon: 'plan',
+     tone: 'plan',
+   },
+   {
+-    title: 'Trade guide',
+-    body: 'Learn trade cards, needs/offers, proposals, and safe agreements.',
+-    badge: 'Trade',
+-    action: 'Open Trade guide',
++    titleKey: 'onboarding.hub.choices.trade.title',
++    bodyKey: 'onboarding.hub.choices.trade.body',
++    badgeKey: 'onboarding.hub.choices.trade.badge',
++    actionKey: 'onboarding.hub.choices.trade.action',
+     guide: 'trade',
+     icon: 'trade',
+     tone: 'trade',
+@@ -55,18 +56,19 @@ const guideChoices: GuideChoice[] = [
+ 
+ export function GuideHubScreen({ navigation }: Props) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+ 
+   function openGuide(guide: OnboardingGuideType) {
+     navigation.navigate('OnboardingGuide', { guide, replay: true });
+   }
+ 
+   return (
+-    <AppFixedHeaderScreen header={<AppHeader title="Guides" onBack={() => navigation.goBack()} />}>
++    <AppFixedHeaderScreen header={<AppHeader title={t('onboarding.hub.title')} onBack={() => navigation.goBack()} />}>
+       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+         <View style={[styles.hero, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-          <AppText style={styles.heroEyebrow}>GUIDE LIBRARY</AppText>
+-          <AppText style={styles.heroTitle}>Replay guides anytime</AppText>
+-          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Choose the App, Plans, or Trade guide. Public feeds stay open, and these guides are always available from Me.</AppText>
++          <AppText style={styles.heroEyebrow}>{t('onboarding.hub.eyebrow')}</AppText>
++          <AppText style={styles.heroTitle}>{t('onboarding.hub.heroTitle')}</AppText>
++          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t('onboarding.hub.heroBody')}</AppText>
+         </View>
+ 
+         <View style={styles.cards}>
+@@ -75,7 +77,7 @@ export function GuideHubScreen({ navigation }: Props) {
+             return (
+               <Pressable
+                 accessibilityRole="button"
+-                accessibilityLabel={choice.action}
++                accessibilityLabel={t(choice.actionKey)}
+                 key={choice.guide}
+                 onPress={() => openGuide(choice.guide)}
+                 style={({ pressed }) => [styles.card, { backgroundColor: theme.color.surface, borderColor: tone.border }, pressed && styles.pressed]}
+@@ -84,10 +86,10 @@ export function GuideHubScreen({ navigation }: Props) {
+                   <MobileIcon name={choice.icon} size={20} color={tone.text} />
+                 </View>
+                 <View style={styles.cardCopy}>
+-                  <AppText style={[styles.badge, { color: tone.text }]}>{choice.badge}</AppText>
+-                  <AppText style={styles.cardTitle}>{choice.title}</AppText>
+-                  <AppText style={[styles.cardBody, { color: theme.color.muted }]}>{choice.body}</AppText>
+-                  <AppText style={[styles.cardAction, { color: tone.text }]}>{choice.action}</AppText>
++                  <AppText style={[styles.badge, { color: tone.text }]}>{t(choice.badgeKey)}</AppText>
++                  <AppText style={styles.cardTitle}>{t(choice.titleKey)}</AppText>
++                  <AppText style={[styles.cardBody, { color: theme.color.muted }]}>{t(choice.bodyKey)}</AppText>
++                  <AppText style={[styles.cardAction, { color: tone.text }]}>{t(choice.actionKey)}</AppText>
+                 </View>
+                 <MobileIcon name="chevron-right" size={22} color={theme.color.muted} />
+               </Pressable>
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index fc6c3d1..6534690 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -328,11 +328,11 @@ export function TradeDeckFeedScreen() {
+     <View style={styles.feedIntroStack}>
+       {guidePrompt.visible ? (
+         <FeatureGuidePromptCard
+-          body="Learn trade cards, needs/offers, proposals, and safe agreements."
++          body={t('onboarding.prompt.tradeBody')}
+           icon="trade"
+           onDismiss={() => { void guidePrompt.dismiss(); }}
+           onStart={() => navigation.navigate('OnboardingGuide', { guide: 'trade', replay: true })}
+-          title="New to Trade?"
++          title={t('onboarding.prompt.tradeTitle')}
+           tone="trade"
+         />
+       ) : null}
+diff --git a/apps/mobile/src/features/trade/components/ImagePickerField.tsx b/apps/mobile/src/features/trade/components/ImagePickerField.tsx
+index b048bb6..856071d 100644
+--- a/apps/mobile/src/features/trade/components/ImagePickerField.tsx
++++ b/apps/mobile/src/features/trade/components/ImagePickerField.tsx
+@@ -178,12 +178,12 @@ export function ImagePickerField({
+             return (
+               <View key={image.uri} style={styles.preview}>
+                 <Image source={{ uri: image.uri }} style={styles.image} />
+-                {enableOrderControls ? <AppText style={styles.coverLabel}>{isCover ? 'Cover' : `Image ${index + 1}`}</AppText> : null}
++                {enableOrderControls ? <AppText style={styles.coverLabel}>{isCover ? t('inventory.form.coverImage') : t('inventory.form.imageNumber', { number: index + 1 })}</AppText> : null}
+                 {enableOrderControls ? (
+                   <View style={styles.orderRow}>
+-                    <Pressable accessibilityRole="button" accessibilityLabel="Move image earlier" accessibilityState={{ disabled: Boolean(disabled || index === 0) }} onPress={() => moveImage(image.uri, 'up')} disabled={disabled || index === 0} style={({ pressed }) => [styles.orderButton, (disabled || index === 0) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.orderText}>↑</AppText></Pressable>
+-                    <Pressable accessibilityRole="button" accessibilityLabel="Move image later" accessibilityState={{ disabled: Boolean(disabled || index === images.length - 1) }} onPress={() => moveImage(image.uri, 'down')} disabled={disabled || index === images.length - 1} style={({ pressed }) => [styles.orderButton, (disabled || index === images.length - 1) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.orderText}>↓</AppText></Pressable>
+-                    <Pressable accessibilityRole="button" accessibilityLabel="Set as cover" accessibilityState={{ disabled: Boolean(disabled || isCover) }} onPress={() => setCoverImage(image.uri)} disabled={disabled || isCover} style={({ pressed }) => [styles.orderButtonWide, (disabled || isCover) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.orderText}>Cover</AppText></Pressable>
++                    <Pressable accessibilityRole="button" accessibilityLabel={t('inventory.form.moveImageEarlier')} accessibilityState={{ disabled: Boolean(disabled || index === 0) }} onPress={() => moveImage(image.uri, 'up')} disabled={disabled || index === 0} style={({ pressed }) => [styles.orderButton, (disabled || index === 0) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.orderText}>↑</AppText></Pressable>
++                    <Pressable accessibilityRole="button" accessibilityLabel={t('inventory.form.moveImageLater')} accessibilityState={{ disabled: Boolean(disabled || index === images.length - 1) }} onPress={() => moveImage(image.uri, 'down')} disabled={disabled || index === images.length - 1} style={({ pressed }) => [styles.orderButton, (disabled || index === images.length - 1) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.orderText}>↓</AppText></Pressable>
++                    <Pressable accessibilityRole="button" accessibilityLabel={t('inventory.form.setAsCover')} accessibilityState={{ disabled: Boolean(disabled || isCover) }} onPress={() => setCoverImage(image.uri)} disabled={disabled || isCover} style={({ pressed }) => [styles.orderButtonWide, (disabled || isCover) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.orderText}>{t('inventory.form.coverImage')}</AppText></Pressable>
+                   </View>
+                 ) : null}
+                 <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.remove')} accessibilityState={{ disabled: Boolean(disabled) }} onPress={() => removeImage(image.uri)} disabled={disabled} style={({ pressed }) => [styles.remove, disabled && styles.disabled, pressed && styles.pressed]}>
+diff --git a/apps/mobile/src/features/users/UserIdentityPressable.tsx b/apps/mobile/src/features/users/UserIdentityPressable.tsx
+index a2c7c54..6fe3dcf 100644
+--- a/apps/mobile/src/features/users/UserIdentityPressable.tsx
++++ b/apps/mobile/src/features/users/UserIdentityPressable.tsx
+@@ -5,6 +5,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import { AppText } from '../../components/AppText';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
++import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { UserAvatar, getUserDisplayName, type UserAvatarSize } from './UserAvatar';
+ 
+ type UserIdentityProfile = {
+@@ -82,6 +83,7 @@ export function UserIdentityPressable({
+ }: UserIdentityPressableProps) {
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const resolvedUserId = userId ?? user?.id ?? null;
+   const profile = user?.profile ?? null;
+   const resolvedDisplayName = displayName ?? profile?.displayName ?? null;
+@@ -141,8 +143,8 @@ export function UserIdentityPressable({
+   return (
+     <Pressable
+       accessibilityRole="button"
+-      accessibilityLabel={accessibilityLabel ?? `Open ${name}'s public profile`}
+-      accessibilityHint="Shows public marketplace profile information only."
++      accessibilityLabel={accessibilityLabel ?? t('profile.accessibility.openPublicProfile', { name })}
++      accessibilityHint={t('profile.accessibility.publicProfileHint')}
+       hitSlop={6}
+       onPress={handlePress}
+       disabled={isStatic && !onPress}
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index 2dbc150..f1d741c 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -125,12 +125,12 @@ type MainTabParamList = Record<typeof normalAppNavItems[number]['mobileTabName']
+ const Tabs = createBottomTabNavigator<MainTabParamList>();
+ const Stack = createNativeStackNavigator<RootStackParamList>();
+ 
+-function AuthRequiredNotice({ title, body }: { title?: string; body?: string }) {
++function AuthRequiredNotice({ titleKey, bodyKey }: { titleKey?: string; bodyKey?: string }) {
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+-  const displayTitle = title ?? 'Login required';
+-  const displayBody = body ?? 'Sign in to continue with your saved needs, offers, proposals, and account settings.';
++  const displayTitle = t(titleKey ?? 'navigation.authRequired.default.title');
++  const displayBody = t(bodyKey ?? 'navigation.authRequired.default.body');
+ 
+   return (
+     <AppScreen>
+@@ -152,29 +152,29 @@ function AuthRequiredNotice({ title, body }: { title?: string; body?: string })
+   );
+ }
+ 
+-function withAuth<P extends object>(Component: React.ComponentType<P>, title?: string, body?: string) {
++function withAuth<P extends object>(Component: React.ComponentType<P>, titleKey?: string, bodyKey?: string) {
+   function ProtectedScreen(props: P) {
+     const auth = useAuth();
+-    if (!auth.isAuthenticated) return <AuthRequiredNotice title={title} body={body} />;
++    if (!auth.isAuthenticated) return <AuthRequiredNotice titleKey={titleKey} bodyKey={bodyKey} />;
+     return <Component {...props} />;
+   }
+   return ProtectedScreen;
+ }
+ 
+-const ProtectedMyNeedsScreen = withAuth(MyNeedsScreen, 'Login to manage needs', 'The public feed is open. Sign in to create, edit, and manage your own needs.');
+-const ProtectedMyOffersScreen = withAuth(MyOffersScreen, 'Login to manage offers', 'The public feed is open. Sign in to create, edit, and manage your own offers.');
+-const ProtectedAccountScreen = withAuth(AccountScreen, 'Login to open account', 'Sign in to access your profile, settings, support, and account tools.');
++const ProtectedMyNeedsScreen = withAuth(MyNeedsScreen, 'navigation.authRequired.manageNeeds.title', 'navigation.authRequired.manageNeeds.body');
++const ProtectedMyOffersScreen = withAuth(MyOffersScreen, 'navigation.authRequired.manageOffers.title', 'navigation.authRequired.manageOffers.body');
++const ProtectedAccountScreen = withAuth(AccountScreen, 'navigation.authRequired.account.title', 'navigation.authRequired.account.body');
+ const ProtectedProfileScreen = withAuth(ProfileScreen);
+ const ProtectedNotificationsScreen = withAuth(NotificationsScreen);
+ const ProtectedSavedLibraryScreen = withAuth(SavedLibraryScreen);
+ const ProtectedAgendaScreen = withAuth(AgendaScreen);
+-const ProtectedPlanPublicDiscussionScreen = withAuth(PlanPublicDiscussionScreen, 'Login to view Plan discussion', 'Public Plan discussion is available to logged-in members so moderation stays accountable.');
++const ProtectedPlanPublicDiscussionScreen = withAuth(PlanPublicDiscussionScreen, 'navigation.authRequired.planDiscussion.title', 'navigation.authRequired.planDiscussion.body');
+ const ProtectedMyPlansScreen = withAuth(MyPlansScreen);
+ const ProtectedJoinedPlansScreen = withAuth(JoinedPlansScreen);
+ const ProtectedMyPlacesScreen = withAuth(MyPlacesScreen);
+ const ProtectedPlaceLibraryScreen = withAuth(PlaceLibraryScreen);
+-const ProtectedCreatePlanScreen = withAuth(CreatePlanScreen, 'Login to create a plan', 'Create Plans after signing in so they stay attached to your account.');
+-const ProtectedCreatePlaceScreen = withAuth(CreatePlaceScreen, 'Login to create a place', 'Create reusable Places after signing in so they stay attached to your account.');
++const ProtectedCreatePlanScreen = withAuth(CreatePlanScreen, 'navigation.authRequired.createPlan.title', 'navigation.authRequired.createPlan.body');
++const ProtectedCreatePlaceScreen = withAuth(CreatePlaceScreen, 'navigation.authRequired.createPlace.title', 'navigation.authRequired.createPlace.body');
+ const ProtectedSavedCollectionDetailScreen = withAuth(SavedCollectionDetailScreen);
+ const ProtectedMembershipScreen = withAuth(MembershipScreen);
+ const ProtectedPlanSelectionScreen = withAuth(PlanSelectionScreen);
+@@ -188,19 +188,19 @@ const ProtectedBuyCreditsScreen = withAuth(BuyCreditsScreen);
+ const ProtectedSupportCenterScreen = withAuth(SupportCenterScreen);
+ const ProtectedAccountDeletionScreen = withAuth(AccountDeletionScreen);
+ const ProtectedSupportTicketDetailScreen = withAuth(SupportTicketDetailScreen);
+-const ProtectedCreateNeedScreen = withAuth(CreateNeedScreen, 'Login to create a need', 'Create needs after signing in so they stay attached to your account.');
+-const ProtectedCreateNeedFullScreen = withAuth(CreateNeedFullScreen, 'Login to create a need', 'Create needs after signing in so they stay attached to your account.');
++const ProtectedCreateNeedScreen = withAuth(CreateNeedScreen, 'navigation.authRequired.createNeed.title', 'navigation.authRequired.createNeed.body');
++const ProtectedCreateNeedFullScreen = withAuth(CreateNeedFullScreen, 'navigation.authRequired.createNeed.title', 'navigation.authRequired.createNeed.body');
+ const ProtectedNeedDetailScreen = withAuth(NeedDetailScreen);
+-const ProtectedCreateOfferScreen = withAuth(CreateOfferScreen, 'Login to create an offer', 'Create offers after signing in so they stay attached to your account.');
+-const ProtectedCreateOfferFullScreen = withAuth(CreateOfferFullScreen, 'Login to create an offer', 'Create offers after signing in so they stay attached to your account.');
++const ProtectedCreateOfferScreen = withAuth(CreateOfferScreen, 'navigation.authRequired.createOffer.title', 'navigation.authRequired.createOffer.body');
++const ProtectedCreateOfferFullScreen = withAuth(CreateOfferFullScreen, 'navigation.authRequired.createOffer.title', 'navigation.authRequired.createOffer.body');
+ const ProtectedOfferDetailScreen = withAuth(OfferDetailScreen);
+-const ProtectedCreateTradeScreen = withAuth(CreateTradeScreen, 'Login to create a trade', 'Browse the public feed now. Sign in when you are ready to publish a trade.');
+-const ProtectedCreateTradeFullScreen = withAuth(CreateTradeFullScreen, 'Login to create a trade', 'Browse the public feed now. Sign in when you are ready to publish a trade.');
++const ProtectedCreateTradeScreen = withAuth(CreateTradeScreen, 'navigation.authRequired.createTrade.title', 'navigation.authRequired.createTrade.body');
++const ProtectedCreateTradeFullScreen = withAuth(CreateTradeFullScreen, 'navigation.authRequired.createTrade.title', 'navigation.authRequired.createTrade.body');
+ const ProtectedTradeSidePickerScreen = withAuth(TradeSidePickerScreen);
+-const ProtectedCreateProposalScreen = withAuth(CreateProposalScreen, 'Login to send a proposal', 'Proposal messages are private, so you need an account before asking to trade.');
++const ProtectedCreateProposalScreen = withAuth(CreateProposalScreen, 'navigation.authRequired.sendProposal.title', 'navigation.authRequired.sendProposal.body');
+ const ProtectedProposalDetailScreen = withAuth(ProposalDetailScreen);
+-const ProtectedTradePublicDiscussionScreen = withAuth(TradePublicDiscussionScreen, 'Login to view public discussion', 'Public discussion is available to logged-in members so moderation stays accountable.');
+-const ProtectedTradePrivateProposalsScreen = withAuth(TradePrivateProposalsScreen, 'Login to view private proposals', 'Private proposal conversations are visible only to the trade owner and each applicant.');
++const ProtectedTradePublicDiscussionScreen = withAuth(TradePublicDiscussionScreen, 'navigation.authRequired.tradeDiscussion.title', 'navigation.authRequired.tradeDiscussion.body');
++const ProtectedTradePrivateProposalsScreen = withAuth(TradePrivateProposalsScreen, 'navigation.authRequired.privateProposals.title', 'navigation.authRequired.privateProposals.body');
+ 
+ function MeHomeScreen() {
+   const auth = useAuth();
+diff --git a/packages/i18n/src/locales/en/inventory.ts b/packages/i18n/src/locales/en/inventory.ts
+index c5f8780..53c4e05 100644
+--- a/packages/i18n/src/locales/en/inventory.ts
++++ b/packages/i18n/src/locales/en/inventory.ts
+@@ -259,6 +259,11 @@ export const inventory = {
+     imagePickerDefaultBody: 'Images appear on your saved Need or Offer after upload. Use support to report image/content issues.',
+     imagePickerHint: 'Add up to {{count}} JPEG, PNG, or WEBP images.',
+     selectedCount: '{{count}}/{{max}} selected',
++    coverImage: 'Cover',
++    imageNumber: 'Image {{number}}',
++    moveImageEarlier: 'Move image earlier',
++    moveImageLater: 'Move image later',
++    setAsCover: 'Set as cover',
+     previewTitleFallback: 'Title appears here',
+     previewMetaFallback: 'Mode · Location',
+     previewDescriptionFallback: 'A short summary will appear here while you write.',
+diff --git a/packages/i18n/src/locales/en/navigation.ts b/packages/i18n/src/locales/en/navigation.ts
+index 17ea9cb..12fe1ba 100644
+--- a/packages/i18n/src/locales/en/navigation.ts
++++ b/packages/i18n/src/locales/en/navigation.ts
+@@ -2,6 +2,60 @@ export const navigation = {
+   brand: 'Hellowhen Trade',
+   primary: 'Primary navigation',
+   goBack: 'Go back',
++  authRequired: {
++    default: {
++      title: 'Login required',
++      body: 'Sign in to continue with your saved needs, offers, proposals, and account settings.',
++    },
++    manageNeeds: {
++      title: 'Login to manage needs',
++      body: 'The public feed stays open. Sign in to create, edit, and manage your own needs.',
++    },
++    manageOffers: {
++      title: 'Login to manage offers',
++      body: 'The public feed stays open. Sign in to create, edit, and manage your own offers.',
++    },
++    account: {
++      title: 'Login to open your account',
++      body: 'Sign in to access your profile, settings, support, and account tools.',
++    },
++    planDiscussion: {
++      title: 'Login to view Plan discussion',
++      body: 'Public Plan discussion is available to logged-in members so moderation stays accountable.',
++    },
++    createPlan: {
++      title: 'Login to create a Plan',
++      body: 'Create Plans after signing in so they stay attached to your account.',
++    },
++    createPlace: {
++      title: 'Login to create a Place',
++      body: 'Create reusable Places after signing in so they stay attached to your account.',
++    },
++    createNeed: {
++      title: 'Login to create a Need',
++      body: 'Create Needs after signing in so they stay attached to your account.',
++    },
++    createOffer: {
++      title: 'Login to create an Offer',
++      body: 'Create Offers after signing in so they stay attached to your account.',
++    },
++    createTrade: {
++      title: 'Login to create a Trade',
++      body: 'Browse the public feed now. Sign in when you are ready to publish a Trade.',
++    },
++    sendProposal: {
++      title: 'Login to send a proposal',
++      body: 'Proposal messages are private, so you need an account before asking to trade.',
++    },
++    tradeDiscussion: {
++      title: 'Login to view public discussion',
++      body: 'Public discussion is available to logged-in members so moderation stays accountable.',
++    },
++    privateProposals: {
++      title: 'Login to view private proposals',
++      body: 'Private proposal conversations are visible only to the Trade owner and each applicant.',
++    },
++  },
+   tabs: {
+     trades: 'Trades',
+     needs: 'Needs',
+diff --git a/packages/i18n/src/locales/en/onboarding.ts b/packages/i18n/src/locales/en/onboarding.ts
+index e459271..2cef060 100644
+--- a/packages/i18n/src/locales/en/onboarding.ts
++++ b/packages/i18n/src/locales/en/onboarding.ts
+@@ -1,6 +1,40 @@
+ export const onboarding = {
+   ariaLabel: 'Hellowhen onboarding guide',
+   progress: '{{current}} / {{total}}',
++  hub: {
++    title: 'Guides',
++    eyebrow: 'Guide library',
++    heroTitle: 'Replay guides anytime',
++    heroBody: 'Choose the App, Plans, or Trade guide. Public feeds stay open, and these guides are always available from Me.',
++    choices: {
++      global: {
++        title: 'App guide',
++        body: 'Replay the global app guide for navigation, Me, public feeds, and safety basics.',
++        badge: 'App',
++        action: 'Replay app guide',
++      },
++      plans: {
++        title: 'Plans guide',
++        body: 'Learn how Plans, Places, joining, creating, and safety work.',
++        badge: 'Plans',
++        action: 'Open Plans guide',
++      },
++      trade: {
++        title: 'Trade guide',
++        body: 'Learn Trade cards, Needs/Offers, proposals, and safe agreements.',
++        badge: 'Trade',
++        action: 'Open Trade guide',
++      },
++    },
++  },
++  prompt: {
++    start: 'Start guide',
++    dismiss: 'Dismiss',
++    startAccessibility: 'Start {{title}}',
++    dismissAccessibility: 'Dismiss {{title}} prompt',
++    tradeTitle: 'New to Trade?',
++    tradeBody: 'Learn Trade cards, Needs/Offers, proposals, and safe agreements.',
++  },
+   actions: {
+     skip: 'Skip',
+     back: 'Back',
+diff --git a/packages/i18n/src/locales/en/profile.ts b/packages/i18n/src/locales/en/profile.ts
+index 11ecc22..1e8b8fc 100644
+--- a/packages/i18n/src/locales/en/profile.ts
++++ b/packages/i18n/src/locales/en/profile.ts
+@@ -95,6 +95,10 @@ export const profile = {
+       uploadReturnedNoImage: 'Upload completed but no image was returned.',
+     },
+   },
++  accessibility: {
++    openPublicProfile: "Open {{name}}'s public profile",
++    publicProfileHint: 'Shows public marketplace profile information only.',
++  },
+   actions: {
+     openApplicantProfile: 'Open applicant public profile',
+   },
+diff --git a/packages/i18n/src/locales/es/inventory.ts b/packages/i18n/src/locales/es/inventory.ts
+index 6c45bef..0533ec7 100644
+--- a/packages/i18n/src/locales/es/inventory.ts
++++ b/packages/i18n/src/locales/es/inventory.ts
+@@ -273,6 +273,11 @@ export const inventory = {
+     imagePickerDefaultBody: 'Las imágenes aparecerán en tu necesidad u oferta guardada después de subirlas. Usa soporte para reportar problemas de imagen o contenido.',
+     imagePickerHint: 'Añade hasta {{count}} imágenes JPEG, PNG o WEBP.',
+     selectedCount: '{{count}}/{{max}} seleccionadas',
++    coverImage: 'Portada',
++    imageNumber: 'Imagen {{number}}',
++    moveImageEarlier: 'Mover imagen hacia el principio',
++    moveImageLater: 'Mover imagen hacia el final',
++    setAsCover: 'Definir como portada',
+     previewTitleFallback: 'El título aparecerá aquí',
+     previewMetaFallback: 'Modo · Ubicación',
+     previewDescriptionFallback: 'Mientras escribes, aparecerá aquí un resumen corto.',
+diff --git a/packages/i18n/src/locales/es/navigation.ts b/packages/i18n/src/locales/es/navigation.ts
+index 47a698b..d4ae24f 100644
+--- a/packages/i18n/src/locales/es/navigation.ts
++++ b/packages/i18n/src/locales/es/navigation.ts
+@@ -4,6 +4,61 @@ export const navigation = {
+   ...enNavigation,
+   primary: 'Navegación principal',
+   goBack: 'Volver',
++  authRequired: {
++    ...enNavigation.authRequired,
++    default: {
++      title: 'Inicio de sesión obligatorio',
++      body: 'Inicia sesión para continuar con tus necesidades, ofertas, propuestas y ajustes de cuenta guardados.',
++    },
++    manageNeeds: {
++      title: 'Inicia sesión para gestionar tus necesidades',
++      body: 'El feed público sigue abierto. Inicia sesión para crear, editar y gestionar tus propias necesidades.',
++    },
++    manageOffers: {
++      title: 'Inicia sesión para gestionar tus ofertas',
++      body: 'El feed público sigue abierto. Inicia sesión para crear, editar y gestionar tus propias ofertas.',
++    },
++    account: {
++      title: 'Inicia sesión para abrir tu cuenta',
++      body: 'Inicia sesión para acceder a tu perfil, ajustes, soporte y herramientas de cuenta.',
++    },
++    planDiscussion: {
++      title: 'Inicia sesión para ver la conversación del Plan',
++      body: 'La conversación pública del Plan está disponible para miembros con sesión iniciada para mantener una moderación responsable.',
++    },
++    createPlan: {
++      title: 'Inicia sesión para crear un Plan',
++      body: 'Inicia sesión antes de crear Planes para que queden vinculados a tu cuenta.',
++    },
++    createPlace: {
++      title: 'Inicia sesión para crear un lugar',
++      body: 'Inicia sesión antes de crear lugares reutilizables para que queden vinculados a tu cuenta.',
++    },
++    createNeed: {
++      title: 'Inicia sesión para crear una necesidad',
++      body: 'Inicia sesión antes de crear necesidades para que queden vinculadas a tu cuenta.',
++    },
++    createOffer: {
++      title: 'Inicia sesión para crear una oferta',
++      body: 'Inicia sesión antes de crear ofertas para que queden vinculadas a tu cuenta.',
++    },
++    createTrade: {
++      title: 'Inicia sesión para crear un intercambio',
++      body: 'Puedes explorar el feed público ahora. Inicia sesión cuando quieras publicar un intercambio.',
++    },
++    sendProposal: {
++      title: 'Inicia sesión para enviar una propuesta',
++      body: 'Los mensajes de propuesta son privados, así que necesitas una cuenta antes de proponer un intercambio.',
++    },
++    tradeDiscussion: {
++      title: 'Inicia sesión para ver la conversación pública',
++      body: 'La conversación pública está disponible para miembros con sesión iniciada para mantener una moderación responsable.',
++    },
++    privateProposals: {
++      title: 'Inicia sesión para ver propuestas privadas',
++      body: 'Las conversaciones privadas de propuestas solo son visibles para el propietario del intercambio y cada solicitante.',
++    },
++  },
+   tabs: {
+     ...enNavigation.tabs,
+     trades: 'Intercambios',
+diff --git a/packages/i18n/src/locales/es/onboarding.ts b/packages/i18n/src/locales/es/onboarding.ts
+index f2b7882..97beb17 100644
+--- a/packages/i18n/src/locales/es/onboarding.ts
++++ b/packages/i18n/src/locales/es/onboarding.ts
+@@ -3,6 +3,42 @@ import { onboarding as enOnboarding } from '../en/onboarding';
+ export const onboarding = {
+   ...enOnboarding,
+   ariaLabel: 'Guía de bienvenida de Hellowhen',
++  hub: {
++    ...enOnboarding.hub,
++    title: 'Guías',
++    eyebrow: 'Biblioteca de guías',
++    heroTitle: 'Repite las guías cuando quieras',
++    heroBody: 'Elige la guía de la app, de Plans o de Trade. Los feeds públicos siguen abiertos y estas guías siempre están disponibles desde Me.',
++    choices: {
++      global: {
++        title: 'Guía de la app',
++        body: 'Repite la guía general sobre navegación, Me, feeds públicos y seguridad básica.',
++        badge: 'App',
++        action: 'Repetir guía de la app',
++      },
++      plans: {
++        title: 'Guía de Plans',
++        body: 'Aprende cómo funcionan Plans, lugares, unirse, crear y la seguridad.',
++        badge: 'Plans',
++        action: 'Abrir guía de Plans',
++      },
++      trade: {
++        title: 'Guía de Trade',
++        body: 'Aprende sobre tarjetas Trade, Necesidades/Ofertas, propuestas y acuerdos seguros.',
++        badge: 'Trade',
++        action: 'Abrir guía de Trade',
++      },
++    },
++  },
++  prompt: {
++    ...enOnboarding.prompt,
++    start: 'Empezar guía',
++    dismiss: 'Descartar',
++    startAccessibility: 'Empezar {{title}}',
++    dismissAccessibility: 'Descartar aviso de {{title}}',
++    tradeTitle: '¿Eres nuevo en Trade?',
++    tradeBody: 'Aprende sobre tarjetas Trade, Necesidades/Ofertas, propuestas y acuerdos seguros.',
++  },
+   actions: {
+     ...enOnboarding.actions,
+     skip: 'Saltar',
+diff --git a/packages/i18n/src/locales/es/profile.ts b/packages/i18n/src/locales/es/profile.ts
+index ac51258..c7b8ecb 100644
+--- a/packages/i18n/src/locales/es/profile.ts
++++ b/packages/i18n/src/locales/es/profile.ts
+@@ -52,6 +52,11 @@ export const profile = {
+     linkUnavailable: 'Este enlace de perfil público ya no está disponible.',
+     couldNotLoad: 'No se pudo cargar este perfil público.',
+   },
++  accessibility: {
++    ...enProfile.accessibility,
++    openPublicProfile: 'Abrir el perfil público de {{name}}',
++    publicProfileHint: 'Muestra únicamente información pública del perfil del marketplace.',
++  },
+   actions: {
+     ...enProfile.actions,
+     openApplicantProfile: 'Abrir perfil público del solicitante',
+diff --git a/packages/i18n/src/locales/fr/inventory.ts b/packages/i18n/src/locales/fr/inventory.ts
+index b6ee842..7febf91 100644
+--- a/packages/i18n/src/locales/fr/inventory.ts
++++ b/packages/i18n/src/locales/fr/inventory.ts
+@@ -259,6 +259,11 @@ export const inventory = {
+     imagePickerDefaultBody: 'Les images apparaissent sur votre besoin ou votre offre enregistrée après import. Utilisez l’assistance pour signaler un problème d’image ou de contenu.',
+     imagePickerHint: 'Ajoutez jusqu’à {{count}} images JPEG, PNG ou WEBP.',
+     selectedCount: '{{count}}/{{max}} sélectionnées',
++    coverImage: 'Couverture',
++    imageNumber: 'Image {{number}}',
++    moveImageEarlier: 'Déplacer l’image vers le début',
++    moveImageLater: 'Déplacer l’image vers la fin',
++    setAsCover: 'Définir comme couverture',
+     previewTitleFallback: 'Le titre apparaîtra ici',
+     previewMetaFallback: 'Mode · Lieu',
+     previewDescriptionFallback: 'Un court résumé apparaîtra ici pendant la saisie.',
+diff --git a/packages/i18n/src/locales/fr/navigation.ts b/packages/i18n/src/locales/fr/navigation.ts
+index becf2fb..aa2da96 100644
+--- a/packages/i18n/src/locales/fr/navigation.ts
++++ b/packages/i18n/src/locales/fr/navigation.ts
+@@ -2,6 +2,60 @@ export const navigation = {
+   brand: 'Hellowhen Trade',
+   primary: 'Navigation principale',
+   goBack: 'Retour',
++  authRequired: {
++    default: {
++      title: 'Connexion requise',
++      body: 'Connectez-vous pour continuer avec vos besoins, offres, propositions et paramètres de compte.',
++    },
++    manageNeeds: {
++      title: 'Connectez-vous pour gérer vos besoins',
++      body: 'Le fil public reste accessible. Connectez-vous pour créer, modifier et gérer vos propres besoins.',
++    },
++    manageOffers: {
++      title: 'Connectez-vous pour gérer vos offres',
++      body: 'Le fil public reste accessible. Connectez-vous pour créer, modifier et gérer vos propres offres.',
++    },
++    account: {
++      title: 'Connectez-vous pour ouvrir votre compte',
++      body: 'Connectez-vous pour accéder à votre profil, vos paramètres, l’assistance et les outils du compte.',
++    },
++    planDiscussion: {
++      title: 'Connectez-vous pour voir la discussion du Plan',
++      body: 'La discussion publique du Plan est réservée aux membres connectés afin de maintenir une modération responsable.',
++    },
++    createPlan: {
++      title: 'Connectez-vous pour créer un Plan',
++      body: 'Connectez-vous avant de créer un Plan afin qu’il reste associé à votre compte.',
++    },
++    createPlace: {
++      title: 'Connectez-vous pour créer un lieu',
++      body: 'Connectez-vous avant de créer des lieux réutilisables afin qu’ils restent associés à votre compte.',
++    },
++    createNeed: {
++      title: 'Connectez-vous pour créer un besoin',
++      body: 'Connectez-vous avant de créer un besoin afin qu’il reste associé à votre compte.',
++    },
++    createOffer: {
++      title: 'Connectez-vous pour créer une offre',
++      body: 'Connectez-vous avant de créer une offre afin qu’elle reste associée à votre compte.',
++    },
++    createTrade: {
++      title: 'Connectez-vous pour créer un échange',
++      body: 'Parcourez le fil public maintenant. Connectez-vous lorsque vous êtes prêt à publier un échange.',
++    },
++    sendProposal: {
++      title: 'Connectez-vous pour envoyer une proposition',
++      body: 'Les messages de proposition sont privés. Un compte est donc nécessaire avant de proposer un échange.',
++    },
++    tradeDiscussion: {
++      title: 'Connectez-vous pour voir la discussion publique',
++      body: 'La discussion publique est réservée aux membres connectés afin de maintenir une modération responsable.',
++    },
++    privateProposals: {
++      title: 'Connectez-vous pour voir les propositions privées',
++      body: 'Les conversations de proposition privées sont visibles uniquement par le propriétaire de l’échange et chaque candidat.',
++    },
++  },
+   tabs: {
+     trades: 'Échanges',
+     needs: 'Besoins',
+diff --git a/packages/i18n/src/locales/fr/onboarding.ts b/packages/i18n/src/locales/fr/onboarding.ts
+index 4d0ca99..5440d30 100644
+--- a/packages/i18n/src/locales/fr/onboarding.ts
++++ b/packages/i18n/src/locales/fr/onboarding.ts
+@@ -1,6 +1,40 @@
+ export const onboarding = {
+   ariaLabel: 'Guide de démarrage Hellowhen',
+   progress: '{{current}} / {{total}}',
++  hub: {
++    title: 'Guides',
++    eyebrow: 'Bibliothèque de guides',
++    heroTitle: 'Revoir les guides à tout moment',
++    heroBody: 'Choisissez le guide de l’app, de Plans ou de Trade. Les fils publics restent accessibles et ces guides sont toujours disponibles dans Me.',
++    choices: {
++      global: {
++        title: 'Guide de l’app',
++        body: 'Revoyez le guide général pour la navigation, Me, les fils publics et les bases de sécurité.',
++        badge: 'App',
++        action: 'Revoir le guide de l’app',
++      },
++      plans: {
++        title: 'Guide Plans',
++        body: 'Comprenez les Plans, les lieux, la participation, la création et la sécurité.',
++        badge: 'Plans',
++        action: 'Ouvrir le guide Plans',
++      },
++      trade: {
++        title: 'Guide Trade',
++        body: 'Comprenez les cartes Trade, les besoins et offres, les propositions et les accords sûrs.',
++        badge: 'Trade',
++        action: 'Ouvrir le guide Trade',
++      },
++    },
++  },
++  prompt: {
++    start: 'Commencer le guide',
++    dismiss: 'Ignorer',
++    startAccessibility: 'Commencer {{title}}',
++    dismissAccessibility: 'Ignorer l’invitation {{title}}',
++    tradeTitle: 'Vous découvrez Trade ?',
++    tradeBody: 'Comprenez les cartes Trade, les besoins et offres, les propositions et les accords sûrs.',
++  },
+   actions: {
+     skip: 'Passer',
+     back: 'Retour',
+diff --git a/packages/i18n/src/locales/fr/profile.ts b/packages/i18n/src/locales/fr/profile.ts
+index 79fff2b..ba8efe5 100644
+--- a/packages/i18n/src/locales/fr/profile.ts
++++ b/packages/i18n/src/locales/fr/profile.ts
+@@ -95,6 +95,10 @@ export const profile = {
+       uploadReturnedNoImage: 'L’envoi est terminé, mais aucune image n’a été retournée.',
+     },
+   },
++  accessibility: {
++    openPublicProfile: 'Ouvrir le profil public de {{name}}',
++    publicProfileHint: 'Affiche uniquement les informations publiques du profil marketplace.',
++  },
+   actions: {
+     openApplicantProfile: 'Ouvrir le profil public du candidat',
+   },

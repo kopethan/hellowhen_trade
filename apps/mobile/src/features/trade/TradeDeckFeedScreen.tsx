@@ -328,11 +328,11 @@ export function TradeDeckFeedScreen() {
     <View style={styles.feedIntroStack}>
       {guidePrompt.visible ? (
         <FeatureGuidePromptCard
-          body="Learn trade cards, needs/offers, proposals, and safe agreements."
+          body={t('onboarding.prompt.tradeBody')}
           icon="trade"
           onDismiss={() => { void guidePrompt.dismiss(); }}
           onStart={() => navigation.navigate('OnboardingGuide', { guide: 'trade', replay: true })}
-          title="New to Trade?"
+          title={t('onboarding.prompt.tradeTitle')}
           tone="trade"
         />
       ) : null}

@@ -4,6 +4,55 @@ export const places = {
     fr: 'Français',
     es: 'Espagnol',
   },
+  list: {
+    headers: {
+      myPlaces: 'Mes lieux',
+      library: 'Bibliothèque de lieux',
+    },
+    badges: {
+      mine: 'Mon lieu',
+      library: 'Lieu de la bibliothèque',
+      online: 'En ligne',
+      offline: 'Sur place',
+    },
+    fallback: {
+      description: 'Lieu réutilisable pour de futurs Plans.',
+      online: 'Lieu en ligne',
+      offline: 'Lieu sur place',
+    },
+    notice: {
+      title: 'Lieux réutilisables',
+      body: 'Modifiez vos lieux enregistrés ici. La suppression archive le lieu dans les futurs sélecteurs, tandis que les Plans existants conservent leurs informations enregistrées.',
+    },
+    loading: 'Chargement des lieux…',
+    errors: {
+      load: 'Impossible de charger les lieux.',
+      delete: 'Impossible de supprimer le lieu.',
+      tryAgain: 'Vérifiez votre connexion, puis réessayez.',
+    },
+    empty: {
+      mineTitle: 'Aucun lieu pour le moment',
+      mineBody: 'Créez d’abord des lieux réutilisables, puis sélectionnez-les lors de la création d’un Plan.',
+      libraryTitle: 'La bibliothèque est vide',
+      libraryBody: 'Les lieux de la bibliothèque Hellowhen apparaîtront ici ultérieurement.',
+    },
+    actions: {
+      create: 'Créer un lieu',
+      edit: 'Modifier',
+      delete: 'Supprimer',
+      deleting: 'Suppression…',
+      cancel: 'Annuler',
+    },
+    messages: {
+      title: 'Mes lieux',
+      removed: 'Le lieu « {{title}} » a été retiré de Mes lieux.',
+    },
+    confirmDelete: {
+      title: 'Supprimer ce lieu ?',
+      body: 'Cette action retire le lieu de Mes lieux et des futurs sélecteurs de Plan. Les Plans existants conservent les informations du lieu déjà enregistrées.',
+      confirm: 'Supprimer le lieu',
+    },
+  },
   editor: {
     header: {
       create: 'Créer un lieu',
@@ -19,6 +68,17 @@ export const places = {
       create: 'Enregistrez un lieu physique ou en ligne avec une image facultative.',
       edit: 'Mettez à jour les informations et l’image de ce lieu réutilisable.',
       copy: 'Enregistrez une copie privée, ajoutez éventuellement une image, puis revenez à votre Plan.',
+    },
+    locked: {
+      title: 'Traductions uniquement',
+      subtitle: 'Ce lieu est utilisé dans un Plan : seules ses traductions manuelles peuvent être modifiées.',
+      body: 'Les informations principales, la langue originale, l’adresse, la destination en ligne et l’image sont verrouillées, car ce lieu est déjà utilisé dans un Plan. Vous pouvez toujours ajouter, modifier ou retirer des traductions manuelles.',
+      originalLanguage: 'La langue originale du lieu est verrouillée tant que ce lieu est utilisé dans un Plan.',
+    },
+    unsaved: {
+      title: 'Abandonner les modifications du lieu ?',
+      body: 'Vous avez des modifications non enregistrées. Restez ici pour terminer ou abandonnez-les et quittez la page.',
+      discard: 'Abandonner les modifications',
     },
     steps: {
       details: '1. Informations',
@@ -91,6 +151,8 @@ export const places = {
       save: 'Enregistrer le lieu',
       uploading: 'Importation…',
       saving: 'Enregistrement…',
+      saveTranslations: 'Enregistrer les traductions',
+      savingTranslations: 'Enregistrement des traductions…',
       remove: 'Retirer',
     },
     messages: {
@@ -104,6 +166,7 @@ export const places = {
       onlineUrl: 'Ajoutez une URL valide commençant par http:// ou https://.',
       translationIncomplete: 'Complétez le titre et la description traduits, ou retirez cette langue.',
       translationNameTooShort: 'Le nom du lieu traduit doit contenir au moins 3 caractères.',
+      lockedByPlan: 'Ce lieu est déjà utilisé dans un Plan. Ses informations principales sont verrouillées, mais vous pouvez toujours modifier ses traductions manuelles.',
       uploadFailed: 'Échec de l’importation de l’image ({{current}}/{{total}}). Essayez une image plus petite ou recommencez.',
     },
     provider: {

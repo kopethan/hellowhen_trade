@@ -6,7 +6,8 @@ import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linkin
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
-import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaRequirementSummary, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
+import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, resolveInventoryOriginalCopy, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { AppText } from '../../components/AppText';
@@ -24,6 +25,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
+import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { resolveMediaVariantUrl } from '../trade/mediaUrls';
 import { ImagePickerField } from '../trade/components/ImagePickerField';
 import type { SelectedLocalImage, SelectedImageUploadProgress } from '../trade/mediaUpload';
@@ -58,30 +60,32 @@ function isPlanUnavailableError(error: unknown) {
   return candidate.status === 404 || candidate.status === 410 || candidate.body?.error === 'not_found' || candidate.body?.error === 'plan_deleted';
 }
 
-type PlanFilterOption = { label: string; value: string; body?: string };
-type PlanFilterGroup = { title: string; body: string; options: PlanFilterOption[] };
+type Translate = (key: string, values?: TranslationValues) => string;
+type PlanFilterKey = 'status' | 'mode' | 'join' | 'places' | 'time';
+type PlanFilterOption = { labelKey: string; value: string; bodyKey?: string };
+type PlanFilterGroup = { id: PlanFilterKey; titleKey: string; bodyKey: string; options: PlanFilterOption[] };
 
 const planFilterGroups: PlanFilterGroup[] = [
-  { title: 'Status', body: 'Choose which public Plan states should appear.', options: [
-    { label: 'Open', value: 'status:open', body: 'Available to join' },
-    { label: 'Full', value: 'status:full', body: 'Capacity reached' },
-    { label: 'Started', value: 'status:started', body: 'Already underway' },
+  { id: 'status', titleKey: 'plans.filters.groups.status.title', bodyKey: 'plans.filters.groups.status.body', options: [
+    { labelKey: 'plans.filters.groups.status.open.label', value: 'status:open', bodyKey: 'plans.filters.groups.status.open.body' },
+    { labelKey: 'plans.filters.groups.status.full.label', value: 'status:full', bodyKey: 'plans.filters.groups.status.full.body' },
+    { labelKey: 'plans.filters.groups.status.started.label', value: 'status:started', bodyKey: 'plans.filters.groups.status.started.body' },
   ] },
-  { title: 'Mode', body: 'Match the way the Plan happens.', options: [
-    { label: 'Local / offline', value: 'mode:local', body: 'Meet in person' },
-    { label: 'Online', value: 'mode:remote', body: 'Remote or link-based' },
+  { id: 'mode', titleKey: 'plans.filters.groups.mode.title', bodyKey: 'plans.filters.groups.mode.body', options: [
+    { labelKey: 'plans.filters.groups.mode.local.label', value: 'mode:local', bodyKey: 'plans.filters.groups.mode.local.body' },
+    { labelKey: 'plans.filters.groups.mode.remote.label', value: 'mode:remote', bodyKey: 'plans.filters.groups.mode.remote.body' },
   ] },
-  { title: 'Join', body: 'Surface Plans that can be joined freely.', options: [
-    { label: 'Free join', value: 'join:automatic', body: 'No approval request first' },
+  { id: 'join', titleKey: 'plans.filters.groups.join.title', bodyKey: 'plans.filters.groups.join.body', options: [
+    { labelKey: 'plans.filters.groups.join.automatic.label', value: 'join:automatic', bodyKey: 'plans.filters.groups.join.automatic.body' },
   ] },
-  { title: 'Places', body: 'Filter by route size.', options: [
-    { label: '1 place', value: 'places:one', body: 'Simple single stop' },
-    { label: '2+ places', value: 'places:multiple', body: 'A route or sequence' },
+  { id: 'places', titleKey: 'plans.filters.groups.places.title', bodyKey: 'plans.filters.groups.places.body', options: [
+    { labelKey: 'plans.filters.groups.places.one.label', value: 'places:one', bodyKey: 'plans.filters.groups.places.one.body' },
+    { labelKey: 'plans.filters.groups.places.multiple.label', value: 'places:multiple', bodyKey: 'plans.filters.groups.places.multiple.body' },
   ] },
-  { title: 'Time', body: 'Pick when the Plan starts.', options: [
-    { label: 'Today', value: 'time:today' },
-    { label: 'This week', value: 'time:week' },
-    { label: 'This month', value: 'time:month' },
+  { id: 'time', titleKey: 'plans.filters.groups.time.title', bodyKey: 'plans.filters.groups.time.body', options: [
+    { labelKey: 'plans.filters.groups.time.today.label', value: 'time:today' },
+    { labelKey: 'plans.filters.groups.time.week.label', value: 'time:week' },
+    { labelKey: 'plans.filters.groups.time.month.label', value: 'time:month' },
   ] },
 ];
 
@@ -90,8 +94,6 @@ function toggleFilterValue(values: string[], value: string) {
 }
 
 type PlanFilterRouteParams = { filters?: string[]; q?: string };
-
-type PlanFilterKey = 'status' | 'mode' | 'join' | 'places' | 'time';
 
 const planFilterKeys: PlanFilterKey[] = ['status', 'mode', 'join', 'places', 'time'];
 const allowedPlanFilterValues = new Set(planFilterGroups.flatMap((group) => group.options.map((option) => option.value)));
@@ -194,14 +196,14 @@ function applyPlanFilters(plans: PlanDto[], filters: string[], query?: string | 
   });
 }
 
-function filterSummary(filters: string[], query?: string | null) {
+function filterSummary(filters: string[], query: string | null | undefined, t: Translate) {
   const normalizedQuery = normalizePlanSearchQuery(query);
   if (!filters.length && !normalizedQuery) return '';
   const parts = planFilterKeys.map((key) => {
     const count = planFilterValues(filters, key).length;
-    return count ? `${count} ${key}` : '';
+    return count ? t(`plans.filters.summary.${key}`, { count }) : '';
   }).filter(Boolean);
-  if (normalizedQuery) parts.unshift(`Search: “${normalizedQuery}”`);
+  if (normalizedQuery) parts.unshift(t('plans.filters.summary.search', { query: normalizedQuery }));
   return parts.join(' · ');
 }
 
@@ -209,21 +211,55 @@ function isPlansVisible() {
   return betaFeatures.plansEnabled && betaFeatures.plansVisible;
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return 'Flexible time';
+const PLAN_DATE_LOCALES: Record<SupportedLanguage, string> = {
+  en: 'en-US',
+  fr: 'fr-FR',
+  es: 'es-ES',
+};
+
+function formatDate(value: string | null | undefined, language?: SupportedLanguage, t?: Translate) {
+  if (!value) return t ? t('plans.common.flexibleTime') : 'Flexible time';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
+  return new Intl.DateTimeFormat(language ? PLAN_DATE_LOCALES[language] : undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
-function getOwnerName(plan: PlanDto) {
-  return plan.owner?.profile?.displayName || plan.owner?.profile?.handle || 'Hellowhen member';
+function getOwnerName(plan: PlanDto, t?: Translate) {
+  return plan.owner?.profile?.displayName || plan.owner?.profile?.handle || (t ? t('plans.common.member') : 'Hellowhen member');
 }
 
-function getPlanMeta(plan: PlanDto) {
+function getPlanMeta(plan: PlanDto, t?: Translate) {
   const placeCount = plan.places?.length ?? 0;
   const participantCount = plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
-  return `${placeCount} ${placeCount === 1 ? 'place' : 'places'} · ${participantCount} joined`;
+  if (!t) return `${placeCount} ${placeCount === 1 ? 'place' : 'places'} · ${participantCount} joined`;
+  const places = t(placeCount === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: placeCount });
+  const joined = t('plans.row.joined', { count: participantCount });
+  return t('plans.row.meta', { places, joined });
+}
+
+function planStatusLabel(status: string, t: Translate) {
+  const knownStatuses = new Set(['open', 'full', 'started', 'completed', 'cancelled', 'draft', 'expired', 'hidden']);
+  return knownStatuses.has(status) ? t(`plans.status.${status}`) : status;
+}
+
+function participantStatusLabel(status: string, t: Translate) {
+  const knownStatuses = new Set(['accepted', 'pending', 'declined', 'cancelled']);
+  return knownStatuses.has(status) ? t(`plans.participantStatus.${status}`) : status;
+}
+
+function starterPlanIdeaRequirementSummaryLocalized(idea: StarterPlanIdea, t: Translate) {
+  const counts = starterPlanIdeaRequirementCounts(idea);
+  const requirements = [
+    counts.addressStops
+      ? t(counts.addressStops === 1 ? 'plans.deck.realAddressOne' : 'plans.deck.realAddressMany', { count: counts.addressStops })
+      : '',
+    counts.onlineLinkStops
+      ? t(counts.onlineLinkStops === 1 ? 'plans.deck.onlineLinkOne' : 'plans.deck.onlineLinkMany', { count: counts.onlineLinkStops })
+      : '',
+  ].filter(Boolean);
+  return requirements.length
+    ? t('plans.deck.requirementsNeeded', { requirements: requirements.join(' + ') })
+    : t('plans.deck.reviewBeforePublishing');
 }
 
 const RECENT_PLAN_IDEA_STORAGE_KEY = 'hellowhen_recent_plan_ideas_v1';
@@ -330,10 +366,6 @@ type PlanEndState = {
 
 type PlanCreateStage = 'build' | 'preview';
 
-const PLAN_OFFLINE_ADDRESS_TOP_ERROR = 'Some offline places need an address. Choose a verified address for each offline place, or delete the places you do not want to use.';
-const PLAN_OFFLINE_ADDRESS_INLINE_ERROR = 'Choose a verified address for this place, or delete it.';
-const PLAN_DRAFT_PLACE_REVIEW_ERROR = 'Some restored Places need review. Replace, fix, or remove each highlighted Place before previewing or publishing this Plan.';
-const PLAN_DRAFT_PLACE_CHECKING_ERROR = 'Wait while Hellowhen checks the saved Places restored from this draft.';
 
 type PlaceTranslationFormValue = LocalizedContentTranslationDraft;
 
@@ -528,10 +560,8 @@ async function clearCreatePlanDraft() {
   await AsyncStorage.removeItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
 }
 
-function formatCreatePlanDraftSavedAt(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'recently';
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
+function formatCreatePlanDraftSavedAt(value: string, language: SupportedLanguage) {
+  return formatLocalizedDateTime(value, language, '');
 }
 
 
@@ -633,8 +663,29 @@ function placeTranslationSummary(state: PlaceCreateFormState, t: PlanTranslation
   });
 }
 
-function placeHasTranslationContent(place?: PlaceDto | null) {
-  return Boolean((place?.translations ?? []).some((translation) => (translation.title ?? '').trim() || (translation.description ?? '').trim()));
+function placeTranslationDraftFingerprint(state: PlaceCreateFormState) {
+  return JSON.stringify(state.translations.map((translation) => ({
+    languageCode: translation.languageCode,
+    title: translation.title,
+    description: translation.description,
+  })));
+}
+
+function placeBaseDetailsFingerprint(state: PlaceCreateFormState) {
+  return JSON.stringify({
+    mode: state.mode,
+    title: state.title,
+    description: state.description,
+    defaultLanguage: state.defaultLanguage,
+    location: state.location,
+    providerAddress: state.providerAddress,
+    onlineLabel: state.onlineLabel,
+    onlineUrl: state.onlineUrl,
+  });
+}
+
+function placeMediaFingerprint(media: MediaAssetDto[]) {
+  return media.map((item) => item.id).join('|');
 }
 
 function normalizeOptionalText(value?: string | null) {
@@ -730,13 +781,14 @@ function makePlaceCreateForm(defaultLanguage: DiscoveryLanguage = 'en'): PlaceCr
 
 function placeCreateFormFromPlace(place: PlaceDto): PlaceCreateFormState {
   const mode = place.mode === 'remote' ? 'remote' : 'local';
-  const defaultLanguage = normalizePlaceLanguage(place.defaultLanguage);
+  const original = resolveInventoryOriginalCopy(place);
+  const defaultLanguage = normalizePlaceLanguage(original.defaultLanguage);
   return {
     mode,
-    title: place.title ?? '',
-    description: place.description ?? '',
+    title: original.title,
+    description: original.description,
     defaultLanguage,
-    translations: normalizeLocalizedContentTranslationDrafts((place.translations ?? []) as InventoryTranslationDto[], defaultLanguage),
+    translations: normalizeLocalizedContentTranslationDrafts(original.translations as InventoryTranslationDto[], defaultLanguage),
     location: mode === 'local' ? place.formattedAddress ?? place.addressPublicText ?? place.areaLabel ?? '' : '',
     providerAddress: mode === 'local' ? placeAddressFromReusablePlace(place) : null,
     onlineLabel: mode === 'remote' ? place.onlineLabel ?? '' : '',
@@ -756,8 +808,10 @@ function libraryPlaceSource(place: PlaceDto): SelectedPlanPlaceState['sourcePlac
   return place.source === 'hellowhen_library' ? 'hellowhen_library' : 'my_place';
 }
 
-function placeSourceLabel(place: PlaceDto) {
-  return place.source === 'hellowhen_library' ? 'Hellowhen Library' : 'My Place';
+function placeSourceLabel(place: PlaceDto, t?: PlanTranslationFunction) {
+  return place.source === 'hellowhen_library'
+    ? (t?.('plans.create.sourcePicker.library') ?? 'Hellowhen Library')
+    : (t?.('plans.create.placeDetail.sourceMine') ?? 'My Place');
 }
 
 function placeLocationForSelectedPlace(place: PlaceDto) {
@@ -993,7 +1047,12 @@ function planSelectedTimeRange(schedule: ReturnType<typeof buildMobilePlanSchedu
   return { start, end };
 }
 
-function planConflictWarning(plans: PlanDto[], schedule: ReturnType<typeof buildMobilePlanSchedule>, explicitEnd: ReturnType<typeof parseOptionalMobilePlanEnd>) {
+function planConflictWarning(
+  plans: PlanDto[],
+  schedule: ReturnType<typeof buildMobilePlanSchedule>,
+  explicitEnd: ReturnType<typeof parseOptionalMobilePlanEnd>,
+  t: PlanTranslationFunction,
+) {
   const selected = planSelectedTimeRange(schedule, explicitEnd);
   if (!selected) return '';
   const oneHour = 60 * 60 * 1000;
@@ -1006,21 +1065,35 @@ function planConflictWarning(plans: PlanDto[], schedule: ReturnType<typeof build
     const bufferedEnd = Math.max(planEnd.getTime(), planStart.getTime()) + oneHour;
     const overlapsOrTooClose = selected.start.getTime() < bufferedEnd && selected.end.getTime() > bufferedStart;
     if (!overlapsOrTooClose) continue;
-    const label = plan.title?.trim() || 'another Plan';
-    return `This time overlaps or sits within 1 hour of “${label}”. Leave at least 1 hour between Plans before publishing.`;
+    const label = plan.title?.trim() || t('plans.create.validation.anotherPlan');
+    return t('plans.create.validation.timeConflict', { plan: label });
   }
   return '';
 }
 
-function buildMobilePlanSchedule(places: SelectedPlanPlaceState[]) {
+function buildMobilePlanSchedule(places: SelectedPlanPlaceState[], t?: PlanTranslationFunction) {
   if (places.length === 0) {
-    return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: 'Add at least one place with a valid date and time.' };
+    return {
+      startsAt: '',
+      endsAt: '',
+      placeStartsAt: [] as Array<string | undefined>,
+      placeEndsAt: [] as Array<string | undefined>,
+      estimatedFinalEnd: null,
+      error: t?.('plans.create.validation.addValidPlace') ?? 'Add at least one place with a valid date and time.',
+    };
   }
 
   const firstPlace = places[0];
   const firstDateTime = firstPlace ? parseLocalDateTime(firstPlace.date, firstPlace.time) : null;
   if (!firstDateTime) {
-    return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: 'Add a valid date and time for Place 1.' };
+    return {
+      startsAt: '',
+      endsAt: '',
+      placeStartsAt: [] as Array<string | undefined>,
+      placeEndsAt: [] as Array<string | undefined>,
+      estimatedFinalEnd: null,
+      error: t?.('plans.create.validation.validDateTime', { index: 1 }) ?? 'Add a valid date and time for Place 1.',
+    };
   }
 
   let previousDateTime = firstDateTime;
@@ -1032,11 +1105,29 @@ function buildMobilePlanSchedule(places: SelectedPlanPlaceState[]) {
     if (!place) continue;
     const currentDateTime = parseLocalDateTime(place.date, place.time);
     if (!currentDateTime) {
-      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: `Add a valid date and time for Place ${index + 1}.` };
+      return {
+        startsAt: '',
+        endsAt: '',
+        placeStartsAt: [] as Array<string | undefined>,
+        placeEndsAt: [] as Array<string | undefined>,
+        estimatedFinalEnd: null,
+        error: t?.('plans.create.validation.validDateTime', { index: index + 1 }) ?? `Add a valid date and time for Place ${index + 1}.`,
+      };
     }
     const minNextStartTime = previousDateTime.getTime() + PLAN_MIN_STOP_START_GAP_MINUTES * 60_000;
     if (currentDateTime.getTime() < minNextStartTime) {
-      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: `Place ${index + 1} must start at least ${PLAN_MIN_STOP_START_GAP_MINUTES} minutes after Place ${index}.` };
+      return {
+        startsAt: '',
+        endsAt: '',
+        placeStartsAt: [] as Array<string | undefined>,
+        placeEndsAt: [] as Array<string | undefined>,
+        estimatedFinalEnd: null,
+        error: t?.('plans.create.validation.minimumGap', {
+          index: index + 1,
+          previous: index,
+          minutes: PLAN_MIN_STOP_START_GAP_MINUTES,
+        }) ?? `Place ${index + 1} must start at least ${PLAN_MIN_STOP_START_GAP_MINUTES} minutes after Place ${index}.`,
+      };
     }
     placeStartsAt[index] = currentDateTime.toISOString();
     previousDateTime = currentDateTime;
@@ -1056,12 +1147,12 @@ function buildMobilePlanSchedule(places: SelectedPlanPlaceState[]) {
   };
 }
 
-function parseOptionalMobilePlanEnd(end: PlanEndState, startsAt: string) {
+function parseOptionalMobilePlanEnd(end: PlanEndState, startsAt: string, t?: PlanTranslationFunction) {
   if (!end.date.trim() && !end.time.trim()) return { endsAt: '', error: '' };
-  if (!end.date.trim() || !end.time.trim()) return { endsAt: '', error: 'Add both an end date and end time, or leave the end empty.' };
+  if (!end.date.trim() || !end.time.trim()) return { endsAt: '', error: t?.('plans.create.validation.endBoth') ?? 'Add both an end date and end time, or leave the end empty.' };
   const parsed = parseLocalDateTime(end.date, end.time);
-  if (!parsed) return { endsAt: '', error: 'Add a valid end date and time, or leave the end empty.' };
-  if (startsAt && parsed.getTime() < new Date(startsAt).getTime()) return { endsAt: '', error: 'End time must be after the Plan start.' };
+  if (!parsed) return { endsAt: '', error: t?.('plans.create.validation.invalidEnd') ?? 'Add a valid end date and time, or leave the end empty.' };
+  if (startsAt && parsed.getTime() < new Date(startsAt).getTime()) return { endsAt: '', error: t?.('plans.create.validation.endAfterStart') ?? 'End time must be after the Plan start.' };
   return { endsAt: parsed.toISOString(), error: '' };
 }
 
@@ -1080,22 +1171,27 @@ function formatDurationMinutes(minutes?: number | null) {
   return `${remainder}m`;
 }
 
-function mobilePlanEndSummary(schedule: ReturnType<typeof buildMobilePlanSchedule>, end: PlanEndState) {
+function mobilePlanEndSummary(
+  schedule: ReturnType<typeof buildMobilePlanSchedule>,
+  end: PlanEndState,
+  t: PlanTranslationFunction,
+) {
   if (!schedule.startsAt) return null;
-  const parsedEnd = parseOptionalMobilePlanEnd(end, schedule.startsAt);
+  const parsedEnd = parseOptionalMobilePlanEnd(end, schedule.startsAt, t);
   const hasManualInput = hasMobilePlanEndOverride(end);
   if (hasManualInput && parsedEnd.error) return null;
   const manual = hasManualInput && Boolean(parsedEnd.endsAt);
   const endsAt = manual ? parsedEnd.endsAt : schedule.endsAt;
   if (!endsAt) return null;
   const estimatedDuration = formatDurationMinutes(schedule.estimatedFinalEnd?.roundedGapMinutes);
+  const duration = estimatedDuration ? ` (${estimatedDuration})` : '';
   const detail = manual
-    ? 'Manual override is active. Clear it to use the automatic estimate from the place times.'
+    ? t('plans.create.duration.manualDetail')
     : schedule.estimatedFinalEnd?.placeCount === 1
-      ? `Estimated from the single-place default${estimatedDuration ? ` (${estimatedDuration})` : ''}.`
-      : `Estimated from the average gap between places${estimatedDuration ? ` (${estimatedDuration})` : ''}.`;
+      ? t('plans.create.duration.singleEstimate', { duration })
+      : t('plans.create.duration.multipleEstimate', { duration });
   return {
-    label: manual ? 'Manual end' : 'Estimated end',
+    label: manual ? t('plans.create.duration.manualLabel') : t('plans.create.duration.estimatedLabel'),
     endLabel: formatCompactIsoDateTime(endsAt),
     detail,
     manual,
@@ -1108,27 +1204,27 @@ function planModeFromSelectedPlaces(places: SelectedPlanPlaceState[]) {
   return modes.has('remote') ? 'remote' as const : 'local' as const;
 }
 
-function placePreviewLocation(place: SelectedPlanPlaceState) {
-  if (place.mode === 'remote') return place.onlineLabel.trim() || place.onlineUrl.trim() || place.location.trim() || 'Online place';
-  return place.location.trim() || 'Offline place';
+function placePreviewLocation(place: SelectedPlanPlaceState, t?: PlanTranslationFunction) {
+  if (place.mode === 'remote') return place.onlineLabel.trim() || place.onlineUrl.trim() || place.location.trim() || (t?.('plans.create.place.onlinePlace') ?? 'Online place');
+  return place.location.trim() || (t?.('plans.create.place.offlinePlace') ?? 'Offline place');
 }
 
 
-function getPlanPlaceAddressRuleError(place: SelectedPlanPlaceState, index: number) {
-  const label = `Place ${index + 1}`;
+function getPlanPlaceAddressRuleError(place: SelectedPlanPlaceState, index: number, t?: PlanTranslationFunction) {
+  const label = t?.('plans.create.place.label', { index: index + 1 }) ?? `Place ${index + 1}`;
   if (place.mode === 'remote') {
-    const onlineError = getOnlineDestinationRequirementMessage(place);
+    const onlineError = getOnlineDestinationRequirementMessage(place, t);
     return onlineError ? `${label}: ${onlineError}` : '';
   }
-  const offlineError = getOfflineAddressRequirementMessage(place.providerAddress);
+  const offlineError = getOfflineAddressRequirementMessage(place.providerAddress, t);
   return offlineError ? `${label}: ${offlineError}` : '';
 }
 
-function getPlanPlacesAddressRuleError(places: SelectedPlanPlaceState[]) {
+function getPlanPlacesAddressRuleError(places: SelectedPlanPlaceState[], t?: PlanTranslationFunction) {
   for (let index = 0; index < places.length; index += 1) {
     const place = places[index];
     if (!place || (!place.title.trim() && !place.sourcePlaceId)) continue;
-    const error = getPlanPlaceAddressRuleError(place, index);
+    const error = getPlanPlaceAddressRuleError(place, index, t);
     if (error) return error;
   }
   return '';
@@ -1152,66 +1248,54 @@ function isReusablePlaceSelectable(place: PlaceDto) {
   return hasValidOfflineProviderAddress(placeAddressFromReusablePlace(place));
 }
 
-function reusablePlaceDisabledReason(place: PlaceDto) {
+function reusablePlaceDisabledReason(place: PlaceDto, t?: PlanTranslationFunction) {
   if (isReusablePlaceSelectable(place)) return '';
-  if (place.status === 'draft') return 'Finish this saved Place before using it in a Plan.';
-  if (place.status === 'archived') return 'This saved Place is archived.';
-  if (place.status === 'hidden') return 'This saved Place is hidden.';
-  if (place.mode === 'remote') return 'Add a valid online URL before using this Place.';
-  return 'Fix this Place first by selecting a confirmed Google address.';
+  if (place.status === 'draft') return t?.('plans.create.sourcePicker.finishSavedPlace') ?? 'Finish this saved Place before using it in a Plan.';
+  if (place.status === 'archived') return t?.('plans.create.sourcePicker.archivedPlace') ?? 'This saved Place is archived.';
+  if (place.status === 'hidden') return t?.('plans.create.sourcePicker.hiddenPlace') ?? 'This saved Place is hidden.';
+  if (place.mode === 'remote') return t?.('plans.create.sourcePicker.addOnlineUrl') ?? 'Add a valid online URL before using this Place.';
+  return t?.('plans.create.sourcePicker.fixAddress') ?? 'Fix this Place first by selecting a confirmed Google address.';
 }
 
 
-function planPreviewPlaceTitle(place: SelectedPlanPlaceState, index: number) {
-  return place.title.trim() || place.sourcePlaceTitle?.trim() || `Place ${index + 1}`;
+function planPreviewPlaceTitle(place: SelectedPlanPlaceState, index: number, t?: PlanTranslationFunction) {
+  return place.title.trim() || place.sourcePlaceTitle?.trim() || (t?.('plans.create.place.label', { index: index + 1 }) ?? `Place ${index + 1}`);
 }
 
-function planPreviewTimeLabel(place: SelectedPlanPlaceState) {
+function planPreviewTimeLabel(place: SelectedPlanPlaceState, t?: PlanTranslationFunction) {
   if (place.date && place.time) return `${place.date} · ${place.time}`;
   if (place.time) return place.time;
-  return 'Time required';
+  return t?.('plans.create.time.timeRequired') ?? 'Time required';
 }
 
 function getAcceptedParticipants(plan: PlanDto) {
   return [...(plan.participants ?? [])].filter((participant) => participant.status === 'accepted').sort((first, second) => new Date(first.createdAt).getTime() - new Date(second.createdAt).getTime());
 }
 
-function getParticipantName(participant: PlanParticipantDto) {
-  return participant.user?.profile?.displayName || participant.user?.profile?.handle || 'Hellowhen user';
+function getParticipantName(participant: PlanParticipantDto, t?: PlanTranslationFunction) {
+  return participant.user?.profile?.displayName || participant.user?.profile?.handle || (t ? t('plans.detail.people.memberFallback') : 'Hellowhen user');
 }
 
-function getParticipantInitial(participant: PlanParticipantDto) {
-  return getParticipantName(participant).trim().slice(0, 1).toUpperCase() || 'H';
+function getParticipantInitial(participant: PlanParticipantDto, t?: PlanTranslationFunction) {
+  return getParticipantName(participant, t).trim().slice(0, 1).toUpperCase() || 'H';
 }
 
-function formatPlanDateRange(plan: PlanDto) {
-  if (!plan.endsAt) return formatDate(plan.startsAt);
-  return `${formatDate(plan.startsAt)} – ${formatDate(plan.endsAt)}`;
+function formatPlanDateRange(plan: PlanDto, language: SupportedLanguage, t: PlanTranslationFunction) {
+  if (!plan.endsAt) return formatDate(plan.startsAt, language, t);
+  return `${formatDate(plan.startsAt, language, t)} – ${formatDate(plan.endsAt, language, t)}`;
 }
 
-function getPlanLocationLabel(plan: PlanDto) {
-  if (plan.locationLabel) return plan.locationLabel;
-  const firstPlace = [...(plan.places ?? [])].sort((first, second) => first.order - second.order)[0];
-  if (!firstPlace) return 'Places selected by the organizer';
-  if (firstPlace.mode === 'remote') return firstPlace.onlineLabel || firstPlace.onlineUrl || 'Online Plan';
-  return firstPlace.addressPublicText || firstPlace.sourcePlace?.areaLabel || 'Offline Plan';
-}
-
-function getPlanModeLabel(plan: PlanDto) {
-  if (plan.mode === 'remote') return 'Online';
-  if (plan.mode === 'local') return 'Local';
-  if (plan.mode === 'hybrid') return 'Local/Online';
+function getPlanModeLabel(plan: PlanDto, t: PlanTranslationFunction) {
+  if (plan.mode === 'remote') return t('plans.detail.values.online');
+  if (plan.mode === 'local') return t('plans.detail.values.local');
+  if (plan.mode === 'hybrid') return t('plans.detail.values.hybrid');
   const places = plan.places ?? [];
   const hasRemote = places.some((place) => place.mode === 'remote');
   const hasLocal = places.some((place) => place.mode !== 'remote');
-  if (hasRemote && hasLocal) return 'Local/Online';
-  if (hasRemote) return 'Online';
-  if (hasLocal) return 'Local';
-  return 'Local/Online';
-}
-
-function formatPlanStatusLabel(status: string) {
-  return status.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  if (hasRemote && hasLocal) return t('plans.detail.values.hybrid');
+  if (hasRemote) return t('plans.detail.values.online');
+  if (hasLocal) return t('plans.detail.values.local');
+  return t('plans.detail.values.hybrid');
 }
 
 function getPlanStatusTone(status: string) {
@@ -1222,24 +1306,24 @@ function getPlanStatusTone(status: string) {
   return 'muted' as const;
 }
 
-function getPlanJoinModeLabel(plan: PlanDto) {
-  return plan.joinApprovalMode === 'automatic' ? 'Free join' : 'Request to join';
+function getPlanJoinModeLabel(plan: PlanDto, t: PlanTranslationFunction) {
+  return plan.joinApprovalMode === 'automatic' ? t('plans.detail.values.freeJoin') : t('plans.detail.values.requestToJoin');
 }
 
-function getPlanJoinActionCopy(plan: PlanDto) {
-  if (plan.status === 'full') return 'This plan is full right now.';
-  if (plan.status === 'started') return 'This plan has already started.';
-  if (plan.status !== 'open') return `This plan is ${formatPlanStatusLabel(plan.status).toLowerCase()}.`;
-  return plan.joinApprovalMode === 'automatic' ? 'Free join is open. You can leave later.' : 'Send your interest to join this plan.';
+function getPlanJoinActionCopy(plan: PlanDto, t: PlanTranslationFunction) {
+  if (plan.status === 'full') return t('plans.detail.actions.full');
+  if (plan.status === 'started') return t('plans.detail.actions.started');
+  if (plan.status !== 'open') return t('plans.detail.actions.statusUnavailable', { status: planStatusLabel(plan.status, t) });
+  return plan.joinApprovalMode === 'automatic' ? t('plans.detail.actions.freeJoinOpen') : t('plans.detail.actions.requestJoinOpen');
 }
 
-function getPlanParticipantStateCopy(status: PlanDto['myParticipantStatus']) {
-  if (status === 'pending') return 'Your join request is waiting for the owner.';
-  if (status === 'left') return 'You left this plan.';
-  if (status === 'removed') return 'The owner removed you from this plan.';
-  if (status === 'declined') return 'The owner declined this request.';
-  if (status === 'cancelled') return 'Your join request was cancelled.';
-  return status ? `Your status: ${status}` : '';
+function getPlanParticipantStateCopy(status: PlanDto['myParticipantStatus'], t: PlanTranslationFunction) {
+  if (status === 'pending') return t('plans.detail.participantState.pending');
+  if (status === 'left') return t('plans.detail.participantState.left');
+  if (status === 'removed') return t('plans.detail.participantState.removed');
+  if (status === 'declined') return t('plans.detail.participantState.declined');
+  if (status === 'cancelled') return t('plans.detail.participantState.cancelled');
+  return status ? t('plans.detail.participantState.other', { status }) : '';
 }
 
 function canJoinPlanFromParticipantStatus(status: PlanDto['myParticipantStatus']) {
@@ -1280,6 +1364,9 @@ function formatPlaceUploadProgress(progress: SelectedImageUploadProgress | null,
 function getPlaceUploadErrorMessage(error: unknown, t?: PlanTranslationFunction) {
   if (error instanceof SelectedImageUploadError) {
     return t?.('places.editor.errors.uploadFailed', { current: error.current, total: error.total }) ?? `Image upload failed (${error.current}/${error.total}). Try a smaller image or upload again.`;
+  }
+  if (error && typeof error === 'object' && (error as { body?: { error?: string } }).body?.error === 'place_locked_by_plan') {
+    return t?.('places.editor.errors.lockedByPlan') ?? 'This Place is already used in a Plan. Its main details are locked, but manual translations can still be updated.';
   }
   return getFriendlyApiErrorMessage(error);
 }
@@ -1338,17 +1425,17 @@ function buildGoogleMapsDirectionsUrl(queries: string[]) {
   return `https://www.google.com/maps/dir/?${params.join('&')}`;
 }
 
-function buildPlanRouteMapsLink(places: PlanPlaceDto[]): PlanRouteMapsLink | null {
+function buildPlanRouteMapsLink(places: PlanPlaceDto[], t: PlanTranslationFunction): PlanRouteMapsLink | null {
   const offlineQueries = places.map(getPlanPlaceMapsQuery).filter((value): value is string => Boolean(value));
   if (!offlineQueries.length) return null;
   const includedQueries = offlineQueries.slice(0, GOOGLE_MAPS_MAX_ROUTE_STOPS);
   const skippedOnlineCount = places.filter((place) => place.mode === 'remote').length;
   const truncatedCount = Math.max(offlineQueries.length - includedQueries.length, 0);
-  const routeLabel = includedQueries.length > 1 ? 'Open route in Google Maps' : 'Open in Google Maps';
+  const routeLabel = includedQueries.length > 1 ? t('plans.detail.route.openRoute') : t('plans.detail.route.openSingle');
   const bodyParts = [
-    includedQueries.length > 1 ? `${includedQueries.length} offline stops` : '1 offline stop',
-    skippedOnlineCount ? `${skippedOnlineCount} online ${skippedOnlineCount === 1 ? 'place is' : 'places are'} skipped` : '',
-    truncatedCount ? `${truncatedCount} later ${truncatedCount === 1 ? 'stop is' : 'stops are'} skipped` : '',
+    t(includedQueries.length === 1 ? 'plans.detail.route.offlineStopOne' : 'plans.detail.route.offlineStopMany', { count: includedQueries.length }),
+    skippedOnlineCount ? t(skippedOnlineCount === 1 ? 'plans.detail.route.skippedOnlineOne' : 'plans.detail.route.skippedOnlineMany', { count: skippedOnlineCount }) : '',
+    truncatedCount ? t(truncatedCount === 1 ? 'plans.detail.route.skippedLaterOne' : 'plans.detail.route.skippedLaterMany', { count: truncatedCount }) : '',
   ].filter(Boolean);
   return {
     href: buildGoogleMapsDirectionsUrl(includedQueries),
@@ -1360,11 +1447,11 @@ function buildPlanRouteMapsLink(places: PlanPlaceDto[]): PlanRouteMapsLink | nul
   };
 }
 
-async function openPlanRouteMaps(routeMaps: PlanRouteMapsLink) {
+async function openPlanRouteMaps(routeMaps: PlanRouteMapsLink, t: PlanTranslationFunction) {
   try {
     await Linking.openURL(routeMaps.href);
   } catch {
-    Alert.alert('Could not open Google Maps', 'Try opening one address from the route instead.');
+    Alert.alert(t('plans.detail.route.openErrorTitle'), t('plans.detail.route.openErrorBody'));
   }
 }
 
@@ -1375,49 +1462,40 @@ function buildNativeMapsUrl(value: string) {
   return buildMapsSearchUrl(value);
 }
 
-function getPlanPlaceLocationDetails(place: PlanPlaceDto): PlanPlaceLocationDetails | null {
+function getPlanPlaceLocationDetails(place: PlanPlaceDto, t: PlanTranslationFunction): PlanPlaceLocationDetails | null {
   if (place.mode === 'remote') {
     const value = place.onlineUrl || place.onlineLabel || null;
     if (!value) return null;
     return {
       kind: 'remote',
-      label: place.onlineLabel && place.onlineUrl ? place.onlineLabel : 'Online place',
+      label: place.onlineLabel && place.onlineUrl ? place.onlineLabel : t('plans.detail.location.onlinePlace'),
       value,
       href: place.onlineUrl || undefined,
-      actionLabel: place.onlineUrl ? 'Open link' : undefined,
+      actionLabel: place.onlineUrl ? t('plans.detail.location.openLink') : undefined,
     };
   }
   const value = place.addressPublicText || place.sourcePlace?.addressPublicText || place.sourcePlace?.areaLabel || null;
   if (!value) return null;
   return {
     kind: 'local',
-    label: 'Offline address',
+    label: t('plans.detail.location.offlineAddress'),
     value,
     href: buildMapsSearchUrl(value),
-    actionLabel: 'Open in Maps',
+    actionLabel: t('plans.detail.location.openMaps'),
   };
 }
 
-function getPlanPlaceLocationLabel(place: PlanPlaceDto) {
-  return getPlanPlaceLocationDetails(place)?.value ?? null;
+function getPlanPlaceModeDisplay(place: PlanPlaceDto, t: PlanTranslationFunction) {
+  return place.mode === 'remote' ? t('plans.detail.values.online') : t('plans.detail.values.local');
 }
 
-function getPlanPlaceModeDisplay(place: PlanPlaceDto) {
-  return place.mode === 'remote' ? 'Online' : 'Local';
-}
-
-function getPlanPlaceTimeLabel(place: PlanPlaceDto, planStartsAt: string) {
-  const start = formatDate(place.startsAt ?? planStartsAt);
-  const end = place.endsAt ? formatDate(place.endsAt) : '';
+function getPlanPlaceTimeLabel(place: PlanPlaceDto, planStartsAt: string, language: SupportedLanguage, t: PlanTranslationFunction) {
+  const start = formatDate(place.startsAt ?? planStartsAt, language, t);
+  const end = place.endsAt ? formatDate(place.endsAt, language, t) : '';
   return end && end !== start ? `${start} → ${end}` : start;
 }
 
-function getPlanPlaceLocationPrefix(place: PlanPlaceDto) {
-  if (place.mode === 'remote') return place.onlineLabel && place.onlineUrl ? place.onlineLabel : 'Online';
-  return 'Address';
-}
-
-async function openPlanPlaceLocation(location: PlanPlaceLocationDetails) {
+async function openPlanPlaceLocation(location: PlanPlaceLocationDetails, t: PlanTranslationFunction) {
   if (!location.href) return;
   const preferredHref = location.kind === 'local' ? buildNativeMapsUrl(location.value) : location.href;
   try {
@@ -1432,18 +1510,18 @@ async function openPlanPlaceLocation(location: PlanPlaceLocationDetails) {
         // Fall through to the user-facing message below.
       }
     }
-    Alert.alert('Could not open location', 'Try sharing the address and opening it in your maps app.');
+    Alert.alert(t('plans.detail.location.openErrorTitle'), t('plans.detail.location.openErrorBody'));
   }
 }
 
-async function sharePlanPlaceLocation(location: PlanPlaceLocationDetails) {
+async function sharePlanPlaceLocation(location: PlanPlaceLocationDetails, t: PlanTranslationFunction) {
   try {
     await Share.share({
       title: location.label,
       message: location.value,
     });
   } catch {
-    Alert.alert('Could not share location', 'Try opening the address and copying it from your maps app.');
+    Alert.alert(t('plans.detail.location.shareErrorTitle'), t('plans.detail.location.shareErrorBody'));
   }
 }
 
@@ -1464,60 +1542,60 @@ function isOfflinePlanPlace(place: PlanPlaceDto) {
   return place.mode !== 'remote';
 }
 
-function formatPresenceDistance(value?: number | null) {
+function formatPresenceDistance(value: number | null | undefined, language: SupportedLanguage) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '';
-  if (value < 1000) return `${Math.round(value)}m away`;
-  return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}km away`;
+  if (value < 1000) return `${Math.round(value)} m`;
+  return `${new Intl.NumberFormat(PLAN_DATE_LOCALES[language], { maximumFractionDigits: value < 10_000 ? 1 : 0 }).format(value / 1000)} km`;
 }
 
-function presenceNoticeFromVerificationResponse(response: PlacePresenceVerificationResponse): PlanPlacePresenceNotice {
-  const distanceLabel = formatPresenceDistance(response.distanceMeters ?? response.verification.distanceMeters);
+function presenceNoticeFromVerificationResponse(response: PlacePresenceVerificationResponse, language: SupportedLanguage, t: PlanTranslationFunction): PlanPlacePresenceNotice {
+  const distanceLabel = formatPresenceDistance(response.distanceMeters ?? response.verification.distanceMeters, language);
   if (response.accepted) {
     return {
       tone: 'success',
-      title: response.alreadyVerified ? 'Already verified here' : 'Verified at this place',
-      body: distanceLabel ? `Your device location was accepted · ${distanceLabel}.` : 'Your device location was accepted for this offline place.',
+      title: response.alreadyVerified ? t('plans.detail.presence.alreadyVerifiedTitle') : t('plans.detail.presence.verifiedTitle'),
+      body: distanceLabel ? t('plans.detail.presence.acceptedWithDistance', { distance: distanceLabel }) : t('plans.detail.presence.acceptedBody'),
     };
   }
   if (response.verification.rejectionReason === 'gps_accuracy_too_low') {
     return {
       tone: 'warning',
-      title: 'GPS accuracy too low',
-      body: 'Move closer to the place, step outside if possible, and try again with a stronger location signal.',
+      title: t('plans.detail.presence.lowAccuracyTitle'),
+      body: t('plans.detail.presence.lowAccuracyBody'),
     };
   }
   if (response.verification.rejectionReason === 'too_far_from_place') {
     return {
       tone: 'warning',
-      title: 'Too far from this place',
-      body: distanceLabel ? `Your device seems ${distanceLabel}. Move closer and try again.` : 'Move closer to the selected offline place and try again.',
+      title: t('plans.detail.presence.tooFarTitle'),
+      body: distanceLabel ? t('plans.detail.presence.tooFarWithDistance', { distance: distanceLabel }) : t('plans.detail.presence.tooFarBody'),
     };
   }
   if (response.verification.rejectionReason === 'mock_location_detected') {
     return {
       tone: 'warning',
-      title: 'Mock location detected',
-      body: 'Turn off mock location tools and try again from your real device location.',
+      title: t('plans.detail.presence.mockTitle'),
+      body: t('plans.detail.presence.mockBody'),
     };
   }
   if (response.verification.rejectionReason === 'location_timestamp_stale' || response.verification.rejectionReason === 'location_timestamp_future') {
     return {
       tone: 'warning',
-      title: 'Location check expired',
-      body: 'Refresh your location and try again. We only accept fresh device location checks.',
+      title: t('plans.detail.presence.expiredTitle'),
+      body: t('plans.detail.presence.expiredBody'),
     };
   }
   if (response.verification.rejectionReason === 'suspicious_location_jump') {
     return {
       tone: 'warning',
-      title: 'Location jump looks unusual',
-      body: 'Wait a bit before verifying again. This protects offline trust stats from impossible travel patterns.',
+      title: t('plans.detail.presence.jumpTitle'),
+      body: t('plans.detail.presence.jumpBody'),
     };
   }
   return {
     tone: 'warning',
-    title: 'Could not verify presence',
-    body: 'Try again when your device has a stronger location signal.',
+    title: t('plans.detail.presence.failedTitle'),
+    body: t('plans.detail.presence.failedBody'),
   };
 }
 
@@ -1525,22 +1603,23 @@ function getPlanPlaceDescription(place: PlanPlaceDto) {
   return place.sourcePlace?.description?.trim() || '';
 }
 
-function getPlanPlaceSourceLabel(place: PlanPlaceDto) {
-  if (place.source === 'hellowhen_library') return 'Library place';
-  if (place.source === 'my_place') return 'My place';
-  return 'Custom stop';
+function getPlanPlaceSourceLabel(place: PlanPlaceDto, t: PlanTranslationFunction) {
+  if (place.source === 'hellowhen_library') return t('plans.detail.placeSource.library');
+  if (place.source === 'my_place') return t('plans.detail.placeSource.mine');
+  return t('plans.detail.placeSource.custom');
 }
 
 function DisabledPlansScreen({ onBack }: { onBack: () => void }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   return (
-    <AppFixedHeaderScreen header={<AppHeader title="Plans" onBack={onBack} />}>
+    <AppFixedHeaderScreen header={<AppHeader title={t('plans.common.title')} onBack={onBack} />}>
       <View style={styles.centerState}>
         <View style={[styles.largeIcon, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
           <MobileIcon name="plan" color={theme.semantic.plan.text} size={30} />
         </View>
-        <AppText style={styles.centerTitle}>Plans are hidden</AppText>
-        <AppText style={[styles.centerBody, { color: theme.color.muted }]}>The mobile Plan route skeleton is ready, but Plans stay hidden until the Plan feature flags are enabled.</AppText>
+        <AppText style={styles.centerTitle}>{t('plans.disabled.title')}</AppText>
+        <AppText style={[styles.centerBody, { color: theme.color.muted }]}>{t('plans.disabled.body')}</AppText>
       </View>
     </AppFixedHeaderScreen>
   );
@@ -1567,28 +1646,29 @@ function HeaderAction({ icon, label, onPress, badgeCount = 0 }: { icon: MobileIc
 
 function PlanRow({ plan, onPress }: { plan: PlanDto; onPress: () => void }) {
   const theme = useThemeTokens();
+  const { language, t } = useTranslation();
   const firstPlace = plan.places?.[0];
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.rowCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
       <View style={styles.rowTop}>
-        <SemanticBadge label={plan.status} tone={plan.status === 'open' ? 'success' : 'muted'} size="sm" />
-        {plan.myParticipantStatus ? <SemanticBadge label={plan.myParticipantStatus === 'accepted' ? 'Joined' : plan.myParticipantStatus} tone="proposal" size="sm" /> : null}
+        <SemanticBadge label={planStatusLabel(plan.status, t)} tone={plan.status === 'open' ? 'success' : 'muted'} size="sm" />
+        {plan.myParticipantStatus ? <SemanticBadge label={participantStatusLabel(plan.myParticipantStatus, t)} tone="proposal" size="sm" /> : null}
       </View>
       <AppText style={styles.rowTitle}>{plan.title}</AppText>
       <AppText style={[styles.rowBody, { color: theme.color.muted }]} numberOfLines={2}>{plan.description}</AppText>
       <View style={styles.metaRow}>
         <MobileIcon name="profile" size={15} color={theme.color.muted} />
-        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{getOwnerName(plan)}</AppText>
+        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{getOwnerName(plan, t)}</AppText>
       </View>
       <View style={styles.metaRow}>
         <MobileIcon name="calendar" size={15} color={theme.color.muted} />
-        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{formatDate(plan.startsAt)}</AppText>
+        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{formatDate(plan.startsAt, language, t)}</AppText>
       </View>
       <View style={styles.metaRow}>
         <MobileIcon name="activity" size={15} color={theme.color.muted} />
-        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{getPlanMeta(plan)}</AppText>
+        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{getPlanMeta(plan, t)}</AppText>
       </View>
-      {firstPlace ? <AppText style={[styles.placePreview, { color: theme.semantic.plan.text }]}>Starts with {firstPlace.title}</AppText> : null}
+      {firstPlace ? <AppText style={[styles.placePreview, { color: theme.semantic.plan.text }]}>{t('plans.row.startsWith', { place: firstPlace.title })}</AppText> : null}
     </Pressable>
   );
 }
@@ -1613,6 +1693,7 @@ function PlaceRow({
   archiving?: boolean;
 }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const isLibrary = place.source === 'hellowhen_library';
   const mediaUrl = placeVisualUrl(activeMedia(place.media)[0], place.staticMap, theme.mode);
   const content = (
@@ -1623,21 +1704,21 @@ function PlaceRow({
         </View>
         <View style={styles.placeRowCopy}>
           <View style={styles.rowTop}>
-            <SemanticBadge label={isLibrary ? 'Library place' : 'My place'} tone="place" size="sm" />
-            <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
+            <SemanticBadge label={isLibrary ? t('places.list.badges.library') : t('places.list.badges.mine')} tone="place" size="sm" />
+            <SemanticBadge label={place.mode === 'remote' ? t('places.list.badges.online') : t('places.list.badges.offline')} tone="muted" size="sm" />
             {placeDisplayLanguageLabel(place) ? <SemanticBadge label={placeDisplayLanguageLabel(place) ?? ''} tone="instruction" size="sm" /> : null}
           </View>
           <AppText style={styles.rowTitle}>{place.title}</AppText>
-          <AppText style={[styles.rowBody, { color: theme.color.muted }]} numberOfLines={2}>{place.description || 'Reusable place for future Plans.'}</AppText>
+          <AppText style={[styles.rowBody, { color: theme.color.muted }]} numberOfLines={2}>{place.description || t('places.list.fallback.description')}</AppText>
           <View style={styles.metaRow}>
             <MobileIcon name={place.mode === 'remote' ? 'send' : 'calendar'} size={15} color={theme.color.muted} />
-            <AppText style={[styles.metaText, { color: theme.color.muted }]} numberOfLines={1}>{place.mode === 'remote' ? (place.onlineLabel || place.onlineUrl || 'Online place') : (place.formattedAddress || place.areaLabel || place.addressPublicText || 'Offline place')}</AppText>
+            <AppText style={[styles.metaText, { color: theme.color.muted }]} numberOfLines={1}>{place.mode === 'remote' ? (place.onlineLabel || place.onlineUrl || t('places.list.fallback.online')) : (place.formattedAddress || place.areaLabel || place.addressPublicText || t('places.list.fallback.offline'))}</AppText>
           </View>
         </View>
       </View>
       {onEdit || onArchive ? (
         <View style={[styles.placeManageActions, { borderTopColor: theme.color.border }]}>
-          {onEdit ? <SecondaryButton label="Edit" onPress={onEdit} /> : null}
+          {onEdit ? <SecondaryButton label={t('places.list.actions.edit')} onPress={onEdit} /> : null}
           {onArchive ? (
             <Pressable
               accessibilityRole="button"
@@ -1645,7 +1726,7 @@ function PlaceRow({
               onPress={onArchive}
               style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.semantic.danger.border, backgroundColor: theme.semantic.danger.bg, flex: 1 }, pressed && styles.pressed, archiving && styles.disabled]}
             >
-              <AppText style={[styles.secondaryButtonText, { color: theme.semantic.danger.text }]}>{archiving ? 'Deleting...' : 'Delete'}</AppText>
+              <AppText style={[styles.secondaryButtonText, { color: theme.semantic.danger.text }]}>{archiving ? t('places.list.actions.deleting') : t('places.list.actions.delete')}</AppText>
             </Pressable>
           ) : null}
         </View>
@@ -1667,9 +1748,10 @@ function PlaceRow({
 function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope: PlanListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'>; filters?: string[]; searchQuery?: string }) {
   const theme = useThemeTokens();
   const auth = useAuth();
+  const { t } = useTranslation();
   const activeFilters = useMemo(() => normalizePlanFilters(filters), [filters.join('|')]);
   const activeSearchQuery = normalizePlanSearchQuery(searchQuery);
-  const activeFilterSummary = filterSummary(activeFilters, activeSearchQuery);
+  const activeFilterSummary = filterSummary(activeFilters, activeSearchQuery, t);
   const [plans, setPlans] = useState<PlanDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -1715,14 +1797,14 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
       const response = scope === 'mine' ? await api.plans.mine() : scope === 'joined' ? await api.plans.joined() : await api.plans.feed(buildPlanFeedQuery(activeFilters, activeSearchQuery));
       const nextPlans = response.plans ?? [];
       setPlans(scope === 'feed' ? applyPlanFilters(nextPlans, activeFilters, activeSearchQuery) : nextPlans);
-    } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError));
+    } catch {
+      setError(t('plans.list.errors.body'));
       setPlans([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [scope, activeFilters, activeSearchQuery]);
+  }, [scope, activeFilters, activeSearchQuery, t]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
@@ -1760,16 +1842,21 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
     <PlanRow plan={item.plan} onPress={() => navigation.navigate('PlanDetail', { planId: item.plan.id, title: item.plan.title })} />
   ), [navigation]);
 
+  const activeCount = activePlanFilterCount(activeFilters, activeSearchQuery);
   const filterHeader = scope === 'feed' && hasActiveSearchOrFilters ? (
-    <InfoNotice tone="info" title={`${activePlanFilterCount(activeFilters, activeSearchQuery)} active Plan filter${activePlanFilterCount(activeFilters, activeSearchQuery) === 1 ? '' : 's'}`} body={activeFilterSummary || 'Filtered Plan results'} />
+    <InfoNotice
+      tone="info"
+      title={t(activeCount === 1 ? 'plans.feed.activeFilters.one' : 'plans.feed.activeFilters.many', { count: activeCount })}
+      body={activeFilterSummary || t('plans.feed.activeFilters.fallback')}
+    />
   ) : null;
   const guidePromptHeader = scope === 'feed' && guidePrompt.visible ? (
     <FeatureGuidePromptCard
-      body="Learn how plans, places, joining, creating, and safety work."
+      body={t('plans.feed.guide.body')}
       icon="plan"
       onDismiss={() => { void guidePrompt.dismiss(); }}
       onStart={() => navigation.navigate('OnboardingGuide', { guide: 'plans', replay: true })}
-      title="New to Plans?"
+      title={t('plans.feed.guide.title')}
       tone="plan"
     />
   ) : null;
@@ -1781,20 +1868,20 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
   ) : null;
 
   if (loading) {
-    return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Plans...</AppText></View>;
+    return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('plans.list.loading')}</AppText></View>;
   }
 
-  if (error) return <InfoNotice tone="warning" title="Could not load Plans" body={error} />;
+  if (error) return <InfoNotice tone="warning" title={t('plans.list.errors.title')} body={error} />;
 
   if (plans.length === 0 && starterIdeas.length === 0) {
     const body = scope === 'mine'
-      ? 'Created Plans will appear here once you create one.'
+      ? t('plans.list.empty.mine')
       : scope === 'joined'
-        ? 'Plans you join will appear here.'
+        ? t('plans.list.empty.joined')
         : hasActiveSearchOrFilters
-          ? 'No Plans match this search and filters yet. Try changing the search words or resetting one or two filters.'
-          : 'Open Plans will appear here once people start creating them.';
-    return <EmptyBlock title="No Plans yet" body={body} actionLabel={scope === 'mine' ? 'Create plan' : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlan') : undefined} />;
+          ? t('plans.list.empty.filtered')
+          : t('plans.list.empty.feed');
+    return <EmptyBlock title={t('plans.list.empty.title')} body={body} actionLabel={scope === 'mine' ? t('plans.list.empty.create') : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlan') : undefined} />;
   }
 
 
@@ -1836,13 +1923,14 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
 
 const PlanDeckSection = React.memo(function PlanDeckSection({ plan, index, total, navigation }: { plan: PlanDto; index: number; total: number; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'> }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const handlePress = useCallback(() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title }), [navigation, plan.id, plan.title]);
   return (
     <View style={styles.deckSection}>
       <View style={styles.deckSectionHeader}>
         <View style={styles.deckSectionCopy}>
           <AppText style={styles.deckSectionTitle} numberOfLines={1}>{plan.title}</AppText>
-          <AppText style={[styles.deckSectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{getOwnerName(plan)} · {getPlanMeta(plan)}</AppText>
+          <AppText style={[styles.deckSectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{getOwnerName(plan, t)} · {getPlanMeta(plan, t)}</AppText>
         </View>
         <SemanticBadge label={`${index + 1}/${total}`} tone="muted" size="sm" />
       </View>
@@ -1853,30 +1941,33 @@ const PlanDeckSection = React.memo(function PlanDeckSection({ plan, index, total
 
 const PlanIdeaDeckSection = React.memo(function PlanIdeaDeckSection({ ideaKey, index, total, onPressIdea }: { ideaKey: StarterPlanIdeaKey; index: number; total: number; onPressIdea: (ideaKey: StarterPlanIdeaKey) => void }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const idea = starterPlanIdeas[ideaKey];
   const plan = useMemo(() => planIdeaPreviewPlan(idea), [idea]);
   const handlePress = useCallback(() => onPressIdea(ideaKey), [ideaKey, onPressIdea]);
+  const stopCountLabel = t(idea.stops.length === 1 ? 'plans.deck.ideaStopsOne' : 'plans.deck.ideaStopsMany', { count: idea.stops.length });
   return (
     <View style={styles.deckSection}>
       <View style={styles.deckSectionHeader}>
         <View style={styles.deckSectionCopy}>
           <AppText style={styles.deckSectionTitle} numberOfLines={1}>{idea.title}</AppText>
-          <AppText style={[styles.deckSectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{idea.stops.length} stops · {starterPlanIdeaRequirementSummary(idea)}</AppText>
+          <AppText style={[styles.deckSectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{stopCountLabel} · {starterPlanIdeaRequirementSummaryLocalized(idea, t)}</AppText>
         </View>
         <SemanticBadge label={`${index + 1}/${total}`} tone="muted" size="sm" />
       </View>
-      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} topBadgeLabel={`Plan idea · ${idea.pack}`} topBadgeTone="plan" showModeBadge={false} />
+      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} topBadgeLabel={t('plans.deck.ideaBadge', { pack: idea.pack })} topBadgeTone="plan" showModeBadge={false} />
     </View>
   );
 });
 
 function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'> }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const [places, setPlaces] = useState<PlaceDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<{ title: string; body: string } | null>(null);
+  const [removedPlaceTitle, setRemovedPlaceTitle] = useState<string | null>(null);
   const [archivingPlaceId, setArchivingPlaceId] = useState<string | null>(null);
   const [archiveConfirmPlace, setArchiveConfirmPlace] = useState<PlaceDto | null>(null);
 
@@ -1887,14 +1978,14 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
     try {
       const response = scope === 'library' ? await api.places.library() : await api.places.mine();
       setPlaces((response.places ?? []).filter((place) => place.status !== 'archived'));
-    } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError));
+    } catch {
+      setError({ title: t('places.list.errors.load'), body: t('places.list.errors.tryAgain') });
       setPlaces([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [scope]);
+  }, [scope, t]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
@@ -1907,26 +1998,26 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
     setArchiveConfirmPlace(null);
     setArchivingPlaceId(place.id);
     setError(null);
-    setMessage(null);
+    setRemovedPlaceTitle(null);
     try {
       await api.places.archive(place.id);
       setPlaces((current) => current.filter((item) => item.id !== place.id));
-      setMessage(`${place.title} was removed from My Places.`);
-    } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError, 'Could not delete Place.'));
+      setRemovedPlaceTitle(place.title);
+    } catch {
+      setError({ title: t('places.list.errors.delete'), body: t('places.list.errors.tryAgain') });
     } finally {
       setArchivingPlaceId(null);
     }
   }
 
   if (loading) {
-    return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Places...</AppText></View>;
+    return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('places.list.loading')}</AppText></View>;
   }
 
-  if (error) return <InfoNotice tone="warning" title="Could not load Places" body={error} />;
+  if (error) return <InfoNotice tone="warning" title={error.title} body={error.body} />;
 
   if (places.length === 0) {
-    return <EmptyBlock title={scope === 'library' ? 'Library is empty' : 'No Places yet'} body={scope === 'library' ? 'Hellowhen Place Library items will appear here later.' : 'Create reusable Places first, then pick them while creating a Plan.'} actionLabel={scope === 'mine' ? 'Create place' : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined} />;
+    return <EmptyBlock title={scope === 'library' ? t('places.list.empty.libraryTitle') : t('places.list.empty.mineTitle')} body={scope === 'library' ? t('places.list.empty.libraryBody') : t('places.list.empty.mineBody')} actionLabel={scope === 'mine' ? t('places.list.actions.create') : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined} />;
   }
 
   return (
@@ -1936,8 +2027,8 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
       >
-        {message ? <InfoNotice tone="success" title="My Places" body={message} /> : null}
-        {scope === 'mine' ? <InfoNotice tone="info" title="Reusable Places" body="Edit your saved Places here. Delete archives the Place from future pickers, while existing Plans keep their saved details." /> : null}
+        {removedPlaceTitle ? <InfoNotice tone="success" title={t('places.list.messages.title')} body={t('places.list.messages.removed', { title: removedPlaceTitle })} /> : null}
+        {scope === 'mine' ? <InfoNotice tone="info" title={t('places.list.notice.title')} body={t('places.list.notice.body')} /> : null}
         {places.map((place) => (
           <PlaceRow
             key={place.id}
@@ -1950,10 +2041,10 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
       </ScrollView>
       <AppConfirmSheet
         visible={Boolean(archiveConfirmPlace)}
-        title="Delete Place?"
-        body="This removes the Place from My Places and future Plan pickers. Existing Plans keep their saved Place details."
-        cancelLabel="Cancel"
-        confirmLabel="Delete Place"
+        title={t('places.list.confirmDelete.title')}
+        body={t('places.list.confirmDelete.body')}
+        cancelLabel={t('places.list.actions.cancel')}
+        confirmLabel={t('places.list.confirmDelete.confirm')}
         tone="danger"
         confirmDisabled={Boolean(archivingPlaceId)}
         onCancel={() => setArchiveConfirmPlace(null)}
@@ -1992,6 +2083,7 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
   const fallbackNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const navigation = (props.navigation ?? fallbackNavigation) as NativeStackNavigationProp<RootStackParamList>;
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const routeParams = props.route?.params as PlanFilterRouteParams | undefined;
   const activeFilters = normalizePlanFilters(routeParams?.filters);
   const activeSearchQuery = normalizePlanSearchQuery(routeParams?.q);
@@ -2026,12 +2118,12 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
   const header = (
     <View style={styles.feedHeader}>
       <View style={styles.feedTitleWrap}>
-        <AppText style={styles.feedTitle}>Plans</AppText>
+        <AppText style={styles.feedTitle}>{t('plans.common.title')}</AppText>
       </View>
       <View style={styles.headerActions}>
-        <HeaderAction icon="filter" label={activeFilterCount ? `Filter Plans, ${activeFilterCount} active` : 'Filter Plans'} badgeCount={activeFilterCount} onPress={() => { setMenuOpen(false); navigation.navigate('PlanFilters', { filters: activeFilters, q: activeSearchQuery || undefined }); }} />
-        <HeaderAction icon="activity" label="Open Plan menu" onPress={() => setMenuOpen((value) => !value)} />
-        <HeaderAction icon="add" label="Create Plan" onPress={() => navigation.navigate('CreatePlan')} />
+        <HeaderAction icon="filter" label={activeFilterCount ? t('plans.feed.actions.filterActive', { count: activeFilterCount }) : t('plans.feed.actions.filter')} badgeCount={activeFilterCount} onPress={() => { setMenuOpen(false); navigation.navigate('PlanFilters', { filters: activeFilters, q: activeSearchQuery || undefined }); }} />
+        <HeaderAction icon="activity" label={t('plans.feed.actions.menu')} onPress={() => setMenuOpen((value) => !value)} />
+        <HeaderAction icon="add" label={t('plans.feed.actions.create')} onPress={() => navigation.navigate('CreatePlan')} />
       </View>
     </View>
   );
@@ -2054,6 +2146,7 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
   const fallbackNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const navigation = (props.navigation ?? fallbackNavigation) as NativeStackNavigationProp<RootStackParamList>;
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const incomingParams = props.route?.params as PlanFilterRouteParams | undefined;
   const incomingFilters = normalizePlanFilters(incomingParams?.filters);
   const incomingQuery = normalizePlanSearchQuery(incomingParams?.q);
@@ -2079,24 +2172,24 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
   }
 
   return (
-    <AppFixedHeaderScreen header={<AppHeader title="Plan filters" onBack={() => navigation.goBack()} />}>
+    <AppFixedHeaderScreen header={<AppHeader title={t('plans.filters.title')} onBack={() => navigation.goBack()} />}>
       <ScrollView contentContainerStyle={styles.planFilterContent} showsVerticalScrollIndicator={false}>
         <View style={[styles.hero, styles.planFilterHero, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
           <View style={[styles.menuIcon, { backgroundColor: theme.color.surface, borderColor: theme.semantic.plan.border }]}>
             <MobileIcon name="filter" size={18} color={theme.semantic.plan.text} />
           </View>
-          <AppText style={styles.heroTitle}>Find the right Plan</AppText>
-          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Search words and filter choices stay attached to the feed so we can learn what people look for later.</AppText>
+          <AppText style={styles.heroTitle}>{t('plans.filters.heroTitle')}</AppText>
+          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t('plans.filters.heroBody')}</AppText>
         </View>
 
         <View style={[styles.planFilterSearchCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-          <AppText style={styles.formLabel}>Search</AppText>
+          <AppText style={styles.formLabel}>{t('plans.filters.searchLabel')}</AppText>
           <View style={[styles.planFilterSearchInputWrap, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
             <MobileIcon name="search" size={18} color={theme.color.muted} />
             <TextInput
               value={searchQuery}
               onChangeText={(value) => setSearchQuery(value.slice(0, 120))}
-              placeholder="Search plans, places, titles..."
+              placeholder={t('plans.filters.searchPlaceholder')}
               placeholderTextColor={theme.color.muted}
               autoCapitalize="none"
               autoCorrect={false}
@@ -2104,19 +2197,19 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
               style={[styles.planFilterSearchInput, { color: theme.color.text }]}
             />
             {normalizedSearchQuery ? (
-              <Pressable accessibilityRole="button" accessibilityLabel="Clear Plan search" onPress={() => setSearchQuery('')} style={({ pressed }) => [styles.planFilterSearchClear, { backgroundColor: theme.semantic.plan.softBg }, pressed && styles.pressed]}>
-                <AppText style={[styles.planFilterSearchClearText, { color: theme.semantic.plan.text }]}>Clear</AppText>
+              <Pressable accessibilityRole="button" accessibilityLabel={t('plans.filters.clearSearch')} onPress={() => setSearchQuery('')} style={({ pressed }) => [styles.planFilterSearchClear, { backgroundColor: theme.semantic.plan.softBg }, pressed && styles.pressed]}>
+                <AppText style={[styles.planFilterSearchClearText, { color: theme.semantic.plan.text }]}>{t('plans.filters.clear')}</AppText>
               </Pressable>
             ) : null}
           </View>
-          <AppText style={[styles.choiceMeta, { color: theme.color.muted }]}>Search words are preserved with your filters. Result counts are logged privately for future Plan suggestions.</AppText>
+          <AppText style={[styles.choiceMeta, { color: theme.color.muted }]}>{t('plans.filters.searchHelp')}</AppText>
         </View>
 
         {planFilterGroups.map((group) => (
-          <View key={group.title} style={[styles.planFilterGroup, { borderColor: theme.color.border }]}>
+          <View key={group.id} style={[styles.planFilterGroup, { borderColor: theme.color.border }]}>
             <View style={styles.placeCreateSectionHeader}>
-              <AppText style={styles.sectionTitle}>{group.title}</AppText>
-              <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{group.body}</AppText>
+              <AppText style={styles.sectionTitle}>{t(group.titleKey)}</AppText>
+              <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t(group.bodyKey)}</AppText>
             </View>
             <View style={styles.planFilterOptionGrid}>
               {group.options.map((option) => {
@@ -2138,8 +2231,8 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
                       {selected ? <MobileIcon name="close" size={11} color={theme.color.background} /> : null}
                     </View>
                     <View style={styles.planFilterOptionCopy}>
-                      <AppText style={[styles.choiceTitle, selected && { color: theme.semantic.plan.text }]}>{option.label}</AppText>
-                      {option.body ? <AppText style={[styles.choiceMeta, { color: theme.color.muted }]}>{option.body}</AppText> : null}
+                      <AppText style={[styles.choiceTitle, selected && { color: theme.semantic.plan.text }]}>{t(option.labelKey)}</AppText>
+                      {option.bodyKey ? <AppText style={[styles.choiceMeta, { color: theme.color.muted }]}>{t(option.bodyKey)}</AppText> : null}
                     </View>
                   </Pressable>
                 );
@@ -2149,8 +2242,8 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
         ))}
 
         <View style={styles.planFilterFooter}>
-          <SecondaryButton label="Reset" icon="refresh" onPress={reset} disabled={activeCount === 0} />
-          <PrimaryButton label={activeCount ? `Show plans (${activeCount})` : 'Show plans'} onPress={() => navigation.navigate('Plans', activeCount ? { filters: selectedFilters, q: normalizedSearchQuery || undefined } : undefined)} />
+          <SecondaryButton label={t('plans.filters.reset')} icon="refresh" onPress={reset} disabled={activeCount === 0} />
+          <PrimaryButton label={activeCount ? t('plans.filters.showCount', { count: activeCount }) : t('plans.filters.show')} onPress={() => navigation.navigate('Plans', activeCount ? { filters: selectedFilters, q: normalizedSearchQuery || undefined } : undefined)} />
         </View>
       </ScrollView>
     </AppFixedHeaderScreen>
@@ -2184,14 +2277,15 @@ function PlanDetailInfoRow({ label, value }: { label: string; value: string }) {
 
 function PlanOwnerRow({ plan }: { plan: PlanDto }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   return (
     <View style={[styles.planOwnerRow, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
       <View style={[styles.planOwnerAvatar, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
         <AppText style={[styles.planOwnerInitial, { color: theme.semantic.plan.text }]}>{getOwnerInitial(plan)}</AppText>
       </View>
       <View style={styles.planOwnerCopy}>
-        <AppText style={[styles.planOwnerLabel, { color: theme.color.muted }]}>Posted by</AppText>
-        <AppText style={styles.planOwnerName}>{getOwnerName(plan)}</AppText>
+        <AppText style={[styles.planOwnerLabel, { color: theme.color.muted }]}>{t('plans.detail.hero.postedBy')}</AppText>
+        <AppText style={styles.planOwnerName}>{getOwnerName(plan, t)}</AppText>
       </View>
     </View>
   );
@@ -2204,14 +2298,15 @@ function PlanSectionDivider() {
 
 function ParticipantCompactRow({ participant }: { participant: PlanParticipantDto }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   return (
     <View style={[styles.participantRow, { borderBottomColor: theme.color.border }]}>
       <View style={[styles.participantAvatar, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
-        <AppText style={[styles.participantInitial, { color: theme.semantic.plan.text }]}>{getParticipantInitial(participant)}</AppText>
+        <AppText style={[styles.participantInitial, { color: theme.semantic.plan.text }]}>{getParticipantInitial(participant, t)}</AppText>
       </View>
       <View style={styles.participantCopy}>
-        <AppText style={styles.participantName}>{getParticipantName(participant)}</AppText>
-        <AppText style={[styles.participantStatus, { color: theme.color.muted }]}>{participant.status === 'accepted' ? 'Joined' : participant.status}</AppText>
+        <AppText style={styles.participantName}>{getParticipantName(participant, t)}</AppText>
+        <AppText style={[styles.participantStatus, { color: theme.color.muted }]}>{participantStatusLabel(participant.status, t)}</AppText>
       </View>
     </View>
   );
@@ -2219,16 +2314,17 @@ function ParticipantCompactRow({ participant }: { participant: PlanParticipantDt
 
 function PlanPlaceLocationSheet({ location, visible, onClose }: { location: PlanPlaceLocationDetails | null; visible: boolean; onClose: () => void }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   if (!location) return null;
 
   const isLocal = location.kind === 'local';
-  const openLabel = isLocal ? 'Open in Maps' : 'Open link';
-  const shareLabel = isLocal ? 'Copy / share address' : 'Copy / share link';
+  const openLabel = isLocal ? t('plans.detail.location.openMaps') : t('plans.detail.location.openLink');
+  const shareLabel = isLocal ? t('plans.detail.location.shareAddress') : t('plans.detail.location.shareLink');
 
   return (
     <Modal animationType="fade" transparent visible={visible} onRequestClose={onClose}>
       <View style={styles.locationSheetRoot}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Close address actions" style={styles.locationSheetBackdrop} onPress={onClose} />
+        <Pressable accessibilityRole="button" accessibilityLabel={t('plans.detail.location.closeActions')} style={styles.locationSheetBackdrop} onPress={onClose} />
         <View style={[styles.locationSheet, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
           <View style={styles.locationSheetHeader}>
             <View style={[styles.locationSheetIcon, { backgroundColor: isLocal ? theme.semantic.place.softBg : theme.semantic.plan.softBg, borderColor: isLocal ? theme.semantic.place.border : theme.semantic.plan.border }]}>
@@ -2236,9 +2332,9 @@ function PlanPlaceLocationSheet({ location, visible, onClose }: { location: Plan
             </View>
             <View style={styles.locationSheetHeaderCopy}>
               <AppText style={styles.locationSheetTitle}>{location.label}</AppText>
-              <AppText style={[styles.locationSheetHint, { color: theme.color.muted }]}>{isLocal ? 'Choose how to open or share this stop.' : 'Open or share this online place.'}</AppText>
+              <AppText style={[styles.locationSheetHint, { color: theme.color.muted }]}>{isLocal ? t('plans.detail.location.localHint') : t('plans.detail.location.onlineHint')}</AppText>
             </View>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={({ pressed }) => [styles.locationSheetClose, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.close')} onPress={onClose} style={({ pressed }) => [styles.locationSheetClose, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
               <MobileIcon name="close" size={17} color={theme.color.muted} />
             </Pressable>
           </View>
@@ -2254,7 +2350,7 @@ function PlanPlaceLocationSheet({ location, visible, onClose }: { location: Plan
                 accessibilityLabel={openLabel}
                 onPress={() => {
                   onClose();
-                  void openPlanPlaceLocation(location);
+                  void openPlanPlaceLocation(location, t);
                 }}
                 style={({ pressed }) => [styles.locationSheetAction, { backgroundColor: isLocal ? theme.semantic.place.bg : theme.semantic.plan.bg, borderColor: isLocal ? theme.semantic.place.border : theme.semantic.plan.border }, pressed && styles.pressed]}
               >
@@ -2267,7 +2363,7 @@ function PlanPlaceLocationSheet({ location, visible, onClose }: { location: Plan
               accessibilityLabel={shareLabel}
               onPress={() => {
                 onClose();
-                void sharePlanPlaceLocation(location);
+                void sharePlanPlaceLocation(location, t);
               }}
               style={({ pressed }) => [styles.locationSheetAction, styles.locationSheetActionSecondary, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
             >
@@ -2303,8 +2399,9 @@ function PlanPlaceTimelineCard({
   onVerifyPresence: (place: PlanPlaceDto) => void;
 }) {
   const theme = useThemeTokens();
+  const { t, language } = useTranslation();
   const mediaUrl = placeVisualUrl(getPlanPlaceMedia(place), place.staticMap ?? place.sourcePlace?.staticMap ?? null, theme.mode);
-  const locationDetails = getPlanPlaceLocationDetails(place);
+  const locationDetails = getPlanPlaceLocationDetails(place, t);
   const [locationSheetVisible, setLocationSheetVisible] = useState(false);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const description = getPlanPlaceDescription(place);
@@ -2315,13 +2412,13 @@ function PlanPlaceTimelineCard({
   });
   const routeDescription = languageSelection.description?.trim() ?? '';
   const shouldClampDescription = routeDescription.length > 150 || routeDescription.split(/\r?\n/).length > 3;
-  const sourceLabel = getPlanPlaceSourceLabel(place);
+  const sourceLabel = getPlanPlaceSourceLabel(place, t);
   const hasVerificationCoordinates = Boolean(getPlanPlaceVerificationCoordinates(place));
   const showPresenceVerification = isOfflinePlanPlace(place) && (canVerifyPresence || presenceNotice || hasVerificationCoordinates);
   const verificationDisabled = isVerifyingPresence || !hasVerificationCoordinates || !canVerifyPresence;
   const presenceToneColor = presenceNotice?.tone === 'success' ? theme.semantic.success.text : presenceNotice?.tone === 'warning' ? theme.semantic.warning.text : hasVerificationCoordinates ? theme.semantic.place.text : theme.color.muted;
-  const presenceTitle = presenceNotice?.title ?? (hasVerificationCoordinates ? 'Presence verification' : 'GPS verification unavailable');
-  const presenceBody = presenceNotice?.body ?? (hasVerificationCoordinates ? 'Verify when you reach this stop.' : 'Google-confirmed location needed first.');
+  const presenceTitle = presenceNotice?.title ?? (hasVerificationCoordinates ? t('plans.detail.presence.title') : t('plans.detail.presence.unavailableTitle'));
+  const presenceBody = presenceNotice?.body ?? (hasVerificationCoordinates ? t('plans.detail.presence.readyBody') : t('plans.detail.presence.unavailableBody'));
 
   useEffect(() => {
     setDescriptionExpanded(false);
@@ -2339,8 +2436,8 @@ function PlanPlaceTimelineCard({
 
         <View style={styles.planRouteCopy}>
           <View style={styles.planRouteTimeRow}>
-            <AppText style={[styles.planRouteTime, { color: theme.semantic.time.text }]}>{getPlanPlaceTimeLabel(place, planStartsAt)}</AppText>
-            <AppText style={[styles.planRouteSource, { color: theme.color.muted }]}>{getPlanPlaceModeDisplay(place)} · {sourceLabel}</AppText>
+            <AppText style={[styles.planRouteTime, { color: theme.semantic.time.text }]}>{getPlanPlaceTimeLabel(place, planStartsAt, language, t)}</AppText>
+            <AppText style={[styles.planRouteSource, { color: theme.color.muted }]}>{getPlanPlaceModeDisplay(place, t)} · {sourceLabel}</AppText>
           </View>
 
           <AppText style={styles.planRouteTitle}>{languageSelection.title}</AppText>
@@ -2349,7 +2446,7 @@ function PlanPlaceTimelineCard({
           {locationDetails ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Open ${locationDetails.label} actions`}
+              accessibilityLabel={t('plans.detail.location.openActions', { label: locationDetails.label })}
               onPress={() => setLocationSheetVisible(true)}
               style={({ pressed }) => [styles.planRouteLocationRow, pressed && styles.pressed]}
             >
@@ -2370,12 +2467,12 @@ function PlanPlaceTimelineCard({
               {shouldClampDescription ? (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={descriptionExpanded ? 'Show less place description' : 'See more place description'}
+                  accessibilityLabel={descriptionExpanded ? t('plans.detail.placeDescription.showLessAccessibility') : t('plans.detail.placeDescription.seeMoreAccessibility')}
                   onPress={() => setDescriptionExpanded((value) => !value)}
                   hitSlop={8}
                   style={({ pressed }) => [styles.planRouteDescriptionToggle, pressed && styles.pressed]}
                 >
-                  <AppText style={[styles.planRouteDescriptionToggleText, { color: theme.semantic.place.text }]}>{descriptionExpanded ? 'Show less' : 'See more'}</AppText>
+                  <AppText style={[styles.planRouteDescriptionToggleText, { color: theme.semantic.place.text }]}>{descriptionExpanded ? t('plans.detail.placeDescription.showLess') : t('plans.detail.placeDescription.seeMore')}</AppText>
                 </Pressable>
               ) : null}
             </View>
@@ -2396,7 +2493,7 @@ function PlanPlaceTimelineCard({
               {hasVerificationCoordinates ? (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Verify I am here"
+                  accessibilityLabel={t('plans.detail.presence.verifyAccessibility')}
                   disabled={verificationDisabled}
                   onPress={() => onVerifyPresence(place)}
                   style={({ pressed }) => [
@@ -2407,7 +2504,7 @@ function PlanPlaceTimelineCard({
                   ]}
                 >
                   {isVerifyingPresence ? <ActivityIndicator size="small" color={canVerifyPresence ? theme.color.background : theme.color.muted} /> : <MobileIcon name="location-on" size={15} color={canVerifyPresence ? theme.color.background : theme.color.muted} />}
-                  <AppText style={[styles.planPresenceButtonText, { color: canVerifyPresence ? theme.color.background : theme.color.muted }]}>{isVerifyingPresence ? 'Checking...' : 'Verify'}</AppText>
+                  <AppText style={[styles.planPresenceButtonText, { color: canVerifyPresence ? theme.color.background : theme.color.muted }]}>{isVerifyingPresence ? t('plans.detail.presence.checking') : t('plans.detail.presence.verify')}</AppText>
                 </Pressable>
               ) : null}
             </View>
@@ -2426,6 +2523,7 @@ function PlanPlaceTimelineCard({
 export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   const auth = useAuth();
   const theme = useThemeTokens();
+  const { t, language } = useTranslation();
   const [plan, setPlan] = useState<PlanDto | null>(null);
   const [loading, setLoading] = useState(isPlansVisible());
   const [busy, setBusy] = useState(false);
@@ -2453,13 +2551,13 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
         setPublicMessageCount(0);
       }
     } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError));
+      setError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.loadBody')));
       setPlan(null);
       setPublicMessageCount(0);
     } finally {
       setLoading(false);
     }
-  }, [route.params.planId]);
+  }, [route.params.planId, t]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
@@ -2474,14 +2572,13 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
       setPlan(currentPlan);
       const url = buildPublicPlanUrl(currentPlan.id);
       await Share.share({ title: currentPlan.title, message: `${currentPlan.title}\n${url}`, url });
-      setActionMessage('Share sheet opened.');
+      setActionMessage(t('plans.detail.feedback.shareOpened'));
     } catch (caughtError) {
-      const message = getFriendlyApiErrorMessage(caughtError, 'Could not confirm that this Plan is still available.');
       if (isPlanUnavailableError(caughtError)) {
         setPlan(null);
-        setError(message);
+        setError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.shareAvailability')));
       } else {
-        setActionError(message === 'Something went wrong. Please try again.' ? 'Could not open sharing on this device.' : message);
+        setActionError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.shareDevice')));
       }
     } finally {
       setSharing(false);
@@ -2496,10 +2593,10 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
     setActionError(null);
     try {
       await api.plans.join(plan.id);
-      setActionMessage('You joined this Plan.');
+      setActionMessage(t('plans.detail.feedback.joined'));
       await load();
     } catch (caughtError) {
-      setActionError(getFriendlyApiErrorMessage(caughtError));
+      setActionError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.actionBody')));
     } finally {
       setBusy(false);
     }
@@ -2513,10 +2610,10 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
     setActionError(null);
     try {
       await api.plans.leave(plan.id);
-      setActionMessage('You left this Plan.');
+      setActionMessage(t('plans.detail.feedback.left'));
       await load();
     } catch (caughtError) {
-      setActionError(getFriendlyApiErrorMessage(caughtError));
+      setActionError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.actionBody')));
     } finally {
       setBusy(false);
     }
@@ -2536,10 +2633,10 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
     setActionError(null);
     try {
       await api.plans.update(plan.id, { status: 'cancelled' });
-      setActionMessage('Plan cancelled. It remains visible with a Cancelled status.');
+      setActionMessage(t('plans.detail.feedback.cancelled'));
       await load();
     } catch (caughtError) {
-      setActionError(getFriendlyApiErrorMessage(caughtError));
+      setActionError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.actionBody')));
     } finally {
       setBusy(false);
     }
@@ -2562,7 +2659,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
       await api.plans.delete(plan.id);
       navigation.navigate('Plans');
     } catch (caughtError) {
-      setActionError(getFriendlyApiErrorMessage(caughtError));
+      setActionError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.actionBody')));
     } finally {
       setBusy(false);
     }
@@ -2573,21 +2670,21 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
     if (plan.status === 'cancelled') {
       setPresenceNotices((current) => ({
         ...current,
-        [place.id]: { tone: 'warning', title: 'Plan cancelled', body: 'Presence verification is closed because this Plan was cancelled.' },
+        [place.id]: { tone: 'warning', title: t('plans.detail.presence.planCancelledTitle'), body: t('plans.detail.presence.planCancelledBody') },
       }));
       return;
     }
     if (!auth.user) {
       setPresenceNotices((current) => ({
         ...current,
-        [place.id]: { tone: 'info', title: 'Log in to verify', body: 'Log in first, then use your device GPS when you reach this offline place.' },
+        [place.id]: { tone: 'info', title: t('plans.detail.presence.loginTitle'), body: t('plans.detail.presence.loginBody') },
       }));
       return;
     }
     if (!isOwner && !isJoined) {
       setPresenceNotices((current) => ({
         ...current,
-        [place.id]: { tone: 'info', title: 'Join this plan first', body: 'Presence verification is only available to the owner or joined participants.' },
+        [place.id]: { tone: 'info', title: t('plans.detail.presence.joinFirstTitle'), body: t('plans.detail.presence.joinFirstBody') },
       }));
       return;
     }
@@ -2595,7 +2692,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
     if (!getPlanPlaceVerificationCoordinates(place)) {
       setPresenceNotices((current) => ({
         ...current,
-        [place.id]: { tone: 'warning', title: 'Map position needed', body: 'This offline place needs a Google-confirmed map position before GPS verification can work.' },
+        [place.id]: { tone: 'warning', title: t('plans.detail.presence.mapPositionTitle'), body: t('plans.detail.presence.mapPositionBody') },
       }));
       return;
     }
@@ -2607,7 +2704,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
       if (permission.status !== 'granted') {
         setPresenceNotices((current) => ({
           ...current,
-          [place.id]: { tone: 'warning', title: 'Location permission needed', body: 'Allow location access only when you want to verify that you are at this place.' },
+          [place.id]: { tone: 'warning', title: t('plans.detail.presence.permissionTitle'), body: t('plans.detail.presence.permissionBody') },
         }));
         return;
       }
@@ -2620,11 +2717,11 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
         isMockedLocation: (position as { mocked?: boolean }).mocked === true,
         platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'unknown',
       });
-      setPresenceNotices((current) => ({ ...current, [place.id]: presenceNoticeFromVerificationResponse(response) }));
+      setPresenceNotices((current) => ({ ...current, [place.id]: presenceNoticeFromVerificationResponse(response, language, t) }));
     } catch (caughtError) {
       setPresenceNotices((current) => ({
         ...current,
-        [place.id]: { tone: 'warning', title: 'Verification failed', body: getFriendlyApiErrorMessage(caughtError) },
+        [place.id]: { tone: 'warning', title: t('plans.detail.presence.failedTitle'), body: getFriendlyApiErrorMessage(caughtError, t('plans.detail.presence.failedBody')) },
       }));
     } finally {
       setVerifyingPlaceId(null);
@@ -2640,21 +2737,21 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   const canJoin = Boolean(plan && auth.user && !isOwner && canJoinPlanFromParticipantStatus(participantStatus) && plan.status === 'open');
   const canLeave = Boolean(plan && !isCancelled && !isOwner && isJoined);
   const canCancelPlan = Boolean(plan && isOwner && plan.status !== 'cancelled');
-  const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus) : '';
+  const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus, t) : '';
   const places = plan ? sortedPlanPlaces(plan) : [];
-  const routeMaps = buildPlanRouteMapsLink(places);
+  const routeMaps = buildPlanRouteMapsLink(places, t);
   const acceptedParticipants = plan ? getAcceptedParticipants(plan) : [];
   const joinedCount = plan?.participantCount ?? acceptedParticipants.length;
   const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
   const showReportActions = Boolean(auth.user && plan && !isOwner);
   const header = (
     <AppHeader
-      title="Plan"
+      title={t('plans.detail.headerTitle')}
       onBack={() => navigation.goBack()}
       rightSlot={plan ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Share Plan"
+          accessibilityLabel={t('plans.detail.shareAccessibility')}
           disabled={sharing}
           onPress={() => { void sharePlan(); }}
           style={({ pressed }) => [styles.planHeaderShareButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (pressed || sharing) && styles.pressed]}
@@ -2669,10 +2766,10 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
     <AppFixedHeaderScreen header={header}>
       <AppConfirmSheet
         visible={cancelConfirmVisible}
-        title="Cancel Plan?"
-        body="The Plan will remain visible with a Cancelled status, but joining, participant changes, new public replies, and presence verification will close."
-        cancelLabel="Keep Plan"
-        confirmLabel="Cancel Plan"
+        title={t('plans.detail.confirm.cancelTitle')}
+        body={t('plans.detail.confirm.cancelBody')}
+        cancelLabel={t('plans.detail.confirm.keepPlan')}
+        confirmLabel={t('plans.detail.confirm.cancelPlan')}
         tone="danger"
         confirmDisabled={busy}
         onCancel={() => setCancelConfirmVisible(false)}
@@ -2680,32 +2777,32 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
       />
       <AppConfirmSheet
         visible={deleteConfirmVisible}
-        title="Delete Plan?"
-        body="This removes the Plan from feeds, search, and public detail pages. Admin history is kept for safety."
-        cancelLabel="Keep Plan"
-        confirmLabel="Delete Plan"
+        title={t('plans.detail.confirm.deleteTitle')}
+        body={t('plans.detail.confirm.deleteBody')}
+        cancelLabel={t('plans.detail.confirm.keepPlan')}
+        confirmLabel={t('plans.detail.confirm.deletePlan')}
         tone="danger"
         confirmDisabled={busy}
         onCancel={() => setDeleteConfirmVisible(false)}
         onConfirm={() => { void confirmDeletePlan(); }}
       />
-      {loading ? <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Plan...</AppText></View> : null}
-      {!loading && error ? <View style={styles.contentPad}><InfoNotice tone="warning" title="Could not load Plan" body={error} /></View> : null}
+      {loading ? <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('plans.detail.loading')}</AppText></View> : null}
+      {!loading && error ? <View style={styles.contentPad}><InfoNotice tone="warning" title={t('plans.detail.errors.loadTitle')} body={error} /></View> : null}
       {!loading && plan ? (
         <ScrollView contentContainerStyle={styles.planDetailContent} showsVerticalScrollIndicator={false}>
           <View style={styles.planDetailHero}>
-            <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{`${formatPlanStatusLabel(plan.status)} · Plan`}</AppText>
+            <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{t('plans.detail.hero.eyebrow', { status: planStatusLabel(plan.status, t) })}</AppText>
             <AppText style={styles.planDetailTitle}>{plan.title}</AppText>
-            <AppText style={[styles.planDetailStart, { color: theme.color.muted }]}>Starts {formatDate(plan.startsAt)}</AppText>
+            <AppText style={[styles.planDetailStart, { color: theme.color.muted }]}>{t('plans.detail.hero.starts', { date: formatDate(plan.startsAt, language, t) })}</AppText>
             <View style={styles.planDetailOwnerLine}>
-              <AppText style={[styles.planDetailOwnerPrefix, { color: theme.color.muted }]}>Posted by</AppText>
-              <AppText style={styles.planDetailOwnerName}>{getOwnerName(plan)}</AppText>
+              <AppText style={[styles.planDetailOwnerPrefix, { color: theme.color.muted }]}>{t('plans.detail.hero.postedBy')}</AppText>
+              <AppText style={styles.planDetailOwnerName}>{getOwnerName(plan, t)}</AppText>
             </View>
             <View style={styles.planDetailChips}>
-              <SemanticBadge label={formatPlanStatusLabel(plan.status)} tone={getPlanStatusTone(plan.status)} size="sm" />
-              <SemanticBadge label={getPlanJoinModeLabel(plan)} tone="proposal" size="sm" />
-              <SemanticBadge label={`${places.length} ${places.length === 1 ? 'place' : 'places'}`} tone="place" size="sm" />
-              <SemanticBadge label={getPlanModeLabel(plan)} tone="muted" size="sm" />
+              <SemanticBadge label={planStatusLabel(plan.status, t)} tone={getPlanStatusTone(plan.status)} size="sm" />
+              <SemanticBadge label={getPlanJoinModeLabel(plan, t)} tone="proposal" size="sm" />
+              <SemanticBadge label={t(places.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: places.length })} tone="place" size="sm" />
+              <SemanticBadge label={getPlanModeLabel(plan, t)} tone="muted" size="sm" />
             </View>
             {plan.description ? <AppText style={[styles.planDetailDescription, { color: theme.color.text }]}>{plan.description}</AppText> : null}
           </View>
@@ -2715,14 +2812,14 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
           <View style={styles.planDetailSectionFlat}>
             <View style={styles.planRouteSectionHeader}>
               <View style={styles.sectionTitleRow}>
-                <AppText style={styles.sectionTitle}>Route</AppText>
+                <AppText style={styles.sectionTitle}>{t('plans.detail.sections.route')}</AppText>
                 <SemanticBadge label={`${places.length}`} tone="place" size="sm" />
               </View>
               {routeMaps ? (
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={routeMaps.label}
-                  onPress={() => { void openPlanRouteMaps(routeMaps); }}
+                  onPress={() => { void openPlanRouteMaps(routeMaps, t); }}
                   style={({ pressed }) => [styles.planRouteMapsButton, { backgroundColor: theme.semantic.place.bg, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}
                 >
                   <MobileIcon name="location-on" size={15} color={theme.color.background} />
@@ -2731,7 +2828,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
               ) : null}
             </View>
             {routeMaps ? <AppText style={[styles.planRouteMapsHint, { color: theme.color.muted }]}>{routeMaps.body}</AppText> : null}
-            {places.length === 0 ? <EmptyBlock title="No places yet" body="This Plan does not have places attached yet." /> : null}
+            {places.length === 0 ? <EmptyBlock title={t('plans.detail.route.emptyTitle')} body={t('plans.detail.route.emptyBody')} /> : null}
             {places.map((place, index) => (
               <PlanPlaceTimelineCard
                 key={place.id}
@@ -2751,21 +2848,21 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
           <PlanSectionDivider />
 
           <View style={styles.planDetailSectionFlat}>
-            <AppText style={styles.sectionTitle}>Details</AppText>
+            <AppText style={styles.sectionTitle}>{t('plans.detail.sections.details')}</AppText>
             <View style={styles.planDetailInfoList}>
-              <PlanDetailInfoRow label="Status" value={formatPlanStatusLabel(plan.status)} />
-              <PlanDetailInfoRow label="Visibility" value={plan.status === 'hidden' ? 'Hidden' : 'Public'} />
-              <PlanDetailInfoRow label="Join mode" value={getPlanJoinModeLabel(plan)} />
-              <PlanDetailInfoRow label="Time" value={formatPlanDateRange(plan)} />
-              <PlanDetailInfoRow label="Place mode" value={getPlanModeLabel(plan)} />
-              <PlanDetailInfoRow label="Created" value={formatDate(plan.createdAt)} />
+              <PlanDetailInfoRow label={t('plans.detail.fields.status')} value={planStatusLabel(plan.status, t)} />
+              <PlanDetailInfoRow label={t('plans.detail.fields.visibility')} value={plan.status === 'hidden' ? t('plans.detail.values.hidden') : t('plans.detail.values.public')} />
+              <PlanDetailInfoRow label={t('plans.detail.fields.joinMode')} value={getPlanJoinModeLabel(plan, t)} />
+              <PlanDetailInfoRow label={t('plans.detail.fields.time')} value={formatPlanDateRange(plan, language, t)} />
+              <PlanDetailInfoRow label={t('plans.detail.fields.placeMode')} value={getPlanModeLabel(plan, t)} />
+              <PlanDetailInfoRow label={t('plans.detail.fields.created')} value={formatDate(plan.createdAt, language, t)} />
             </View>
           </View>
 
           <PlanSectionDivider />
 
           <View style={styles.planDetailSectionFlat}>
-            <AppText style={styles.sectionTitle}>Owner</AppText>
+            <AppText style={styles.sectionTitle}>{t('plans.detail.sections.owner')}</AppText>
             <PlanOwnerRow plan={plan} />
           </View>
 
@@ -2774,12 +2871,12 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
           <View style={styles.planDetailSectionFlat}>
             <View style={styles.detailSectionHeader}>
               <View style={styles.detailSectionCopy}>
-                <AppText style={styles.sectionTitle}>Joined people</AppText>
-                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{capacityLabel} joined · {getPlanJoinModeLabel(plan)}</AppText>
+                <AppText style={styles.sectionTitle}>{t('plans.detail.sections.joinedPeople')}</AppText>
+                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{t('plans.detail.people.joinedSummary', { capacity: capacityLabel, mode: getPlanJoinModeLabel(plan, t) })}</AppText>
               </View>
               <SemanticBadge label={String(joinedCount)} tone="proposal" size="sm" />
             </View>
-            {acceptedParticipants.length === 0 ? <AppText style={[styles.rowBody, { color: theme.color.muted }]}>No participants yet.</AppText> : null}
+            {acceptedParticipants.length === 0 ? <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{t('plans.detail.people.empty')}</AppText> : null}
             {acceptedParticipants.map((participant) => <ParticipantCompactRow key={participant.id} participant={participant} />)}
           </View>
 
@@ -2788,14 +2885,14 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
           <View style={styles.planDetailSectionFlat}>
             <View style={styles.detailSectionHeader}>
               <View style={styles.detailSectionCopy}>
-                <AppText style={styles.sectionTitle}>Public discussion</AppText>
-                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{publicMessageCount} {publicMessageCount === 1 ? 'comment' : 'comments'} · visible to logged-in members</AppText>
+                <AppText style={styles.sectionTitle}>{t('plans.detail.sections.discussion')}</AppText>
+                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{t(publicMessageCount === 1 ? 'plans.detail.discussion.summaryOne' : 'plans.detail.discussion.summaryMany', { count: publicMessageCount })}</AppText>
               </View>
-              <SemanticBadge label="Public" tone="plan" size="sm" />
+              <SemanticBadge label={t('plans.detail.values.public')} tone="plan" size="sm" />
             </View>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Open Plan public discussion"
+              accessibilityLabel={t('plans.detail.discussion.openAccessibility')}
               onPress={() => navigation.navigate('PlanPublicDiscussion', { planId: plan.id, title: plan.title })}
               style={({ pressed }) => [styles.planDiscussionRow, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}
             >
@@ -2803,8 +2900,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                 <MobileIcon name="proposal" size={18} color={theme.semantic.plan.text} />
               </View>
               <View style={styles.feedTitleWrap}>
-                <AppText style={styles.planDiscussionTitle}>Open public comments</AppText>
-                <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? 'Read earlier comments. New public replies are closed for this cancelled Plan.' : 'Ask questions, coordinate details, or reply to people interested in this Plan.'}</AppText>
+                <AppText style={styles.planDiscussionTitle}>{t('plans.detail.discussion.open')}</AppText>
+                <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.discussion.cancelledBody') : t('plans.detail.discussion.body')}</AppText>
               </View>
               <MobileIcon name="chevron-right" size={18} color={theme.color.muted} />
             </Pressable>
@@ -2815,65 +2912,65 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
           <View style={styles.planDetailSectionFlat}>
             <View style={styles.detailSectionHeader}>
               <View style={styles.detailSectionCopy}>
-                <AppText style={styles.sectionTitle}>Actions</AppText>
-                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isCancelled ? 'It remains visible for context, but joining, participant changes, public replies, and presence verification are closed.' : isOwner ? 'Share, cancel, or delete this Plan. Editing is locked after publishing.' : getPlanJoinActionCopy(plan)}</AppText>
+                <AppText style={styles.sectionTitle}>{t('plans.detail.sections.actions')}</AppText>
+                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.actions.cancelledBody') : isOwner ? t('plans.detail.actions.ownerBody') : getPlanJoinActionCopy(plan, t)}</AppText>
               </View>
-              {!isOwner ? <SemanticBadge label={getPlanJoinModeLabel(plan)} tone="proposal" size="sm" /> : <SemanticBadge label="Owner" tone="plan" size="sm" />}
+              {!isOwner ? <SemanticBadge label={getPlanJoinModeLabel(plan, t)} tone="proposal" size="sm" /> : <SemanticBadge label={t('plans.detail.values.owner')} tone="plan" size="sm" />}
             </View>
             <View style={styles.detailActionStack}>
               {isOwner ? (
                 <View style={[styles.planOwnerManageRow, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
                   <MobileIcon name="profile" size={18} color={theme.semantic.plan.text} />
                   <View style={styles.feedTitleWrap}>
-                    <AppText style={styles.planOwnerManageTitle}>Manage Plan</AppText>
-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? 'Share or delete this cancelled Plan. Places and times remain locked.' : 'Share, cancel, or delete this Plan. Places and times are locked after publishing.'}</AppText>
+                    <AppText style={styles.planOwnerManageTitle}>{t('plans.detail.actions.manageTitle')}</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.actions.manageCancelledBody') : t('plans.detail.actions.manageBody')}</AppText>
                   </View>
                 </View>
               ) : null}
               {isOwner ? (
                 <Pressable disabled={sharing} accessibilityRole="button" onPress={() => { void sharePlan(); }} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, sharing && styles.disabled]}>
-                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{sharing ? 'Sharing...' : 'Share plan'}</AppText>
+                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{sharing ? t('plans.detail.actions.sharing') : t('plans.detail.actions.share')}</AppText>
                 </Pressable>
               ) : null}
               {canCancelPlan ? (
                 <Pressable disabled={busy} accessibilityRole="button" onPress={cancelPlan} style={({ pressed }) => [styles.dangerButton, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, busy && styles.disabled]}>
-                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? 'Cancelling...' : 'Cancel plan'}</AppText>
+                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? t('plans.detail.actions.cancelling') : t('plans.detail.actions.cancel')}</AppText>
                 </Pressable>
               ) : null}
               {isOwner ? (
                 <Pressable disabled={busy} accessibilityRole="button" onPress={deletePlan} style={({ pressed }) => [styles.dangerButton, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, busy && styles.disabled]}>
-                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? 'Updating...' : 'Delete plan'}</AppText>
+                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? t('plans.detail.actions.updating') : t('plans.detail.actions.delete')}</AppText>
                 </Pressable>
               ) : null}
               {isCancelled ? (
                 <View style={[styles.joinedState, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }]}>
                   <MobileIcon name="close" size={18} color={theme.semantic.danger.text} />
                   <View style={styles.feedTitleWrap}>
-                    <AppText style={[styles.joinedStateText, { color: theme.semantic.danger.text }]}>This Plan is cancelled</AppText>
-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>It remains visible for context. Joining, leaving, participant changes, public replies, and presence verification are no longer available.</AppText>
+                    <AppText style={[styles.joinedStateText, { color: theme.semantic.danger.text }]}>{t('plans.detail.actions.cancelledTitle')}</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.detail.actions.cancelledLongBody')}</AppText>
                   </View>
                 </View>
               ) : null}
               {canJoin ? (
                 <View style={styles.planPrimaryActionBlock}>
                   <Pressable disabled={busy} accessibilityRole="button" onPress={joinPlan} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed, busy && styles.disabled]}>
-                    <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{busy ? 'Joining...' : 'Join plan'}</AppText>
+                    <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{busy ? t('plans.detail.actions.joining') : t('plans.detail.actions.join')}</AppText>
                   </Pressable>
-                  <AppText style={[styles.metaText, styles.planActionFootnote, { color: theme.color.muted }]}>{plan.joinApprovalMode === 'automatic' ? 'Free join · leave anytime.' : 'Join request · owner review.'}</AppText>
+                  <AppText style={[styles.metaText, styles.planActionFootnote, { color: theme.color.muted }]}>{plan.joinApprovalMode === 'automatic' ? t('plans.detail.actions.freeJoinFootnote') : t('plans.detail.actions.requestJoinFootnote')}</AppText>
                 </View>
               ) : null}
               {isJoined && !isCancelled ? (
                 <View style={[styles.joinedState, { backgroundColor: theme.semantic.success.softBg, borderColor: theme.semantic.success.border }]}>
                   <MobileIcon name="proposal-accepted" size={18} color={theme.semantic.success.text} />
                   <View style={styles.feedTitleWrap}>
-                    <AppText style={[styles.joinedStateText, { color: theme.semantic.success.text }]}>You joined this plan</AppText>
-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>You can leave if this Plan is no longer useful.</AppText>
+                    <AppText style={[styles.joinedStateText, { color: theme.semantic.success.text }]}>{t('plans.detail.actions.joinedTitle')}</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.detail.actions.joinedBody')}</AppText>
                   </View>
                 </View>
               ) : null}
               {canLeave ? (
                 <Pressable disabled={busy} accessibilityRole="button" onPress={leavePlan} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, busy && styles.disabled]}>
-                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{busy ? 'Updating...' : 'Leave plan'}</AppText>
+                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{busy ? t('plans.detail.actions.updating') : t('plans.detail.actions.leave')}</AppText>
                 </Pressable>
               ) : null}
               {auth.user && participantStateCopy && !isJoined ? (
@@ -2882,9 +2979,9 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                   <AppText style={[styles.metaText, { color: theme.color.muted }]}>{participantStateCopy}</AppText>
                 </View>
               ) : null}
-              {!auth.user && plan.status === 'open' ? <InfoNotice tone="info" title="Log in to join" body="Log in first, then join this plan when it is open." /> : null}
-              {actionMessage ? <InfoNotice tone="success" title="Done" body={actionMessage} /> : null}
-              {actionError ? <InfoNotice tone="warning" title="Plan action failed" body={actionError} /> : null}
+              {!auth.user && plan.status === 'open' ? <InfoNotice tone="info" title={t('plans.detail.actions.loginTitle')} body={t('plans.detail.actions.loginBody')} /> : null}
+              {actionMessage ? <InfoNotice tone="success" title={t('common.states.done')} body={actionMessage} /> : null}
+              {actionError ? <InfoNotice tone="warning" title={t('plans.detail.errors.actionTitle')} body={actionError} /> : null}
               {showReportActions ? <ReportContentPanel targetType="plan" targetId={plan.id} labelKey="report.button" helperKey="report.helper.content" /> : null}
             </View>
           </View>
@@ -2895,23 +2992,27 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
 }
 
 export function MyPlansScreen({ navigation }: SimpleScreenProps<'MyPlans'>) {
+  const { t } = useTranslation();
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
-  return <AppFixedHeaderScreen header={<AppHeader title="My plans" onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label="Create Plan" onPress={() => navigation.navigate('CreatePlan')} />} />}><PlanList scope="mine" navigation={navigation} /></AppFixedHeaderScreen>;
+  return <AppFixedHeaderScreen header={<AppHeader title={t('plans.collections.myPlans')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label={t('plans.feed.actions.create')} onPress={() => navigation.navigate('CreatePlan')} />} />}><PlanList scope="mine" navigation={navigation} /></AppFixedHeaderScreen>;
 }
 
 export function JoinedPlansScreen({ navigation }: SimpleScreenProps<'JoinedPlans'>) {
+  const { t } = useTranslation();
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
-  return <AppFixedHeaderScreen header={<AppHeader title="Joined plans" onBack={() => navigation.goBack()} />}><PlanList scope="joined" navigation={navigation} /></AppFixedHeaderScreen>;
+  return <AppFixedHeaderScreen header={<AppHeader title={t('plans.collections.joinedPlans')} onBack={() => navigation.goBack()} />}><PlanList scope="joined" navigation={navigation} /></AppFixedHeaderScreen>;
 }
 
 export function MyPlacesScreen({ navigation }: SimpleScreenProps<'MyPlaces'>) {
+  const { t } = useTranslation();
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
-  return <AppFixedHeaderScreen header={<AppHeader title="My places" onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label="Create Place" onPress={() => navigation.navigate('CreatePlace')} />} />}><PlaceList scope="mine" navigation={navigation} /></AppFixedHeaderScreen>;
+  return <AppFixedHeaderScreen header={<AppHeader title={t('places.list.headers.myPlaces')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label={t('places.list.actions.create')} onPress={() => navigation.navigate('CreatePlace')} />} />}><PlaceList scope="mine" navigation={navigation} /></AppFixedHeaderScreen>;
 }
 
 export function PlaceLibraryScreen({ navigation }: SimpleScreenProps<'PlaceLibrary'>) {
+  const { t } = useTranslation();
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
-  return <AppFixedHeaderScreen header={<AppHeader title="Place Library" onBack={() => navigation.goBack()} />}><PlaceList scope="library" navigation={navigation} /></AppFixedHeaderScreen>;
+  return <AppFixedHeaderScreen header={<AppHeader title={t('places.list.headers.library')} onBack={() => navigation.goBack()} />}><PlaceList scope="library" navigation={navigation} /></AppFixedHeaderScreen>;
 }
 
 function ModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (value: PlanPlaceMode) => void }) {
@@ -2948,6 +3049,7 @@ function TextField({
   multiline,
   keyboardType,
   maxLength,
+  compactMultiline,
 }: {
   label: string;
   value: string;
@@ -2956,6 +3058,7 @@ function TextField({
   multiline?: boolean;
   keyboardType?: 'default' | 'numbers-and-punctuation' | 'url';
   maxLength?: number;
+  compactMultiline?: boolean;
 }) {
   const theme = useThemeTokens();
   return (
@@ -2972,7 +3075,7 @@ function TextField({
         inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
         returnKeyType={multiline ? 'default' : 'done'}
         blurOnSubmit={!multiline}
-        style={[styles.input, multiline && styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
+        style={[styles.input, multiline && styles.textArea, multiline && compactMultiline && styles.compactTextArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
       />
     </FormLabel>
   );
@@ -3010,6 +3113,7 @@ function PlanNativeDateTimePicker({
   onClose: () => void;
 }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const pickerValue = nativePickerDateValue(date, time, mode);
 
   function handleNativeChange(event: DateTimePickerEvent, selectedDate?: Date) {
@@ -3022,9 +3126,9 @@ function PlanNativeDateTimePicker({
     <View style={[styles.nativePickerCard, { borderColor: theme.color.border, backgroundColor: theme.color.surface }]}>
       {Platform.OS === 'ios' ? (
         <View style={styles.nativePickerHeader}>
-          <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{mode === 'date' ? 'Choose date' : 'Choose time'}</AppText>
+          <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{mode === 'date' ? t('plans.create.time.chooseDate') : t('plans.create.time.chooseTime')}</AppText>
           <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.nativePickerDoneButton, pressed && styles.pressed]}>
-            <AppText style={[styles.quickChoiceButtonText, { color: theme.semantic.plan.text }]}>Done</AppText>
+            <AppText style={[styles.quickChoiceButtonText, { color: theme.semantic.plan.text }]}>{t('plans.create.time.done')}</AppText>
           </Pressable>
         </View>
       ) : null}
@@ -3037,7 +3141,7 @@ function PlanNativeDateTimePicker({
         onChange={handleNativeChange}
         style={styles.nativePicker}
       />
-      {Platform.OS === 'android' ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>Use the system picker to choose a custom {mode}.</AppText> : null}
+      {Platform.OS === 'android' ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>{mode === 'date' ? t('plans.create.time.systemDateHint') : t('plans.create.time.systemTimeHint')}</AppText> : null}
     </View>
   );
 }
@@ -3056,12 +3160,13 @@ function PlanPickerSheetFrame({
   children: React.ReactNode;
 }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   if (!visible) return null;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.sourceSheetOverlay}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Close time picker" onPress={onClose} style={styles.sourceSheetScrim} />
+        <Pressable accessibilityRole="button" accessibilityLabel={t('plans.create.time.closePicker')} onPress={onClose} style={styles.sourceSheetScrim} />
         <View style={[styles.planPickerSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
           <View style={[styles.sourceSheetHandle, { backgroundColor: theme.color.border }]} />
           <View style={styles.sourceSheetTopbar}>
@@ -3069,7 +3174,7 @@ function PlanPickerSheetFrame({
               <AppText style={styles.sourceSheetTitle}>{title}</AppText>
               {subtitle ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>{subtitle}</AppText> : null}
             </View>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={[styles.headerAction, { borderColor: theme.color.border }]}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.close')} onPress={onClose} style={[styles.headerAction, { borderColor: theme.color.border }]}>
               <MobileIcon name="close" color={theme.color.text} size={18} />
             </Pressable>
           </View>
@@ -3144,11 +3249,12 @@ function PlanStopTimeCompactRow({
   onTimePress: () => void;
 }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   return (
     <View style={styles.planStopScheduleRow}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Choose date for Place ${index + 1}`}
+        accessibilityLabel={t('plans.create.time.chooseDateAccessibility', { index: index + 1 })}
         onPress={(event) => {
           event.stopPropagation();
           onDatePress();
@@ -3160,7 +3266,7 @@ function PlanStopTimeCompactRow({
       <AppText style={[styles.planStopScheduleSeparator, { color: theme.color.muted }]}>·</AppText>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Choose time for Place ${index + 1}`}
+        accessibilityLabel={t('plans.create.time.chooseTimeAccessibility', { index: index + 1 })}
         onPress={(event) => {
           event.stopPropagation();
           onTimePress();
@@ -3175,23 +3281,25 @@ function PlanStopTimeCompactRow({
 
 function PlanDurationQuickControls({ schedule, onSelectDuration }: { schedule: ReturnType<typeof buildMobilePlanSchedule>; onSelectDuration: (minutes: number) => void }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const durations = [30, 60, 90, 120];
   return (
     <View style={styles.quickPickerGroup}>
-      <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>Duration helper</AppText>
+      <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{t('plans.create.duration.helper')}</AppText>
       <View style={styles.quickChoiceRow}>
         {durations.map((minutes) => (
           <QuickChoiceButton key={minutes} label={planDurationLabel(minutes)} onPress={() => onSelectDuration(minutes)} />
         ))}
-        <QuickChoiceButton label="Custom" onPress={() => onSelectDuration(0)} />
+        <QuickChoiceButton label={t('plans.create.duration.custom')} onPress={() => onSelectDuration(0)} />
       </View>
-      {!schedule.startsAt ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose a start date and time first.</AppText> : null}
+      {!schedule.startsAt ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.create.duration.startFirst')}</AppText> : null}
     </View>
   );
 }
 
 function PlanEndNativeControls({ end, schedule, onChange }: { end: PlanEndState; schedule: ReturnType<typeof buildMobilePlanSchedule>; onChange: (patch: Partial<PlanEndState>) => void }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const [customEndDateOpen, setCustomEndDateOpen] = useState(false);
   const [customEndTimeOpen, setCustomEndTimeOpen] = useState(false);
   const fallbackEnd = schedule.endsAt ? new Date(schedule.endsAt) : schedule.startsAt ? new Date(schedule.startsAt) : new Date();
@@ -3209,10 +3317,10 @@ function PlanEndNativeControls({ end, schedule, onChange }: { end: PlanEndState;
 
   return (
     <View style={styles.quickPickerGroup}>
-      <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>Custom end</AppText>
+      <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{t('plans.create.duration.customEnd')}</AppText>
       <View style={styles.quickChoiceRow}>
-        <QuickChoiceButton label={end.date ? formatInputDateLabel(end.date) : 'End date'} active={customEndDateOpen || Boolean(end.date)} onPress={() => { setCustomEndTimeOpen(false); setCustomEndDateOpen((open) => !open); }} />
-        <QuickChoiceButton label={end.time ? formatInputTimeLabel(end.time) : 'End time'} active={customEndTimeOpen || Boolean(end.time)} onPress={() => { setCustomEndDateOpen(false); setCustomEndTimeOpen((open) => !open); }} />
+        <QuickChoiceButton label={end.date ? formatInputDateLabel(end.date) : t('plans.create.duration.endDate')} active={customEndDateOpen || Boolean(end.date)} onPress={() => { setCustomEndTimeOpen(false); setCustomEndDateOpen((open) => !open); }} />
+        <QuickChoiceButton label={end.time ? formatInputTimeLabel(end.time) : t('plans.create.duration.endTime')} active={customEndTimeOpen || Boolean(end.time)} onPress={() => { setCustomEndDateOpen(false); setCustomEndTimeOpen((open) => !open); }} />
       </View>
       {customEndDateOpen ? (
         <PlanNativeDateTimePicker mode="date" date={pickerDate} time={pickerTime} onChange={handleEndChange} onClose={() => setCustomEndDateOpen(false)} />
@@ -3220,7 +3328,7 @@ function PlanEndNativeControls({ end, schedule, onChange }: { end: PlanEndState;
       {customEndTimeOpen ? (
         <PlanNativeDateTimePicker mode="time" date={pickerDate} time={pickerTime} onChange={handleEndChange} onClose={() => setCustomEndTimeOpen(false)} />
       ) : null}
-      <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose a custom end only when the automatic estimate is not right.</AppText>
+      <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.create.duration.customEndHelp')}</AppText>
     </View>
   );
 }
@@ -3235,15 +3343,16 @@ function PlanEndCompactRow({
   onReset: () => void;
 }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   return (
     <View style={styles.planEndSummaryRow}>
       <View style={styles.timelineCopy}>
-        <AppText style={styles.rowTitle}>{endSummary?.label || 'Estimated end'}</AppText>
-        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{endSummary?.endLabel || 'Choose a start date and time to calculate the end.'}</AppText>
+        <AppText style={styles.rowTitle}>{endSummary?.label || t('plans.create.duration.estimatedEnd')}</AppText>
+        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{endSummary?.endLabel || t('plans.create.duration.noStart')}</AppText>
       </View>
       <View style={styles.quickChoiceRow}>
-        <QuickChoiceButton label="Change end time" active={Boolean(endSummary?.manual)} onPress={onOpenCustom} />
-        {endSummary?.manual ? <QuickChoiceButton label="Use estimate" onPress={onReset} /> : null}
+        <QuickChoiceButton label={t('plans.create.duration.changeEnd')} active={Boolean(endSummary?.manual)} onPress={onOpenCustom} />
+        {endSummary?.manual ? <QuickChoiceButton label={t('plans.create.duration.useEstimate')} onPress={onReset} /> : null}
       </View>
     </View>
   );
@@ -3267,6 +3376,7 @@ function PlanEndPickerSheet({
   onClose: () => void;
 }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const durations = [30, 60, 90, 120];
 
   function chooseDuration(minutes: number) {
@@ -3277,19 +3387,19 @@ function PlanEndPickerSheet({
   return (
     <PlanPickerSheetFrame
       visible={visible}
-      title={mode === 'duration' ? 'Duration' : 'Custom end'}
-      subtitle={mode === 'duration' ? 'Choose how long this Plan should last.' : 'Use this only when the automatic end is not right.'}
+      title={mode === 'duration' ? t('plans.create.duration.durationTitle') : t('plans.create.duration.customEnd')}
+      subtitle={mode === 'duration' ? t('plans.create.duration.durationSubtitle') : t('plans.create.duration.customSubtitle')}
       onClose={onClose}
     >
       {mode === 'duration' ? (
         <View style={styles.quickPickerGroup}>
-          <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>Duration helper</AppText>
+          <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{t('plans.create.duration.helper')}</AppText>
           <View style={styles.quickChoiceRow}>
             {durations.map((minutes) => (
               <QuickChoiceButton key={minutes} label={planDurationLabel(minutes)} onPress={() => chooseDuration(minutes)} />
             ))}
           </View>
-          {!schedule.startsAt ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose a start date and time first.</AppText> : null}
+          {!schedule.startsAt ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.create.duration.startFirst')}</AppText> : null}
         </View>
       ) : (
         <PlanEndNativeControls end={end} schedule={schedule} onChange={onChange} />
@@ -3315,10 +3425,10 @@ function resolvedGooglePlaceAddress(place: GoogleResolvedPlace) {
   return place.formattedAddress || place.name || '';
 }
 
-function googlePlaceStatusLabel(place: GoogleResolvedPlace) {
-  if (place.validationStatus === 'confirmed') return 'Google-confirmed address';
-  if (place.validationStatus === 'needs_review') return 'Google suggestion · review details';
-  return 'Google place selected';
+function googlePlaceStatusLabel(place: GoogleResolvedPlace, t: PlanTranslationFunction) {
+  if (place.validationStatus === 'confirmed') return t('plans.create.google.confirmed');
+  if (place.validationStatus === 'needs_review') return t('plans.create.google.review');
+  return t('plans.create.google.selected');
 }
 
 function GooglePlacePicker({
@@ -3326,9 +3436,9 @@ function GooglePlacePicker({
   onChangeText,
   onResolvedPlace,
   disabled,
-  label = 'Address or place',
-  placeholder = 'Search a real address or place',
-  helperText = `Type at least ${GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH} characters, then select a provider suggestion. Typed text alone cannot be saved as an offline address.`,
+  label,
+  placeholder,
+  helperText,
   autoFocus = false,
   languageCode,
   country,
@@ -3347,6 +3457,10 @@ function GooglePlacePicker({
   maxLength?: number;
 }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
+  const resolvedLabel = label ?? t('plans.create.google.defaultLabel');
+  const resolvedPlaceholder = placeholder ?? t('plans.create.google.defaultPlaceholder');
+  const resolvedHelperText = helperText ?? t('plans.create.google.defaultHelp', { count: GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH });
   const [query, setQuery] = useState(value);
   const [predictions, setPredictions] = useState<GooglePlacePrediction[]>([]);
   const [selectedPlace, setSelectedPlace] = useState<GoogleResolvedPlace | null>(null);
@@ -3376,7 +3490,7 @@ function GooglePlacePicker({
     if (trimmed.length < GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH) {
       setPredictions([]);
       setSearching(false);
-      setNotice(trimmed ? `Type at least ${GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH} characters to search Google places.` : '');
+      setNotice(trimmed ? t('plans.create.google.typeMore', { count: GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH }) : '');
       return undefined;
     }
 
@@ -3395,12 +3509,12 @@ function GooglePlacePicker({
           if (cancelled) return;
           const nextPredictions = response.predictions ?? [];
           setPredictions(nextPredictions);
-          if (!nextPredictions.length) setNotice('No confirmed suggestions yet. Try a more precise place name or address.');
+          if (!nextPredictions.length) setNotice(t('plans.create.google.noSuggestions'));
         })
         .catch((caughtError) => {
           if (cancelled) return;
           setPredictions([]);
-          setNotice(getFriendlyApiErrorMessage(caughtError, 'Google address suggestions are unavailable. Offline places require selecting a provider address; try again later or switch to Online.'));
+          setNotice(getFriendlyApiErrorMessage(caughtError, t('plans.create.google.unavailable')));
         })
         .finally(() => {
           if (!cancelled) setSearching(false);
@@ -3411,7 +3525,7 @@ function GooglePlacePicker({
       cancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [country, disabled, languageCode, query, selectedPlace]);
+  }, [country, disabled, languageCode, query, selectedPlace, t]);
 
   function handleInputChange(nextValue: string) {
     setQuery(nextValue);
@@ -3441,7 +3555,7 @@ function GooglePlacePicker({
       onChangeText(nextAddress);
       sessionTokenRef.current = makeGooglePlaceSessionToken();
     } catch (caughtError) {
-      setNotice(getFriendlyApiErrorMessage(caughtError, 'Could not confirm this Google place. Try another suggestion.'));
+      setNotice(getFriendlyApiErrorMessage(caughtError, t('plans.create.google.confirmFailed')));
     } finally {
       setResolvingPlaceId('');
     }
@@ -3449,11 +3563,11 @@ function GooglePlacePicker({
 
   return (
     <View style={styles.googlePlacePicker}>
-      <FormLabel label={label}>
+      <FormLabel label={resolvedLabel}>
         <TextInput
           value={query}
           onChangeText={handleInputChange}
-          placeholder={placeholder}
+          placeholder={resolvedPlaceholder}
           placeholderTextColor={theme.color.muted}
           editable={!disabled}
           autoFocus={autoFocus && !disabled}
@@ -3463,14 +3577,14 @@ function GooglePlacePicker({
           style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
         />
       </FormLabel>
-      {helperText ? <AppText style={[styles.googlePlaceHelper, { color: theme.color.muted }]}>{helperText}</AppText> : null}
+      {resolvedHelperText ? <AppText style={[styles.googlePlaceHelper, { color: theme.color.muted }]}>{resolvedHelperText}</AppText> : null}
       {selectedPlace ? (
         <View style={[styles.googlePlaceSelectedCard, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
           <View style={[styles.googlePlacePin, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }]}>
             <MobileIcon name="location-on" color={theme.semantic.place.text} size={17} />
           </View>
           <View style={styles.googlePlaceSuggestionCopy}>
-            <SemanticBadge label={googlePlaceStatusLabel(selectedPlace)} tone="place" size="sm" />
+            <SemanticBadge label={googlePlaceStatusLabel(selectedPlace, t)} tone="place" size="sm" />
             <AppText style={styles.googlePlaceSuggestionTitle}>{selectedPlace.name || resolvedGooglePlaceAddress(selectedPlace)}</AppText>
             {selectedPlace.name && selectedPlace.formattedAddress ? <AppText style={[styles.googlePlaceSuggestionBody, { color: theme.color.muted }]} numberOfLines={2}>{selectedPlace.formattedAddress}</AppText> : null}
           </View>
@@ -3496,14 +3610,14 @@ function GooglePlacePicker({
                   {prediction.secondaryText ? <AppText style={[styles.googlePlaceSuggestionBody, { color: theme.color.muted }]} numberOfLines={2}>{prediction.secondaryText}</AppText> : null}
                 </View>
                 <View style={styles.googlePlaceSuggestionAction}>
-                  {resolving ? <ActivityIndicator size="small" /> : <AppText style={[styles.googlePlaceSuggestionActionText, { color: theme.semantic.place.text }]}>Select</AppText>}
+                  {resolving ? <ActivityIndicator size="small" /> : <AppText style={[styles.googlePlaceSuggestionActionText, { color: theme.semantic.place.text }]}>{t('plans.create.google.select')}</AppText>}
                 </View>
               </Pressable>
             );
           })}
         </View>
       ) : null}
-      {searching ? <View style={styles.googlePlaceStatusRow}><ActivityIndicator size="small" /><AppText style={[styles.googlePlaceStatusText, { color: theme.color.muted }]}>Searching Google places...</AppText></View> : null}
+      {searching ? <View style={styles.googlePlaceStatusRow}><ActivityIndicator size="small" /><AppText style={[styles.googlePlaceStatusText, { color: theme.color.muted }]}>{t('plans.create.google.searching')}</AppText></View> : null}
       {notice ? <AppText style={[styles.googlePlaceNotice, { color: theme.color.muted }]}>{notice}</AppText> : null}
     </View>
   );
@@ -3539,27 +3653,28 @@ function SecondaryButton({ label, onPress, disabled, icon }: { label: string; on
 
 function PlaceChoiceCard({ place, onPress }: { place: PlaceDto; onPress: () => void }) {
   const theme = useThemeTokens();
-  const disabledReason = reusablePlaceDisabledReason(place);
+  const { t } = useTranslation();
+  const disabledReason = reusablePlaceDisabledReason(place, t);
   const needsFix = Boolean(disabledReason);
-  const meta = [place.mode === 'remote' ? 'Online' : 'Offline', place.category, place.formattedAddress || place.areaLabel || place.addressPublicText || place.onlineLabel]
+  const meta = [place.mode === 'remote' ? t('plans.deck.online') : t('plans.deck.offline'), place.category, place.formattedAddress || place.areaLabel || place.addressPublicText || place.onlineLabel]
     .filter((value): value is string => Boolean(value && value.trim()))
     .join(' · ');
   const mediaUrl = placeVisualUrl(activeMedia(place.media)[0], place.staticMap, theme.mode);
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={needsFix ? `Fix ${place.title}` : `Add ${place.title}`} onPress={onPress} style={({ pressed }) => [styles.choiceCard, { backgroundColor: theme.color.surface, borderColor: needsFix ? theme.semantic.warning.border : theme.color.border }, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={needsFix ? t('plans.create.place.fixAccessibility', { title: place.title }) : t('plans.create.place.addAccessibility', { title: place.title })} onPress={onPress} style={({ pressed }) => [styles.choiceCard, { backgroundColor: theme.color.surface, borderColor: needsFix ? theme.semantic.warning.border : theme.color.border }, pressed && styles.pressed]}>
       <View style={[styles.choiceIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
         {mediaUrl ? <Image source={{ uri: mediaUrl }} resizeMode="cover" style={styles.choiceImage as ImageStyle} /> : <MobileIcon name={place.mode === 'remote' ? 'send' : 'calendar'} size={18} color={theme.semantic.place.text} />}
       </View>
       <View style={styles.choiceCopy}>
         <View style={styles.rowTop}>
-          <SemanticBadge label={placeSourceLabel(place)} tone="place" size="sm" />
-          <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
+          <SemanticBadge label={placeSourceLabel(place, t)} tone="place" size="sm" />
+          <SemanticBadge label={place.mode === 'remote' ? t('plans.deck.online') : t('plans.deck.offline')} tone="muted" size="sm" />
         </View>
         <AppText style={styles.choiceTitle}>{place.title}</AppText>
-        <AppText style={[styles.choiceMeta, { color: needsFix ? theme.semantic.warning.text : theme.color.muted }]} numberOfLines={2}>{disabledReason || meta || 'Reusable Place'}</AppText>
+        <AppText style={[styles.choiceMeta, { color: needsFix ? theme.semantic.warning.text : theme.color.muted }]} numberOfLines={2}>{disabledReason || meta || t('plans.create.place.reusable')}</AppText>
       </View>
       <View style={[styles.addMini, { backgroundColor: needsFix ? theme.semantic.warning.softBg : theme.semantic.place.bg, borderColor: needsFix ? theme.semantic.warning.border : 'transparent' }]}>
-        {needsFix ? <AppText style={[styles.addMiniText, { color: theme.semantic.warning.text }]}>Fix</AppText> : <MobileIcon name="add" size={16} color={theme.color.background} />}
+        {needsFix ? <AppText style={[styles.addMiniText, { color: theme.semantic.warning.text }]}>{t('plans.create.place.fix')}</AppText> : <MobileIcon name="add" size={16} color={theme.color.background} />}
       </View>
     </Pressable>
   );
@@ -3567,7 +3682,8 @@ function PlaceChoiceCard({ place, onPress }: { place: PlaceDto; onPress: () => v
 
 function PlaceTimelineRow({ place, index, onPress, onDatePress, onTimePress }: { place: SelectedPlanPlaceState; index: number; onPress: () => void; onDatePress: () => void; onTimePress: () => void }) {
   const theme = useThemeTokens();
-  const meta = placePreviewLocation(place) || 'No location yet';
+  const { t } = useTranslation();
+  const meta = placePreviewLocation(place, t) || t('plans.create.place.noLocation');
   const mediaUrl = placeVisualUrl(place.existingMedia, place.existingStaticMap, theme.mode);
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.placeTimelineRow, { borderColor: theme.color.border }, pressed && styles.pressed]}>
@@ -3578,7 +3694,7 @@ function PlaceTimelineRow({ place, index, onPress, onDatePress, onTimePress }: {
       ) : null}
       <View style={styles.timelineCopy}>
         <PlanStopTimeCompactRow place={place} index={index} onDatePress={onDatePress} onTimePress={onTimePress} />
-        <AppText style={styles.rowTitle}>{place.title || place.sourcePlaceTitle || `Place ${index + 1}`}</AppText>
+        <AppText style={styles.rowTitle}>{place.title || place.sourcePlaceTitle || t('plans.create.place.label', { index: index + 1 })}</AppText>
         <AppText style={[styles.metaText, { color: theme.color.muted }]} numberOfLines={2}>{meta}</AppText>
       </View>
       <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
@@ -3596,18 +3712,19 @@ function PlanTimeCard({
   onChange: (patch: Partial<SelectedPlanPlaceState>) => void;
 }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   return (
     <View style={[styles.timeCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
       <View style={styles.timeCardHeader}>
-        <SemanticBadge label={`Place ${index + 1}`} tone="place" size="sm" />
+        <SemanticBadge label={t('plans.create.place.label', { index: index + 1 })} tone="place" size="sm" />
         <View style={styles.timelineCopy}>
-          <AppText style={styles.rowTitle}>{place.title || place.sourcePlaceTitle || `Place ${index + 1}`}</AppText>
-          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{index === 0 ? 'Plan start · required' : 'Optional · same time or after the previous timed place'}</AppText>
+          <AppText style={styles.rowTitle}>{place.title || place.sourcePlaceTitle || t('plans.create.place.label', { index: index + 1 })}</AppText>
+          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{index === 0 ? t('plans.create.time.firstRequired') : t('plans.create.time.laterOptional')}</AppText>
         </View>
       </View>
       <View style={styles.twoColumnRow}>
-        <TextField label="Date" value={place.date} onChangeText={(date) => onChange({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
-        <TextField label="Time" value={place.time} onChangeText={(time) => onChange({ time })} placeholder="13:00" keyboardType="numbers-and-punctuation" />
+        <TextField label={t('plans.create.time.date')} value={place.date} onChangeText={(date) => onChange({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+        <TextField label={t('plans.create.time.time')} value={place.time} onChangeText={(time) => onChange({ time })} placeholder="13:00" keyboardType="numbers-and-punctuation" />
       </View>
     </View>
   );
@@ -3629,24 +3746,25 @@ function AdvancedPlanDetailsCard({
   onChange: (patch: Partial<AdvancedPlanDetailsState>) => void;
 }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   return (
     <View style={[styles.advancedCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={onToggle} style={({ pressed }) => [styles.advancedToggle, pressed && styles.pressed]}>
         <View style={styles.timelineCopy}>
-          <AppText style={styles.rowTitle}>More options</AppText>
-          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{open ? 'Hide custom Plan details' : 'Optional title, description, category, and tags'}</AppText>
+          <AppText style={styles.rowTitle}>{t('plans.create.advanced.title')}</AppText>
+          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{open ? t('plans.create.advanced.hide') : t('plans.create.advanced.show')}</AppText>
         </View>
         <SemanticBadge label={open ? '−' : '+'} tone="plan" size="sm" />
       </Pressable>
       {open ? (
         <View style={styles.advancedPanel}>
-          <TextField label="Custom Plan title" value={details.title} onChangeText={(title) => onChange({ title })} placeholder={generatedTitle} maxLength={120} />
-          <TextField label="Custom Plan description" value={details.description} onChangeText={(description) => onChange({ description })} placeholder={generatedDescription} multiline maxLength={2000} />
+          <TextField label={t('plans.create.advanced.planTitle')} value={details.title} onChangeText={(title) => onChange({ title })} placeholder={generatedTitle} maxLength={120} />
+          <TextField label={t('plans.create.advanced.planDescription')} value={details.description} onChangeText={(description) => onChange({ description })} placeholder={generatedDescription} multiline maxLength={2000} />
           <View style={styles.twoColumnRow}>
-            <TextField label="Category" value={details.category} onChangeText={(category) => onChange({ category })} placeholder="Culture, food..." maxLength={80} />
-            <TextField label="Tags" value={details.tags} onChangeText={(tags) => onChange({ tags })} placeholder="Paris, coffee" maxLength={280} />
+            <TextField label={t('plans.create.advanced.category')} value={details.category} onChangeText={(category) => onChange({ category })} placeholder={t('plans.create.advanced.categoryPlaceholder')} maxLength={80} />
+            <TextField label={t('plans.create.advanced.tags')} value={details.tags} onChangeText={(tags) => onChange({ tags })} placeholder={t('plans.create.advanced.tagsPlaceholder')} maxLength={280} />
           </View>
-          <AppText style={[styles.metaText, { color: theme.color.muted }]}>Leave empty to use the generated place/time summary. Separate tags with commas.</AppText>
+          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.create.advanced.help')}</AppText>
         </View>
       ) : null}
     </View>
@@ -3656,6 +3774,7 @@ function AdvancedPlanDetailsCard({
 export function PlanIdeaDetailScreen({ route, navigation }: PlanIdeaDetailProps) {
   const theme = useThemeTokens();
   const auth = useAuth();
+  const { t } = useTranslation();
   const ideaKey = parseStarterPlanIdeaKey(route.params.ideaId);
   const idea = ideaKey ? starterPlanIdeas[ideaKey] : null;
   const requirementCounts = idea ? starterPlanIdeaRequirementCounts(idea) : null;
@@ -3671,45 +3790,45 @@ export function PlanIdeaDetailScreen({ route, navigation }: PlanIdeaDetailProps)
 
   if (!idea) {
     return (
-      <AppFixedHeaderScreen header={<AppHeader title="Plan idea" onBack={() => navigation.goBack()} />}>
+      <AppFixedHeaderScreen header={<AppHeader title={t('plans.ideaDetail.title')} onBack={() => navigation.goBack()} />}>
         <View style={styles.listContent}>
-          <InfoNotice tone="warning" title="Plan idea not found" body="This starter Plan idea is not available anymore. You can still create a Plan from scratch." />
-          <PrimaryButton label="Create Plan" onPress={() => navigation.navigate('CreatePlan')} />
+          <InfoNotice tone="warning" title={t('plans.ideaDetail.notFound.title')} body={t('plans.ideaDetail.notFound.body')} />
+          <PrimaryButton label={t('plans.ideaDetail.actions.createPlan')} onPress={() => navigation.navigate('CreatePlan')} />
         </View>
       </AppFixedHeaderScreen>
     );
   }
 
   return (
-    <AppFixedHeaderScreen header={<AppHeader title="Plan idea" onBack={() => navigation.goBack()} />}>
+    <AppFixedHeaderScreen header={<AppHeader title={t('plans.ideaDetail.title')} onBack={() => navigation.goBack()} />}>
       <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
         <View style={[styles.hero, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
-          <SemanticBadge label={`Plan idea · ${idea.pack}`} tone="instruction" />
+          <SemanticBadge label={t('plans.ideaDetail.badge', { pack: idea.pack })} tone="instruction" />
           <AppText style={styles.heroTitle}>{idea.title}</AppText>
           <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{idea.description}</AppText>
           <View style={styles.previewInlineMeta}>
-            <SemanticBadge label={`${idea.stops.length} stops`} tone="place" size="sm" />
-            <SemanticBadge label={starterPlanIdeaMode(idea) === 'remote' ? 'Online' : 'Local'} tone="plan" size="sm" />
-            <SemanticBadge label={starterPlanIdeaRequirementSummary(idea)} tone="warning" size="sm" />
+            <SemanticBadge label={t(idea.stops.length === 1 ? 'plans.deck.ideaStopsOne' : 'plans.deck.ideaStopsMany', { count: idea.stops.length })} tone="place" size="sm" />
+            <SemanticBadge label={starterPlanIdeaMode(idea) === 'remote' ? t('plans.deck.online') : t('plans.detail.values.local')} tone="plan" size="sm" />
+            <SemanticBadge label={starterPlanIdeaRequirementSummaryLocalized(idea, t)} tone="warning" size="sm" />
           </View>
         </View>
 
-        <InfoNotice tone="instruction" title="Review first" body="This starter idea gives structure only. You still add confirmed addresses or real online links before publishing." />
+        <InfoNotice tone="instruction" title={t('plans.ideaDetail.review.title')} body={t('plans.ideaDetail.review.body')} />
 
         <View style={[styles.planIdeaRequirementCard, { backgroundColor: theme.semantic.warning.softBg, borderColor: theme.semantic.warning.border }]}>
-          <AppText style={[styles.planIdeaRequirementTitle, { color: theme.semantic.warning.text }]}>Before publishing, add</AppText>
-          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{starterPlanIdeaRequirementSummary(idea)}. Prompt text is never saved as a valid offline address.</AppText>
+          <AppText style={[styles.planIdeaRequirementTitle, { color: theme.semantic.warning.text }]}>{t('plans.ideaDetail.requirements.title')}</AppText>
+          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.ideaDetail.requirements.body', { requirements: starterPlanIdeaRequirementSummaryLocalized(idea, t) })}</AppText>
           <View style={styles.planIdeaRequirementGrid}>
             {requirementCounts?.addressStops ? (
               <View style={[styles.planIdeaRequirementPill, { borderColor: theme.semantic.warning.border }]}>
                 <AppText style={[styles.planIdeaRequirementNumber, { color: theme.semantic.warning.text }]}>{requirementCounts.addressStops}</AppText>
-                <AppText style={styles.planIdeaRequirementLabel}>real address{requirementCounts.addressStops === 1 ? '' : 'es'}</AppText>
+                <AppText style={styles.planIdeaRequirementLabel}>{t(requirementCounts.addressStops === 1 ? 'plans.ideaDetail.requirements.realAddressOne' : 'plans.ideaDetail.requirements.realAddressMany', { count: requirementCounts.addressStops })}</AppText>
               </View>
             ) : null}
             {requirementCounts?.onlineLinkStops ? (
               <View style={[styles.planIdeaRequirementPill, { borderColor: theme.semantic.info.border }]}>
                 <AppText style={[styles.planIdeaRequirementNumber, { color: theme.semantic.info.text }]}>{requirementCounts.onlineLinkStops}</AppText>
-                <AppText style={styles.planIdeaRequirementLabel}>online link{requirementCounts.onlineLinkStops === 1 ? '' : 's'}</AppText>
+                <AppText style={styles.planIdeaRequirementLabel}>{t(requirementCounts.onlineLinkStops === 1 ? 'plans.ideaDetail.requirements.onlineLinkOne' : 'plans.ideaDetail.requirements.onlineLinkMany', { count: requirementCounts.onlineLinkStops })}</AppText>
               </View>
             ) : null}
           </View>
@@ -3723,24 +3842,24 @@ export function PlanIdeaDetailScreen({ route, navigation }: PlanIdeaDetailProps)
               </View>
               <View style={styles.timelineCopy}>
                 <View style={styles.rowTop}>
-                  <SemanticBadge label={stop.mode === 'remote' ? 'Online' : 'Offline'} tone="place" size="sm" />
+                  <SemanticBadge label={stop.mode === 'remote' ? t('plans.deck.online') : t('plans.deck.offline')} tone="place" size="sm" />
                   <SemanticBadge label={stop.time} tone="time" size="sm" />
                   <SemanticBadge label={starterPlanIdeaStopRequirementLabel(stop)} tone={stop.mode === 'remote' ? 'info' : 'warning'} size="sm" />
                 </View>
                 <AppText style={styles.rowTitle}>{stop.title}</AppText>
                 <AppText style={[styles.metaText, { color: theme.color.muted }]}>{starterPlanIdeaStopDestinationPrompt(stop)}</AppText>
-                <AppText style={[styles.planIdeaPromptOnlyText, { color: stop.mode === 'remote' ? theme.semantic.info.text : theme.semantic.warning.text }]}>{stop.mode === 'remote' ? 'Prompt only — add a real link in Create Plan.' : 'Prompt only — select a provider address in Create Plan.'}</AppText>
+                <AppText style={[styles.planIdeaPromptOnlyText, { color: stop.mode === 'remote' ? theme.semantic.info.text : theme.semantic.warning.text }]}>{stop.mode === 'remote' ? t('plans.ideaDetail.requirements.onlinePrompt') : t('plans.ideaDetail.requirements.offlinePrompt')}</AppText>
               </View>
             </View>
           ))}
         </View>
 
         <View style={[styles.formCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-          <AppText style={styles.sectionTitle}>Next step</AppText>
-          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Create your version opens Create Plan with these stops as editable prompts. Offline prompts stay blocked until a confirmed address is selected.</AppText>
+          <AppText style={styles.sectionTitle}>{t('plans.ideaDetail.nextStep.title')}</AppText>
+          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t('plans.ideaDetail.nextStep.body')}</AppText>
           <View style={styles.actionGrid}>
-            <SecondaryButton label="Back to Plans" onPress={() => navigation.navigate('Plans')} />
-            <PrimaryButton label="Create your version" onPress={createVersion} />
+            <SecondaryButton label={t('plans.ideaDetail.actions.backToPlans')} onPress={() => navigation.navigate('Plans')} />
+            <PrimaryButton label={t('plans.ideaDetail.actions.createVersion')} onPress={createVersion} />
           </View>
         </View>
       </ScrollView>
@@ -3750,7 +3869,7 @@ export function PlanIdeaDetailScreen({ route, navigation }: PlanIdeaDetailProps)
 
 export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'CreatePlan'>) {
   const theme = useThemeTokens();
-  const { language } = useTranslation();
+  const { language, t } = useTranslation();
   const [places, setPlaces] = useState<SelectedPlanPlaceState[]>([]);
   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
   const [libraryPlaces, setLibraryPlaces] = useState<PlaceDto[]>([]);
@@ -3795,10 +3914,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   const draftPlaceValidationBlocked = restoringDraft || draftPlacesChecking.length > 0 || draftPlacesNeedingReview.length > 0;
   const placesForGeneratedDisplay = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceTitle?.trim()), [places]);
   const schedulablePlaces = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceId), [places]);
-  const schedule = useMemo(() => buildMobilePlanSchedule(schedulablePlaces), [schedulablePlaces]);
-  const explicitPlanEnd = useMemo(() => parseOptionalMobilePlanEnd(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
-  const endSummary = useMemo(() => mobilePlanEndSummary(schedule, planEnd), [schedule, planEnd]);
-  const conflictWarning = useMemo(() => planConflictWarning(myPlansForConflict, schedule, explicitPlanEnd), [explicitPlanEnd, myPlansForConflict, schedule]);
+  const schedule = useMemo(() => buildMobilePlanSchedule(schedulablePlaces, t), [schedulablePlaces, t]);
+  const explicitPlanEnd = useMemo(() => parseOptionalMobilePlanEnd(planEnd, schedule.startsAt, t), [planEnd, schedule.startsAt, t]);
+  const endSummary = useMemo(() => mobilePlanEndSummary(schedule, planEnd, t), [schedule, planEnd, t]);
+  const conflictWarning = useMemo(() => planConflictWarning(myPlansForConflict, schedule, explicitPlanEnd, t), [explicitPlanEnd, myPlansForConflict, schedule, t]);
   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
     places: placesForGeneratedDisplay,
     startsAt: schedule.startsAt,
@@ -3818,7 +3937,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     category: advancedDetails.category.trim() || null,
     tags: parsePlanTagsInput(advancedDetails.tags),
     mode: planModeFromSelectedPlaces(placesForGeneratedDisplay),
-    locationLabel: placesForGeneratedDisplay.length === 0 ? null : `${placesForGeneratedDisplay.length} ${placesForGeneratedDisplay.length === 1 ? 'place' : 'places'}`,
+    locationLabel: placesForGeneratedDisplay.length === 0 ? null : t(placesForGeneratedDisplay.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: placesForGeneratedDisplay.length }),
     startsAt: schedule.startsAt || new Date().toISOString(),
     endsAt: explicitPlanEnd.endsAt || schedule.endsAt || null,
     joinApprovalMode: 'automatic',
@@ -3833,7 +3952,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
       source: place.sourcePlaceId ? (place.sourcePlaceSource === 'hellowhen_library' ? 'hellowhen_library' : 'my_place') : 'custom',
       order: index,
       mode: place.mode,
-      title: planPreviewPlaceTitle(place, index),
+      title: planPreviewPlaceTitle(place, index, t),
       addressPublicText: place.mode === 'local' ? (place.providerAddress?.formattedAddress ?? place.location.trim()) || null : null,
       googlePlaceId: place.mode === 'local' ? place.providerAddress?.googlePlaceId ?? null : null,
       googlePlaceName: place.mode === 'local' ? place.providerAddress?.googlePlaceName ?? null : null,
@@ -3852,7 +3971,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
       media: place.existingMedia ? [place.existingMedia] : undefined,
       staticMap: place.existingStaticMap ?? null,
     })),
-  }) as PlanDto, [advancedDetails.category, advancedDetails.tags, explicitPlanEnd.endsAt, places, placesForGeneratedDisplay, previewDescription, previewTitle, schedule.endsAt, schedule.placeEndsAt, schedule.placeStartsAt, schedule.startsAt]);
+  }) as PlanDto, [advancedDetails.category, advancedDetails.tags, explicitPlanEnd.endsAt, places, placesForGeneratedDisplay, previewDescription, previewTitle, schedule.endsAt, schedule.placeEndsAt, schedule.placeStartsAt, schedule.startsAt, t]);
 
   const loadReusablePlaces = useCallback(async () => {
     if (!isPlansVisible()) return;
@@ -3912,9 +4031,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     const date = toDateInputValue();
     handledInitialPlanIdeaRef.current = ideaKey;
     setPlaces(idea.stops.map((stop, index) => selectedPlaceFromPlanIdeaStop(stop, index, date)));
-    setMessage('Starter Plan idea loaded. Offline stops are prompts only: select real address suggestions, and add online links before publishing.');
+    setMessage(t('plans.create.feedback.starterLoaded'));
     navigation.setParams({ initialPlanIdeaKey: undefined });
-  }, [navigation, places.length, route.params?.initialPlanIdeaKey]);
+  }, [navigation, places.length, route.params?.initialPlanIdeaKey, t]);
 
   useEffect(() => {
     setExpandedAddressPlaceIds((current) => {
@@ -3963,9 +4082,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
       }
       return current.map((item, index) => item.sourcePlaceId === updatedPlace.id ? { ...selectedPlaceFromReusable(updatedPlace, index, item.date || toDateInputValue()), id: item.id, date: item.date, time: item.time } : item);
     });
-    setMessage(selectAfterFix ? 'Place fixed and added to this Plan.' : 'Place updated in this Plan.');
+    setMessage(selectAfterFix ? t('plans.create.feedback.placeFixedAdded') : t('plans.create.feedback.placeUpdated'));
     navigation.setParams({ updatedPlace: undefined, updatedPlaceTargetIndex: undefined, updatedPlaceNonce: undefined, updatedPlaceSelectAfterFix: undefined });
-  }, [navigation, route.params?.updatedPlace, route.params?.updatedPlaceNonce, route.params?.updatedPlaceSelectAfterFix, route.params?.updatedPlaceTargetIndex]);
+  }, [navigation, route.params?.updatedPlace, route.params?.updatedPlaceNonce, route.params?.updatedPlaceSelectAfterFix, route.params?.updatedPlaceTargetIndex, t]);
 
   function cancelPendingCreatePlanDraftSave() {
     if (createPlanDraftSaveTimeoutRef.current) {
@@ -3999,7 +4118,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     createPlanDraftHydratingRef.current = true;
     setRestoringDraft(true);
     setDraftPrompt(null);
-    setMessage('Checking saved Places in this draft...');
+    setMessage(t('plans.create.draft.checkingRestored'));
     setError(null);
     const restoredPlaces = draft.places.map((place, index) => {
       const restored = selectedPlanPlaceFromDraft(place, index);
@@ -4019,8 +4138,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
       }));
       setStage(needsReviewCount > 0 ? 'build' : draft.stage);
       setMessage(needsReviewCount > 0
-        ? `Draft restored. ${needsReviewCount} ${needsReviewCount === 1 ? 'Place needs' : 'Places need'} review before preview or publish.`
-        : `Draft restored from ${formatCreatePlanDraftSavedAt(draft.updatedAt)}. Saved Places were checked and refreshed.`);
+        ? t(needsReviewCount === 1 ? 'plans.create.draft.restoredReviewOne' : 'plans.create.draft.restoredReviewMany', { count: needsReviewCount })
+        : t('plans.create.draft.restoredSuccess', { date: formatCreatePlanDraftSavedAt(draft.updatedAt, language) }));
     } finally {
       setRestoringDraft(false);
       createPlanDraftHydratingRef.current = false;
@@ -4042,7 +4161,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     await clearCreatePlanDraft();
     resetCreatePlanDraftState();
     setCreatePlanMenuOpen(false);
-    setMessage('Create Plan draft cleared.');
+    setMessage(t('plans.create.draft.cleared'));
     createPlanDraftReadyRef.current = true;
   }
 
@@ -4189,7 +4308,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     }
     const endDate = schedule.startsAt ? addMinutesToIso(schedule.startsAt, minutes) : null;
     if (!endDate) {
-      setError('Choose a start date and time before selecting a duration.');
+      setError(t('plans.create.validation.chooseStartForDuration'));
       return;
     }
     updatePlanEnd(dateAndTimeFromDate(endDate));
@@ -4231,7 +4350,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     setPlacePickerOpen(false);
     setExpandedAddressPlaceIds((current) => mergeUniquePlaceIds(current, missingIds));
     setAddressFocusPlaceId(missingIds[0] ?? null);
-    setAddressGuidanceNotice(PLAN_OFFLINE_ADDRESS_TOP_ERROR);
+    setAddressGuidanceNotice(t('plans.create.validation.offlineTop'));
     setError(null);
     return true;
   }
@@ -4239,12 +4358,12 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   function focusDraftPlacesNeedingReview() {
     if (restoringDraft || draftPlacesChecking.length > 0) {
       setStage('build');
-      setError(PLAN_DRAFT_PLACE_CHECKING_ERROR);
+      setError(t('plans.create.validation.draftChecking'));
       return true;
     }
     if (draftPlacesNeedingReview.length > 0) {
       setStage('build');
-      setError(PLAN_DRAFT_PLACE_REVIEW_ERROR);
+      setError(t('plans.create.validation.draftReview'));
       return true;
     }
     return false;
@@ -4252,11 +4371,11 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
   function showPreviewStage() {
     setError(null);
-    if (places.length === 0) { setError('Add at least one place before preview.'); return; }
+    if (places.length === 0) { setError(t('plans.create.validation.addBeforePreview')); return; }
     if (focusDraftPlacesNeedingReview()) return;
     if (focusMissingOfflineAddresses()) return;
     if (schedule.error) { setError(schedule.error); return; }
-    const addressRuleError = getPlanPlacesAddressRuleError(schedulablePlaces);
+    const addressRuleError = getPlanPlacesAddressRuleError(schedulablePlaces, t);
     if (addressRuleError) { setError(addressRuleError); return; }
     if (explicitPlanEnd.error) { setError(explicitPlanEnd.error); return; }
     setStage('preview');
@@ -4264,22 +4383,22 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
   async function submit() {
     const usablePlaces = places.filter((place) => place.title.trim() || place.sourcePlaceId);
-    const nextSchedule = buildMobilePlanSchedule(usablePlaces);
+    const nextSchedule = buildMobilePlanSchedule(usablePlaces, t);
     const customTitle = advancedDetails.title.trim();
     const customDescription = advancedDetails.description.trim();
     const customCategory = advancedDetails.category.trim();
     const customTags = parsePlanTagsInput(advancedDetails.tags);
-    const nextExplicitEnd = parseOptionalMobilePlanEnd(planEnd, nextSchedule.startsAt);
-    if (usablePlaces.length === 0) { setError('Add at least one place.'); return; }
+    const nextExplicitEnd = parseOptionalMobilePlanEnd(planEnd, nextSchedule.startsAt, t);
+    if (usablePlaces.length === 0) { setError(t('plans.create.validation.addAtLeastOne')); return; }
     if (focusDraftPlacesNeedingReview()) return;
     if (focusMissingOfflineAddresses()) return;
-    if (nextSchedule.error || !nextSchedule.startsAt) { setError(nextSchedule.error || 'Add at least one place.'); return; }
-    const addressRuleError = getPlanPlacesAddressRuleError(usablePlaces);
+    if (nextSchedule.error || !nextSchedule.startsAt) { setError(nextSchedule.error || t('plans.create.validation.addAtLeastOne')); return; }
+    const addressRuleError = getPlanPlacesAddressRuleError(usablePlaces, t);
     if (addressRuleError) { setError(addressRuleError); return; }
     if (nextExplicitEnd.error) { setError(nextExplicitEnd.error); return; }
-    if (customTitle && customTitle.length < 3) { setError('Custom Plan title must be at least 3 characters.'); return; }
-    if (customDescription && customDescription.length < 10) { setError('Custom Plan description must be at least 10 characters, or leave it empty.'); return; }
-    if (customTags.length > 8 || customTags.some((tag) => tag.length > 32)) { setError('Use up to 8 tags, each 32 characters or less.'); return; }
+    if (customTitle && customTitle.length < 3) { setError(t('plans.create.validation.titleTooShort')); return; }
+    if (customDescription && customDescription.length < 10) { setError(t('plans.create.validation.descriptionTooShort')); return; }
+    if (customTags.length > 8 || customTags.some((tag) => tag.length > 32)) { setError(t('plans.create.validation.tagsInvalid')); return; }
 
     setSaving(true);
     setError(null);
@@ -4331,7 +4450,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
   return (
     <AppFixedHeaderScreen
-      header={<AppHeader title="Create plan" onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="more" label="Create Plan options" onPress={() => setCreatePlanMenuOpen((value) => !value)} />} />}
+      header={<AppHeader title={t('plans.create.headerTitle')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="more" label={t('plans.create.optionsAccessibility')} onPress={() => setCreatePlanMenuOpen((value) => !value)} />} />}
     >
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
         {createPlanMenuOpen ? (
@@ -4341,34 +4460,34 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                 <MobileIcon name="close" color={theme.semantic.warning.text} size={17} />
               </View>
               <View style={styles.menuCopy}>
-                <AppText style={styles.menuTitle}>Clear draft</AppText>
-                <AppText style={[styles.menuBody, { color: theme.color.muted }]}>Remove this unfinished Plan from this device and start over.</AppText>
+                <AppText style={styles.menuTitle}>{t('plans.create.menu.clearDraft')}</AppText>
+                <AppText style={[styles.menuBody, { color: theme.color.muted }]}>{t('plans.create.menu.clearDraftBody')}</AppText>
               </View>
             </Pressable>
           </View>
         ) : null}
         <ScrollView ref={createPlanScrollRef} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           <View style={styles.planCreateCompactHeader}>
-            <SemanticBadge label="Plan" tone="plan" />
-            <AppText style={styles.heroTitle}>Create plan</AppText>
+            <SemanticBadge label={t('plans.create.badge')} tone="plan" />
+            <AppText style={styles.heroTitle}>{t('plans.create.headerTitle')}</AppText>
           </View>
 
           <View style={styles.stageSwitchRow}>
-            <PillButton label="Build" active={stage === 'build'} onPress={() => setStage('build')} />
-            <PillButton label="Preview" active={stage === 'preview'} onPress={showPreviewStage} />
+            <PillButton label={t('plans.create.stages.build')} active={stage === 'build'} onPress={() => setStage('build')} />
+            <PillButton label={t('plans.create.stages.preview')} active={stage === 'preview'} onPress={showPreviewStage} />
           </View>
 
           {stage === 'build' && (restoringDraft || draftPlacesChecking.length > 0) ? (
-            <InfoNotice tone="info" title="Checking saved Places" body="Hellowhen is confirming that the saved Places in this restored draft are still available and usable." />
+            <InfoNotice tone="info" title={t('plans.create.draft.checkingTitle')} body={t('plans.create.draft.checkingBody')} />
           ) : null}
           {stage === 'build' && draftPlacesNeedingReview.length > 0 ? (
             <InfoNotice
               tone="warning"
-              title="Draft needs review"
-              body={`${draftPlacesNeedingReview.length} ${draftPlacesNeedingReview.length === 1 ? 'Place needs' : 'Places need'} attention. Replace, fix, or remove the highlighted ${draftPlacesNeedingReview.length === 1 ? 'Place' : 'Places'} before preview or publish.`}
+              title={t('plans.create.draft.needsReviewTitle')}
+              body={t(draftPlacesNeedingReview.length === 1 ? 'plans.create.draft.needsReviewOne' : 'plans.create.draft.needsReviewMany', { count: draftPlacesNeedingReview.length })}
             />
           ) : null}
-          {stage === 'build' && addressGuidanceNotice ? <InfoNotice tone="warning" title="Address needed" body={addressGuidanceNotice} /> : null}
+          {stage === 'build' && addressGuidanceNotice ? <InfoNotice tone="warning" title={t('plans.create.validation.addressNeeded')} body={addressGuidanceNotice} /> : null}
 
           {stage === 'build' ? (
             <>
@@ -4387,17 +4506,17 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                         <View style={styles.planDraftReviewHeader}>
                           {place.draftReview.status === 'checking' ? <ActivityIndicator size="small" color={theme.semantic.warning.text} /> : <MobileIcon name="warning" size={18} color={theme.semantic.warning.text} />}
                           <View style={styles.timelineCopy}>
-                            <SemanticBadge label={place.draftReview.status === 'checking' ? 'Checking saved Place' : 'Needs review'} tone="warning" size="sm" />
+                            <SemanticBadge label={place.draftReview.status === 'checking' ? t('plans.create.draft.checkingBadge') : t('plans.create.draft.reviewBadge')} tone="warning" size="sm" />
                             <AppText style={[styles.metaText, { color: theme.semantic.warning.text }]}>
-                              {place.draftReview.status === 'checking' ? 'Confirming that this saved Place is still available.' : place.draftReview.reason || 'This saved Place cannot be used until it is reviewed.'}
+                              {place.draftReview.status === 'checking' ? t('plans.create.draft.checkingPlaceBody') : place.draftReview.reason || t('plans.create.draft.defaultReviewReason')}
                             </AppText>
                           </View>
                         </View>
                         {place.draftReview.status === 'needs_review' ? (
                           <View style={styles.actionGrid}>
-                            <SecondaryButton label="Check again" onPress={() => { void retryDraftPlaceReview(place.id); }} />
-                            <SecondaryButton label="Change place" onPress={() => openPlaceSourceSheet(index)} />
-                            <SecondaryButton label="Remove" icon="close" onPress={() => removeSelectedPlace(index)} />
+                            <SecondaryButton label={t('common.actions.tryAgain')} onPress={() => { void retryDraftPlaceReview(place.id); }} />
+                            <SecondaryButton label={t('plans.create.placeDetail.changePlace')} onPress={() => openPlaceSourceSheet(index)} />
+                            <SecondaryButton label={t('plans.create.placeDetail.remove')} icon="close" onPress={() => removeSelectedPlace(index)} />
                           </View>
                         ) : null}
                       </View>
@@ -4408,22 +4527,22 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                         style={[styles.planAddressGuidance, { borderTopColor: theme.color.border, backgroundColor: theme.semantic.place.softBg }]}
                       >
                         <View style={styles.timelineCopy}>
-                          <SemanticBadge label="Address needed" tone="warning" size="sm" />
-                          <InfoNotice tone="warning" body={PLAN_OFFLINE_ADDRESS_INLINE_ERROR} />
+                          <SemanticBadge label={t('plans.create.validation.addressNeeded')} tone="warning" size="sm" />
+                          <InfoNotice tone="warning" body={t('plans.create.validation.offlineInline')} />
                         </View>
                         <GooglePlacePicker
-                          label={`Verified address for Place ${index + 1}`}
+                          label={t('plans.create.place.verifiedAddress', { index: index + 1 })}
                           value={place.location}
                           onChangeText={(location) => updateSelectedPlace(index, { location })}
                           onResolvedPlace={(resolvedPlace) => updateSelectedPlaceResolvedAddress(index, resolvedPlace)}
-                          placeholder="Search and select a real address"
-                          helperText="Type at least 3 characters, then select a provider suggestion. Starter offline stops cannot use placeholder addresses."
+                          placeholder={t('plans.create.place.addressPlaceholder')}
+                          helperText={t('plans.create.place.starterAddressHelp')}
                           languageCode={language}
                           autoFocus={addressFocusPlaceId === place.id}
                         />
                         <View style={styles.actionGrid}>
-                          <SecondaryButton label="Delete this place" icon="close" onPress={() => removeSelectedPlace(index)} />
-                          <SecondaryButton label="Open details" onPress={() => setDetailPlaceIndex(index)} />
+                          <SecondaryButton label={t('plans.create.place.deleteThis')} icon="close" onPress={() => removeSelectedPlace(index)} />
+                          <SecondaryButton label={t('plans.create.place.openDetails')} onPress={() => setDetailPlaceIndex(index)} />
                         </View>
                       </View>
                     ) : null}
@@ -4432,8 +4551,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
                 <Pressable accessibilityRole="button" onPress={() => openPlaceSourceSheet('new')} style={({ pressed }) => [styles.planAddPlaceRow, places.length === 0 && styles.planAddPlaceRowFirst, { borderTopColor: theme.color.border }, pressed && styles.pressed]}>
                   <View style={styles.timelineCopy}>
-                    <AppText style={styles.sectionTitle}>+ Add place</AppText>
-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{places.length === 0 ? 'Choose the first stop' : 'Choose the next stop'}</AppText>
+                    <AppText style={styles.sectionTitle}>{t('plans.create.place.add')}</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{places.length === 0 ? t('plans.create.place.firstStop') : t('plans.create.place.nextStop')}</AppText>
                   </View>
                   <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
                 </Pressable>
@@ -4449,11 +4568,11 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                 ) : null}
               </View>
 
-              {conflictWarning ? <InfoNotice tone="warning" title="Time conflict" body={conflictWarning} /> : null}
-              {error ? <InfoNotice tone="warning" title="Check plan" body={error} /> : null}
+              {conflictWarning ? <InfoNotice tone="warning" title={t('plans.create.validation.timeConflictTitle')} body={conflictWarning} /> : null}
+              {error ? <InfoNotice tone="warning" title={t('plans.create.validation.checkPlan')} body={error} /> : null}
               {places.length > 0 ? (
                 <Pressable accessibilityRole="button" disabled={draftPlaceValidationBlocked} onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, draftPlaceValidationBlocked && styles.disabled]}>
-                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Preview Plan</AppText>
+                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('plans.create.preview.previewPlan')}</AppText>
                 </Pressable>
               ) : null}
             </>
@@ -4462,22 +4581,22 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
               <View style={[styles.previewConfirmStage, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
                 <View style={styles.previewConfirmHero}>
                   <View style={styles.timelineCopy}>
-                    <SemanticBadge label="Preview" tone="plan" size="sm" />
+                    <SemanticBadge label={t('plans.create.stages.preview')} tone="plan" size="sm" />
                     <AppText style={styles.previewConfirmTitle}>{previewTitle}</AppText>
                     <AppText style={[styles.metaText, { color: theme.color.muted }]}>{previewDescription}</AppText>
                   </View>
                   <View style={styles.previewInlineMeta}>
-                    <SemanticBadge label={schedule.startsAt ? formatDate(schedule.startsAt) : 'Start not set'} tone="time" size="sm" />
+                    <SemanticBadge label={schedule.startsAt ? formatDate(schedule.startsAt, language, t) : t('plans.create.preview.startNotSet')} tone="time" size="sm" />
                     {endSummary ? <SemanticBadge label={`${endSummary.label}: ${endSummary.endLabel}`} tone="time" size="sm" /> : null}
-                    <SemanticBadge label={`${places.length} ${places.length === 1 ? 'place' : 'places'}`} tone="place" size="sm" />
-                    <SemanticBadge label="Free join" tone="plan" size="sm" />
-                    <SemanticBadge label="Open" tone="plan" size="sm" />
+                    <SemanticBadge label={t(places.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: places.length })} tone="place" size="sm" />
+                    <SemanticBadge label={t('plans.detail.values.freeJoin')} tone="plan" size="sm" />
+                    <SemanticBadge label={t('plans.status.open')} tone="plan" size="sm" />
                   </View>
                 </View>
 
                 <View style={[styles.previewSectionDivider, { borderTopColor: theme.color.border }]}>
                   <View style={styles.timelineCopy}>
-                    <SemanticBadge label="Feed preview" tone="plan" size="sm" />
+                    <SemanticBadge label={t('plans.create.preview.feedPreview')} tone="plan" size="sm" />
                   </View>
                   <PlanSquareDeck plan={previewPlan} />
                 </View>
@@ -4492,7 +4611,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
                 <View style={[styles.previewSectionDivider, { borderTopColor: theme.color.border }]}>
                   <View style={styles.timelineCopy}>
-                    <SemanticBadge label="Route" tone="place" size="sm" />
+                    <SemanticBadge label={t('plans.create.preview.route')} tone="place" size="sm" />
                   </View>
                   {places.map((place, index) => (
                     <View key={`preview-${place.id}`} style={[styles.previewPlaceRow, { borderTopColor: theme.color.border }]}>
@@ -4500,22 +4619,22 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                         <AppText style={[styles.timelineNumberText, { color: theme.semantic.place.text }]}>{index + 1}</AppText>
                       </View>
                       <View style={styles.timelineCopy}>
-                        <AppText style={styles.rowTitle}>{planPreviewPlaceTitle(place, index)}</AppText>
-                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{planPreviewTimeLabel(place)} · {placePreviewLocation(place)}</AppText>
+                        <AppText style={styles.rowTitle}>{planPreviewPlaceTitle(place, index, t)}</AppText>
+                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{planPreviewTimeLabel(place, t)} · {placePreviewLocation(place, t)}</AppText>
                       </View>
                     </View>
                   ))}
                 </View>
 
-                {validationNotice ? <InfoNotice tone="warning" title="Check plan" body={validationNotice} /> : null}
+                {validationNotice ? <InfoNotice tone="warning" title={t('plans.create.validation.checkPlan')} body={validationNotice} /> : null}
               </View>
 
-              {message ? <InfoNotice tone="success" title="Plans" body={message} /> : null}
-              {error && !validationNotice ? <InfoNotice tone="warning" title="Could not save" body={error} /> : null}
+              {message ? <InfoNotice tone="success" title={t('plans.common.title')} body={message} /> : null}
+              {error && !validationNotice ? <InfoNotice tone="warning" title={t('plans.create.validation.couldNotSave')} body={error} /> : null}
               <View style={styles.actionGrid}>
-                <SecondaryButton label="Back" onPress={() => setStage('build')} />
+                <SecondaryButton label={t('plans.create.preview.back')} onPress={() => setStage('build')} />
                 <Pressable accessibilityRole="button" disabled={saving || draftPlaceValidationBlocked} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg, flex: 1 }, pressed && styles.pressed, (saving || draftPlaceValidationBlocked) && styles.disabled]}>
-                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? 'Creating...' : 'Create Plan'}</AppText>
+                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? t('plans.create.preview.creating') : t('plans.create.preview.create')}</AppText>
                 </Pressable>
               </View>
             </>
@@ -4527,8 +4646,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
             mode={timeSheet.mode}
             date={timeSheetPlace.date}
             time={timeSheetPlace.time}
-            title={timeSheet.mode === 'date' ? `Place ${timeSheet.placeIndex + 1} date` : `Place ${timeSheet.placeIndex + 1} time`}
-            subtitle={timeSheetPlace.title || timeSheetPlace.sourcePlaceTitle || 'Choose when this stop happens.'}
+            title={t(timeSheet.mode === 'date' ? 'plans.create.time.dateForPlace' : 'plans.create.time.timeForPlace', { index: timeSheet.placeIndex + 1 })}
+            subtitle={timeSheetPlace.title || timeSheetPlace.sourcePlaceTitle || t('plans.create.time.stopSubtitle')}
             onChange={(patch) => updateSelectedPlace(timeSheet.placeIndex, patch)}
             onClose={() => setTimeSheet(null)}
           />
@@ -4544,48 +4663,48 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
         />
         <AppConfirmSheet
           visible={Boolean(draftPrompt)}
-          title="Continue draft?"
-          body={draftPrompt ? `You have an unfinished Plan saved on this device from ${formatCreatePlanDraftSavedAt(draftPrompt.updatedAt)}.` : undefined}
-          cancelLabel="Start new"
-          confirmLabel="Continue"
+          title={t('plans.create.draft.continueTitle')}
+          body={draftPrompt ? t('plans.create.draft.continueBody', { date: formatCreatePlanDraftSavedAt(draftPrompt.updatedAt, language) }) : undefined}
+          cancelLabel={t('plans.create.draft.startNew')}
+          confirmLabel={t('plans.create.draft.continue')}
           onCancel={startNewInsteadOfDraft}
           onConfirm={() => { if (draftPrompt) restoreCreatePlanDraft(draftPrompt); }}
         />
         <AppConfirmSheet
           visible={clearDraftConfirmVisible}
-          title="Clear draft?"
-          body="This removes your unfinished Plan from this device and starts a new empty Plan."
-          cancelLabel="Keep draft"
-          confirmLabel="Clear draft"
+          title={t('plans.create.draft.clearTitle')}
+          body={t('plans.create.draft.clearBody')}
+          cancelLabel={t('plans.create.draft.keep')}
+          confirmLabel={t('plans.create.draft.clear')}
           tone="danger"
           onCancel={() => setClearDraftConfirmVisible(false)}
           onConfirm={() => { void clearCurrentCreatePlanDraft(); }}
         />
         <Modal visible={Boolean(detailPlace)} transparent animationType="slide" onRequestClose={() => setDetailPlaceIndex(null)}>
           <View style={styles.sourceSheetOverlay}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close place details" onPress={() => setDetailPlaceIndex(null)} style={styles.sourceSheetScrim} />
+            <Pressable accessibilityRole="button" accessibilityLabel={t('plans.create.placeDetail.closeAccessibility')} onPress={() => setDetailPlaceIndex(null)} style={styles.sourceSheetScrim} />
             {detailPlace && detailPlaceIndex !== null ? (
               <View style={[styles.sourceSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
                 <View style={styles.wizardStepRow}>
                   <View style={styles.timelineCopy}>
-                    <AppText style={styles.sectionTitle}>Place {detailPlaceIndex + 1}</AppText>
+                    <AppText style={styles.sectionTitle}>{t('plans.create.place.label', { index: detailPlaceIndex + 1 })}</AppText>
                   </View>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setDetailPlaceIndex(null)} style={[styles.headerAction, { borderColor: theme.color.border }]}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.close')} onPress={() => setDetailPlaceIndex(null)} style={[styles.headerAction, { borderColor: theme.color.border }]}>
                     <MobileIcon name="close" color={theme.color.text} size={18} />
                   </Pressable>
                 </View>
                 <ScrollView keyboardShouldPersistTaps="handled" style={styles.sourceListScroll} contentContainerStyle={styles.placeDetailSheetContent}>
                   <View style={styles.rowTop}>
-                    {detailPlace.sourcePlaceId ? <SemanticBadge label={detailPlace.sourcePlaceSource === 'hellowhen_library' ? 'Library' : 'My Place'} tone="place" size="sm" /> : <SemanticBadge label="Custom" tone="place" size="sm" />}
+                    {detailPlace.sourcePlaceId ? <SemanticBadge label={detailPlace.sourcePlaceSource === 'hellowhen_library' ? t('plans.create.placeDetail.sourceLibrary') : t('plans.create.placeDetail.sourceMine')} tone="place" size="sm" /> : <SemanticBadge label={t('plans.create.placeDetail.sourceCustom')} tone="place" size="sm" />}
                   </View>
                   {detailPlace.sourcePlaceId ? (
                     <View style={[styles.snapshotStrip, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
                       <AppText style={[styles.snapshotText, { color: theme.semantic.place.text }]} numberOfLines={3}>
-                        {detailPlace.sourcePlaceSource === 'my_place' ? 'Updates your saved Place.' : 'Copied into My Places before editing.'}
+                        {detailPlace.sourcePlaceSource === 'my_place' ? t('plans.create.placeDetail.savedUpdateBody') : t('plans.create.placeDetail.libraryCopyBody')}
                       </AppText>
-                      {detailPlace.sourcePlaceSource === 'my_place' ? <SecondaryButton label="Edit saved" onPress={() => editMyPlaceFromDetail(detailPlaceIndex)} /> : null}
-                      {detailPlace.sourcePlaceSource === 'hellowhen_library' ? <SecondaryButton label="Copy to edit" onPress={() => copyLibraryPlaceFromDetail(detailPlaceIndex)} /> : null}
-                      <SecondaryButton label="Make custom" onPress={() => updateSelectedPlace(detailPlaceIndex, resetSelectedPlaceToCustom(detailPlace))} />
+                      {detailPlace.sourcePlaceSource === 'my_place' ? <SecondaryButton label={t('plans.create.placeDetail.editSaved')} onPress={() => editMyPlaceFromDetail(detailPlaceIndex)} /> : null}
+                      {detailPlace.sourcePlaceSource === 'hellowhen_library' ? <SecondaryButton label={t('plans.create.placeDetail.copyToEdit')} onPress={() => copyLibraryPlaceFromDetail(detailPlaceIndex)} /> : null}
+                      <SecondaryButton label={t('plans.create.placeDetail.makeCustom')} onPress={() => updateSelectedPlace(detailPlaceIndex, resetSelectedPlaceToCustom(detailPlace))} />
                     </View>
                   ) : (
                     <>
@@ -4599,37 +4718,37 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                           onlineUrl: mode === 'remote' ? detailPlace.onlineUrl : '',
                         })}
                       />
-                      <TextField label="Place name" value={detailPlace.title} onChangeText={(title) => updateSelectedPlace(detailPlaceIndex, { title })} placeholder={detailPlace.mode === 'remote' ? 'Planning call' : 'Coffee meeting point'} maxLength={120} />
+                      <TextField label={t('plans.create.place.name')} value={detailPlace.title} onChangeText={(title) => updateSelectedPlace(detailPlaceIndex, { title })} placeholder={detailPlace.mode === 'remote' ? t('plans.create.place.nameOnlinePlaceholder') : t('plans.create.place.nameOfflinePlaceholder')} maxLength={120} />
                       {detailPlace.mode === 'remote' ? (
                         <>
-                          <TextField label="Online label" value={detailPlace.onlineLabel} onChangeText={(onlineLabel) => updateSelectedPlace(detailPlaceIndex, { onlineLabel })} placeholder="Zoom, Discord, website" maxLength={120} />
-                          <TextField label="Online URL" value={detailPlace.onlineUrl} onChangeText={(onlineUrl) => updateSelectedPlace(detailPlaceIndex, { onlineUrl })} placeholder="https://..." keyboardType="url" maxLength={500} />
-                          <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: detailPlace.onlineUrl })} />
+                          <TextField label={t('plans.create.place.onlineLabel')} value={detailPlace.onlineLabel} onChangeText={(onlineLabel) => updateSelectedPlace(detailPlaceIndex, { onlineLabel })} placeholder={t('plans.create.place.onlineLabelPlaceholder')} maxLength={120} />
+                          <TextField label={t('plans.create.place.onlineUrl')} value={detailPlace.onlineUrl} onChangeText={(onlineUrl) => updateSelectedPlace(detailPlaceIndex, { onlineUrl })} placeholder="https://..." keyboardType="url" maxLength={500} />
+                          <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: detailPlace.onlineUrl }, t)} />
                         </>
                       ) : (
                         <>
                           <GooglePlacePicker
-                            label="Address or meeting point"
+                            label={t('plans.create.place.address')}
                             value={detailPlace.location}
                             onChangeText={(location) => updateSelectedPlace(detailPlaceIndex, { location })}
                             onResolvedPlace={(place) => updateSelectedPlaceResolvedAddress(detailPlaceIndex, place)}
-                            placeholder="Search and select a real address"
-                            helperText="Type at least 3 characters, then select a confirmed Google address. Typed text alone cannot be saved."
+                            placeholder={t('plans.create.place.addressPlaceholder')}
+                            helperText={t('plans.create.place.addressHelp')}
                             languageCode={language}
                           />
-                          {!hasValidOfflineProviderAddress(detailPlace.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(detailPlace.providerAddress)} /> : null}
+                          {!hasValidOfflineProviderAddress(detailPlace.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(detailPlace.providerAddress, t)} /> : null}
                         </>
                       )}
                     </>
                   )}
                   <View style={styles.actionGrid}>
-                    <SecondaryButton label="Move up" disabled={detailPlaceIndex === 0} onPress={() => { moveSelectedPlace(detailPlaceIndex, -1); setDetailPlaceIndex(detailPlaceIndex - 1); }} />
-                    <SecondaryButton label="Move down" disabled={detailPlaceIndex === places.length - 1} onPress={() => { moveSelectedPlace(detailPlaceIndex, 1); setDetailPlaceIndex(detailPlaceIndex + 1); }} />
-                    <SecondaryButton label="Change place" onPress={() => openPlaceSourceSheet(detailPlaceIndex)} />
-                    <SecondaryButton label="Remove" icon="close" onPress={() => removeSelectedPlace(detailPlaceIndex)} />
+                    <SecondaryButton label={t('plans.create.placeDetail.moveUp')} disabled={detailPlaceIndex === 0} onPress={() => { moveSelectedPlace(detailPlaceIndex, -1); setDetailPlaceIndex(detailPlaceIndex - 1); }} />
+                    <SecondaryButton label={t('plans.create.placeDetail.moveDown')} disabled={detailPlaceIndex === places.length - 1} onPress={() => { moveSelectedPlace(detailPlaceIndex, 1); setDetailPlaceIndex(detailPlaceIndex + 1); }} />
+                    <SecondaryButton label={t('plans.create.placeDetail.changePlace')} onPress={() => openPlaceSourceSheet(detailPlaceIndex)} />
+                    <SecondaryButton label={t('plans.create.placeDetail.remove')} icon="close" onPress={() => removeSelectedPlace(detailPlaceIndex)} />
                   </View>
                   <Pressable accessibilityRole="button" onPress={() => setDetailPlaceIndex(null)} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
-                    <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Done</AppText>
+                    <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('plans.create.time.done')}</AppText>
                   </Pressable>
                 </ScrollView>
               </View>
@@ -4638,14 +4757,14 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
         </Modal>
         <Modal visible={placeSourceSheetOpen} transparent animationType="slide" onRequestClose={closePlaceSourceSheet}>
           <View style={styles.sourceSheetOverlay}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close place source" onPress={closePlaceSourceSheet} style={styles.sourceSheetScrim} />
+            <Pressable accessibilityRole="button" accessibilityLabel={t('plans.create.sourcePicker.closeAccessibility')} onPress={closePlaceSourceSheet} style={styles.sourceSheetScrim} />
             <View style={[styles.sourceSheet, styles.sourceChoiceSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
               <View style={[styles.sourceSheetHandle, { backgroundColor: theme.color.border }]} />
               <View style={styles.sourceSheetTopbar}>
                 <View style={styles.sourceSheetTitleBlock}>
-                  <AppText style={styles.sourceSheetTitle}>{placePickerOpen ? (pickerTab === 'mine' ? 'My Places' : 'Hellowhen Library') : 'Add place'}</AppText>
+                  <AppText style={styles.sourceSheetTitle}>{placePickerOpen ? (pickerTab === 'mine' ? t('plans.create.sourcePicker.myPlaces') : t('plans.create.sourcePicker.library')) : t('plans.create.sourcePicker.addPlace')}</AppText>
                 </View>
-                <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={closePlaceSourceSheet} style={[styles.headerAction, { borderColor: theme.color.border }]}>
+                <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.close')} onPress={closePlaceSourceSheet} style={[styles.headerAction, { borderColor: theme.color.border }]}>
                   <MobileIcon name="close" color={theme.color.text} size={18} />
                 </Pressable>
               </View>
@@ -4654,22 +4773,22 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                 <View style={styles.sourceOptionList}>
                   <Pressable accessibilityRole="button" onPress={() => choosePlaceSource('mine')} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
                     <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="save" color={theme.semantic.place.text} size={17} /></View>
-                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>My Places</AppText></View>
+                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>{t('plans.create.sourcePicker.myPlaces')}</AppText></View>
                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
                   </Pressable>
                   <Pressable accessibilityRole="button" onPress={() => choosePlaceSource('library')} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
                     <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="search" color={theme.semantic.place.text} size={17} /></View>
-                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>Hellowhen Library</AppText></View>
+                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>{t('plans.create.sourcePicker.library')}</AppText></View>
                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
                   </Pressable>
                   <Pressable accessibilityRole="button" onPress={() => { closePlaceSourceSheet(); navigation.navigate('CreatePlace', { returnToCreatePlan: true, targetPlaceIndex: typeof placeSourceTarget === 'number' ? placeSourceTarget : undefined }); }} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
                     <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={17} /></View>
-                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>New Place</AppText></View>
+                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>{t('plans.create.sourcePicker.newPlace')}</AppText></View>
                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
                   </Pressable>
                   <Pressable accessibilityRole="button" onPress={addCustomPlace} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
                     <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="more" color={theme.semantic.place.text} size={17} /></View>
-                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>Custom stop</AppText></View>
+                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>{t('plans.create.sourcePicker.customStop')}</AppText></View>
                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
                   </Pressable>
                 </View>
@@ -4677,19 +4796,19 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                 <View style={styles.sourceOptionList}>
                   <View style={styles.sourcePickerToolbar}>
                     <View style={styles.sourcePickerTabs}>
-                      <PillButton label="My Places" active={pickerTab === 'mine'} onPress={() => choosePlaceSource('mine')} />
-                      <PillButton label="Hellowhen Library" active={pickerTab === 'library'} onPress={() => choosePlaceSource('library')} />
+                      <PillButton label={t('plans.create.sourcePicker.myPlaces')} active={pickerTab === 'mine'} onPress={() => choosePlaceSource('mine')} />
+                      <PillButton label={t('plans.create.sourcePicker.library')} active={pickerTab === 'library'} onPress={() => choosePlaceSource('library')} />
                     </View>
-                    <PillButton label="Refresh" onPress={() => { void loadReusablePlaces(); }} />
+                    <PillButton label={t('plans.create.sourcePicker.refresh')} onPress={() => { void loadReusablePlaces(); }} />
                   </View>
-                  <TextField label="Search Places" value={placeQuery} onChangeText={setPlaceQuery} placeholder="Search Places" />
-                  {loadingPlaces ? <View style={styles.inlineSmallLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Places...</AppText></View> : null}
-                  {!loadingPlaces && activeList.length === 0 ? <EmptyBlock title="No matching Places" body={pickerTab === 'mine' ? 'Create a Place or use a custom stop.' : 'No matching Library Places yet.'} /> : null}
+                  <TextField label={t('plans.create.sourcePicker.searchLabel')} value={placeQuery} onChangeText={setPlaceQuery} placeholder={t('plans.create.sourcePicker.searchPlaceholder')} />
+                  {loadingPlaces ? <View style={styles.inlineSmallLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('plans.create.sourcePicker.loading')}</AppText></View> : null}
+                  {!loadingPlaces && activeList.length === 0 ? <EmptyBlock title={t(pickerTab === 'mine' ? 'plans.create.sourcePicker.noMineTitle' : 'plans.create.sourcePicker.noLibraryTitle')} body={t(pickerTab === 'mine' ? 'plans.create.sourcePicker.noMineBody' : 'plans.create.sourcePicker.noLibraryBody')} /> : null}
                   <ScrollView style={styles.sourceListScroll} keyboardShouldPersistTaps="handled">
                     {activeList.map((place) => <PlaceChoiceCard key={place.id} place={place} onPress={() => chooseReusablePlace(place)} />)}
                   </ScrollView>
                   <View style={[styles.sourcePickerFooter, { borderTopColor: theme.color.border }]}>
-                    <SecondaryButton label="Sources" onPress={() => setPlacePickerOpen(false)} />
+                    <SecondaryButton label={t('plans.create.sourcePicker.sources')} onPress={() => setPlacePickerOpen(false)} />
                   </View>
                 </View>
               )}
@@ -4709,15 +4828,35 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
   const copyFromPlace = route.params?.copyFromPlace;
   const returnToPlan = Boolean(route.params?.returnToCreatePlan);
   const isEditing = Boolean(editPlace);
-  const [state, setState] = useState<PlaceCreateFormState>(() => editPlace ? placeCreateFormFromPlace(editPlace) : copyFromPlace ? placeCreateFormFromPlace(copyFromPlace) : makePlaceCreateForm(normalizePlaceLanguage(language)));
+  const translationOnlyMode = Boolean(isEditing && editPlace?.source === 'user' && Number(editPlace.usedInPlansCount ?? 0) > 0);
+  const initialFormRef = useRef<PlaceCreateFormState>(editPlace ? placeCreateFormFromPlace(editPlace) : copyFromPlace ? placeCreateFormFromPlace(copyFromPlace) : makePlaceCreateForm(normalizePlaceLanguage(language)));
+  const initialExistingMediaRef = useRef<MediaAssetDto[]>(isEditing ? reusablePlaceMediaForEdit(editPlace) : []);
+  const [state, setState] = useState<PlaceCreateFormState>(() => initialFormRef.current);
   const [step, setStep] = useState<PlaceCreateStep>('details');
-  const [translationPanelOpen, setTranslationPanelOpen] = useState(() => placeHasTranslationContent(editPlace ?? copyFromPlace));
-  const [existingMedia, setExistingMedia] = useState<MediaAssetDto[]>(() => isEditing ? reusablePlaceMediaForEdit(editPlace) : []);
+  const [translationPanelOpen, setTranslationPanelOpen] = useState(() => translationOnlyMode);
+  const [existingMedia, setExistingMedia] = useState<MediaAssetDto[]>(() => initialExistingMediaRef.current);
   const [newImages, setNewImages] = useState<SelectedLocalImage[]>([]);
   const [uploadProgress, setUploadProgress] = useState<SelectedImageUploadProgress | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const postSaveNavigationRef = useRef<(() => void) | null>(null);
+  const [postSaveNavigationVersion, setPostSaveNavigationVersion] = useState(0);
+
+  const translationsChanged = placeTranslationDraftFingerprint(state) !== placeTranslationDraftFingerprint(initialFormRef.current);
+  const baseDetailsChanged = placeBaseDetailsFingerprint(state) !== placeBaseDetailsFingerprint(initialFormRef.current);
+  const existingMediaChanged = placeMediaFingerprint(existingMedia) !== placeMediaFingerprint(initialExistingMediaRef.current);
+  const imageChanged = existingMediaChanged || newImages.length > 0;
+  const hasUnsavedChanges = translationOnlyMode ? translationsChanged : baseDetailsChanged || translationsChanged || imageChanged;
+  const translationChangesOnly = Boolean(isEditing && translationsChanged && !baseDetailsChanged && !imageChanged);
+  const unsavedChangesConfirm = useUnsavedChangesWarning({
+    navigation,
+    enabled: hasUnsavedChanges && !saving,
+    title: t('places.editor.unsaved.title'),
+    body: t('places.editor.unsaved.body'),
+    stayLabel: t('common.actions.cancel'),
+    discardLabel: t('places.editor.unsaved.discard'),
+  });
 
   useEffect(() => {
     if (isEditing || copyFromPlace) return;
@@ -4728,7 +4867,40 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
     });
   }, [copyFromPlace, isEditing, language]);
 
+  useEffect(() => {
+    if (!postSaveNavigationVersion || saving || hasUnsavedChanges) return;
+    const action = postSaveNavigationRef.current;
+    postSaveNavigationRef.current = null;
+    action?.();
+  }, [hasUnsavedChanges, postSaveNavigationVersion, saving]);
+
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+
+  function queuePostSaveNavigation(action: () => void) {
+    postSaveNavigationRef.current = action;
+    setPostSaveNavigationVersion((current) => current + 1);
+  }
+
+  function applySavedPlaceBaseline(place: PlaceDto) {
+    const savedForm = placeCreateFormFromPlace(place);
+    const savedMedia = reusablePlaceMediaForEdit(place);
+    initialFormRef.current = savedForm;
+    initialExistingMediaRef.current = savedMedia;
+    setState(savedForm);
+    setExistingMedia(savedMedia);
+    setNewImages([]);
+  }
+
+  function resetNewPlaceBaseline() {
+    const emptyForm = makePlaceCreateForm(normalizePlaceLanguage(language));
+    initialFormRef.current = emptyForm;
+    initialExistingMediaRef.current = [];
+    setState(emptyForm);
+    setExistingMedia([]);
+    setNewImages([]);
+    setTranslationPanelOpen(false);
+    setStep('details');
+  }
 
   function goToImageStep() {
     if (state.title.trim().length < 3) { setError(t('places.editor.errors.addNameBeforeImage')); return; }
@@ -4750,6 +4922,34 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
   function removeExistingImage(mediaId: string) {
     if (saving) return;
     setExistingMedia((current) => current.filter((item) => item.id !== mediaId));
+  }
+
+  async function submitTranslationsOnly() {
+    if (!editPlace) return;
+    const translationError = validatePlaceTranslations(state);
+    if (translationError) {
+      setTranslationPanelOpen(true);
+      setError(placeTranslationValidationMessage(translationError, t));
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await api.places.update(editPlace.id, {
+        translations: normalizePlaceTranslationsForPayload(state),
+      });
+      applySavedPlaceBaseline(response.place);
+      if (returnToPlan) {
+        queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params?.targetPlaceIndex, updatedPlaceNonce: Date.now(), updatedPlaceSelectAfterFix: route.params?.selectPlaceAfterSave }));
+        return;
+      }
+      queuePostSaveNavigation(() => navigation.goBack());
+    } catch (caughtError) {
+      setError(getPlaceUploadErrorMessage(caughtError, t));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function submit() {
@@ -4786,24 +4986,17 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
         mediaIds,
       };
       const response = isEditing && editPlace ? await api.places.update(editPlace.id, body) : await api.places.create(body);
-      setExistingMedia(reusablePlaceMediaForEdit(response.place));
-      setNewImages([]);
+      applySavedPlaceBaseline(response.place);
       if (route.params?.returnToCreatePlan) {
         if (isEditing) {
-          navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params.targetPlaceIndex, updatedPlaceNonce: Date.now(), updatedPlaceSelectAfterFix: route.params.selectPlaceAfterSave });
+          queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params.targetPlaceIndex, updatedPlaceNonce: Date.now(), updatedPlaceSelectAfterFix: route.params.selectPlaceAfterSave }));
         } else {
-          navigation.navigate('CreatePlan', { createdPlace: response.place, createdPlaceTargetIndex: route.params.targetPlaceIndex, createdPlaceNonce: Date.now() });
+          queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { createdPlace: response.place, createdPlaceTargetIndex: route.params.targetPlaceIndex, createdPlaceNonce: Date.now() }));
         }
         return;
       }
       setMessage(isEditing ? t('places.editor.messages.updated', { title: response.place.title }) : t('places.editor.messages.saved', { title: response.place.title }));
-      if (!isEditing) {
-        setState(makePlaceCreateForm(normalizePlaceLanguage(language)));
-        setTranslationPanelOpen(false);
-        setExistingMedia([]);
-        setNewImages([]);
-        setStep('details');
-      }
+      if (!isEditing) resetNewPlaceBaseline();
     } catch (caughtError) {
       setError(getPlaceUploadErrorMessage(caughtError, t));
     } finally {
@@ -4818,63 +5011,103 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
   const selectedExistingMedia = existingMedia[0];
   const selectedExistingMediaUrl = activeMediaUrl(selectedExistingMedia);
   const imageSlotFilled = Boolean(selectedExistingMedia || newImages.length > 0);
+  const editorPrimaryLabel = saving
+    ? translationOnlyMode || translationChangesOnly
+      ? t('places.editor.actions.savingTranslations')
+      : uploadProgressLabel
+        ? t('places.editor.actions.uploading')
+        : t('places.editor.actions.saving')
+    : translationOnlyMode || translationChangesOnly
+      ? t('places.editor.actions.saveTranslations')
+      : step === 'details' && !isEditing
+        ? t('places.editor.actions.continueToImage')
+        : returnToPlan
+          ? isEditing
+            ? t('places.editor.actions.updateAndReturn')
+            : t('places.editor.actions.saveAndReturn')
+          : isEditing
+            ? t('places.editor.actions.update')
+            : t('places.editor.actions.save');
+  const editorPrimaryDisabled = saving || (translationOnlyMode || translationChangesOnly
+    ? !translationsChanged
+    : !placeDetailsReady || (isEditing && !hasUnsavedChanges));
+
+  function handleEditorPrimaryAction() {
+    if (translationOnlyMode || translationChangesOnly) {
+      void submitTranslationsOnly();
+      return;
+    }
+    if (step === 'details' && !isEditing) {
+      goToImageStep();
+      return;
+    }
+    void submit();
+  }
 
   return (
-    <AppFixedHeaderScreen header={<AppHeader title={isEditing ? t('places.editor.header.edit') : t('places.editor.header.create')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label={t('places.editor.header.myPlaces')} onPress={() => navigation.navigate('MyPlaces')} />} />}>
+    <AppFixedHeaderScreen bodyStyle={styles.placeEditorBody} header={<AppHeader title={isEditing ? t('places.editor.header.edit') : t('places.editor.header.create')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label={t('places.editor.header.myPlaces')} onPress={() => navigation.navigate('MyPlaces')} />} />}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
-        <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-          <View style={styles.placeCreateCompactHeader}>
-            <SemanticBadge label={t('places.editor.badge')} tone="place" />
-            <AppText style={styles.placeCreateTitle}>{isEditing ? t('places.editor.title.edit') : t('places.editor.title.create')}</AppText>
-            <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? t('places.editor.subtitle.edit') : copyFromPlace ? t('places.editor.subtitle.copy') : t('places.editor.subtitle.create')}</AppText>
-          </View>
-          <View style={styles.placeStepRow}>
-            <PillButton label={t('places.editor.steps.details')} active={step === 'details'} disabled={saving} onPress={() => setStep('details')} />
-            <PillButton label={t('places.editor.steps.image')} active={step === 'image'} disabled={saving} onPress={goToImageStep} />
-          </View>
+        <ScrollView contentContainerStyle={[styles.listContent, styles.placeEditorScrollContent]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          {!translationOnlyMode ? (
+            <View style={styles.placeCreateCompactHeader}>
+              <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? t('places.editor.subtitle.edit') : copyFromPlace ? t('places.editor.subtitle.copy') : t('places.editor.subtitle.create')}</AppText>
+            </View>
+          ) : null}
+          {!translationOnlyMode ? (
+            <View style={styles.placeStepRow}>
+              <PillButton label={t('places.editor.steps.details')} active={step === 'details'} disabled={saving} onPress={() => setStep('details')} />
+              <PillButton label={t('places.editor.steps.image')} active={step === 'image'} disabled={saving} onPress={goToImageStep} />
+            </View>
+          ) : null}
           {step === 'details' ? (
             <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: 'transparent', borderColor: theme.semantic.place.border }]}>
-              <View style={styles.placeCreateSectionHeader}>
-                <View style={styles.feedTitleWrap}>
-                  <AppText style={styles.sectionTitle}>{t('places.editor.details.title')}</AppText>
-                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.details.privateByDefault')}</AppText>
-                </View>
-              </View>
-              <View style={styles.placeCreateDividerBlock}>
-                <ModeSegment
-                  value={state.mode}
-                  onChange={(mode) => setState((current) => ({
-                    ...current,
-                    mode,
-                    location: mode === 'remote' ? '' : current.location,
-                    providerAddress: mode === 'local' ? current.providerAddress : null,
-                    onlineLabel: mode === 'remote' ? current.onlineLabel : '',
-                    onlineUrl: mode === 'remote' ? current.onlineUrl : '',
-                  }))}
-                />
-              </View>
-              <TextField label={t('places.editor.fields.name')} value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder={t('places.editor.fields.namePlaceholder')} maxLength={120} />
-              {state.mode === 'remote' ? (
-                <>
-                  <TextField label={t('places.editor.fields.onlineLabel')} value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} maxLength={120} />
-                  <TextField label={t('places.editor.fields.onlineUrl')} value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
-                  <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: state.onlineUrl }, t)} />
-                </>
+              {translationOnlyMode ? (
+                <InfoNotice tone="warning" title={t('places.editor.locked.title')} body={t('places.editor.locked.body')} />
               ) : (
                 <>
-                  <GooglePlacePicker
-                    label={t('places.editor.fields.address')}
-                    value={state.location}
-                    onChangeText={(location) => setState((current) => ({ ...current, location }))}
-                    onResolvedPlace={(place) => setState((current) => ({ ...current, providerAddress: place ? placeAddressFromGoogleResolvedPlace(place) : null }))}
-                    placeholder={t('places.editor.fields.addressPlaceholder')}
-                    helperText={t('places.editor.fields.addressHelp')}
-                    languageCode={language}
-                  />
-                  {!hasValidOfflineProviderAddress(state.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(state.providerAddress, t)} /> : null}
+                  <View style={styles.placeCreateSectionHeader}>
+                    <View style={styles.feedTitleWrap}>
+                      <AppText style={styles.sectionTitle}>{t('places.editor.details.title')}</AppText>
+                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.details.privateByDefault')}</AppText>
+                    </View>
+                  </View>
+                  <View style={styles.placeCreateDividerBlock}>
+                    <ModeSegment
+                      value={state.mode}
+                      onChange={(mode) => setState((current) => ({
+                        ...current,
+                        mode,
+                        location: mode === 'remote' ? '' : current.location,
+                        providerAddress: mode === 'local' ? current.providerAddress : null,
+                        onlineLabel: mode === 'remote' ? current.onlineLabel : '',
+                        onlineUrl: mode === 'remote' ? current.onlineUrl : '',
+                      }))}
+                    />
+                  </View>
+                  <TextField label={t('places.editor.fields.name')} value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder={t('places.editor.fields.namePlaceholder')} maxLength={120} />
+                  {state.mode === 'remote' ? (
+                    <>
+                      <TextField label={t('places.editor.fields.onlineLabel')} value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} maxLength={120} />
+                      <TextField label={t('places.editor.fields.onlineUrl')} value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
+                      <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: state.onlineUrl }, t)} />
+                    </>
+                  ) : (
+                    <>
+                      <GooglePlacePicker
+                        label={t('places.editor.fields.address')}
+                        value={state.location}
+                        onChangeText={(location) => setState((current) => ({ ...current, location }))}
+                        onResolvedPlace={(place) => setState((current) => ({ ...current, providerAddress: place ? placeAddressFromGoogleResolvedPlace(place) : null }))}
+                        placeholder={t('places.editor.fields.addressPlaceholder')}
+                        helperText={t('places.editor.fields.addressHelp')}
+                        languageCode={language}
+                      />
+                      {!hasValidOfflineProviderAddress(state.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(state.providerAddress, t)} /> : null}
+                    </>
+                  )}
+                  <TextField label={t('places.editor.fields.description')} value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder={t('places.editor.fields.descriptionPlaceholder')} multiline maxLength={2000} />
                 </>
               )}
-              <TextField label={t('places.editor.fields.description')} value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder={t('places.editor.fields.descriptionPlaceholder')} multiline maxLength={2000} />
               <View style={styles.placeTranslationBlock}>
                 <Pressable
                   accessibilityRole="button"
@@ -4883,7 +5116,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                   style={({ pressed }) => [styles.placeTranslationToggle, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}
                 >
                   <View style={styles.feedTitleWrap}>
-                    <AppText style={styles.placeTranslationAddTitle}>{translationPanelOpen ? t('places.editor.language.hideOptions') : t('places.editor.language.panelTitle')}</AppText>
+                    <AppText style={styles.placeTranslationAddTitle}>{t('places.editor.language.panelTitle')}</AppText>
                     <AppText style={[styles.metaText, { color: theme.color.muted }]}>{placeTranslationSummary(state, t)}</AppText>
                   </View>
                   <MobileIcon name={translationPanelOpen ? 'chevron-up' : 'chevron-down'} color={theme.color.muted} size={18} />
@@ -4891,21 +5124,17 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
 
                 {translationPanelOpen ? (
                   <View style={styles.placeTranslationPanel}>
-                    <View style={styles.placeTranslationSummaryRow}>
-                      <View style={styles.feedTitleWrap}>
-                        <AppText style={styles.formLabel}>{t('places.editor.language.sectionTitle')}</AppText>
-                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.language.sectionBody')}</AppText>
-                      </View>
-                      <SemanticBadge label={t('places.editor.language.originalBadge', { language: placeLanguageLabel(state.defaultLanguage, t) })} tone="place" />
-                    </View>
-
-                    <View style={[styles.placeTranslationFields, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }]}>
-                      <View style={styles.feedTitleWrap}>
-                        <AppText style={styles.formLabel}>{t('places.editor.language.originalLabel')}</AppText>
-                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.language.originalHelp')}</AppText>
-                      </View>
+                    <View style={styles.placeTranslationOriginal}>
+                      <AppText style={styles.formLabel}>{t('places.editor.language.originalLabel')}</AppText>
                       <View style={styles.placeLanguageChips}>
-                        {placeLanguageOptions.map((languageCode) => (
+                        {translationOnlyMode ? (
+                          <PillButton
+                            label={placeLanguageLabel(state.defaultLanguage, t)}
+                            active
+                            disabled
+                            onPress={() => undefined}
+                          />
+                        ) : placeLanguageOptions.map((languageCode) => (
                           <PillButton
                             key={languageCode}
                             label={placeLanguageLabel(languageCode, t)}
@@ -4914,19 +5143,24 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                           />
                         ))}
                       </View>
+                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>{translationOnlyMode ? t('places.editor.locked.originalLanguage') : t('places.editor.language.originalHelp')}</AppText>
                     </View>
 
                     {state.translations.map((translation) => (
-                      <View key={translation.languageCode} style={[styles.placeTranslationFields, { borderColor: theme.semantic.place.border, backgroundColor: theme.semantic.place.softBg }]}>
+                      <View key={translation.languageCode} style={[styles.placeTranslationFields, { borderColor: theme.color.border, backgroundColor: theme.color.surface }]}>
                         <View style={styles.placeTranslationFieldsHeader}>
-                          <View style={styles.feedTitleWrap}>
-                            <AppText style={styles.formLabel}>{t('places.editor.language.manualFor', { language: placeLanguageLabel(translation.languageCode, t) })}</AppText>
-                            <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.language.manualHelp')}</AppText>
-                          </View>
-                          <SecondaryButton label={t('places.editor.language.remove')} onPress={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))} />
+                          <AppText style={styles.placeTranslationCardTitle}>{t('places.editor.language.manualFor', { language: placeLanguageLabel(translation.languageCode, t) })}</AppText>
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={t('places.editor.language.remove')}
+                            onPress={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))}
+                            style={({ pressed }) => [styles.placeTranslationRemoveAction, pressed && styles.pressed]}
+                          >
+                            <AppText style={[styles.placeTranslationRemoveText, { color: theme.semantic.danger.text }]}>{t('places.editor.language.remove')}</AppText>
+                          </Pressable>
                         </View>
                         <TextField label={t('places.editor.language.translatedName')} value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder={t('places.editor.language.translatedNamePlaceholder')} maxLength={120} />
-                        <TextField label={t('places.editor.language.translatedDescription')} value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder={t('places.editor.language.translatedDescriptionPlaceholder')} multiline maxLength={2000} />
+                        <TextField label={t('places.editor.language.translatedDescription')} value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder={t('places.editor.language.translatedDescriptionPlaceholder')} multiline compactMultiline maxLength={2000} />
                       </View>
                     ))}
 
@@ -4935,21 +5169,20 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                     ) : null}
 
                     {availablePlaceTranslationLanguages(state).length ? (
-                      <View style={[styles.placeTranslationAddRow, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }]}>
-                        <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={16} /></View>
-                        <View style={styles.sourceOptionCopy}>
+                      <View style={styles.placeTranslationAddSection}>
+                        <View style={styles.placeTranslationAddHeading}>
+                          <MobileIcon name="add" color={theme.semantic.place.text} size={17} />
                           <AppText style={styles.placeTranslationAddTitle}>{state.translations.length ? t('places.editor.language.addAnotherLanguage') : t('places.editor.language.addLanguage')}</AppText>
-                          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.language.manualTranslation')}</AppText>
-                          <View style={styles.placeLanguageChips}>
-                            {availablePlaceTranslationLanguages(state).map((languageCode) => (
-                              <PillButton
-                                key={languageCode}
-                                label={placeLanguageLabel(languageCode, t)}
-                                active={false}
-                                onPress={() => setState((current) => addPlaceTranslationDraft(current, languageCode))}
-                              />
-                            ))}
-                          </View>
+                        </View>
+                        <View style={styles.placeLanguageChips}>
+                          {availablePlaceTranslationLanguages(state).map((languageCode) => (
+                            <PillButton
+                              key={languageCode}
+                              label={placeLanguageLabel(languageCode, t)}
+                              active={false}
+                              onPress={() => setState((current) => addPlaceTranslationDraft(current, languageCode))}
+                            />
+                          ))}
                         </View>
                       </View>
                     ) : (
@@ -4960,9 +5193,6 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
               </View>
               {message ? <InfoNotice tone="success" body={message} /> : null}
               {error ? <InfoNotice tone="danger" body={error} /> : null}
-              <View style={[styles.placeCreateActionFooter, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
-                <PrimaryButton label={t('places.editor.actions.continueToImage')} onPress={goToImageStep} disabled={saving || !placeDetailsReady} />
-              </View>
             </View>
           ) : (
             <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: 'transparent', borderColor: theme.semantic.place.border }]}>
@@ -4996,16 +5226,25 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
               {uploadProgressLabel ? <InfoNotice tone="info" title={t('places.editor.image.uploading')} body={uploadProgressLabel} /> : null}
               {message ? <InfoNotice tone="success" body={message} /> : null}
               {error ? <InfoNotice tone="danger" body={error} /> : null}
-              <View style={[styles.placeCreateActionFooter, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
-                <View style={styles.twoColumnRow}>
-                  <SecondaryButton label={t('places.editor.actions.back')} onPress={() => setStep('details')} disabled={saving} />
-                  <PrimaryButton label={saving ? uploadProgressLabel ? t('places.editor.actions.uploading') : t('places.editor.actions.saving') : returnToPlan ? isEditing ? t('places.editor.actions.updateAndReturn') : t('places.editor.actions.saveAndReturn') : isEditing ? t('places.editor.actions.update') : t('places.editor.actions.save')} onPress={() => { void submit(); }} disabled={saving || !placeDetailsReady} />
-                </View>
-              </View>
             </View>
           )}
         </ScrollView>
+        <View style={[styles.placeEditorStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
+          <View style={styles.placeEditorStickyActions}>
+            <View style={styles.placeEditorStickySecondary}>
+              <SecondaryButton
+                label={step === 'image' ? t('places.editor.actions.back') : t('common.actions.cancel')}
+                onPress={() => step === 'image' ? setStep('details') : navigation.goBack()}
+                disabled={saving}
+              />
+            </View>
+            <View style={styles.placeEditorStickyPrimary}>
+              <PrimaryButton label={editorPrimaryLabel} onPress={handleEditorPrimaryAction} disabled={editorPrimaryDisabled} />
+            </View>
+          </View>
+        </View>
         <KeyboardDoneAccessory />
+        <AppConfirmSheet {...unsavedChangesConfirm} />
       </KeyboardAvoidingView>
     </AppFixedHeaderScreen>
   );
@@ -5039,8 +5278,9 @@ const styles = StyleSheet.create({
   menuBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
   listContent: { gap: 10, paddingBottom: 34 },
   planCreateCompactHeader: { gap: 7, paddingTop: 0, paddingBottom: 0 },
-  placeCreateCompactHeader: { gap: 7, paddingTop: 2, paddingBottom: 4 },
-  placeCreateTitle: { fontSize: 30, lineHeight: 34, fontWeight: '900', letterSpacing: -0.85 },
+  placeEditorBody: { overflow: 'hidden' },
+  placeEditorScrollContent: { paddingBottom: 18 },
+  placeCreateCompactHeader: { paddingTop: 0, paddingBottom: 1 },
   placeCreateSubtitle: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
   stageSwitchRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: -1 },
   timelineDividerBlock: { gap: 0, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth },
@@ -5255,28 +5495,36 @@ const styles = StyleSheet.create({
   keyboardWrap: { flex: 1, minHeight: 0 },
   inlineSmallLoading: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 8 },
   formCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 13 },
-  placeCreateFormCard: { borderRadius: 0, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 0, paddingHorizontal: 0, paddingTop: 13, gap: 14 },
-  placeStepRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  placeCreateFormCard: { borderRadius: 0, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 0, paddingHorizontal: 0, paddingTop: 12, gap: 14 },
+  placeStepRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', paddingBottom: 1 },
   placeImagePreviewCard: { borderRadius: 22, borderWidth: 1, overflow: 'hidden', gap: 0 },
   placeImagePreview: { width: '100%', height: 210 },
   placeImagePreviewFooter: { padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
   placeCreateSectionHeader: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 12 },
   placeCreateDividerBlock: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 14 },
-  placeCreateActionFooter: { marginTop: 3, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 13, paddingBottom: Platform.OS === 'ios' ? 4 : 0 },
-  placeTranslationBlock: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 13, gap: 10 },
-  placeTranslationToggle: { minHeight: 58, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  placeTranslationPanel: { gap: 10 },
-  placeTranslationSummaryRow: { gap: 8 },
-  placeTranslationFields: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 10 },
-  placeTranslationFieldsHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
-  placeTranslationAddRow: { minHeight: 58, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  placeTranslationBlock: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, gap: 8 },
+  placeTranslationToggle: { minHeight: 54, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  placeTranslationPanel: { gap: 12, paddingTop: 2 },
+  placeTranslationOriginal: { gap: 7, paddingHorizontal: 2 },
+  placeTranslationFields: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 10, gap: 9 },
+  placeTranslationFieldsHeader: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  placeTranslationCardTitle: { flex: 1, minWidth: 0, fontSize: 14, lineHeight: 19, fontWeight: '900' },
+  placeTranslationRemoveAction: { minHeight: 32, justifyContent: 'center', paddingHorizontal: 4 },
+  placeTranslationRemoveText: { fontSize: 13, lineHeight: 18, fontWeight: '900' },
+  placeTranslationAddSection: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 11, paddingHorizontal: 2, gap: 0 },
+  placeTranslationAddHeading: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   placeTranslationAddTitle: { fontSize: 14, fontWeight: '900' },
-  placeLanguageChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
-  placeTranslationEmptyText: { borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10 },
+  placeLanguageChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 7 },
+  placeTranslationEmptyText: { paddingHorizontal: 2, paddingVertical: 4 },
+  placeEditorStickyBar: { flexShrink: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, paddingBottom: Platform.OS === 'ios' ? 10 : 8 },
+  placeEditorStickyActions: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
+  placeEditorStickySecondary: { minWidth: 104 },
+  placeEditorStickyPrimary: { flex: 1, minWidth: 0 },
   formField: { gap: 7, flex: 1, minWidth: 0 },
   formLabel: { fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
   input: { minHeight: 48, borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 11, fontSize: 15, fontWeight: '700' },
   textArea: { minHeight: 92, lineHeight: 20 },
+  compactTextArea: { minHeight: 74 },
   modeSegment: { borderRadius: 18, borderWidth: 1, padding: 4, flexDirection: 'row', gap: 4 },
   modeSegmentButton: { flex: 1, minHeight: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   modeSegmentText: { fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },

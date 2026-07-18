@@ -1,0 +1,506 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 7f2efb6..778625d 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -25,6 +25,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useAuth } from '../../providers/AuthProvider';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
++import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+ import { resolveMediaVariantUrl } from '../trade/mediaUrls';
+ import { ImagePickerField } from '../trade/components/ImagePickerField';
+ import type { SelectedLocalImage, SelectedImageUploadProgress } from '../trade/mediaUpload';
+@@ -662,8 +663,29 @@ function placeTranslationSummary(state: PlaceCreateFormState, t: PlanTranslation
+   });
+ }
+ 
+-function placeHasTranslationContent(place?: PlaceDto | null) {
+-  return Boolean((place?.translations ?? []).some((translation) => (translation.title ?? '').trim() || (translation.description ?? '').trim()));
++function placeTranslationDraftFingerprint(state: PlaceCreateFormState) {
++  return JSON.stringify(state.translations.map((translation) => ({
++    languageCode: translation.languageCode,
++    title: translation.title,
++    description: translation.description,
++  })));
++}
++
++function placeBaseDetailsFingerprint(state: PlaceCreateFormState) {
++  return JSON.stringify({
++    mode: state.mode,
++    title: state.title,
++    description: state.description,
++    defaultLanguage: state.defaultLanguage,
++    location: state.location,
++    providerAddress: state.providerAddress,
++    onlineLabel: state.onlineLabel,
++    onlineUrl: state.onlineUrl,
++  });
++}
++
++function placeMediaFingerprint(media: MediaAssetDto[]) {
++  return media.map((item) => item.id).join('|');
+ }
+ 
+ function normalizeOptionalText(value?: string | null) {
+@@ -3026,6 +3048,7 @@ function TextField({
+   multiline,
+   keyboardType,
+   maxLength,
++  compactMultiline,
+ }: {
+   label: string;
+   value: string;
+@@ -3034,6 +3057,7 @@ function TextField({
+   multiline?: boolean;
+   keyboardType?: 'default' | 'numbers-and-punctuation' | 'url';
+   maxLength?: number;
++  compactMultiline?: boolean;
+ }) {
+   const theme = useThemeTokens();
+   return (
+@@ -3050,7 +3074,7 @@ function TextField({
+         inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
+         returnKeyType={multiline ? 'default' : 'done'}
+         blurOnSubmit={!multiline}
+-        style={[styles.input, multiline && styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
++        style={[styles.input, multiline && styles.textArea, multiline && compactMultiline && styles.compactTextArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
+       />
+     </FormLabel>
+   );
+@@ -4804,15 +4828,34 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+   const returnToPlan = Boolean(route.params?.returnToCreatePlan);
+   const isEditing = Boolean(editPlace);
+   const translationOnlyMode = Boolean(isEditing && editPlace?.source === 'user' && Number(editPlace.usedInPlansCount ?? 0) > 0);
+-  const [state, setState] = useState<PlaceCreateFormState>(() => editPlace ? placeCreateFormFromPlace(editPlace) : copyFromPlace ? placeCreateFormFromPlace(copyFromPlace) : makePlaceCreateForm(normalizePlaceLanguage(language)));
++  const initialFormRef = useRef<PlaceCreateFormState>(editPlace ? placeCreateFormFromPlace(editPlace) : copyFromPlace ? placeCreateFormFromPlace(copyFromPlace) : makePlaceCreateForm(normalizePlaceLanguage(language)));
++  const initialExistingMediaRef = useRef<MediaAssetDto[]>(isEditing ? reusablePlaceMediaForEdit(editPlace) : []);
++  const [state, setState] = useState<PlaceCreateFormState>(() => initialFormRef.current);
+   const [step, setStep] = useState<PlaceCreateStep>('details');
+-  const [translationPanelOpen, setTranslationPanelOpen] = useState(() => translationOnlyMode || placeHasTranslationContent(editPlace ?? copyFromPlace));
+-  const [existingMedia, setExistingMedia] = useState<MediaAssetDto[]>(() => isEditing ? reusablePlaceMediaForEdit(editPlace) : []);
++  const [translationPanelOpen, setTranslationPanelOpen] = useState(() => translationOnlyMode);
++  const [existingMedia, setExistingMedia] = useState<MediaAssetDto[]>(() => initialExistingMediaRef.current);
+   const [newImages, setNewImages] = useState<SelectedLocalImage[]>([]);
+   const [uploadProgress, setUploadProgress] = useState<SelectedImageUploadProgress | null>(null);
+   const [saving, setSaving] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+   const [message, setMessage] = useState<string | null>(null);
++  const postSaveNavigationRef = useRef<(() => void) | null>(null);
++  const [postSaveNavigationVersion, setPostSaveNavigationVersion] = useState(0);
++
++  const translationsChanged = placeTranslationDraftFingerprint(state) !== placeTranslationDraftFingerprint(initialFormRef.current);
++  const baseDetailsChanged = placeBaseDetailsFingerprint(state) !== placeBaseDetailsFingerprint(initialFormRef.current);
++  const existingMediaChanged = placeMediaFingerprint(existingMedia) !== placeMediaFingerprint(initialExistingMediaRef.current);
++  const imageChanged = existingMediaChanged || newImages.length > 0;
++  const hasUnsavedChanges = translationOnlyMode ? translationsChanged : baseDetailsChanged || translationsChanged || imageChanged;
++  const translationChangesOnly = Boolean(isEditing && translationsChanged && !baseDetailsChanged && !imageChanged);
++  const unsavedChangesConfirm = useUnsavedChangesWarning({
++    navigation,
++    enabled: hasUnsavedChanges && !saving,
++    title: t('places.editor.unsaved.title'),
++    body: t('places.editor.unsaved.body'),
++    stayLabel: t('common.actions.cancel'),
++    discardLabel: t('places.editor.unsaved.discard'),
++  });
+ 
+   useEffect(() => {
+     if (isEditing || copyFromPlace) return;
+@@ -4823,8 +4866,41 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+     });
+   }, [copyFromPlace, isEditing, language]);
+ 
++  useEffect(() => {
++    if (!postSaveNavigationVersion || saving || hasUnsavedChanges) return;
++    const action = postSaveNavigationRef.current;
++    postSaveNavigationRef.current = null;
++    action?.();
++  }, [hasUnsavedChanges, postSaveNavigationVersion, saving]);
++
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+ 
++  function queuePostSaveNavigation(action: () => void) {
++    postSaveNavigationRef.current = action;
++    setPostSaveNavigationVersion((current) => current + 1);
++  }
++
++  function applySavedPlaceBaseline(place: PlaceDto) {
++    const savedForm = placeCreateFormFromPlace(place);
++    const savedMedia = reusablePlaceMediaForEdit(place);
++    initialFormRef.current = savedForm;
++    initialExistingMediaRef.current = savedMedia;
++    setState(savedForm);
++    setExistingMedia(savedMedia);
++    setNewImages([]);
++  }
++
++  function resetNewPlaceBaseline() {
++    const emptyForm = makePlaceCreateForm(normalizePlaceLanguage(language));
++    initialFormRef.current = emptyForm;
++    initialExistingMediaRef.current = [];
++    setState(emptyForm);
++    setExistingMedia([]);
++    setNewImages([]);
++    setTranslationPanelOpen(false);
++    setStep('details');
++  }
++
+   function goToImageStep() {
+     if (state.title.trim().length < 3) { setError(t('places.editor.errors.addNameBeforeImage')); return; }
+     if (state.mode === 'local') {
+@@ -4862,11 +4938,12 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+       const response = await api.places.update(editPlace.id, {
+         translations: normalizePlaceTranslationsForPayload(state),
+       });
++      applySavedPlaceBaseline(response.place);
+       if (returnToPlan) {
+-        navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params?.targetPlaceIndex, updatedPlaceNonce: Date.now(), updatedPlaceSelectAfterFix: route.params?.selectPlaceAfterSave });
++        queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params?.targetPlaceIndex, updatedPlaceNonce: Date.now(), updatedPlaceSelectAfterFix: route.params?.selectPlaceAfterSave }));
+         return;
+       }
+-      navigation.goBack();
++      queuePostSaveNavigation(() => navigation.goBack());
+     } catch (caughtError) {
+       setError(getPlaceUploadErrorMessage(caughtError, t));
+     } finally {
+@@ -4908,24 +4985,17 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+         mediaIds,
+       };
+       const response = isEditing && editPlace ? await api.places.update(editPlace.id, body) : await api.places.create(body);
+-      setExistingMedia(reusablePlaceMediaForEdit(response.place));
+-      setNewImages([]);
++      applySavedPlaceBaseline(response.place);
+       if (route.params?.returnToCreatePlan) {
+         if (isEditing) {
+-          navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params.targetPlaceIndex, updatedPlaceNonce: Date.now(), updatedPlaceSelectAfterFix: route.params.selectPlaceAfterSave });
++          queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params.targetPlaceIndex, updatedPlaceNonce: Date.now(), updatedPlaceSelectAfterFix: route.params.selectPlaceAfterSave }));
+         } else {
+-          navigation.navigate('CreatePlan', { createdPlace: response.place, createdPlaceTargetIndex: route.params.targetPlaceIndex, createdPlaceNonce: Date.now() });
++          queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { createdPlace: response.place, createdPlaceTargetIndex: route.params.targetPlaceIndex, createdPlaceNonce: Date.now() }));
+         }
+         return;
+       }
+       setMessage(isEditing ? t('places.editor.messages.updated', { title: response.place.title }) : t('places.editor.messages.saved', { title: response.place.title }));
+-      if (!isEditing) {
+-        setState(makePlaceCreateForm(normalizePlaceLanguage(language)));
+-        setTranslationPanelOpen(false);
+-        setExistingMedia([]);
+-        setNewImages([]);
+-        setStep('details');
+-      }
++      if (!isEditing) resetNewPlaceBaseline();
+     } catch (caughtError) {
+       setError(getPlaceUploadErrorMessage(caughtError, t));
+     } finally {
+@@ -4940,16 +5010,48 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+   const selectedExistingMedia = existingMedia[0];
+   const selectedExistingMediaUrl = activeMediaUrl(selectedExistingMedia);
+   const imageSlotFilled = Boolean(selectedExistingMedia || newImages.length > 0);
++  const editorPrimaryLabel = saving
++    ? translationOnlyMode || translationChangesOnly
++      ? t('places.editor.actions.savingTranslations')
++      : uploadProgressLabel
++        ? t('places.editor.actions.uploading')
++        : t('places.editor.actions.saving')
++    : translationOnlyMode || translationChangesOnly
++      ? t('places.editor.actions.saveTranslations')
++      : step === 'details' && !isEditing
++        ? t('places.editor.actions.continueToImage')
++        : returnToPlan
++          ? isEditing
++            ? t('places.editor.actions.updateAndReturn')
++            : t('places.editor.actions.saveAndReturn')
++          : isEditing
++            ? t('places.editor.actions.update')
++            : t('places.editor.actions.save');
++  const editorPrimaryDisabled = saving || (translationOnlyMode || translationChangesOnly
++    ? !translationsChanged
++    : !placeDetailsReady || (isEditing && !hasUnsavedChanges));
++
++  function handleEditorPrimaryAction() {
++    if (translationOnlyMode || translationChangesOnly) {
++      void submitTranslationsOnly();
++      return;
++    }
++    if (step === 'details' && !isEditing) {
++      goToImageStep();
++      return;
++    }
++    void submit();
++  }
+ 
+   return (
+-    <AppFixedHeaderScreen header={<AppHeader title={isEditing ? t('places.editor.header.edit') : t('places.editor.header.create')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label={t('places.editor.header.myPlaces')} onPress={() => navigation.navigate('MyPlaces')} />} />}>
++    <AppFixedHeaderScreen bodyStyle={styles.placeEditorBody} header={<AppHeader title={isEditing ? t('places.editor.header.edit') : t('places.editor.header.create')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label={t('places.editor.header.myPlaces')} onPress={() => navigation.navigate('MyPlaces')} />} />}>
+       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
+-        <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+-          <View style={styles.placeCreateCompactHeader}>
+-            <SemanticBadge label={t('places.editor.badge')} tone="place" />
+-            <AppText style={styles.placeCreateTitle}>{isEditing ? t('places.editor.title.edit') : t('places.editor.title.create')}</AppText>
+-            <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{translationOnlyMode ? t('places.editor.locked.subtitle') : isEditing ? t('places.editor.subtitle.edit') : copyFromPlace ? t('places.editor.subtitle.copy') : t('places.editor.subtitle.create')}</AppText>
+-          </View>
++        <ScrollView contentContainerStyle={[styles.listContent, styles.placeEditorScrollContent]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
++          {!translationOnlyMode ? (
++            <View style={styles.placeCreateCompactHeader}>
++              <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? t('places.editor.subtitle.edit') : copyFromPlace ? t('places.editor.subtitle.copy') : t('places.editor.subtitle.create')}</AppText>
++            </View>
++          ) : null}
+           {!translationOnlyMode ? (
+             <View style={styles.placeStepRow}>
+               <PillButton label={t('places.editor.steps.details')} active={step === 'details'} disabled={saving} onPress={() => setStep('details')} />
+@@ -5013,7 +5115,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+                   style={({ pressed }) => [styles.placeTranslationToggle, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}
+                 >
+                   <View style={styles.feedTitleWrap}>
+-                    <AppText style={styles.placeTranslationAddTitle}>{translationPanelOpen ? t('places.editor.language.hideOptions') : t('places.editor.language.panelTitle')}</AppText>
++                    <AppText style={styles.placeTranslationAddTitle}>{t('places.editor.language.panelTitle')}</AppText>
+                     <AppText style={[styles.metaText, { color: theme.color.muted }]}>{placeTranslationSummary(state, t)}</AppText>
+                   </View>
+                   <MobileIcon name={translationPanelOpen ? 'chevron-up' : 'chevron-down'} color={theme.color.muted} size={18} />
+@@ -5021,19 +5123,8 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+ 
+                 {translationPanelOpen ? (
+                   <View style={styles.placeTranslationPanel}>
+-                    <View style={styles.placeTranslationSummaryRow}>
+-                      <View style={styles.feedTitleWrap}>
+-                        <AppText style={styles.formLabel}>{t('places.editor.language.sectionTitle')}</AppText>
+-                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.language.sectionBody')}</AppText>
+-                      </View>
+-                      <SemanticBadge label={t('places.editor.language.originalBadge', { language: placeLanguageLabel(state.defaultLanguage, t) })} tone="place" />
+-                    </View>
+-
+-                    <View style={[styles.placeTranslationFields, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }]}>
+-                      <View style={styles.feedTitleWrap}>
+-                        <AppText style={styles.formLabel}>{t('places.editor.language.originalLabel')}</AppText>
+-                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{translationOnlyMode ? t('places.editor.locked.originalLanguage') : t('places.editor.language.originalHelp')}</AppText>
+-                      </View>
++                    <View style={styles.placeTranslationOriginal}>
++                      <AppText style={styles.formLabel}>{t('places.editor.language.originalLabel')}</AppText>
+                       <View style={styles.placeLanguageChips}>
+                         {translationOnlyMode ? (
+                           <PillButton
+@@ -5051,19 +5142,24 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+                           />
+                         ))}
+                       </View>
++                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>{translationOnlyMode ? t('places.editor.locked.originalLanguage') : t('places.editor.language.originalHelp')}</AppText>
+                     </View>
+ 
+                     {state.translations.map((translation) => (
+-                      <View key={translation.languageCode} style={[styles.placeTranslationFields, { borderColor: theme.semantic.place.border, backgroundColor: theme.semantic.place.softBg }]}>
++                      <View key={translation.languageCode} style={[styles.placeTranslationFields, { borderColor: theme.color.border, backgroundColor: theme.color.surface }]}>
+                         <View style={styles.placeTranslationFieldsHeader}>
+-                          <View style={styles.feedTitleWrap}>
+-                            <AppText style={styles.formLabel}>{t('places.editor.language.manualFor', { language: placeLanguageLabel(translation.languageCode, t) })}</AppText>
+-                            <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.language.manualHelp')}</AppText>
+-                          </View>
+-                          <SecondaryButton label={t('places.editor.language.remove')} onPress={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))} />
++                          <AppText style={styles.placeTranslationCardTitle}>{t('places.editor.language.manualFor', { language: placeLanguageLabel(translation.languageCode, t) })}</AppText>
++                          <Pressable
++                            accessibilityRole="button"
++                            accessibilityLabel={t('places.editor.language.remove')}
++                            onPress={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))}
++                            style={({ pressed }) => [styles.placeTranslationRemoveAction, pressed && styles.pressed]}
++                          >
++                            <AppText style={[styles.placeTranslationRemoveText, { color: theme.semantic.danger.text }]}>{t('places.editor.language.remove')}</AppText>
++                          </Pressable>
+                         </View>
+                         <TextField label={t('places.editor.language.translatedName')} value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder={t('places.editor.language.translatedNamePlaceholder')} maxLength={120} />
+-                        <TextField label={t('places.editor.language.translatedDescription')} value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder={t('places.editor.language.translatedDescriptionPlaceholder')} multiline maxLength={2000} />
++                        <TextField label={t('places.editor.language.translatedDescription')} value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder={t('places.editor.language.translatedDescriptionPlaceholder')} multiline compactMultiline maxLength={2000} />
+                       </View>
+                     ))}
+ 
+@@ -5072,21 +5168,20 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+                     ) : null}
+ 
+                     {availablePlaceTranslationLanguages(state).length ? (
+-                      <View style={[styles.placeTranslationAddRow, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }]}>
+-                        <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={16} /></View>
+-                        <View style={styles.sourceOptionCopy}>
++                      <View style={styles.placeTranslationAddSection}>
++                        <View style={styles.placeTranslationAddHeading}>
++                          <MobileIcon name="add" color={theme.semantic.place.text} size={17} />
+                           <AppText style={styles.placeTranslationAddTitle}>{state.translations.length ? t('places.editor.language.addAnotherLanguage') : t('places.editor.language.addLanguage')}</AppText>
+-                          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.language.manualTranslation')}</AppText>
+-                          <View style={styles.placeLanguageChips}>
+-                            {availablePlaceTranslationLanguages(state).map((languageCode) => (
+-                              <PillButton
+-                                key={languageCode}
+-                                label={placeLanguageLabel(languageCode, t)}
+-                                active={false}
+-                                onPress={() => setState((current) => addPlaceTranslationDraft(current, languageCode))}
+-                              />
+-                            ))}
+-                          </View>
++                        </View>
++                        <View style={styles.placeLanguageChips}>
++                          {availablePlaceTranslationLanguages(state).map((languageCode) => (
++                            <PillButton
++                              key={languageCode}
++                              label={placeLanguageLabel(languageCode, t)}
++                              active={false}
++                              onPress={() => setState((current) => addPlaceTranslationDraft(current, languageCode))}
++                            />
++                          ))}
+                         </View>
+                       </View>
+                     ) : (
+@@ -5097,17 +5192,6 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+               </View>
+               {message ? <InfoNotice tone="success" body={message} /> : null}
+               {error ? <InfoNotice tone="danger" body={error} /> : null}
+-              <View style={[styles.placeCreateActionFooter, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
+-                {translationOnlyMode ? (
+-                  <PrimaryButton
+-                    label={saving ? t('places.editor.actions.savingTranslations') : t('places.editor.actions.saveTranslations')}
+-                    onPress={() => { void submitTranslationsOnly(); }}
+-                    disabled={saving}
+-                  />
+-                ) : (
+-                  <PrimaryButton label={t('places.editor.actions.continueToImage')} onPress={goToImageStep} disabled={saving || !placeDetailsReady} />
+-                )}
+-              </View>
+             </View>
+           ) : (
+             <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: 'transparent', borderColor: theme.semantic.place.border }]}>
+@@ -5141,16 +5225,25 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+               {uploadProgressLabel ? <InfoNotice tone="info" title={t('places.editor.image.uploading')} body={uploadProgressLabel} /> : null}
+               {message ? <InfoNotice tone="success" body={message} /> : null}
+               {error ? <InfoNotice tone="danger" body={error} /> : null}
+-              <View style={[styles.placeCreateActionFooter, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
+-                <View style={styles.twoColumnRow}>
+-                  <SecondaryButton label={t('places.editor.actions.back')} onPress={() => setStep('details')} disabled={saving} />
+-                  <PrimaryButton label={saving ? uploadProgressLabel ? t('places.editor.actions.uploading') : t('places.editor.actions.saving') : returnToPlan ? isEditing ? t('places.editor.actions.updateAndReturn') : t('places.editor.actions.saveAndReturn') : isEditing ? t('places.editor.actions.update') : t('places.editor.actions.save')} onPress={() => { void submit(); }} disabled={saving || !placeDetailsReady} />
+-                </View>
+-              </View>
+             </View>
+           )}
+         </ScrollView>
++        <View style={[styles.placeEditorStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
++          <View style={styles.placeEditorStickyActions}>
++            <View style={styles.placeEditorStickySecondary}>
++              <SecondaryButton
++                label={step === 'image' ? t('places.editor.actions.back') : t('common.actions.cancel')}
++                onPress={() => step === 'image' ? setStep('details') : navigation.goBack()}
++                disabled={saving}
++              />
++            </View>
++            <View style={styles.placeEditorStickyPrimary}>
++              <PrimaryButton label={editorPrimaryLabel} onPress={handleEditorPrimaryAction} disabled={editorPrimaryDisabled} />
++            </View>
++          </View>
++        </View>
+         <KeyboardDoneAccessory />
++        <AppConfirmSheet {...unsavedChangesConfirm} />
+       </KeyboardAvoidingView>
+     </AppFixedHeaderScreen>
+   );
+@@ -5184,8 +5277,9 @@ const styles = StyleSheet.create({
+   menuBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
+   listContent: { gap: 10, paddingBottom: 34 },
+   planCreateCompactHeader: { gap: 7, paddingTop: 0, paddingBottom: 0 },
+-  placeCreateCompactHeader: { gap: 7, paddingTop: 2, paddingBottom: 4 },
+-  placeCreateTitle: { fontSize: 30, lineHeight: 34, fontWeight: '900', letterSpacing: -0.85 },
++  placeEditorBody: { overflow: 'hidden' },
++  placeEditorScrollContent: { paddingBottom: 18 },
++  placeCreateCompactHeader: { paddingTop: 0, paddingBottom: 1 },
+   placeCreateSubtitle: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+   stageSwitchRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: -1 },
+   timelineDividerBlock: { gap: 0, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth },
+@@ -5400,28 +5494,36 @@ const styles = StyleSheet.create({
+   keyboardWrap: { flex: 1, minHeight: 0 },
+   inlineSmallLoading: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 8 },
+   formCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 13 },
+-  placeCreateFormCard: { borderRadius: 0, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 0, paddingHorizontal: 0, paddingTop: 13, gap: 14 },
+-  placeStepRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
++  placeCreateFormCard: { borderRadius: 0, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 0, paddingHorizontal: 0, paddingTop: 12, gap: 14 },
++  placeStepRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', paddingBottom: 1 },
+   placeImagePreviewCard: { borderRadius: 22, borderWidth: 1, overflow: 'hidden', gap: 0 },
+   placeImagePreview: { width: '100%', height: 210 },
+   placeImagePreviewFooter: { padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+   placeCreateSectionHeader: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 12 },
+   placeCreateDividerBlock: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 14 },
+-  placeCreateActionFooter: { marginTop: 3, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 13, paddingBottom: Platform.OS === 'ios' ? 4 : 0 },
+-  placeTranslationBlock: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 13, gap: 10 },
+-  placeTranslationToggle: { minHeight: 58, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+-  placeTranslationPanel: { gap: 10 },
+-  placeTranslationSummaryRow: { gap: 8 },
+-  placeTranslationFields: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 10 },
+-  placeTranslationFieldsHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+-  placeTranslationAddRow: { minHeight: 58, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 10 },
++  placeTranslationBlock: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, gap: 8 },
++  placeTranslationToggle: { minHeight: 54, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
++  placeTranslationPanel: { gap: 12, paddingTop: 2 },
++  placeTranslationOriginal: { gap: 7, paddingHorizontal: 2 },
++  placeTranslationFields: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 10, gap: 9 },
++  placeTranslationFieldsHeader: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
++  placeTranslationCardTitle: { flex: 1, minWidth: 0, fontSize: 14, lineHeight: 19, fontWeight: '900' },
++  placeTranslationRemoveAction: { minHeight: 32, justifyContent: 'center', paddingHorizontal: 4 },
++  placeTranslationRemoveText: { fontSize: 13, lineHeight: 18, fontWeight: '900' },
++  placeTranslationAddSection: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 11, paddingHorizontal: 2, gap: 0 },
++  placeTranslationAddHeading: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+   placeTranslationAddTitle: { fontSize: 14, fontWeight: '900' },
+-  placeLanguageChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+-  placeTranslationEmptyText: { borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10 },
++  placeLanguageChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 7 },
++  placeTranslationEmptyText: { paddingHorizontal: 2, paddingVertical: 4 },
++  placeEditorStickyBar: { flexShrink: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, paddingBottom: Platform.OS === 'ios' ? 10 : 8 },
++  placeEditorStickyActions: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
++  placeEditorStickySecondary: { minWidth: 104 },
++  placeEditorStickyPrimary: { flex: 1, minWidth: 0 },
+   formField: { gap: 7, flex: 1, minWidth: 0 },
+   formLabel: { fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
+   input: { minHeight: 48, borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 11, fontSize: 15, fontWeight: '700' },
+   textArea: { minHeight: 92, lineHeight: 20 },
++  compactTextArea: { minHeight: 74 },
+   modeSegment: { borderRadius: 18, borderWidth: 1, padding: 4, flexDirection: 'row', gap: 4 },
+   modeSegmentButton: { flex: 1, minHeight: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+   modeSegmentText: { fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
+diff --git a/packages/i18n/src/locales/en/places.ts b/packages/i18n/src/locales/en/places.ts
+index 46c34b0..a998b41 100644
+--- a/packages/i18n/src/locales/en/places.ts
++++ b/packages/i18n/src/locales/en/places.ts
+@@ -75,6 +75,11 @@ export const places = {
+       body: 'Main details, original language, address, online destination, and image are locked because this Place is already used in a Plan. You can still add, edit, or remove manual translations.',
+       originalLanguage: 'The original Place language is locked while this Place is used in a Plan.',
+     },
++    unsaved: {
++      title: 'Discard Place changes?',
++      body: 'You have unsaved Place changes. Stay here to finish, or discard them and leave.',
++      discard: 'Discard changes',
++    },
+     steps: {
+       details: '1. Details',
+       image: '2. Image',
+diff --git a/packages/i18n/src/locales/es/places.ts b/packages/i18n/src/locales/es/places.ts
+index 19f4e2e..11125df 100644
+--- a/packages/i18n/src/locales/es/places.ts
++++ b/packages/i18n/src/locales/es/places.ts
+@@ -75,6 +75,11 @@ export const places = {
+       body: 'Los datos principales, el idioma original, la dirección, el destino en línea y la imagen están bloqueados porque este lugar ya se usa en un Plan. Aún puedes añadir, editar o eliminar traducciones manuales.',
+       originalLanguage: 'El idioma original del lugar está bloqueado mientras este lugar se use en un Plan.',
+     },
++    unsaved: {
++      title: '¿Descartar los cambios del lugar?',
++      body: 'Tienes cambios sin guardar. Quédate aquí para terminar o descártalos y sal de la página.',
++      discard: 'Descartar cambios',
++    },
+     steps: {
+       details: '1. Detalles',
+       image: '2. Imagen',
+diff --git a/packages/i18n/src/locales/fr/places.ts b/packages/i18n/src/locales/fr/places.ts
+index 2a14789..3136d7e 100644
+--- a/packages/i18n/src/locales/fr/places.ts
++++ b/packages/i18n/src/locales/fr/places.ts
+@@ -75,6 +75,11 @@ export const places = {
+       body: 'Les informations principales, la langue originale, l’adresse, la destination en ligne et l’image sont verrouillées, car ce lieu est déjà utilisé dans un Plan. Vous pouvez toujours ajouter, modifier ou retirer des traductions manuelles.',
+       originalLanguage: 'La langue originale du lieu est verrouillée tant que ce lieu est utilisé dans un Plan.',
+     },
++    unsaved: {
++      title: 'Abandonner les modifications du lieu ?',
++      body: 'Vous avez des modifications non enregistrées. Restez ici pour terminer ou abandonnez-les et quittez la page.',
++      discard: 'Abandonner les modifications',
++    },
+     steps: {
+       details: '1. Informations',
+       image: '2. Image',

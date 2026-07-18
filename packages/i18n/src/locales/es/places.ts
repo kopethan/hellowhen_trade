@@ -4,6 +4,55 @@ export const places = {
     fr: 'Francés',
     es: 'Español',
   },
+  list: {
+    headers: {
+      myPlaces: 'Mis lugares',
+      library: 'Biblioteca de lugares',
+    },
+    badges: {
+      mine: 'Mi lugar',
+      library: 'Lugar de la biblioteca',
+      online: 'En línea',
+      offline: 'Presencial',
+    },
+    fallback: {
+      description: 'Lugar reutilizable para futuros Planes.',
+      online: 'Lugar en línea',
+      offline: 'Lugar presencial',
+    },
+    notice: {
+      title: 'Lugares reutilizables',
+      body: 'Edita aquí tus lugares guardados. Eliminar archiva el lugar de los selectores futuros, mientras que los Planes existentes conservan los datos que ya guardaron.',
+    },
+    loading: 'Cargando lugares…',
+    errors: {
+      load: 'No se pudieron cargar los lugares.',
+      delete: 'No se pudo eliminar el lugar.',
+      tryAgain: 'Comprueba tu conexión y vuelve a intentarlo.',
+    },
+    empty: {
+      mineTitle: 'Aún no hay lugares',
+      mineBody: 'Crea primero lugares reutilizables y selecciónalos después al crear un Plan.',
+      libraryTitle: 'La biblioteca está vacía',
+      libraryBody: 'Los lugares de la biblioteca de Hellowhen aparecerán aquí más adelante.',
+    },
+    actions: {
+      create: 'Crear lugar',
+      edit: 'Editar',
+      delete: 'Eliminar',
+      deleting: 'Eliminando…',
+      cancel: 'Cancelar',
+    },
+    messages: {
+      title: 'Mis lugares',
+      removed: 'Se eliminó «{{title}}» de Mis lugares.',
+    },
+    confirmDelete: {
+      title: '¿Eliminar este lugar?',
+      body: 'Esto elimina el lugar de Mis lugares y de los futuros selectores de Plan. Los Planes existentes conservan los datos del lugar que ya guardaron.',
+      confirm: 'Eliminar lugar',
+    },
+  },
   editor: {
     header: {
       create: 'Crear lugar',
@@ -19,6 +68,17 @@ export const places = {
       create: 'Guarda un lugar presencial o en línea con una imagen opcional.',
       edit: 'Actualiza los datos y la imagen de este lugar reutilizable.',
       copy: 'Guarda una copia privada, añade una imagen opcional y vuelve a tu Plan.',
+    },
+    locked: {
+      title: 'Solo traducciones',
+      subtitle: 'Este lugar se usa en un Plan, así que solo se pueden actualizar sus traducciones manuales.',
+      body: 'Los datos principales, el idioma original, la dirección, el destino en línea y la imagen están bloqueados porque este lugar ya se usa en un Plan. Aún puedes añadir, editar o eliminar traducciones manuales.',
+      originalLanguage: 'El idioma original del lugar está bloqueado mientras este lugar se use en un Plan.',
+    },
+    unsaved: {
+      title: '¿Descartar los cambios del lugar?',
+      body: 'Tienes cambios sin guardar. Quédate aquí para terminar o descártalos y sal de la página.',
+      discard: 'Descartar cambios',
     },
     steps: {
       details: '1. Detalles',
@@ -91,6 +151,8 @@ export const places = {
       save: 'Guardar lugar',
       uploading: 'Subiendo…',
       saving: 'Guardando…',
+      saveTranslations: 'Guardar traducciones',
+      savingTranslations: 'Guardando traducciones…',
       remove: 'Eliminar',
     },
     messages: {
@@ -104,6 +166,7 @@ export const places = {
       onlineUrl: 'Añade una URL válida que empiece por http:// o https://.',
       translationIncomplete: 'Completa el título y la descripción traducidos, o elimina ese idioma.',
       translationNameTooShort: 'El nombre del lugar traducido debe tener al menos 3 caracteres.',
+      lockedByPlan: 'Este lugar ya se usa en un Plan. Sus datos principales están bloqueados, pero todavía puedes actualizar sus traducciones manuales.',
       uploadFailed: 'Error al subir la imagen ({{current}}/{{total}}). Prueba con una imagen más pequeña o vuelve a intentarlo.',
     },
     provider: {

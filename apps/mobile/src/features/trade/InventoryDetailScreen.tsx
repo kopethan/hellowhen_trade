@@ -64,7 +64,7 @@ import {
   INVENTORY_TITLE_MIN_LENGTH,
 } from '@hellowhen/contracts/src/inventoryLimits';
 import { formatLocalizedDate } from '@hellowhen/i18n';
-import { useLocalizedInventoryItem } from './inventoryDisplay';
+import { resolveInventoryEditorSource, useLocalizedInventoryItem } from './inventoryDisplay';
 import type { NeedItem, OfferItem } from './types';
 import {
   buildInventoryTranslationsPayload,
@@ -218,13 +218,13 @@ export function InventoryDetailScreen({
     const itemTimingOrAvailability = isNeed
       ? getOptionalString(item, 'timing')
       : getOptionalString(item, 'availability');
-    const itemDefaultLanguage =
-      (item.defaultLanguage as DiscoveryLanguage | undefined) ?? language;
-    const itemTranslations = inventoryTranslationDraftsFromItem(item.translations, itemDefaultLanguage);
+    const original = resolveInventoryEditorSource(item);
+    const itemDefaultLanguage = original.defaultLanguage as DiscoveryLanguage;
+    const itemTranslations = inventoryTranslationDraftsFromItem(original.translations, itemDefaultLanguage);
 
     return Boolean(
-      title !== (item.title ?? '') ||
-        description !== (item.description ?? '') ||
+      title !== original.title ||
+        description !== original.description ||
         defaultLanguage !== itemDefaultLanguage ||
         !inventoryTranslationDraftsEqual(translations, itemTranslations, defaultLanguage) ||
         itemType !== ((item.itemType as InventoryItemType | undefined) ?? 'service') ||
@@ -236,7 +236,7 @@ export function InventoryDetailScreen({
         existingMedia.find((media) => media.isCover)?.id !== (item.media ?? []).find((media) => media.isCover)?.id ||
         newImages.length > 0,
     );
-  }, [category, defaultLanguage, description, editing, isNeed, item, itemType, language, locationLabel, mode, newImages.length, timingOrAvailability, title, translations]);
+  }, [category, defaultLanguage, description, editing, isNeed, item, itemType, locationLabel, mode, newImages.length, timingOrAvailability, title, translations]);
 
   const unsavedChangesConfirm = useUnsavedChangesWarning({
     navigation,
@@ -257,13 +257,13 @@ export function InventoryDetailScreen({
 
   const hydrateForm = useCallback(
     (nextItem: InventoryItem) => {
+      const original = resolveInventoryEditorSource(nextItem);
       setItem(nextItem);
-      setTitle(nextItem.title ?? '');
-      setDescription(nextItem.description ?? '');
-      const nextDefaultLanguage =
-        (nextItem.defaultLanguage as DiscoveryLanguage | undefined) ?? language;
+      setTitle(original.title);
+      setDescription(original.description);
+      const nextDefaultLanguage = original.defaultLanguage as DiscoveryLanguage;
       setDefaultLanguage(nextDefaultLanguage);
-      setTranslations(inventoryTranslationDraftsFromItem(nextItem.translations, nextDefaultLanguage));
+      setTranslations(inventoryTranslationDraftsFromItem(original.translations, nextDefaultLanguage));
       setItemType(
         (nextItem.itemType as InventoryItemType | undefined) ?? 'service',
       );
@@ -279,7 +279,7 @@ export function InventoryDetailScreen({
       setNewImages([]);
       setLanguagePanelExpanded(false);
     },
-    [isNeed, language],
+    [isNeed],
   );
 
   const loadItem = useCallback(async () => {
@@ -487,6 +487,7 @@ export function InventoryDetailScreen({
       }),
     [category, itemType, locationLabel, mode, structuredTiming.duration, t, tone],
   );
+  const editorSource = useMemo(() => item ? resolveInventoryEditorSource(item) : null, [item]);
   const displayItem = useLocalizedInventoryItem(item);
   const languageSelection = useContentLanguageSelection({
     displayLanguage: !editing ? displayItem?.displayLanguage : null,
@@ -602,7 +603,7 @@ export function InventoryDetailScreen({
           <>
             <DetailHero
               eyebrow={`${label} · ${statusLabel(status, t)}`}
-              title={editing ? title || item.title : languageSelection.title}
+              title={editing ? title || editorSource?.title || item.title : languageSelection.title}
               subtitle={!editing ? languageSelection.description : undefined}
               meta={
                 updatedAt

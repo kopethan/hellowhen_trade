@@ -1,0 +1,1093 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 800d281..bf3768a 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -6,7 +6,8 @@ import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linkin
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+ import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
+-import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaRequirementSummary, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
++import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
++import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppText } from '../../components/AppText';
+@@ -58,30 +59,32 @@ function isPlanUnavailableError(error: unknown) {
+   return candidate.status === 404 || candidate.status === 410 || candidate.body?.error === 'not_found' || candidate.body?.error === 'plan_deleted';
+ }
+ 
+-type PlanFilterOption = { label: string; value: string; body?: string };
+-type PlanFilterGroup = { title: string; body: string; options: PlanFilterOption[] };
++type Translate = (key: string, values?: TranslationValues) => string;
++type PlanFilterKey = 'status' | 'mode' | 'join' | 'places' | 'time';
++type PlanFilterOption = { labelKey: string; value: string; bodyKey?: string };
++type PlanFilterGroup = { id: PlanFilterKey; titleKey: string; bodyKey: string; options: PlanFilterOption[] };
+ 
+ const planFilterGroups: PlanFilterGroup[] = [
+-  { title: 'Status', body: 'Choose which public Plan states should appear.', options: [
+-    { label: 'Open', value: 'status:open', body: 'Available to join' },
+-    { label: 'Full', value: 'status:full', body: 'Capacity reached' },
+-    { label: 'Started', value: 'status:started', body: 'Already underway' },
++  { id: 'status', titleKey: 'plans.filters.groups.status.title', bodyKey: 'plans.filters.groups.status.body', options: [
++    { labelKey: 'plans.filters.groups.status.open.label', value: 'status:open', bodyKey: 'plans.filters.groups.status.open.body' },
++    { labelKey: 'plans.filters.groups.status.full.label', value: 'status:full', bodyKey: 'plans.filters.groups.status.full.body' },
++    { labelKey: 'plans.filters.groups.status.started.label', value: 'status:started', bodyKey: 'plans.filters.groups.status.started.body' },
+   ] },
+-  { title: 'Mode', body: 'Match the way the Plan happens.', options: [
+-    { label: 'Local / offline', value: 'mode:local', body: 'Meet in person' },
+-    { label: 'Online', value: 'mode:remote', body: 'Remote or link-based' },
++  { id: 'mode', titleKey: 'plans.filters.groups.mode.title', bodyKey: 'plans.filters.groups.mode.body', options: [
++    { labelKey: 'plans.filters.groups.mode.local.label', value: 'mode:local', bodyKey: 'plans.filters.groups.mode.local.body' },
++    { labelKey: 'plans.filters.groups.mode.remote.label', value: 'mode:remote', bodyKey: 'plans.filters.groups.mode.remote.body' },
+   ] },
+-  { title: 'Join', body: 'Surface Plans that can be joined freely.', options: [
+-    { label: 'Free join', value: 'join:automatic', body: 'No approval request first' },
++  { id: 'join', titleKey: 'plans.filters.groups.join.title', bodyKey: 'plans.filters.groups.join.body', options: [
++    { labelKey: 'plans.filters.groups.join.automatic.label', value: 'join:automatic', bodyKey: 'plans.filters.groups.join.automatic.body' },
+   ] },
+-  { title: 'Places', body: 'Filter by route size.', options: [
+-    { label: '1 place', value: 'places:one', body: 'Simple single stop' },
+-    { label: '2+ places', value: 'places:multiple', body: 'A route or sequence' },
++  { id: 'places', titleKey: 'plans.filters.groups.places.title', bodyKey: 'plans.filters.groups.places.body', options: [
++    { labelKey: 'plans.filters.groups.places.one.label', value: 'places:one', bodyKey: 'plans.filters.groups.places.one.body' },
++    { labelKey: 'plans.filters.groups.places.multiple.label', value: 'places:multiple', bodyKey: 'plans.filters.groups.places.multiple.body' },
+   ] },
+-  { title: 'Time', body: 'Pick when the Plan starts.', options: [
+-    { label: 'Today', value: 'time:today' },
+-    { label: 'This week', value: 'time:week' },
+-    { label: 'This month', value: 'time:month' },
++  { id: 'time', titleKey: 'plans.filters.groups.time.title', bodyKey: 'plans.filters.groups.time.body', options: [
++    { labelKey: 'plans.filters.groups.time.today.label', value: 'time:today' },
++    { labelKey: 'plans.filters.groups.time.week.label', value: 'time:week' },
++    { labelKey: 'plans.filters.groups.time.month.label', value: 'time:month' },
+   ] },
+ ];
+ 
+@@ -91,8 +94,6 @@ function toggleFilterValue(values: string[], value: string) {
+ 
+ type PlanFilterRouteParams = { filters?: string[]; q?: string };
+ 
+-type PlanFilterKey = 'status' | 'mode' | 'join' | 'places' | 'time';
+-
+ const planFilterKeys: PlanFilterKey[] = ['status', 'mode', 'join', 'places', 'time'];
+ const allowedPlanFilterValues = new Set(planFilterGroups.flatMap((group) => group.options.map((option) => option.value)));
+ 
+@@ -194,14 +195,14 @@ function applyPlanFilters(plans: PlanDto[], filters: string[], query?: string |
+   });
+ }
+ 
+-function filterSummary(filters: string[], query?: string | null) {
++function filterSummary(filters: string[], query: string | null | undefined, t: Translate) {
+   const normalizedQuery = normalizePlanSearchQuery(query);
+   if (!filters.length && !normalizedQuery) return '';
+   const parts = planFilterKeys.map((key) => {
+     const count = planFilterValues(filters, key).length;
+-    return count ? `${count} ${key}` : '';
++    return count ? t(`plans.filters.summary.${key}`, { count }) : '';
+   }).filter(Boolean);
+-  if (normalizedQuery) parts.unshift(`Search: “${normalizedQuery}”`);
++  if (normalizedQuery) parts.unshift(t('plans.filters.summary.search', { query: normalizedQuery }));
+   return parts.join(' · ');
+ }
+ 
+@@ -209,21 +210,55 @@ function isPlansVisible() {
+   return betaFeatures.plansEnabled && betaFeatures.plansVisible;
+ }
+ 
+-function formatDate(value?: string | null) {
+-  if (!value) return 'Flexible time';
++const PLAN_DATE_LOCALES: Record<SupportedLanguage, string> = {
++  en: 'en-US',
++  fr: 'fr-FR',
++  es: 'es-ES',
++};
++
++function formatDate(value: string | null | undefined, language?: SupportedLanguage, t?: Translate) {
++  if (!value) return t ? t('plans.common.flexibleTime') : 'Flexible time';
+   const date = new Date(value);
+   if (Number.isNaN(date.getTime())) return value;
+-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
++  return new Intl.DateTimeFormat(language ? PLAN_DATE_LOCALES[language] : undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
+ }
+ 
+-function getOwnerName(plan: PlanDto) {
+-  return plan.owner?.profile?.displayName || plan.owner?.profile?.handle || 'Hellowhen member';
++function getOwnerName(plan: PlanDto, t?: Translate) {
++  return plan.owner?.profile?.displayName || plan.owner?.profile?.handle || (t ? t('plans.common.member') : 'Hellowhen member');
+ }
+ 
+-function getPlanMeta(plan: PlanDto) {
++function getPlanMeta(plan: PlanDto, t?: Translate) {
+   const placeCount = plan.places?.length ?? 0;
+   const participantCount = plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
+-  return `${placeCount} ${placeCount === 1 ? 'place' : 'places'} · ${participantCount} joined`;
++  if (!t) return `${placeCount} ${placeCount === 1 ? 'place' : 'places'} · ${participantCount} joined`;
++  const places = t(placeCount === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: placeCount });
++  const joined = t('plans.row.joined', { count: participantCount });
++  return t('plans.row.meta', { places, joined });
++}
++
++function planStatusLabel(status: string, t: Translate) {
++  const knownStatuses = new Set(['open', 'full', 'started', 'completed', 'cancelled', 'draft']);
++  return knownStatuses.has(status) ? t(`plans.status.${status}`) : status;
++}
++
++function participantStatusLabel(status: string, t: Translate) {
++  const knownStatuses = new Set(['accepted', 'pending', 'declined', 'cancelled']);
++  return knownStatuses.has(status) ? t(`plans.participantStatus.${status}`) : status;
++}
++
++function starterPlanIdeaRequirementSummaryLocalized(idea: StarterPlanIdea, t: Translate) {
++  const counts = starterPlanIdeaRequirementCounts(idea);
++  const requirements = [
++    counts.addressStops
++      ? t(counts.addressStops === 1 ? 'plans.deck.realAddressOne' : 'plans.deck.realAddressMany', { count: counts.addressStops })
++      : '',
++    counts.onlineLinkStops
++      ? t(counts.onlineLinkStops === 1 ? 'plans.deck.onlineLinkOne' : 'plans.deck.onlineLinkMany', { count: counts.onlineLinkStops })
++      : '',
++  ].filter(Boolean);
++  return requirements.length
++    ? t('plans.deck.requirementsNeeded', { requirements: requirements.join(' + ') })
++    : t('plans.deck.reviewBeforePublishing');
+ }
+ 
+ const RECENT_PLAN_IDEA_STORAGE_KEY = 'hellowhen_recent_plan_ideas_v1';
+@@ -1536,14 +1571,15 @@ function getPlanPlaceSourceLabel(place: PlanPlaceDto) {
+ 
+ function DisabledPlansScreen({ onBack }: { onBack: () => void }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   return (
+-    <AppFixedHeaderScreen header={<AppHeader title="Plans" onBack={onBack} />}>
++    <AppFixedHeaderScreen header={<AppHeader title={t('plans.common.title')} onBack={onBack} />}>
+       <View style={styles.centerState}>
+         <View style={[styles.largeIcon, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+           <MobileIcon name="plan" color={theme.semantic.plan.text} size={30} />
+         </View>
+-        <AppText style={styles.centerTitle}>Plans are hidden</AppText>
+-        <AppText style={[styles.centerBody, { color: theme.color.muted }]}>The mobile Plan route skeleton is ready, but Plans stay hidden until the Plan feature flags are enabled.</AppText>
++        <AppText style={styles.centerTitle}>{t('plans.disabled.title')}</AppText>
++        <AppText style={[styles.centerBody, { color: theme.color.muted }]}>{t('plans.disabled.body')}</AppText>
+       </View>
+     </AppFixedHeaderScreen>
+   );
+@@ -1570,28 +1606,29 @@ function HeaderAction({ icon, label, onPress, badgeCount = 0 }: { icon: MobileIc
+ 
+ function PlanRow({ plan, onPress }: { plan: PlanDto; onPress: () => void }) {
+   const theme = useThemeTokens();
++  const { language, t } = useTranslation();
+   const firstPlace = plan.places?.[0];
+   return (
+     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.rowCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+       <View style={styles.rowTop}>
+-        <SemanticBadge label={plan.status} tone={plan.status === 'open' ? 'success' : 'muted'} size="sm" />
+-        {plan.myParticipantStatus ? <SemanticBadge label={plan.myParticipantStatus === 'accepted' ? 'Joined' : plan.myParticipantStatus} tone="proposal" size="sm" /> : null}
++        <SemanticBadge label={planStatusLabel(plan.status, t)} tone={plan.status === 'open' ? 'success' : 'muted'} size="sm" />
++        {plan.myParticipantStatus ? <SemanticBadge label={participantStatusLabel(plan.myParticipantStatus, t)} tone="proposal" size="sm" /> : null}
+       </View>
+       <AppText style={styles.rowTitle}>{plan.title}</AppText>
+       <AppText style={[styles.rowBody, { color: theme.color.muted }]} numberOfLines={2}>{plan.description}</AppText>
+       <View style={styles.metaRow}>
+         <MobileIcon name="profile" size={15} color={theme.color.muted} />
+-        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{getOwnerName(plan)}</AppText>
++        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{getOwnerName(plan, t)}</AppText>
+       </View>
+       <View style={styles.metaRow}>
+         <MobileIcon name="calendar" size={15} color={theme.color.muted} />
+-        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{formatDate(plan.startsAt)}</AppText>
++        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{formatDate(plan.startsAt, language, t)}</AppText>
+       </View>
+       <View style={styles.metaRow}>
+         <MobileIcon name="activity" size={15} color={theme.color.muted} />
+-        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{getPlanMeta(plan)}</AppText>
++        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{getPlanMeta(plan, t)}</AppText>
+       </View>
+-      {firstPlace ? <AppText style={[styles.placePreview, { color: theme.semantic.plan.text }]}>Starts with {firstPlace.title}</AppText> : null}
++      {firstPlace ? <AppText style={[styles.placePreview, { color: theme.semantic.plan.text }]}>{t('plans.row.startsWith', { place: firstPlace.title })}</AppText> : null}
+     </Pressable>
+   );
+ }
+@@ -1671,9 +1708,10 @@ function PlaceRow({
+ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope: PlanListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'>; filters?: string[]; searchQuery?: string }) {
+   const theme = useThemeTokens();
+   const auth = useAuth();
++  const { t } = useTranslation();
+   const activeFilters = useMemo(() => normalizePlanFilters(filters), [filters.join('|')]);
+   const activeSearchQuery = normalizePlanSearchQuery(searchQuery);
+-  const activeFilterSummary = filterSummary(activeFilters, activeSearchQuery);
++  const activeFilterSummary = filterSummary(activeFilters, activeSearchQuery, t);
+   const [plans, setPlans] = useState<PlanDto[]>([]);
+   const [loading, setLoading] = useState(true);
+   const [refreshing, setRefreshing] = useState(false);
+@@ -1719,14 +1757,14 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
+       const response = scope === 'mine' ? await api.plans.mine() : scope === 'joined' ? await api.plans.joined() : await api.plans.feed(buildPlanFeedQuery(activeFilters, activeSearchQuery));
+       const nextPlans = response.plans ?? [];
+       setPlans(scope === 'feed' ? applyPlanFilters(nextPlans, activeFilters, activeSearchQuery) : nextPlans);
+-    } catch (caughtError) {
+-      setError(getFriendlyApiErrorMessage(caughtError));
++    } catch {
++      setError(t('plans.list.errors.body'));
+       setPlans([]);
+     } finally {
+       setLoading(false);
+       setRefreshing(false);
+     }
+-  }, [scope, activeFilters, activeSearchQuery]);
++  }, [scope, activeFilters, activeSearchQuery, t]);
+ 
+   useFocusEffect(useCallback(() => { void load(); }, [load]));
+ 
+@@ -1764,16 +1802,21 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
+     <PlanRow plan={item.plan} onPress={() => navigation.navigate('PlanDetail', { planId: item.plan.id, title: item.plan.title })} />
+   ), [navigation]);
+ 
++  const activeCount = activePlanFilterCount(activeFilters, activeSearchQuery);
+   const filterHeader = scope === 'feed' && hasActiveSearchOrFilters ? (
+-    <InfoNotice tone="info" title={`${activePlanFilterCount(activeFilters, activeSearchQuery)} active Plan filter${activePlanFilterCount(activeFilters, activeSearchQuery) === 1 ? '' : 's'}`} body={activeFilterSummary || 'Filtered Plan results'} />
++    <InfoNotice
++      tone="info"
++      title={t(activeCount === 1 ? 'plans.feed.activeFilters.one' : 'plans.feed.activeFilters.many', { count: activeCount })}
++      body={activeFilterSummary || t('plans.feed.activeFilters.fallback')}
++    />
+   ) : null;
+   const guidePromptHeader = scope === 'feed' && guidePrompt.visible ? (
+     <FeatureGuidePromptCard
+-      body="Learn how plans, places, joining, creating, and safety work."
++      body={t('plans.feed.guide.body')}
+       icon="plan"
+       onDismiss={() => { void guidePrompt.dismiss(); }}
+       onStart={() => navigation.navigate('OnboardingGuide', { guide: 'plans', replay: true })}
+-      title="New to Plans?"
++      title={t('plans.feed.guide.title')}
+       tone="plan"
+     />
+   ) : null;
+@@ -1785,20 +1828,20 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
+   ) : null;
+ 
+   if (loading) {
+-    return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Plans...</AppText></View>;
++    return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('plans.list.loading')}</AppText></View>;
+   }
+ 
+-  if (error) return <InfoNotice tone="warning" title="Could not load Plans" body={error} />;
++  if (error) return <InfoNotice tone="warning" title={t('plans.list.errors.title')} body={error} />;
+ 
+   if (plans.length === 0 && starterIdeas.length === 0) {
+     const body = scope === 'mine'
+-      ? 'Created Plans will appear here once you create one.'
++      ? t('plans.list.empty.mine')
+       : scope === 'joined'
+-        ? 'Plans you join will appear here.'
++        ? t('plans.list.empty.joined')
+         : hasActiveSearchOrFilters
+-          ? 'No Plans match this search and filters yet. Try changing the search words or resetting one or two filters.'
+-          : 'Open Plans will appear here once people start creating them.';
+-    return <EmptyBlock title="No Plans yet" body={body} actionLabel={scope === 'mine' ? 'Create plan' : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlan') : undefined} />;
++          ? t('plans.list.empty.filtered')
++          : t('plans.list.empty.feed');
++    return <EmptyBlock title={t('plans.list.empty.title')} body={body} actionLabel={scope === 'mine' ? t('plans.list.empty.create') : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlan') : undefined} />;
+   }
+ 
+ 
+@@ -1840,13 +1883,14 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
+ 
+ const PlanDeckSection = React.memo(function PlanDeckSection({ plan, index, total, navigation }: { plan: PlanDto; index: number; total: number; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'> }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const handlePress = useCallback(() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title }), [navigation, plan.id, plan.title]);
+   return (
+     <View style={styles.deckSection}>
+       <View style={styles.deckSectionHeader}>
+         <View style={styles.deckSectionCopy}>
+           <AppText style={styles.deckSectionTitle} numberOfLines={1}>{plan.title}</AppText>
+-          <AppText style={[styles.deckSectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{getOwnerName(plan)} · {getPlanMeta(plan)}</AppText>
++          <AppText style={[styles.deckSectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{getOwnerName(plan, t)} · {getPlanMeta(plan, t)}</AppText>
+         </View>
+         <SemanticBadge label={`${index + 1}/${total}`} tone="muted" size="sm" />
+       </View>
+@@ -1857,19 +1901,21 @@ const PlanDeckSection = React.memo(function PlanDeckSection({ plan, index, total
+ 
+ const PlanIdeaDeckSection = React.memo(function PlanIdeaDeckSection({ ideaKey, index, total, onPressIdea }: { ideaKey: StarterPlanIdeaKey; index: number; total: number; onPressIdea: (ideaKey: StarterPlanIdeaKey) => void }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const idea = starterPlanIdeas[ideaKey];
+   const plan = useMemo(() => planIdeaPreviewPlan(idea), [idea]);
+   const handlePress = useCallback(() => onPressIdea(ideaKey), [ideaKey, onPressIdea]);
++  const stopCountLabel = t(idea.stops.length === 1 ? 'plans.deck.ideaStopsOne' : 'plans.deck.ideaStopsMany', { count: idea.stops.length });
+   return (
+     <View style={styles.deckSection}>
+       <View style={styles.deckSectionHeader}>
+         <View style={styles.deckSectionCopy}>
+           <AppText style={styles.deckSectionTitle} numberOfLines={1}>{idea.title}</AppText>
+-          <AppText style={[styles.deckSectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{idea.stops.length} stops · {starterPlanIdeaRequirementSummary(idea)}</AppText>
++          <AppText style={[styles.deckSectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{stopCountLabel} · {starterPlanIdeaRequirementSummaryLocalized(idea, t)}</AppText>
+         </View>
+         <SemanticBadge label={`${index + 1}/${total}`} tone="muted" size="sm" />
+       </View>
+-      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} topBadgeLabel={`Plan idea · ${idea.pack}`} topBadgeTone="plan" showModeBadge={false} />
++      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} topBadgeLabel={t('plans.deck.ideaBadge', { pack: idea.pack })} topBadgeTone="plan" showModeBadge={false} />
+     </View>
+   );
+ });
+@@ -1997,6 +2043,7 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
+   const fallbackNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const navigation = (props.navigation ?? fallbackNavigation) as NativeStackNavigationProp<RootStackParamList>;
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const routeParams = props.route?.params as PlanFilterRouteParams | undefined;
+   const activeFilters = normalizePlanFilters(routeParams?.filters);
+   const activeSearchQuery = normalizePlanSearchQuery(routeParams?.q);
+@@ -2031,12 +2078,12 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
+   const header = (
+     <View style={styles.feedHeader}>
+       <View style={styles.feedTitleWrap}>
+-        <AppText style={styles.feedTitle}>Plans</AppText>
++        <AppText style={styles.feedTitle}>{t('plans.common.title')}</AppText>
+       </View>
+       <View style={styles.headerActions}>
+-        <HeaderAction icon="filter" label={activeFilterCount ? `Filter Plans, ${activeFilterCount} active` : 'Filter Plans'} badgeCount={activeFilterCount} onPress={() => { setMenuOpen(false); navigation.navigate('PlanFilters', { filters: activeFilters, q: activeSearchQuery || undefined }); }} />
+-        <HeaderAction icon="activity" label="Open Plan menu" onPress={() => setMenuOpen((value) => !value)} />
+-        <HeaderAction icon="add" label="Create Plan" onPress={() => navigation.navigate('CreatePlan')} />
++        <HeaderAction icon="filter" label={activeFilterCount ? t('plans.feed.actions.filterActive', { count: activeFilterCount }) : t('plans.feed.actions.filter')} badgeCount={activeFilterCount} onPress={() => { setMenuOpen(false); navigation.navigate('PlanFilters', { filters: activeFilters, q: activeSearchQuery || undefined }); }} />
++        <HeaderAction icon="activity" label={t('plans.feed.actions.menu')} onPress={() => setMenuOpen((value) => !value)} />
++        <HeaderAction icon="add" label={t('plans.feed.actions.create')} onPress={() => navigation.navigate('CreatePlan')} />
+       </View>
+     </View>
+   );
+@@ -2059,6 +2106,7 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
+   const fallbackNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const navigation = (props.navigation ?? fallbackNavigation) as NativeStackNavigationProp<RootStackParamList>;
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const incomingParams = props.route?.params as PlanFilterRouteParams | undefined;
+   const incomingFilters = normalizePlanFilters(incomingParams?.filters);
+   const incomingQuery = normalizePlanSearchQuery(incomingParams?.q);
+@@ -2084,24 +2132,24 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
+   }
+ 
+   return (
+-    <AppFixedHeaderScreen header={<AppHeader title="Plan filters" onBack={() => navigation.goBack()} />}>
++    <AppFixedHeaderScreen header={<AppHeader title={t('plans.filters.title')} onBack={() => navigation.goBack()} />}>
+       <ScrollView contentContainerStyle={styles.planFilterContent} showsVerticalScrollIndicator={false}>
+         <View style={[styles.hero, styles.planFilterHero, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+           <View style={[styles.menuIcon, { backgroundColor: theme.color.surface, borderColor: theme.semantic.plan.border }]}>
+             <MobileIcon name="filter" size={18} color={theme.semantic.plan.text} />
+           </View>
+-          <AppText style={styles.heroTitle}>Find the right Plan</AppText>
+-          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Search words and filter choices stay attached to the feed so we can learn what people look for later.</AppText>
++          <AppText style={styles.heroTitle}>{t('plans.filters.heroTitle')}</AppText>
++          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t('plans.filters.heroBody')}</AppText>
+         </View>
+ 
+         <View style={[styles.planFilterSearchCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-          <AppText style={styles.formLabel}>Search</AppText>
++          <AppText style={styles.formLabel}>{t('plans.filters.searchLabel')}</AppText>
+           <View style={[styles.planFilterSearchInputWrap, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
+             <MobileIcon name="search" size={18} color={theme.color.muted} />
+             <TextInput
+               value={searchQuery}
+               onChangeText={(value) => setSearchQuery(value.slice(0, 120))}
+-              placeholder="Search plans, places, titles..."
++              placeholder={t('plans.filters.searchPlaceholder')}
+               placeholderTextColor={theme.color.muted}
+               autoCapitalize="none"
+               autoCorrect={false}
+@@ -2109,19 +2157,19 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
+               style={[styles.planFilterSearchInput, { color: theme.color.text }]}
+             />
+             {normalizedSearchQuery ? (
+-              <Pressable accessibilityRole="button" accessibilityLabel="Clear Plan search" onPress={() => setSearchQuery('')} style={({ pressed }) => [styles.planFilterSearchClear, { backgroundColor: theme.semantic.plan.softBg }, pressed && styles.pressed]}>
+-                <AppText style={[styles.planFilterSearchClearText, { color: theme.semantic.plan.text }]}>Clear</AppText>
++              <Pressable accessibilityRole="button" accessibilityLabel={t('plans.filters.clearSearch')} onPress={() => setSearchQuery('')} style={({ pressed }) => [styles.planFilterSearchClear, { backgroundColor: theme.semantic.plan.softBg }, pressed && styles.pressed]}>
++                <AppText style={[styles.planFilterSearchClearText, { color: theme.semantic.plan.text }]}>{t('plans.filters.clear')}</AppText>
+               </Pressable>
+             ) : null}
+           </View>
+-          <AppText style={[styles.choiceMeta, { color: theme.color.muted }]}>Search words are preserved with your filters. Result counts are logged privately for future Plan suggestions.</AppText>
++          <AppText style={[styles.choiceMeta, { color: theme.color.muted }]}>{t('plans.filters.searchHelp')}</AppText>
+         </View>
+ 
+         {planFilterGroups.map((group) => (
+-          <View key={group.title} style={[styles.planFilterGroup, { borderColor: theme.color.border }]}>
++          <View key={group.id} style={[styles.planFilterGroup, { borderColor: theme.color.border }]}>
+             <View style={styles.placeCreateSectionHeader}>
+-              <AppText style={styles.sectionTitle}>{group.title}</AppText>
+-              <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{group.body}</AppText>
++              <AppText style={styles.sectionTitle}>{t(group.titleKey)}</AppText>
++              <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t(group.bodyKey)}</AppText>
+             </View>
+             <View style={styles.planFilterOptionGrid}>
+               {group.options.map((option) => {
+@@ -2143,8 +2191,8 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
+                       {selected ? <MobileIcon name="close" size={11} color={theme.color.background} /> : null}
+                     </View>
+                     <View style={styles.planFilterOptionCopy}>
+-                      <AppText style={[styles.choiceTitle, selected && { color: theme.semantic.plan.text }]}>{option.label}</AppText>
+-                      {option.body ? <AppText style={[styles.choiceMeta, { color: theme.color.muted }]}>{option.body}</AppText> : null}
++                      <AppText style={[styles.choiceTitle, selected && { color: theme.semantic.plan.text }]}>{t(option.labelKey)}</AppText>
++                      {option.bodyKey ? <AppText style={[styles.choiceMeta, { color: theme.color.muted }]}>{t(option.bodyKey)}</AppText> : null}
+                     </View>
+                   </Pressable>
+                 );
+@@ -2154,8 +2202,8 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
+         ))}
+ 
+         <View style={styles.planFilterFooter}>
+-          <SecondaryButton label="Reset" icon="refresh" onPress={reset} disabled={activeCount === 0} />
+-          <PrimaryButton label={activeCount ? `Show plans (${activeCount})` : 'Show plans'} onPress={() => navigation.navigate('Plans', activeCount ? { filters: selectedFilters, q: normalizedSearchQuery || undefined } : undefined)} />
++          <SecondaryButton label={t('plans.filters.reset')} icon="refresh" onPress={reset} disabled={activeCount === 0} />
++          <PrimaryButton label={activeCount ? t('plans.filters.showCount', { count: activeCount }) : t('plans.filters.show')} onPress={() => navigation.navigate('Plans', activeCount ? { filters: selectedFilters, q: normalizedSearchQuery || undefined } : undefined)} />
+         </View>
+       </ScrollView>
+     </AppFixedHeaderScreen>
+@@ -2900,13 +2948,15 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+ }
+ 
+ export function MyPlansScreen({ navigation }: SimpleScreenProps<'MyPlans'>) {
++  const { t } = useTranslation();
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+-  return <AppFixedHeaderScreen header={<AppHeader title="My plans" onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label="Create Plan" onPress={() => navigation.navigate('CreatePlan')} />} />}><PlanList scope="mine" navigation={navigation} /></AppFixedHeaderScreen>;
++  return <AppFixedHeaderScreen header={<AppHeader title={t('plans.collections.myPlans')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label={t('plans.feed.actions.create')} onPress={() => navigation.navigate('CreatePlan')} />} />}><PlanList scope="mine" navigation={navigation} /></AppFixedHeaderScreen>;
+ }
+ 
+ export function JoinedPlansScreen({ navigation }: SimpleScreenProps<'JoinedPlans'>) {
++  const { t } = useTranslation();
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+-  return <AppFixedHeaderScreen header={<AppHeader title="Joined plans" onBack={() => navigation.goBack()} />}><PlanList scope="joined" navigation={navigation} /></AppFixedHeaderScreen>;
++  return <AppFixedHeaderScreen header={<AppHeader title={t('plans.collections.joinedPlans')} onBack={() => navigation.goBack()} />}><PlanList scope="joined" navigation={navigation} /></AppFixedHeaderScreen>;
+ }
+ 
+ export function MyPlacesScreen({ navigation }: SimpleScreenProps<'MyPlaces'>) {
+diff --git a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+index dd885f9..a16d94b 100644
+--- a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
++++ b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+@@ -8,6 +8,7 @@ import { POSTER_CARD_GEOMETRY } from '../../../components/PosterCardGeometry';
+ import { PosterCardFooter } from '../../../components/PosterCardFooter';
+ import { SemanticBadge } from '../../../components/SemanticUI';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
++import { useTranslation } from '../../../providers/MobileI18nProvider';
+ import { ContinuousSquareStackDeck, type SquareStackDeckCard } from '../../trade/deck';
+ import { resolveMediaVariantUrl } from '../../trade/mediaUrls';
+ 
+@@ -97,11 +98,12 @@ function buildPlanPlaceDeckCards(plan: PlanDto): PlanPlaceDeckCard[] {
+   }));
+ }
+ 
+-function formatPlanPlaceDate(value?: string | null) {
+-  if (!value) return 'Flexible time';
++function formatPlanPlaceDate(value: string | null | undefined, language: 'en' | 'fr' | 'es', flexibleLabel: string) {
++  if (!value) return flexibleLabel;
+   const date = new Date(value);
+   if (Number.isNaN(date.getTime())) return value;
+-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
++  const locale = language === 'fr' ? 'fr-FR' : language === 'es' ? 'es-ES' : 'en-US';
++  return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
+ }
+ 
+ function getPlaceLocationLabel(place: PlanPlaceDto | undefined) {
+@@ -116,17 +118,13 @@ function getPlaceLanguageLabel(place: PlanPlaceDto | undefined) {
+   return displayLanguage.languageCode.toUpperCase();
+ }
+ 
+-function getPlanParticipantLabel(plan: PlanDto) {
+-  const count = plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
+-  return `${count} joined`;
+-}
+-
+-function getPlaceDateLabel(place: PlanPlaceDto | undefined, planStartsAt: string) {
+-  return formatPlanPlaceDate(place?.startsAt ?? planStartsAt);
++function getPlanParticipantCount(plan: PlanDto) {
++  return plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
+ }
+ 
+ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'instruction', showModeBadge = true }: { card: PlanPlaceDeckCard; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
+   const theme = useThemeTokens();
++  const { language, t } = useTranslation();
+   const isDark = theme.mode === 'dark';
+   const mediaUrl = activeMediaUrl(card.media);
+   const staticMapUrl = staticMapUrlForTheme(card.staticMap, theme.mode);
+@@ -134,13 +132,15 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+   const fallback = useMemo(() => fallbackModel(card.id), [card.id]);
+   const place = card.place;
+   const isEmpty = card.kind === 'emptyPlace' || !place;
+-  const cardCounter = isEmpty ? '0 places' : `${String(card.placeIndex + 1).padStart(2, '0')}/${String(card.placeTotal).padStart(2, '0')}`;
+-  const modeLabel = place?.mode === 'remote' ? 'Online' : 'Offline';
+-  const placeTitle = place?.title ?? 'No places yet';
++  const cardCounter = isEmpty ? t('plans.deck.noPlacesCount') : `${String(card.placeIndex + 1).padStart(2, '0')}/${String(card.placeTotal).padStart(2, '0')}`;
++  const modeLabel = place?.mode === 'remote' ? t('plans.deck.online') : t('plans.deck.offline');
++  const placeTitle = place?.title ?? t('plans.deck.noPlaces');
+   const languageLabel = isEmpty ? '' : getPlaceLanguageLabel(place);
+   const locationLabel = isEmpty ? '' : [languageLabel, getPlaceLocationLabel(place)].filter(Boolean).join(' · ');
+-  const timeLabel = isEmpty ? getPlanParticipantLabel(card.plan) : getPlaceDateLabel(place, card.plan.startsAt);
+-  const primaryBadgeLabel = topBadgeLabel ?? `Place · ${cardCounter}`;
++  const timeLabel = isEmpty
++    ? t('plans.deck.participants', { count: getPlanParticipantCount(card.plan) })
++    : formatPlanPlaceDate(place?.startsAt ?? card.plan.startsAt, language, t('plans.common.flexibleTime'));
++  const primaryBadgeLabel = topBadgeLabel ?? t('plans.deck.placeBadge', { counter: cardCounter });
+   const hasPosterImage = Boolean(imageUrl);
+   const posterTextShadow = hasPosterImage ? 'rgba(0,0,0,0.34)' : isDark ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.48)';
+   const posterTitleColor = hasPosterImage ? '#FFFFFF' : theme.color.text;
+@@ -154,7 +154,9 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+   return (
+     <Pressable
+       accessibilityRole="button"
+-      accessibilityLabel={`${card.plan.title}. ${isEmpty ? 'No places yet' : `Place ${card.placeIndex + 1}: ${placeTitle}`}. Open plan.`}
++      accessibilityLabel={isEmpty
++        ? t('plans.deck.accessibilityEmpty', { plan: card.plan.title })
++        : t('plans.deck.accessibilityPlace', { plan: card.plan.title, index: card.placeIndex + 1, place: placeTitle })}
+       onPress={onOpen}
+       style={({ pressed }) => [
+         styles.card,
+@@ -219,7 +221,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+       >
+         <AppText style={[styles.planTitle, { color: posterSubtleColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{card.plan.title}</AppText>
+         <AppText style={[styles.placeTitle, { color: posterTitleColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{placeTitle}</AppText>
+-        {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>Add a first stop to turn this Plan into route cards.</AppText> : null}
++        {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{t('plans.deck.addFirstStop')}</AppText> : null}
+         {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{locationLabel}</AppText> : null}
+         <AppText style={[styles.placeTimeText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{timeLabel}</AppText>
+       </PosterCardFooter>
+diff --git a/packages/i18n/src/locales/en/index.ts b/packages/i18n/src/locales/en/index.ts
+index 135fdf5..2d3fecc 100644
+--- a/packages/i18n/src/locales/en/index.ts
++++ b/packages/i18n/src/locales/en/index.ts
+@@ -7,6 +7,7 @@ import { legal } from './legal';
+ import { navigation } from './navigation';
+ import { onboarding } from './onboarding';
+ import { places } from './places';
++import { plans } from './plans';
+ import { profile } from './profile';
+ import { report } from './report';
+ import { settings } from './settings';
+@@ -24,6 +25,7 @@ export const en = {
+   navigation,
+   onboarding,
+   places,
++  plans,
+   profile,
+   report,
+   settings,
+diff --git a/packages/i18n/src/locales/en/plans.ts b/packages/i18n/src/locales/en/plans.ts
+new file mode 100644
+index 0000000..e6da540
+--- /dev/null
++++ b/packages/i18n/src/locales/en/plans.ts
+@@ -0,0 +1,148 @@
++export const plans = {
++  common: {
++    title: 'Plans',
++    member: 'Hellowhen member',
++    flexibleTime: 'Flexible time',
++  },
++  disabled: {
++    title: 'Plans are hidden',
++    body: 'The mobile Plan area is ready, but Plans stay hidden until the Plan feature flags are enabled.',
++  },
++  feed: {
++    actions: {
++      filter: 'Filter Plans',
++      filterActive: 'Filter Plans, {{count}} active',
++      menu: 'Open Plan menu',
++      create: 'Create Plan',
++    },
++    guide: {
++      title: 'New to Plans?',
++      body: 'Learn how Plans, Places, joining, creating, and safety work.',
++    },
++    activeFilters: {
++      one: '1 active Plan filter',
++      many: '{{count}} active Plan filters',
++      fallback: 'Filtered Plan results',
++    },
++  },
++  list: {
++    loading: 'Loading Plans...',
++    errors: {
++      title: 'Could not load Plans',
++      body: 'Check your connection and try again.',
++    },
++    empty: {
++      title: 'No Plans yet',
++      mine: 'Created Plans will appear here once you create one.',
++      joined: 'Plans you join will appear here.',
++      filtered: 'No Plans match this search and filters yet. Try changing the search words or resetting one or two filters.',
++      feed: 'Open Plans will appear here once people start creating them.',
++      create: 'Create plan',
++    },
++  },
++  collections: {
++    myPlans: 'My plans',
++    joinedPlans: 'Joined plans',
++  },
++  row: {
++    startsWith: 'Starts with {{place}}',
++    placeOne: '{{count}} place',
++    placeMany: '{{count}} places',
++    joined: '{{count}} joined',
++    meta: '{{places}} · {{joined}}',
++  },
++  status: {
++    open: 'Open',
++    full: 'Full',
++    started: 'Started',
++    completed: 'Completed',
++    cancelled: 'Cancelled',
++    draft: 'Draft',
++  },
++  participantStatus: {
++    accepted: 'Joined',
++    pending: 'Pending',
++    declined: 'Declined',
++    cancelled: 'Cancelled',
++  },
++  deck: {
++    placeBadge: 'Place · {{counter}}',
++    online: 'Online',
++    offline: 'Offline',
++    noPlaces: 'No places yet',
++    noPlacesCount: '0 places',
++    addFirstStop: 'Add a first stop to turn this Plan into route cards.',
++    participants: '{{count}} joined',
++    accessibilityEmpty: '{{plan}}. No places yet. Open Plan.',
++    accessibilityPlace: '{{plan}}. Place {{index}}: {{place}}. Open Plan.',
++    ideaBadge: 'Plan idea · {{pack}}',
++    ideaStopsOne: '{{count}} stop',
++    ideaStopsMany: '{{count}} stops',
++    realAddressOne: '{{count}} real address',
++    realAddressMany: '{{count}} real addresses',
++    onlineLinkOne: '{{count}} online link',
++    onlineLinkMany: '{{count}} online links',
++    requirementsNeeded: '{{requirements}} needed',
++    reviewBeforePublishing: 'Review before publishing',
++  },
++  filters: {
++    title: 'Plan filters',
++    heroTitle: 'Find the right Plan',
++    heroBody: 'Search words and filter choices stay attached to the feed so we can learn what people look for later.',
++    searchLabel: 'Search',
++    searchPlaceholder: 'Search Plans, Places, titles...',
++    clearSearch: 'Clear Plan search',
++    clear: 'Clear',
++    searchHelp: 'Search words are preserved with your filters. Result counts are logged privately for future Plan suggestions.',
++    reset: 'Reset',
++    show: 'Show Plans',
++    showCount: 'Show Plans ({{count}})',
++    summary: {
++      search: 'Search: “{{query}}”',
++      status: '{{count}} status',
++      mode: '{{count}} mode',
++      join: '{{count}} join',
++      places: '{{count}} places',
++      time: '{{count}} time',
++    },
++    groups: {
++      status: {
++        title: 'Status',
++        body: 'Choose which public Plan states should appear.',
++        open: { label: 'Open', body: 'Available to join' },
++        full: { label: 'Full', body: 'Capacity reached' },
++        started: { label: 'Started', body: 'Already underway' },
++      },
++      mode: {
++        title: 'Mode',
++        body: 'Match the way the Plan happens.',
++        local: { label: 'Local / offline', body: 'Meet in person' },
++        remote: { label: 'Online', body: 'Remote or link-based' },
++      },
++      join: {
++        title: 'Join',
++        body: 'Surface Plans that can be joined freely.',
++        automatic: { label: 'Free join', body: 'No approval request first' },
++      },
++      places: {
++        title: 'Places',
++        body: 'Filter by route size.',
++        one: { label: '1 place', body: 'Simple single stop' },
++        multiple: { label: '2+ places', body: 'A route or sequence' },
++      },
++      time: {
++        title: 'Time',
++        body: 'Pick when the Plan starts.',
++        today: { label: 'Today' },
++        week: { label: 'This week' },
++        month: { label: 'This month' },
++      },
++    },
++  },
++  workspace: {
++    myPlans: { title: 'My plans', body: 'Plans you created.' },
++    joinedPlans: { title: 'Joined plans', body: 'Plans you joined freely.' },
++    myPlaces: { title: 'My places', body: 'Reusable offline or online Places.' },
++    planIdeas: { title: 'Plan ideas', body: 'Starter Plan ideas you can review and customize.' },
++  },
++} as const;
+diff --git a/packages/i18n/src/locales/es/index.ts b/packages/i18n/src/locales/es/index.ts
+index 2b3bfdc..d576995 100644
+--- a/packages/i18n/src/locales/es/index.ts
++++ b/packages/i18n/src/locales/es/index.ts
+@@ -7,6 +7,7 @@ import { legal } from './legal';
+ import { navigation } from './navigation';
+ import { onboarding } from './onboarding';
+ import { places } from './places';
++import { plans } from './plans';
+ import { profile } from './profile';
+ import { report } from './report';
+ import { settings } from './settings';
+@@ -24,6 +25,7 @@ export const es = {
+   navigation,
+   onboarding,
+   places,
++  plans,
+   profile,
+   report,
+   settings,
+diff --git a/packages/i18n/src/locales/es/plans.ts b/packages/i18n/src/locales/es/plans.ts
+new file mode 100644
+index 0000000..8175b0a
+--- /dev/null
++++ b/packages/i18n/src/locales/es/plans.ts
+@@ -0,0 +1,148 @@
++export const plans = {
++  common: {
++    title: 'Planes',
++    member: 'Miembro de Hellowhen',
++    flexibleTime: 'Horario flexible',
++  },
++  disabled: {
++    title: 'Los Planes están ocultos',
++    body: 'El área móvil de Planes está preparada, pero seguirá oculta hasta que se activen sus opciones de función.',
++  },
++  feed: {
++    actions: {
++      filter: 'Filtrar Planes',
++      filterActive: 'Filtrar Planes, {{count}} activos',
++      menu: 'Abrir el menú de Planes',
++      create: 'Crear un Plan',
++    },
++    guide: {
++      title: '¿Eres nuevo en Planes?',
++      body: 'Descubre cómo funcionan los Planes, los lugares, unirse, crear y la seguridad.',
++    },
++    activeFilters: {
++      one: '1 filtro de Plan activo',
++      many: '{{count}} filtros de Plan activos',
++      fallback: 'Resultados de Planes filtrados',
++    },
++  },
++  list: {
++    loading: 'Cargando Planes…',
++    errors: {
++      title: 'No se pudieron cargar los Planes',
++      body: 'Comprueba tu conexión e inténtalo de nuevo.',
++    },
++    empty: {
++      title: 'Todavía no hay Planes',
++      mine: 'Los Planes que crees aparecerán aquí.',
++      joined: 'Los Planes a los que te unas aparecerán aquí.',
++      filtered: 'Todavía no hay Planes que coincidan con esta búsqueda y estos filtros. Cambia las palabras o restablece uno o dos filtros.',
++      feed: 'Los Planes abiertos aparecerán aquí cuando las personas empiecen a crearlos.',
++      create: 'Crear un Plan',
++    },
++  },
++  collections: {
++    myPlans: 'Mis Planes',
++    joinedPlans: 'Planes unidos',
++  },
++  row: {
++    startsWith: 'Empieza por {{place}}',
++    placeOne: '{{count}} lugar',
++    placeMany: '{{count}} lugares',
++    joined: '{{count}} participantes',
++    meta: '{{places}} · {{joined}}',
++  },
++  status: {
++    open: 'Abierto',
++    full: 'Completo',
++    started: 'Iniciado',
++    completed: 'Completado',
++    cancelled: 'Cancelado',
++    draft: 'Borrador',
++  },
++  participantStatus: {
++    accepted: 'Unido',
++    pending: 'Pendiente',
++    declined: 'Rechazado',
++    cancelled: 'Cancelado',
++  },
++  deck: {
++    placeBadge: 'Lugar · {{counter}}',
++    online: 'En línea',
++    offline: 'Presencial',
++    noPlaces: 'Todavía no hay lugares',
++    noPlacesCount: '0 lugares',
++    addFirstStop: 'Añade una primera parada para convertir este Plan en tarjetas de ruta.',
++    participants: '{{count}} participantes',
++    accessibilityEmpty: '{{plan}}. Todavía no hay lugares. Abrir Plan.',
++    accessibilityPlace: '{{plan}}. Lugar {{index}}: {{place}}. Abrir Plan.',
++    ideaBadge: 'Idea de Plan · {{pack}}',
++    ideaStopsOne: '{{count}} parada',
++    ideaStopsMany: '{{count}} paradas',
++    realAddressOne: '{{count}} dirección real',
++    realAddressMany: '{{count}} direcciones reales',
++    onlineLinkOne: '{{count}} enlace en línea',
++    onlineLinkMany: '{{count}} enlaces en línea',
++    requirementsNeeded: 'Se necesita: {{requirements}}',
++    reviewBeforePublishing: 'Revisar antes de publicar',
++  },
++  filters: {
++    title: 'Filtros de Planes',
++    heroTitle: 'Encuentra el Plan adecuado',
++    heroBody: 'Las palabras de búsqueda y los filtros permanecen vinculados al feed para aprender después qué busca la gente.',
++    searchLabel: 'Buscar',
++    searchPlaceholder: 'Buscar Planes, lugares, títulos…',
++    clearSearch: 'Borrar búsqueda de Planes',
++    clear: 'Borrar',
++    searchHelp: 'Las palabras se conservan con tus filtros. Los recuentos de resultados se registran de forma privada para mejorar futuras sugerencias de Planes.',
++    reset: 'Restablecer',
++    show: 'Mostrar Planes',
++    showCount: 'Mostrar Planes ({{count}})',
++    summary: {
++      search: 'Búsqueda: «{{query}}»',
++      status: '{{count}} estado',
++      mode: '{{count}} modo',
++      join: '{{count}} unión',
++      places: '{{count}} lugares',
++      time: '{{count}} fecha',
++    },
++    groups: {
++      status: {
++        title: 'Estado',
++        body: 'Elige qué estados de Planes públicos deben aparecer.',
++        open: { label: 'Abierto', body: 'Disponible para unirse' },
++        full: { label: 'Completo', body: 'Capacidad alcanzada' },
++        started: { label: 'Iniciado', body: 'Ya está en marcha' },
++      },
++      mode: {
++        title: 'Modalidad',
++        body: 'Elige cómo se realiza el Plan.',
++        local: { label: 'Local / presencial', body: 'Encuentro en persona' },
++        remote: { label: 'En línea', body: 'A distancia o mediante enlace' },
++      },
++      join: {
++        title: 'Unirse',
++        body: 'Muestra Planes a los que se puede unir libremente.',
++        automatic: { label: 'Unión libre', body: 'Sin solicitud de aprobación previa' },
++      },
++      places: {
++        title: 'Lugares',
++        body: 'Filtra por el tamaño de la ruta.',
++        one: { label: '1 lugar', body: 'Una sola parada sencilla' },
++        multiple: { label: '2 o más lugares', body: 'Una ruta o secuencia' },
++      },
++      time: {
++        title: 'Fecha',
++        body: 'Elige cuándo empieza el Plan.',
++        today: { label: 'Hoy' },
++        week: { label: 'Esta semana' },
++        month: { label: 'Este mes' },
++      },
++    },
++  },
++  workspace: {
++    myPlans: { title: 'Mis Planes', body: 'Los Planes que has creado.' },
++    joinedPlans: { title: 'Planes unidos', body: 'Los Planes a los que te has unido libremente.' },
++    myPlaces: { title: 'Mis lugares', body: 'Lugares reutilizables presenciales o en línea.' },
++    planIdeas: { title: 'Ideas de Plan', body: 'Ideas iniciales que puedes revisar y personalizar.' },
++  },
++} as const;
+diff --git a/packages/i18n/src/locales/fr/index.ts b/packages/i18n/src/locales/fr/index.ts
+index d3a9d0a..1bf5d2a 100644
+--- a/packages/i18n/src/locales/fr/index.ts
++++ b/packages/i18n/src/locales/fr/index.ts
+@@ -7,6 +7,7 @@ import { legal } from './legal';
+ import { navigation } from './navigation';
+ import { onboarding } from './onboarding';
+ import { places } from './places';
++import { plans } from './plans';
+ import { profile } from './profile';
+ import { report } from './report';
+ import { settings } from './settings';
+@@ -24,6 +25,7 @@ export const fr = {
+   navigation,
+   onboarding,
+   places,
++  plans,
+   profile,
+   report,
+   settings,
+diff --git a/packages/i18n/src/locales/fr/plans.ts b/packages/i18n/src/locales/fr/plans.ts
+new file mode 100644
+index 0000000..2d8a34d
+--- /dev/null
++++ b/packages/i18n/src/locales/fr/plans.ts
+@@ -0,0 +1,148 @@
++export const plans = {
++  common: {
++    title: 'Plans',
++    member: 'Membre Hellowhen',
++    flexibleTime: 'Horaire flexible',
++  },
++  disabled: {
++    title: 'Les Plans sont masqués',
++    body: 'L’espace mobile des Plans est prêt, mais il reste masqué tant que les options de fonctionnalité correspondantes ne sont pas activées.',
++  },
++  feed: {
++    actions: {
++      filter: 'Filtrer les Plans',
++      filterActive: 'Filtrer les Plans, {{count}} actif(s)',
++      menu: 'Ouvrir le menu des Plans',
++      create: 'Créer un Plan',
++    },
++    guide: {
++      title: 'Vous découvrez les Plans ?',
++      body: 'Découvrez le fonctionnement des Plans, des lieux, de la participation, de la création et de la sécurité.',
++    },
++    activeFilters: {
++      one: '1 filtre de Plan actif',
++      many: '{{count}} filtres de Plan actifs',
++      fallback: 'Résultats de Plans filtrés',
++    },
++  },
++  list: {
++    loading: 'Chargement des Plans…',
++    errors: {
++      title: 'Impossible de charger les Plans',
++      body: 'Vérifiez votre connexion, puis réessayez.',
++    },
++    empty: {
++      title: 'Aucun Plan pour le moment',
++      mine: 'Les Plans que vous créez apparaîtront ici.',
++      joined: 'Les Plans que vous rejoignez apparaîtront ici.',
++      filtered: 'Aucun Plan ne correspond encore à cette recherche et à ces filtres. Modifiez les mots recherchés ou réinitialisez certains filtres.',
++      feed: 'Les Plans ouverts apparaîtront ici dès que des personnes en créeront.',
++      create: 'Créer un Plan',
++    },
++  },
++  collections: {
++    myPlans: 'Mes Plans',
++    joinedPlans: 'Plans rejoints',
++  },
++  row: {
++    startsWith: 'Commence par {{place}}',
++    placeOne: '{{count}} lieu',
++    placeMany: '{{count}} lieux',
++    joined: '{{count}} participant(s)',
++    meta: '{{places}} · {{joined}}',
++  },
++  status: {
++    open: 'Ouvert',
++    full: 'Complet',
++    started: 'Commencé',
++    completed: 'Terminé',
++    cancelled: 'Annulé',
++    draft: 'Brouillon',
++  },
++  participantStatus: {
++    accepted: 'Rejoint',
++    pending: 'En attente',
++    declined: 'Refusé',
++    cancelled: 'Annulé',
++  },
++  deck: {
++    placeBadge: 'Lieu · {{counter}}',
++    online: 'En ligne',
++    offline: 'Sur place',
++    noPlaces: 'Aucun lieu pour le moment',
++    noPlacesCount: '0 lieu',
++    addFirstStop: 'Ajoutez une première étape pour transformer ce Plan en cartes de parcours.',
++    participants: '{{count}} participant(s)',
++    accessibilityEmpty: '{{plan}}. Aucun lieu pour le moment. Ouvrir le Plan.',
++    accessibilityPlace: '{{plan}}. Lieu {{index}} : {{place}}. Ouvrir le Plan.',
++    ideaBadge: 'Idée de Plan · {{pack}}',
++    ideaStopsOne: '{{count}} étape',
++    ideaStopsMany: '{{count}} étapes',
++    realAddressOne: '{{count}} adresse réelle',
++    realAddressMany: '{{count}} adresses réelles',
++    onlineLinkOne: '{{count}} lien en ligne',
++    onlineLinkMany: '{{count}} liens en ligne',
++    requirementsNeeded: '{{requirements}} requis',
++    reviewBeforePublishing: 'À vérifier avant publication',
++  },
++  filters: {
++    title: 'Filtres des Plans',
++    heroTitle: 'Trouvez le bon Plan',
++    heroBody: 'Les mots recherchés et les filtres restent associés au fil afin de mieux comprendre ensuite ce que les personnes recherchent.',
++    searchLabel: 'Rechercher',
++    searchPlaceholder: 'Rechercher des Plans, lieux, titres…',
++    clearSearch: 'Effacer la recherche de Plans',
++    clear: 'Effacer',
++    searchHelp: 'Les mots recherchés sont conservés avec vos filtres. Le nombre de résultats est enregistré de façon privée pour améliorer les futures suggestions de Plans.',
++    reset: 'Réinitialiser',
++    show: 'Afficher les Plans',
++    showCount: 'Afficher les Plans ({{count}})',
++    summary: {
++      search: 'Recherche : « {{query}} »',
++      status: '{{count}} statut',
++      mode: '{{count}} mode',
++      join: '{{count}} participation',
++      places: '{{count}} lieux',
++      time: '{{count}} période',
++    },
++    groups: {
++      status: {
++        title: 'Statut',
++        body: 'Choisissez les statuts de Plans publics à afficher.',
++        open: { label: 'Ouvert', body: 'Disponible à rejoindre' },
++        full: { label: 'Complet', body: 'Capacité atteinte' },
++        started: { label: 'Commencé', body: 'Déjà en cours' },
++      },
++      mode: {
++        title: 'Mode',
++        body: 'Choisissez la manière dont le Plan se déroule.',
++        local: { label: 'Local / sur place', body: 'Rencontre en personne' },
++        remote: { label: 'En ligne', body: 'À distance ou avec un lien' },
++      },
++      join: {
++        title: 'Participation',
++        body: 'Affichez les Plans qui peuvent être rejoints librement.',
++        automatic: { label: 'Participation libre', body: 'Aucune demande d’approbation préalable' },
++      },
++      places: {
++        title: 'Lieux',
++        body: 'Filtrez selon la taille du parcours.',
++        one: { label: '1 lieu', body: 'Une seule étape simple' },
++        multiple: { label: '2 lieux ou plus', body: 'Un parcours ou une séquence' },
++      },
++      time: {
++        title: 'Période',
++        body: 'Choisissez le moment où le Plan commence.',
++        today: { label: 'Aujourd’hui' },
++        week: { label: 'Cette semaine' },
++        month: { label: 'Ce mois-ci' },
++      },
++    },
++  },
++  workspace: {
++    myPlans: { title: 'Mes Plans', body: 'Les Plans que vous avez créés.' },
++    joinedPlans: { title: 'Plans rejoints', body: 'Les Plans que vous avez rejoints librement.' },
++    myPlaces: { title: 'Mes lieux', body: 'Vos lieux réutilisables sur place ou en ligne.' },
++    planIdeas: { title: 'Idées de Plan', body: 'Des idées de départ à consulter et personnaliser.' },
++  },
++} as const;
+diff --git a/packages/shared/src/appNavigation.ts b/packages/shared/src/appNavigation.ts
+index bc5d022..3f080e7 100644
+--- a/packages/shared/src/appNavigation.ts
++++ b/packages/shared/src/appNavigation.ts
+@@ -73,10 +73,10 @@ export type NormalWorkspaceMenuItem = {
+ export const normalWorkspaceMenus = {
+   plans: [
+     { id: 'plan_guide', title: 'Plan Guide', body: 'Learn how Plans, Places, joining, creating, and safety work.', titleKey: 'navigation.workspace.plans.planGuide.title', bodyKey: 'navigation.workspace.plans.planGuide.body', icon: 'help', tone: 'info' },
+-    { id: 'my_plans', title: 'My plans', body: 'Plans you created.', icon: 'plan', tone: 'plan' },
+-    { id: 'joined_plans', title: 'Joined plans', body: 'Plans you joined freely.', icon: 'activity', tone: 'info' },
+-    { id: 'my_places', title: 'My places', body: 'Reusable offline or online places.', icon: 'location-on', tone: 'plan' },
+-    { id: 'plan_ideas', title: 'Plan ideas', body: 'Starter Plan ideas you can review and customize.', icon: 'search', tone: 'info' },
++    { id: 'my_plans', title: 'My plans', body: 'Plans you created.', titleKey: 'plans.workspace.myPlans.title', bodyKey: 'plans.workspace.myPlans.body', icon: 'plan', tone: 'plan' },
++    { id: 'joined_plans', title: 'Joined plans', body: 'Plans you joined freely.', titleKey: 'plans.workspace.joinedPlans.title', bodyKey: 'plans.workspace.joinedPlans.body', icon: 'activity', tone: 'info' },
++    { id: 'my_places', title: 'My places', body: 'Reusable offline or online places.', titleKey: 'plans.workspace.myPlaces.title', bodyKey: 'plans.workspace.myPlaces.body', icon: 'location-on', tone: 'plan' },
++    { id: 'plan_ideas', title: 'Plan ideas', body: 'Starter Plan ideas you can review and customize.', titleKey: 'plans.workspace.planIdeas.title', bodyKey: 'plans.workspace.planIdeas.body', icon: 'search', tone: 'info' },
+   ],
+   trade: [
+     { id: 'trade_guide', title: 'Trade Guide', body: 'Learn how Needs, Offers, trade cards, proposals, and safety work.', titleKey: 'trade.wizard.actions.tradeGuide.title', bodyKey: 'trade.wizard.actions.tradeGuide.body', icon: 'help', tone: 'info' },

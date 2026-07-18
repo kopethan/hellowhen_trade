@@ -1,6 +1,40 @@
 export const onboarding = {
   ariaLabel: 'Hellowhen onboarding guide',
   progress: '{{current}} / {{total}}',
+  hub: {
+    title: 'Guides',
+    eyebrow: 'Guide library',
+    heroTitle: 'Replay guides anytime',
+    heroBody: 'Choose the App, Plans, or Trade guide. Public feeds stay open, and these guides are always available from Me.',
+    choices: {
+      global: {
+        title: 'App guide',
+        body: 'Replay the global app guide for navigation, Me, public feeds, and safety basics.',
+        badge: 'App',
+        action: 'Replay app guide',
+      },
+      plans: {
+        title: 'Plans guide',
+        body: 'Learn how Plans, Places, joining, creating, and safety work.',
+        badge: 'Plans',
+        action: 'Open Plans guide',
+      },
+      trade: {
+        title: 'Trade guide',
+        body: 'Learn Trade cards, Needs/Offers, proposals, and safe agreements.',
+        badge: 'Trade',
+        action: 'Open Trade guide',
+      },
+    },
+  },
+  prompt: {
+    start: 'Start guide',
+    dismiss: 'Dismiss',
+    startAccessibility: 'Start {{title}}',
+    dismissAccessibility: 'Dismiss {{title}} prompt',
+    tradeTitle: 'New to Trade?',
+    tradeBody: 'Learn Trade cards, Needs/Offers, proposals, and safe agreements.',
+  },
   actions: {
     skip: 'Skip',
     back: 'Back',

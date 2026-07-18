@@ -1,0 +1,2082 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index c9ea2d6..7f2efb6 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -365,10 +365,6 @@ type PlanEndState = {
+ 
+ type PlanCreateStage = 'build' | 'preview';
+ 
+-const PLAN_OFFLINE_ADDRESS_TOP_ERROR = 'Some offline places need an address. Choose a verified address for each offline place, or delete the places you do not want to use.';
+-const PLAN_OFFLINE_ADDRESS_INLINE_ERROR = 'Choose a verified address for this place, or delete it.';
+-const PLAN_DRAFT_PLACE_REVIEW_ERROR = 'Some restored Places need review. Replace, fix, or remove each highlighted Place before previewing or publishing this Plan.';
+-const PLAN_DRAFT_PLACE_CHECKING_ERROR = 'Wait while Hellowhen checks the saved Places restored from this draft.';
+ 
+ type PlaceTranslationFormValue = LocalizedContentTranslationDraft;
+ 
+@@ -563,10 +559,8 @@ async function clearCreatePlanDraft() {
+   await AsyncStorage.removeItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
+ }
+ 
+-function formatCreatePlanDraftSavedAt(value: string) {
+-  const date = new Date(value);
+-  if (Number.isNaN(date.getTime())) return 'recently';
+-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
++function formatCreatePlanDraftSavedAt(value: string, language: SupportedLanguage) {
++  return formatLocalizedDateTime(value, language, '');
+ }
+ 
+ 
+@@ -791,8 +785,10 @@ function libraryPlaceSource(place: PlaceDto): SelectedPlanPlaceState['sourcePlac
+   return place.source === 'hellowhen_library' ? 'hellowhen_library' : 'my_place';
+ }
+ 
+-function placeSourceLabel(place: PlaceDto) {
+-  return place.source === 'hellowhen_library' ? 'Hellowhen Library' : 'My Place';
++function placeSourceLabel(place: PlaceDto, t?: PlanTranslationFunction) {
++  return place.source === 'hellowhen_library'
++    ? (t?.('plans.create.sourcePicker.library') ?? 'Hellowhen Library')
++    : (t?.('plans.create.placeDetail.sourceMine') ?? 'My Place');
+ }
+ 
+ function placeLocationForSelectedPlace(place: PlaceDto) {
+@@ -1028,7 +1024,12 @@ function planSelectedTimeRange(schedule: ReturnType<typeof buildMobilePlanSchedu
+   return { start, end };
+ }
+ 
+-function planConflictWarning(plans: PlanDto[], schedule: ReturnType<typeof buildMobilePlanSchedule>, explicitEnd: ReturnType<typeof parseOptionalMobilePlanEnd>) {
++function planConflictWarning(
++  plans: PlanDto[],
++  schedule: ReturnType<typeof buildMobilePlanSchedule>,
++  explicitEnd: ReturnType<typeof parseOptionalMobilePlanEnd>,
++  t: PlanTranslationFunction,
++) {
+   const selected = planSelectedTimeRange(schedule, explicitEnd);
+   if (!selected) return '';
+   const oneHour = 60 * 60 * 1000;
+@@ -1041,21 +1042,35 @@ function planConflictWarning(plans: PlanDto[], schedule: ReturnType<typeof build
+     const bufferedEnd = Math.max(planEnd.getTime(), planStart.getTime()) + oneHour;
+     const overlapsOrTooClose = selected.start.getTime() < bufferedEnd && selected.end.getTime() > bufferedStart;
+     if (!overlapsOrTooClose) continue;
+-    const label = plan.title?.trim() || 'another Plan';
+-    return `This time overlaps or sits within 1 hour of “${label}”. Leave at least 1 hour between Plans before publishing.`;
++    const label = plan.title?.trim() || t('plans.create.validation.anotherPlan');
++    return t('plans.create.validation.timeConflict', { plan: label });
+   }
+   return '';
+ }
+ 
+-function buildMobilePlanSchedule(places: SelectedPlanPlaceState[]) {
++function buildMobilePlanSchedule(places: SelectedPlanPlaceState[], t?: PlanTranslationFunction) {
+   if (places.length === 0) {
+-    return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: 'Add at least one place with a valid date and time.' };
++    return {
++      startsAt: '',
++      endsAt: '',
++      placeStartsAt: [] as Array<string | undefined>,
++      placeEndsAt: [] as Array<string | undefined>,
++      estimatedFinalEnd: null,
++      error: t?.('plans.create.validation.addValidPlace') ?? 'Add at least one place with a valid date and time.',
++    };
+   }
+ 
+   const firstPlace = places[0];
+   const firstDateTime = firstPlace ? parseLocalDateTime(firstPlace.date, firstPlace.time) : null;
+   if (!firstDateTime) {
+-    return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: 'Add a valid date and time for Place 1.' };
++    return {
++      startsAt: '',
++      endsAt: '',
++      placeStartsAt: [] as Array<string | undefined>,
++      placeEndsAt: [] as Array<string | undefined>,
++      estimatedFinalEnd: null,
++      error: t?.('plans.create.validation.validDateTime', { index: 1 }) ?? 'Add a valid date and time for Place 1.',
++    };
+   }
+ 
+   let previousDateTime = firstDateTime;
+@@ -1067,11 +1082,29 @@ function buildMobilePlanSchedule(places: SelectedPlanPlaceState[]) {
+     if (!place) continue;
+     const currentDateTime = parseLocalDateTime(place.date, place.time);
+     if (!currentDateTime) {
+-      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: `Add a valid date and time for Place ${index + 1}.` };
++      return {
++        startsAt: '',
++        endsAt: '',
++        placeStartsAt: [] as Array<string | undefined>,
++        placeEndsAt: [] as Array<string | undefined>,
++        estimatedFinalEnd: null,
++        error: t?.('plans.create.validation.validDateTime', { index: index + 1 }) ?? `Add a valid date and time for Place ${index + 1}.`,
++      };
+     }
+     const minNextStartTime = previousDateTime.getTime() + PLAN_MIN_STOP_START_GAP_MINUTES * 60_000;
+     if (currentDateTime.getTime() < minNextStartTime) {
+-      return { startsAt: '', endsAt: '', placeStartsAt: [] as Array<string | undefined>, placeEndsAt: [] as Array<string | undefined>, estimatedFinalEnd: null, error: `Place ${index + 1} must start at least ${PLAN_MIN_STOP_START_GAP_MINUTES} minutes after Place ${index}.` };
++      return {
++        startsAt: '',
++        endsAt: '',
++        placeStartsAt: [] as Array<string | undefined>,
++        placeEndsAt: [] as Array<string | undefined>,
++        estimatedFinalEnd: null,
++        error: t?.('plans.create.validation.minimumGap', {
++          index: index + 1,
++          previous: index,
++          minutes: PLAN_MIN_STOP_START_GAP_MINUTES,
++        }) ?? `Place ${index + 1} must start at least ${PLAN_MIN_STOP_START_GAP_MINUTES} minutes after Place ${index}.`,
++      };
+     }
+     placeStartsAt[index] = currentDateTime.toISOString();
+     previousDateTime = currentDateTime;
+@@ -1091,12 +1124,12 @@ function buildMobilePlanSchedule(places: SelectedPlanPlaceState[]) {
+   };
+ }
+ 
+-function parseOptionalMobilePlanEnd(end: PlanEndState, startsAt: string) {
++function parseOptionalMobilePlanEnd(end: PlanEndState, startsAt: string, t?: PlanTranslationFunction) {
+   if (!end.date.trim() && !end.time.trim()) return { endsAt: '', error: '' };
+-  if (!end.date.trim() || !end.time.trim()) return { endsAt: '', error: 'Add both an end date and end time, or leave the end empty.' };
++  if (!end.date.trim() || !end.time.trim()) return { endsAt: '', error: t?.('plans.create.validation.endBoth') ?? 'Add both an end date and end time, or leave the end empty.' };
+   const parsed = parseLocalDateTime(end.date, end.time);
+-  if (!parsed) return { endsAt: '', error: 'Add a valid end date and time, or leave the end empty.' };
+-  if (startsAt && parsed.getTime() < new Date(startsAt).getTime()) return { endsAt: '', error: 'End time must be after the Plan start.' };
++  if (!parsed) return { endsAt: '', error: t?.('plans.create.validation.invalidEnd') ?? 'Add a valid end date and time, or leave the end empty.' };
++  if (startsAt && parsed.getTime() < new Date(startsAt).getTime()) return { endsAt: '', error: t?.('plans.create.validation.endAfterStart') ?? 'End time must be after the Plan start.' };
+   return { endsAt: parsed.toISOString(), error: '' };
+ }
+ 
+@@ -1115,22 +1148,27 @@ function formatDurationMinutes(minutes?: number | null) {
+   return `${remainder}m`;
+ }
+ 
+-function mobilePlanEndSummary(schedule: ReturnType<typeof buildMobilePlanSchedule>, end: PlanEndState) {
++function mobilePlanEndSummary(
++  schedule: ReturnType<typeof buildMobilePlanSchedule>,
++  end: PlanEndState,
++  t: PlanTranslationFunction,
++) {
+   if (!schedule.startsAt) return null;
+-  const parsedEnd = parseOptionalMobilePlanEnd(end, schedule.startsAt);
++  const parsedEnd = parseOptionalMobilePlanEnd(end, schedule.startsAt, t);
+   const hasManualInput = hasMobilePlanEndOverride(end);
+   if (hasManualInput && parsedEnd.error) return null;
+   const manual = hasManualInput && Boolean(parsedEnd.endsAt);
+   const endsAt = manual ? parsedEnd.endsAt : schedule.endsAt;
+   if (!endsAt) return null;
+   const estimatedDuration = formatDurationMinutes(schedule.estimatedFinalEnd?.roundedGapMinutes);
++  const duration = estimatedDuration ? ` (${estimatedDuration})` : '';
+   const detail = manual
+-    ? 'Manual override is active. Clear it to use the automatic estimate from the place times.'
++    ? t('plans.create.duration.manualDetail')
+     : schedule.estimatedFinalEnd?.placeCount === 1
+-      ? `Estimated from the single-place default${estimatedDuration ? ` (${estimatedDuration})` : ''}.`
+-      : `Estimated from the average gap between places${estimatedDuration ? ` (${estimatedDuration})` : ''}.`;
++      ? t('plans.create.duration.singleEstimate', { duration })
++      : t('plans.create.duration.multipleEstimate', { duration });
+   return {
+-    label: manual ? 'Manual end' : 'Estimated end',
++    label: manual ? t('plans.create.duration.manualLabel') : t('plans.create.duration.estimatedLabel'),
+     endLabel: formatCompactIsoDateTime(endsAt),
+     detail,
+     manual,
+@@ -1143,27 +1181,27 @@ function planModeFromSelectedPlaces(places: SelectedPlanPlaceState[]) {
+   return modes.has('remote') ? 'remote' as const : 'local' as const;
+ }
+ 
+-function placePreviewLocation(place: SelectedPlanPlaceState) {
+-  if (place.mode === 'remote') return place.onlineLabel.trim() || place.onlineUrl.trim() || place.location.trim() || 'Online place';
+-  return place.location.trim() || 'Offline place';
++function placePreviewLocation(place: SelectedPlanPlaceState, t?: PlanTranslationFunction) {
++  if (place.mode === 'remote') return place.onlineLabel.trim() || place.onlineUrl.trim() || place.location.trim() || (t?.('plans.create.place.onlinePlace') ?? 'Online place');
++  return place.location.trim() || (t?.('plans.create.place.offlinePlace') ?? 'Offline place');
+ }
+ 
+ 
+-function getPlanPlaceAddressRuleError(place: SelectedPlanPlaceState, index: number) {
+-  const label = `Place ${index + 1}`;
++function getPlanPlaceAddressRuleError(place: SelectedPlanPlaceState, index: number, t?: PlanTranslationFunction) {
++  const label = t?.('plans.create.place.label', { index: index + 1 }) ?? `Place ${index + 1}`;
+   if (place.mode === 'remote') {
+-    const onlineError = getOnlineDestinationRequirementMessage(place);
++    const onlineError = getOnlineDestinationRequirementMessage(place, t);
+     return onlineError ? `${label}: ${onlineError}` : '';
+   }
+-  const offlineError = getOfflineAddressRequirementMessage(place.providerAddress);
++  const offlineError = getOfflineAddressRequirementMessage(place.providerAddress, t);
+   return offlineError ? `${label}: ${offlineError}` : '';
+ }
+ 
+-function getPlanPlacesAddressRuleError(places: SelectedPlanPlaceState[]) {
++function getPlanPlacesAddressRuleError(places: SelectedPlanPlaceState[], t?: PlanTranslationFunction) {
+   for (let index = 0; index < places.length; index += 1) {
+     const place = places[index];
+     if (!place || (!place.title.trim() && !place.sourcePlaceId)) continue;
+-    const error = getPlanPlaceAddressRuleError(place, index);
++    const error = getPlanPlaceAddressRuleError(place, index, t);
+     if (error) return error;
+   }
+   return '';
+@@ -1187,24 +1225,24 @@ function isReusablePlaceSelectable(place: PlaceDto) {
+   return hasValidOfflineProviderAddress(placeAddressFromReusablePlace(place));
+ }
+ 
+-function reusablePlaceDisabledReason(place: PlaceDto) {
++function reusablePlaceDisabledReason(place: PlaceDto, t?: PlanTranslationFunction) {
+   if (isReusablePlaceSelectable(place)) return '';
+-  if (place.status === 'draft') return 'Finish this saved Place before using it in a Plan.';
+-  if (place.status === 'archived') return 'This saved Place is archived.';
+-  if (place.status === 'hidden') return 'This saved Place is hidden.';
+-  if (place.mode === 'remote') return 'Add a valid online URL before using this Place.';
+-  return 'Fix this Place first by selecting a confirmed Google address.';
++  if (place.status === 'draft') return t?.('plans.create.sourcePicker.finishSavedPlace') ?? 'Finish this saved Place before using it in a Plan.';
++  if (place.status === 'archived') return t?.('plans.create.sourcePicker.archivedPlace') ?? 'This saved Place is archived.';
++  if (place.status === 'hidden') return t?.('plans.create.sourcePicker.hiddenPlace') ?? 'This saved Place is hidden.';
++  if (place.mode === 'remote') return t?.('plans.create.sourcePicker.addOnlineUrl') ?? 'Add a valid online URL before using this Place.';
++  return t?.('plans.create.sourcePicker.fixAddress') ?? 'Fix this Place first by selecting a confirmed Google address.';
+ }
+ 
+ 
+-function planPreviewPlaceTitle(place: SelectedPlanPlaceState, index: number) {
+-  return place.title.trim() || place.sourcePlaceTitle?.trim() || `Place ${index + 1}`;
++function planPreviewPlaceTitle(place: SelectedPlanPlaceState, index: number, t?: PlanTranslationFunction) {
++  return place.title.trim() || place.sourcePlaceTitle?.trim() || (t?.('plans.create.place.label', { index: index + 1 }) ?? `Place ${index + 1}`);
+ }
+ 
+-function planPreviewTimeLabel(place: SelectedPlanPlaceState) {
++function planPreviewTimeLabel(place: SelectedPlanPlaceState, t?: PlanTranslationFunction) {
+   if (place.date && place.time) return `${place.date} · ${place.time}`;
+   if (place.time) return place.time;
+-  return 'Time required';
++  return t?.('plans.create.time.timeRequired') ?? 'Time required';
+ }
+ 
+ function getAcceptedParticipants(plan: PlanDto) {
+@@ -3050,6 +3088,7 @@ function PlanNativeDateTimePicker({
+   onClose: () => void;
+ }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const pickerValue = nativePickerDateValue(date, time, mode);
+ 
+   function handleNativeChange(event: DateTimePickerEvent, selectedDate?: Date) {
+@@ -3062,9 +3101,9 @@ function PlanNativeDateTimePicker({
+     <View style={[styles.nativePickerCard, { borderColor: theme.color.border, backgroundColor: theme.color.surface }]}>
+       {Platform.OS === 'ios' ? (
+         <View style={styles.nativePickerHeader}>
+-          <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{mode === 'date' ? 'Choose date' : 'Choose time'}</AppText>
++          <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{mode === 'date' ? t('plans.create.time.chooseDate') : t('plans.create.time.chooseTime')}</AppText>
+           <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.nativePickerDoneButton, pressed && styles.pressed]}>
+-            <AppText style={[styles.quickChoiceButtonText, { color: theme.semantic.plan.text }]}>Done</AppText>
++            <AppText style={[styles.quickChoiceButtonText, { color: theme.semantic.plan.text }]}>{t('plans.create.time.done')}</AppText>
+           </Pressable>
+         </View>
+       ) : null}
+@@ -3077,7 +3116,7 @@ function PlanNativeDateTimePicker({
+         onChange={handleNativeChange}
+         style={styles.nativePicker}
+       />
+-      {Platform.OS === 'android' ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>Use the system picker to choose a custom {mode}.</AppText> : null}
++      {Platform.OS === 'android' ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>{mode === 'date' ? t('plans.create.time.systemDateHint') : t('plans.create.time.systemTimeHint')}</AppText> : null}
+     </View>
+   );
+ }
+@@ -3096,12 +3135,13 @@ function PlanPickerSheetFrame({
+   children: React.ReactNode;
+ }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   if (!visible) return null;
+ 
+   return (
+     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+       <View style={styles.sourceSheetOverlay}>
+-        <Pressable accessibilityRole="button" accessibilityLabel="Close time picker" onPress={onClose} style={styles.sourceSheetScrim} />
++        <Pressable accessibilityRole="button" accessibilityLabel={t('plans.create.time.closePicker')} onPress={onClose} style={styles.sourceSheetScrim} />
+         <View style={[styles.planPickerSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+           <View style={[styles.sourceSheetHandle, { backgroundColor: theme.color.border }]} />
+           <View style={styles.sourceSheetTopbar}>
+@@ -3184,11 +3224,12 @@ function PlanStopTimeCompactRow({
+   onTimePress: () => void;
+ }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   return (
+     <View style={styles.planStopScheduleRow}>
+       <Pressable
+         accessibilityRole="button"
+-        accessibilityLabel={`Choose date for Place ${index + 1}`}
++        accessibilityLabel={t('plans.create.time.chooseDateAccessibility', { index: index + 1 })}
+         onPress={(event) => {
+           event.stopPropagation();
+           onDatePress();
+@@ -3200,7 +3241,7 @@ function PlanStopTimeCompactRow({
+       <AppText style={[styles.planStopScheduleSeparator, { color: theme.color.muted }]}>·</AppText>
+       <Pressable
+         accessibilityRole="button"
+-        accessibilityLabel={`Choose time for Place ${index + 1}`}
++        accessibilityLabel={t('plans.create.time.chooseTimeAccessibility', { index: index + 1 })}
+         onPress={(event) => {
+           event.stopPropagation();
+           onTimePress();
+@@ -3215,23 +3256,25 @@ function PlanStopTimeCompactRow({
+ 
+ function PlanDurationQuickControls({ schedule, onSelectDuration }: { schedule: ReturnType<typeof buildMobilePlanSchedule>; onSelectDuration: (minutes: number) => void }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const durations = [30, 60, 90, 120];
+   return (
+     <View style={styles.quickPickerGroup}>
+-      <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>Duration helper</AppText>
++      <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{t('plans.create.duration.helper')}</AppText>
+       <View style={styles.quickChoiceRow}>
+         {durations.map((minutes) => (
+           <QuickChoiceButton key={minutes} label={planDurationLabel(minutes)} onPress={() => onSelectDuration(minutes)} />
+         ))}
+-        <QuickChoiceButton label="Custom" onPress={() => onSelectDuration(0)} />
++        <QuickChoiceButton label={t('plans.create.duration.custom')} onPress={() => onSelectDuration(0)} />
+       </View>
+-      {!schedule.startsAt ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose a start date and time first.</AppText> : null}
++      {!schedule.startsAt ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.create.duration.startFirst')}</AppText> : null}
+     </View>
+   );
+ }
+ 
+ function PlanEndNativeControls({ end, schedule, onChange }: { end: PlanEndState; schedule: ReturnType<typeof buildMobilePlanSchedule>; onChange: (patch: Partial<PlanEndState>) => void }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const [customEndDateOpen, setCustomEndDateOpen] = useState(false);
+   const [customEndTimeOpen, setCustomEndTimeOpen] = useState(false);
+   const fallbackEnd = schedule.endsAt ? new Date(schedule.endsAt) : schedule.startsAt ? new Date(schedule.startsAt) : new Date();
+@@ -3249,10 +3292,10 @@ function PlanEndNativeControls({ end, schedule, onChange }: { end: PlanEndState;
+ 
+   return (
+     <View style={styles.quickPickerGroup}>
+-      <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>Custom end</AppText>
++      <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{t('plans.create.duration.customEnd')}</AppText>
+       <View style={styles.quickChoiceRow}>
+-        <QuickChoiceButton label={end.date ? formatInputDateLabel(end.date) : 'End date'} active={customEndDateOpen || Boolean(end.date)} onPress={() => { setCustomEndTimeOpen(false); setCustomEndDateOpen((open) => !open); }} />
+-        <QuickChoiceButton label={end.time ? formatInputTimeLabel(end.time) : 'End time'} active={customEndTimeOpen || Boolean(end.time)} onPress={() => { setCustomEndDateOpen(false); setCustomEndTimeOpen((open) => !open); }} />
++        <QuickChoiceButton label={end.date ? formatInputDateLabel(end.date) : t('plans.create.duration.endDate')} active={customEndDateOpen || Boolean(end.date)} onPress={() => { setCustomEndTimeOpen(false); setCustomEndDateOpen((open) => !open); }} />
++        <QuickChoiceButton label={end.time ? formatInputTimeLabel(end.time) : t('plans.create.duration.endTime')} active={customEndTimeOpen || Boolean(end.time)} onPress={() => { setCustomEndDateOpen(false); setCustomEndTimeOpen((open) => !open); }} />
+       </View>
+       {customEndDateOpen ? (
+         <PlanNativeDateTimePicker mode="date" date={pickerDate} time={pickerTime} onChange={handleEndChange} onClose={() => setCustomEndDateOpen(false)} />
+@@ -3260,7 +3303,7 @@ function PlanEndNativeControls({ end, schedule, onChange }: { end: PlanEndState;
+       {customEndTimeOpen ? (
+         <PlanNativeDateTimePicker mode="time" date={pickerDate} time={pickerTime} onChange={handleEndChange} onClose={() => setCustomEndTimeOpen(false)} />
+       ) : null}
+-      <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose a custom end only when the automatic estimate is not right.</AppText>
++      <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.create.duration.customEndHelp')}</AppText>
+     </View>
+   );
+ }
+@@ -3275,15 +3318,16 @@ function PlanEndCompactRow({
+   onReset: () => void;
+ }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   return (
+     <View style={styles.planEndSummaryRow}>
+       <View style={styles.timelineCopy}>
+-        <AppText style={styles.rowTitle}>{endSummary?.label || 'Estimated end'}</AppText>
+-        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{endSummary?.endLabel || 'Choose a start date and time to calculate the end.'}</AppText>
++        <AppText style={styles.rowTitle}>{endSummary?.label || t('plans.create.duration.estimatedEnd')}</AppText>
++        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{endSummary?.endLabel || t('plans.create.duration.noStart')}</AppText>
+       </View>
+       <View style={styles.quickChoiceRow}>
+-        <QuickChoiceButton label="Change end time" active={Boolean(endSummary?.manual)} onPress={onOpenCustom} />
+-        {endSummary?.manual ? <QuickChoiceButton label="Use estimate" onPress={onReset} /> : null}
++        <QuickChoiceButton label={t('plans.create.duration.changeEnd')} active={Boolean(endSummary?.manual)} onPress={onOpenCustom} />
++        {endSummary?.manual ? <QuickChoiceButton label={t('plans.create.duration.useEstimate')} onPress={onReset} /> : null}
+       </View>
+     </View>
+   );
+@@ -3307,6 +3351,7 @@ function PlanEndPickerSheet({
+   onClose: () => void;
+ }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const durations = [30, 60, 90, 120];
+ 
+   function chooseDuration(minutes: number) {
+@@ -3317,19 +3362,19 @@ function PlanEndPickerSheet({
+   return (
+     <PlanPickerSheetFrame
+       visible={visible}
+-      title={mode === 'duration' ? 'Duration' : 'Custom end'}
+-      subtitle={mode === 'duration' ? 'Choose how long this Plan should last.' : 'Use this only when the automatic end is not right.'}
++      title={mode === 'duration' ? t('plans.create.duration.durationTitle') : t('plans.create.duration.customEnd')}
++      subtitle={mode === 'duration' ? t('plans.create.duration.durationSubtitle') : t('plans.create.duration.customSubtitle')}
+       onClose={onClose}
+     >
+       {mode === 'duration' ? (
+         <View style={styles.quickPickerGroup}>
+-          <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>Duration helper</AppText>
++          <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{t('plans.create.duration.helper')}</AppText>
+           <View style={styles.quickChoiceRow}>
+             {durations.map((minutes) => (
+               <QuickChoiceButton key={minutes} label={planDurationLabel(minutes)} onPress={() => chooseDuration(minutes)} />
+             ))}
+           </View>
+-          {!schedule.startsAt ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose a start date and time first.</AppText> : null}
++          {!schedule.startsAt ? <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.create.duration.startFirst')}</AppText> : null}
+         </View>
+       ) : (
+         <PlanEndNativeControls end={end} schedule={schedule} onChange={onChange} />
+@@ -3355,10 +3400,10 @@ function resolvedGooglePlaceAddress(place: GoogleResolvedPlace) {
+   return place.formattedAddress || place.name || '';
+ }
+ 
+-function googlePlaceStatusLabel(place: GoogleResolvedPlace) {
+-  if (place.validationStatus === 'confirmed') return 'Google-confirmed address';
+-  if (place.validationStatus === 'needs_review') return 'Google suggestion · review details';
+-  return 'Google place selected';
++function googlePlaceStatusLabel(place: GoogleResolvedPlace, t: PlanTranslationFunction) {
++  if (place.validationStatus === 'confirmed') return t('plans.create.google.confirmed');
++  if (place.validationStatus === 'needs_review') return t('plans.create.google.review');
++  return t('plans.create.google.selected');
+ }
+ 
+ function GooglePlacePicker({
+@@ -3366,9 +3411,9 @@ function GooglePlacePicker({
+   onChangeText,
+   onResolvedPlace,
+   disabled,
+-  label = 'Address or place',
+-  placeholder = 'Search a real address or place',
+-  helperText = `Type at least ${GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH} characters, then select a provider suggestion. Typed text alone cannot be saved as an offline address.`,
++  label,
++  placeholder,
++  helperText,
+   autoFocus = false,
+   languageCode,
+   country,
+@@ -3387,6 +3432,10 @@ function GooglePlacePicker({
+   maxLength?: number;
+ }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
++  const resolvedLabel = label ?? t('plans.create.google.defaultLabel');
++  const resolvedPlaceholder = placeholder ?? t('plans.create.google.defaultPlaceholder');
++  const resolvedHelperText = helperText ?? t('plans.create.google.defaultHelp', { count: GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH });
+   const [query, setQuery] = useState(value);
+   const [predictions, setPredictions] = useState<GooglePlacePrediction[]>([]);
+   const [selectedPlace, setSelectedPlace] = useState<GoogleResolvedPlace | null>(null);
+@@ -3416,7 +3465,7 @@ function GooglePlacePicker({
+     if (trimmed.length < GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH) {
+       setPredictions([]);
+       setSearching(false);
+-      setNotice(trimmed ? `Type at least ${GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH} characters to search Google places.` : '');
++      setNotice(trimmed ? t('plans.create.google.typeMore', { count: GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH }) : '');
+       return undefined;
+     }
+ 
+@@ -3435,12 +3484,12 @@ function GooglePlacePicker({
+           if (cancelled) return;
+           const nextPredictions = response.predictions ?? [];
+           setPredictions(nextPredictions);
+-          if (!nextPredictions.length) setNotice('No confirmed suggestions yet. Try a more precise place name or address.');
++          if (!nextPredictions.length) setNotice(t('plans.create.google.noSuggestions'));
+         })
+         .catch((caughtError) => {
+           if (cancelled) return;
+           setPredictions([]);
+-          setNotice(getFriendlyApiErrorMessage(caughtError, 'Google address suggestions are unavailable. Offline places require selecting a provider address; try again later or switch to Online.'));
++          setNotice(getFriendlyApiErrorMessage(caughtError, t('plans.create.google.unavailable')));
+         })
+         .finally(() => {
+           if (!cancelled) setSearching(false);
+@@ -3451,7 +3500,7 @@ function GooglePlacePicker({
+       cancelled = true;
+       clearTimeout(timeoutId);
+     };
+-  }, [country, disabled, languageCode, query, selectedPlace]);
++  }, [country, disabled, languageCode, query, selectedPlace, t]);
+ 
+   function handleInputChange(nextValue: string) {
+     setQuery(nextValue);
+@@ -3481,7 +3530,7 @@ function GooglePlacePicker({
+       onChangeText(nextAddress);
+       sessionTokenRef.current = makeGooglePlaceSessionToken();
+     } catch (caughtError) {
+-      setNotice(getFriendlyApiErrorMessage(caughtError, 'Could not confirm this Google place. Try another suggestion.'));
++      setNotice(getFriendlyApiErrorMessage(caughtError, t('plans.create.google.confirmFailed')));
+     } finally {
+       setResolvingPlaceId('');
+     }
+@@ -3489,11 +3538,11 @@ function GooglePlacePicker({
+ 
+   return (
+     <View style={styles.googlePlacePicker}>
+-      <FormLabel label={label}>
++      <FormLabel label={resolvedLabel}>
+         <TextInput
+           value={query}
+           onChangeText={handleInputChange}
+-          placeholder={placeholder}
++          placeholder={resolvedPlaceholder}
+           placeholderTextColor={theme.color.muted}
+           editable={!disabled}
+           autoFocus={autoFocus && !disabled}
+@@ -3503,14 +3552,14 @@ function GooglePlacePicker({
+           style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
+         />
+       </FormLabel>
+-      {helperText ? <AppText style={[styles.googlePlaceHelper, { color: theme.color.muted }]}>{helperText}</AppText> : null}
++      {resolvedHelperText ? <AppText style={[styles.googlePlaceHelper, { color: theme.color.muted }]}>{resolvedHelperText}</AppText> : null}
+       {selectedPlace ? (
+         <View style={[styles.googlePlaceSelectedCard, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
+           <View style={[styles.googlePlacePin, { backgroundColor: theme.color.surface, borderColor: theme.semantic.place.border }]}>
+             <MobileIcon name="location-on" color={theme.semantic.place.text} size={17} />
+           </View>
+           <View style={styles.googlePlaceSuggestionCopy}>
+-            <SemanticBadge label={googlePlaceStatusLabel(selectedPlace)} tone="place" size="sm" />
++            <SemanticBadge label={googlePlaceStatusLabel(selectedPlace, t)} tone="place" size="sm" />
+             <AppText style={styles.googlePlaceSuggestionTitle}>{selectedPlace.name || resolvedGooglePlaceAddress(selectedPlace)}</AppText>
+             {selectedPlace.name && selectedPlace.formattedAddress ? <AppText style={[styles.googlePlaceSuggestionBody, { color: theme.color.muted }]} numberOfLines={2}>{selectedPlace.formattedAddress}</AppText> : null}
+           </View>
+@@ -3536,14 +3585,14 @@ function GooglePlacePicker({
+                   {prediction.secondaryText ? <AppText style={[styles.googlePlaceSuggestionBody, { color: theme.color.muted }]} numberOfLines={2}>{prediction.secondaryText}</AppText> : null}
+                 </View>
+                 <View style={styles.googlePlaceSuggestionAction}>
+-                  {resolving ? <ActivityIndicator size="small" /> : <AppText style={[styles.googlePlaceSuggestionActionText, { color: theme.semantic.place.text }]}>Select</AppText>}
++                  {resolving ? <ActivityIndicator size="small" /> : <AppText style={[styles.googlePlaceSuggestionActionText, { color: theme.semantic.place.text }]}>{t('plans.create.google.select')}</AppText>}
+                 </View>
+               </Pressable>
+             );
+           })}
+         </View>
+       ) : null}
+-      {searching ? <View style={styles.googlePlaceStatusRow}><ActivityIndicator size="small" /><AppText style={[styles.googlePlaceStatusText, { color: theme.color.muted }]}>Searching Google places...</AppText></View> : null}
++      {searching ? <View style={styles.googlePlaceStatusRow}><ActivityIndicator size="small" /><AppText style={[styles.googlePlaceStatusText, { color: theme.color.muted }]}>{t('plans.create.google.searching')}</AppText></View> : null}
+       {notice ? <AppText style={[styles.googlePlaceNotice, { color: theme.color.muted }]}>{notice}</AppText> : null}
+     </View>
+   );
+@@ -3579,27 +3628,28 @@ function SecondaryButton({ label, onPress, disabled, icon }: { label: string; on
+ 
+ function PlaceChoiceCard({ place, onPress }: { place: PlaceDto; onPress: () => void }) {
+   const theme = useThemeTokens();
+-  const disabledReason = reusablePlaceDisabledReason(place);
++  const { t } = useTranslation();
++  const disabledReason = reusablePlaceDisabledReason(place, t);
+   const needsFix = Boolean(disabledReason);
+-  const meta = [place.mode === 'remote' ? 'Online' : 'Offline', place.category, place.formattedAddress || place.areaLabel || place.addressPublicText || place.onlineLabel]
++  const meta = [place.mode === 'remote' ? t('plans.deck.online') : t('plans.deck.offline'), place.category, place.formattedAddress || place.areaLabel || place.addressPublicText || place.onlineLabel]
+     .filter((value): value is string => Boolean(value && value.trim()))
+     .join(' · ');
+   const mediaUrl = placeVisualUrl(activeMedia(place.media)[0], place.staticMap, theme.mode);
+   return (
+-    <Pressable accessibilityRole="button" accessibilityLabel={needsFix ? `Fix ${place.title}` : `Add ${place.title}`} onPress={onPress} style={({ pressed }) => [styles.choiceCard, { backgroundColor: theme.color.surface, borderColor: needsFix ? theme.semantic.warning.border : theme.color.border }, pressed && styles.pressed]}>
++    <Pressable accessibilityRole="button" accessibilityLabel={needsFix ? t('plans.create.place.fixAccessibility', { title: place.title }) : t('plans.create.place.addAccessibility', { title: place.title })} onPress={onPress} style={({ pressed }) => [styles.choiceCard, { backgroundColor: theme.color.surface, borderColor: needsFix ? theme.semantic.warning.border : theme.color.border }, pressed && styles.pressed]}>
+       <View style={[styles.choiceIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
+         {mediaUrl ? <Image source={{ uri: mediaUrl }} resizeMode="cover" style={styles.choiceImage as ImageStyle} /> : <MobileIcon name={place.mode === 'remote' ? 'send' : 'calendar'} size={18} color={theme.semantic.place.text} />}
+       </View>
+       <View style={styles.choiceCopy}>
+         <View style={styles.rowTop}>
+-          <SemanticBadge label={placeSourceLabel(place)} tone="place" size="sm" />
+-          <SemanticBadge label={place.mode === 'remote' ? 'Online' : 'Offline'} tone="muted" size="sm" />
++          <SemanticBadge label={placeSourceLabel(place, t)} tone="place" size="sm" />
++          <SemanticBadge label={place.mode === 'remote' ? t('plans.deck.online') : t('plans.deck.offline')} tone="muted" size="sm" />
+         </View>
+         <AppText style={styles.choiceTitle}>{place.title}</AppText>
+-        <AppText style={[styles.choiceMeta, { color: needsFix ? theme.semantic.warning.text : theme.color.muted }]} numberOfLines={2}>{disabledReason || meta || 'Reusable Place'}</AppText>
++        <AppText style={[styles.choiceMeta, { color: needsFix ? theme.semantic.warning.text : theme.color.muted }]} numberOfLines={2}>{disabledReason || meta || t('plans.create.place.reusable')}</AppText>
+       </View>
+       <View style={[styles.addMini, { backgroundColor: needsFix ? theme.semantic.warning.softBg : theme.semantic.place.bg, borderColor: needsFix ? theme.semantic.warning.border : 'transparent' }]}>
+-        {needsFix ? <AppText style={[styles.addMiniText, { color: theme.semantic.warning.text }]}>Fix</AppText> : <MobileIcon name="add" size={16} color={theme.color.background} />}
++        {needsFix ? <AppText style={[styles.addMiniText, { color: theme.semantic.warning.text }]}>{t('plans.create.place.fix')}</AppText> : <MobileIcon name="add" size={16} color={theme.color.background} />}
+       </View>
+     </Pressable>
+   );
+@@ -3607,7 +3657,8 @@ function PlaceChoiceCard({ place, onPress }: { place: PlaceDto; onPress: () => v
+ 
+ function PlaceTimelineRow({ place, index, onPress, onDatePress, onTimePress }: { place: SelectedPlanPlaceState; index: number; onPress: () => void; onDatePress: () => void; onTimePress: () => void }) {
+   const theme = useThemeTokens();
+-  const meta = placePreviewLocation(place) || 'No location yet';
++  const { t } = useTranslation();
++  const meta = placePreviewLocation(place, t) || t('plans.create.place.noLocation');
+   const mediaUrl = placeVisualUrl(place.existingMedia, place.existingStaticMap, theme.mode);
+   return (
+     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.placeTimelineRow, { borderColor: theme.color.border }, pressed && styles.pressed]}>
+@@ -3618,7 +3669,7 @@ function PlaceTimelineRow({ place, index, onPress, onDatePress, onTimePress }: {
+       ) : null}
+       <View style={styles.timelineCopy}>
+         <PlanStopTimeCompactRow place={place} index={index} onDatePress={onDatePress} onTimePress={onTimePress} />
+-        <AppText style={styles.rowTitle}>{place.title || place.sourcePlaceTitle || `Place ${index + 1}`}</AppText>
++        <AppText style={styles.rowTitle}>{place.title || place.sourcePlaceTitle || t('plans.create.place.label', { index: index + 1 })}</AppText>
+         <AppText style={[styles.metaText, { color: theme.color.muted }]} numberOfLines={2}>{meta}</AppText>
+       </View>
+       <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+@@ -3636,18 +3687,19 @@ function PlanTimeCard({
+   onChange: (patch: Partial<SelectedPlanPlaceState>) => void;
+ }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   return (
+     <View style={[styles.timeCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+       <View style={styles.timeCardHeader}>
+-        <SemanticBadge label={`Place ${index + 1}`} tone="place" size="sm" />
++        <SemanticBadge label={t('plans.create.place.label', { index: index + 1 })} tone="place" size="sm" />
+         <View style={styles.timelineCopy}>
+-          <AppText style={styles.rowTitle}>{place.title || place.sourcePlaceTitle || `Place ${index + 1}`}</AppText>
+-          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{index === 0 ? 'Plan start · required' : 'Optional · same time or after the previous timed place'}</AppText>
++          <AppText style={styles.rowTitle}>{place.title || place.sourcePlaceTitle || t('plans.create.place.label', { index: index + 1 })}</AppText>
++          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{index === 0 ? t('plans.create.time.firstRequired') : t('plans.create.time.laterOptional')}</AppText>
+         </View>
+       </View>
+       <View style={styles.twoColumnRow}>
+-        <TextField label="Date" value={place.date} onChangeText={(date) => onChange({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+-        <TextField label="Time" value={place.time} onChangeText={(time) => onChange({ time })} placeholder="13:00" keyboardType="numbers-and-punctuation" />
++        <TextField label={t('plans.create.time.date')} value={place.date} onChangeText={(date) => onChange({ date })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
++        <TextField label={t('plans.create.time.time')} value={place.time} onChangeText={(time) => onChange({ time })} placeholder="13:00" keyboardType="numbers-and-punctuation" />
+       </View>
+     </View>
+   );
+@@ -3669,24 +3721,25 @@ function AdvancedPlanDetailsCard({
+   onChange: (patch: Partial<AdvancedPlanDetailsState>) => void;
+ }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   return (
+     <View style={[styles.advancedCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+       <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={onToggle} style={({ pressed }) => [styles.advancedToggle, pressed && styles.pressed]}>
+         <View style={styles.timelineCopy}>
+-          <AppText style={styles.rowTitle}>More options</AppText>
+-          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{open ? 'Hide custom Plan details' : 'Optional title, description, category, and tags'}</AppText>
++          <AppText style={styles.rowTitle}>{t('plans.create.advanced.title')}</AppText>
++          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{open ? t('plans.create.advanced.hide') : t('plans.create.advanced.show')}</AppText>
+         </View>
+         <SemanticBadge label={open ? '−' : '+'} tone="plan" size="sm" />
+       </Pressable>
+       {open ? (
+         <View style={styles.advancedPanel}>
+-          <TextField label="Custom Plan title" value={details.title} onChangeText={(title) => onChange({ title })} placeholder={generatedTitle} maxLength={120} />
+-          <TextField label="Custom Plan description" value={details.description} onChangeText={(description) => onChange({ description })} placeholder={generatedDescription} multiline maxLength={2000} />
++          <TextField label={t('plans.create.advanced.planTitle')} value={details.title} onChangeText={(title) => onChange({ title })} placeholder={generatedTitle} maxLength={120} />
++          <TextField label={t('plans.create.advanced.planDescription')} value={details.description} onChangeText={(description) => onChange({ description })} placeholder={generatedDescription} multiline maxLength={2000} />
+           <View style={styles.twoColumnRow}>
+-            <TextField label="Category" value={details.category} onChangeText={(category) => onChange({ category })} placeholder="Culture, food..." maxLength={80} />
+-            <TextField label="Tags" value={details.tags} onChangeText={(tags) => onChange({ tags })} placeholder="Paris, coffee" maxLength={280} />
++            <TextField label={t('plans.create.advanced.category')} value={details.category} onChangeText={(category) => onChange({ category })} placeholder={t('plans.create.advanced.categoryPlaceholder')} maxLength={80} />
++            <TextField label={t('plans.create.advanced.tags')} value={details.tags} onChangeText={(tags) => onChange({ tags })} placeholder={t('plans.create.advanced.tagsPlaceholder')} maxLength={280} />
+           </View>
+-          <AppText style={[styles.metaText, { color: theme.color.muted }]}>Leave empty to use the generated place/time summary. Separate tags with commas.</AppText>
++          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.create.advanced.help')}</AppText>
+         </View>
+       ) : null}
+     </View>
+@@ -3696,6 +3749,7 @@ function AdvancedPlanDetailsCard({
+ export function PlanIdeaDetailScreen({ route, navigation }: PlanIdeaDetailProps) {
+   const theme = useThemeTokens();
+   const auth = useAuth();
++  const { t } = useTranslation();
+   const ideaKey = parseStarterPlanIdeaKey(route.params.ideaId);
+   const idea = ideaKey ? starterPlanIdeas[ideaKey] : null;
+   const requirementCounts = idea ? starterPlanIdeaRequirementCounts(idea) : null;
+@@ -3711,45 +3765,45 @@ export function PlanIdeaDetailScreen({ route, navigation }: PlanIdeaDetailProps)
+ 
+   if (!idea) {
+     return (
+-      <AppFixedHeaderScreen header={<AppHeader title="Plan idea" onBack={() => navigation.goBack()} />}>
++      <AppFixedHeaderScreen header={<AppHeader title={t('plans.ideaDetail.title')} onBack={() => navigation.goBack()} />}>
+         <View style={styles.listContent}>
+-          <InfoNotice tone="warning" title="Plan idea not found" body="This starter Plan idea is not available anymore. You can still create a Plan from scratch." />
+-          <PrimaryButton label="Create Plan" onPress={() => navigation.navigate('CreatePlan')} />
++          <InfoNotice tone="warning" title={t('plans.ideaDetail.notFound.title')} body={t('plans.ideaDetail.notFound.body')} />
++          <PrimaryButton label={t('plans.ideaDetail.actions.createPlan')} onPress={() => navigation.navigate('CreatePlan')} />
+         </View>
+       </AppFixedHeaderScreen>
+     );
+   }
+ 
+   return (
+-    <AppFixedHeaderScreen header={<AppHeader title="Plan idea" onBack={() => navigation.goBack()} />}>
++    <AppFixedHeaderScreen header={<AppHeader title={t('plans.ideaDetail.title')} onBack={() => navigation.goBack()} />}>
+       <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
+         <View style={[styles.hero, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
+-          <SemanticBadge label={`Plan idea · ${idea.pack}`} tone="instruction" />
++          <SemanticBadge label={t('plans.ideaDetail.badge', { pack: idea.pack })} tone="instruction" />
+           <AppText style={styles.heroTitle}>{idea.title}</AppText>
+           <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{idea.description}</AppText>
+           <View style={styles.previewInlineMeta}>
+-            <SemanticBadge label={`${idea.stops.length} stops`} tone="place" size="sm" />
+-            <SemanticBadge label={starterPlanIdeaMode(idea) === 'remote' ? 'Online' : 'Local'} tone="plan" size="sm" />
+-            <SemanticBadge label={starterPlanIdeaRequirementSummary(idea)} tone="warning" size="sm" />
++            <SemanticBadge label={t(idea.stops.length === 1 ? 'plans.deck.ideaStopsOne' : 'plans.deck.ideaStopsMany', { count: idea.stops.length })} tone="place" size="sm" />
++            <SemanticBadge label={starterPlanIdeaMode(idea) === 'remote' ? t('plans.deck.online') : t('plans.detail.values.local')} tone="plan" size="sm" />
++            <SemanticBadge label={starterPlanIdeaRequirementSummaryLocalized(idea, t)} tone="warning" size="sm" />
+           </View>
+         </View>
+ 
+-        <InfoNotice tone="instruction" title="Review first" body="This starter idea gives structure only. You still add confirmed addresses or real online links before publishing." />
++        <InfoNotice tone="instruction" title={t('plans.ideaDetail.review.title')} body={t('plans.ideaDetail.review.body')} />
+ 
+         <View style={[styles.planIdeaRequirementCard, { backgroundColor: theme.semantic.warning.softBg, borderColor: theme.semantic.warning.border }]}>
+-          <AppText style={[styles.planIdeaRequirementTitle, { color: theme.semantic.warning.text }]}>Before publishing, add</AppText>
+-          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{starterPlanIdeaRequirementSummary(idea)}. Prompt text is never saved as a valid offline address.</AppText>
++          <AppText style={[styles.planIdeaRequirementTitle, { color: theme.semantic.warning.text }]}>{t('plans.ideaDetail.requirements.title')}</AppText>
++          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.ideaDetail.requirements.body', { requirements: starterPlanIdeaRequirementSummaryLocalized(idea, t) })}</AppText>
+           <View style={styles.planIdeaRequirementGrid}>
+             {requirementCounts?.addressStops ? (
+               <View style={[styles.planIdeaRequirementPill, { borderColor: theme.semantic.warning.border }]}>
+                 <AppText style={[styles.planIdeaRequirementNumber, { color: theme.semantic.warning.text }]}>{requirementCounts.addressStops}</AppText>
+-                <AppText style={styles.planIdeaRequirementLabel}>real address{requirementCounts.addressStops === 1 ? '' : 'es'}</AppText>
++                <AppText style={styles.planIdeaRequirementLabel}>{t(requirementCounts.addressStops === 1 ? 'plans.ideaDetail.requirements.realAddressOne' : 'plans.ideaDetail.requirements.realAddressMany', { count: requirementCounts.addressStops })}</AppText>
+               </View>
+             ) : null}
+             {requirementCounts?.onlineLinkStops ? (
+               <View style={[styles.planIdeaRequirementPill, { borderColor: theme.semantic.info.border }]}>
+                 <AppText style={[styles.planIdeaRequirementNumber, { color: theme.semantic.info.text }]}>{requirementCounts.onlineLinkStops}</AppText>
+-                <AppText style={styles.planIdeaRequirementLabel}>online link{requirementCounts.onlineLinkStops === 1 ? '' : 's'}</AppText>
++                <AppText style={styles.planIdeaRequirementLabel}>{t(requirementCounts.onlineLinkStops === 1 ? 'plans.ideaDetail.requirements.onlineLinkOne' : 'plans.ideaDetail.requirements.onlineLinkMany', { count: requirementCounts.onlineLinkStops })}</AppText>
+               </View>
+             ) : null}
+           </View>
+@@ -3763,24 +3817,24 @@ export function PlanIdeaDetailScreen({ route, navigation }: PlanIdeaDetailProps)
+               </View>
+               <View style={styles.timelineCopy}>
+                 <View style={styles.rowTop}>
+-                  <SemanticBadge label={stop.mode === 'remote' ? 'Online' : 'Offline'} tone="place" size="sm" />
++                  <SemanticBadge label={stop.mode === 'remote' ? t('plans.deck.online') : t('plans.deck.offline')} tone="place" size="sm" />
+                   <SemanticBadge label={stop.time} tone="time" size="sm" />
+                   <SemanticBadge label={starterPlanIdeaStopRequirementLabel(stop)} tone={stop.mode === 'remote' ? 'info' : 'warning'} size="sm" />
+                 </View>
+                 <AppText style={styles.rowTitle}>{stop.title}</AppText>
+                 <AppText style={[styles.metaText, { color: theme.color.muted }]}>{starterPlanIdeaStopDestinationPrompt(stop)}</AppText>
+-                <AppText style={[styles.planIdeaPromptOnlyText, { color: stop.mode === 'remote' ? theme.semantic.info.text : theme.semantic.warning.text }]}>{stop.mode === 'remote' ? 'Prompt only — add a real link in Create Plan.' : 'Prompt only — select a provider address in Create Plan.'}</AppText>
++                <AppText style={[styles.planIdeaPromptOnlyText, { color: stop.mode === 'remote' ? theme.semantic.info.text : theme.semantic.warning.text }]}>{stop.mode === 'remote' ? t('plans.ideaDetail.requirements.onlinePrompt') : t('plans.ideaDetail.requirements.offlinePrompt')}</AppText>
+               </View>
+             </View>
+           ))}
+         </View>
+ 
+         <View style={[styles.formCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-          <AppText style={styles.sectionTitle}>Next step</AppText>
+-          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Create your version opens Create Plan with these stops as editable prompts. Offline prompts stay blocked until a confirmed address is selected.</AppText>
++          <AppText style={styles.sectionTitle}>{t('plans.ideaDetail.nextStep.title')}</AppText>
++          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t('plans.ideaDetail.nextStep.body')}</AppText>
+           <View style={styles.actionGrid}>
+-            <SecondaryButton label="Back to Plans" onPress={() => navigation.navigate('Plans')} />
+-            <PrimaryButton label="Create your version" onPress={createVersion} />
++            <SecondaryButton label={t('plans.ideaDetail.actions.backToPlans')} onPress={() => navigation.navigate('Plans')} />
++            <PrimaryButton label={t('plans.ideaDetail.actions.createVersion')} onPress={createVersion} />
+           </View>
+         </View>
+       </ScrollView>
+@@ -3790,7 +3844,7 @@ export function PlanIdeaDetailScreen({ route, navigation }: PlanIdeaDetailProps)
+ 
+ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'CreatePlan'>) {
+   const theme = useThemeTokens();
+-  const { language } = useTranslation();
++  const { language, t } = useTranslation();
+   const [places, setPlaces] = useState<SelectedPlanPlaceState[]>([]);
+   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
+   const [libraryPlaces, setLibraryPlaces] = useState<PlaceDto[]>([]);
+@@ -3835,10 +3889,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   const draftPlaceValidationBlocked = restoringDraft || draftPlacesChecking.length > 0 || draftPlacesNeedingReview.length > 0;
+   const placesForGeneratedDisplay = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceTitle?.trim()), [places]);
+   const schedulablePlaces = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceId), [places]);
+-  const schedule = useMemo(() => buildMobilePlanSchedule(schedulablePlaces), [schedulablePlaces]);
+-  const explicitPlanEnd = useMemo(() => parseOptionalMobilePlanEnd(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
+-  const endSummary = useMemo(() => mobilePlanEndSummary(schedule, planEnd), [schedule, planEnd]);
+-  const conflictWarning = useMemo(() => planConflictWarning(myPlansForConflict, schedule, explicitPlanEnd), [explicitPlanEnd, myPlansForConflict, schedule]);
++  const schedule = useMemo(() => buildMobilePlanSchedule(schedulablePlaces, t), [schedulablePlaces, t]);
++  const explicitPlanEnd = useMemo(() => parseOptionalMobilePlanEnd(planEnd, schedule.startsAt, t), [planEnd, schedule.startsAt, t]);
++  const endSummary = useMemo(() => mobilePlanEndSummary(schedule, planEnd, t), [schedule, planEnd, t]);
++  const conflictWarning = useMemo(() => planConflictWarning(myPlansForConflict, schedule, explicitPlanEnd, t), [explicitPlanEnd, myPlansForConflict, schedule, t]);
+   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
+     places: placesForGeneratedDisplay,
+     startsAt: schedule.startsAt,
+@@ -3858,7 +3912,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     category: advancedDetails.category.trim() || null,
+     tags: parsePlanTagsInput(advancedDetails.tags),
+     mode: planModeFromSelectedPlaces(placesForGeneratedDisplay),
+-    locationLabel: placesForGeneratedDisplay.length === 0 ? null : `${placesForGeneratedDisplay.length} ${placesForGeneratedDisplay.length === 1 ? 'place' : 'places'}`,
++    locationLabel: placesForGeneratedDisplay.length === 0 ? null : t(placesForGeneratedDisplay.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: placesForGeneratedDisplay.length }),
+     startsAt: schedule.startsAt || new Date().toISOString(),
+     endsAt: explicitPlanEnd.endsAt || schedule.endsAt || null,
+     joinApprovalMode: 'automatic',
+@@ -3873,7 +3927,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+       source: place.sourcePlaceId ? (place.sourcePlaceSource === 'hellowhen_library' ? 'hellowhen_library' : 'my_place') : 'custom',
+       order: index,
+       mode: place.mode,
+-      title: planPreviewPlaceTitle(place, index),
++      title: planPreviewPlaceTitle(place, index, t),
+       addressPublicText: place.mode === 'local' ? (place.providerAddress?.formattedAddress ?? place.location.trim()) || null : null,
+       googlePlaceId: place.mode === 'local' ? place.providerAddress?.googlePlaceId ?? null : null,
+       googlePlaceName: place.mode === 'local' ? place.providerAddress?.googlePlaceName ?? null : null,
+@@ -3892,7 +3946,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+       media: place.existingMedia ? [place.existingMedia] : undefined,
+       staticMap: place.existingStaticMap ?? null,
+     })),
+-  }) as PlanDto, [advancedDetails.category, advancedDetails.tags, explicitPlanEnd.endsAt, places, placesForGeneratedDisplay, previewDescription, previewTitle, schedule.endsAt, schedule.placeEndsAt, schedule.placeStartsAt, schedule.startsAt]);
++  }) as PlanDto, [advancedDetails.category, advancedDetails.tags, explicitPlanEnd.endsAt, places, placesForGeneratedDisplay, previewDescription, previewTitle, schedule.endsAt, schedule.placeEndsAt, schedule.placeStartsAt, schedule.startsAt, t]);
+ 
+   const loadReusablePlaces = useCallback(async () => {
+     if (!isPlansVisible()) return;
+@@ -3952,9 +4006,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     const date = toDateInputValue();
+     handledInitialPlanIdeaRef.current = ideaKey;
+     setPlaces(idea.stops.map((stop, index) => selectedPlaceFromPlanIdeaStop(stop, index, date)));
+-    setMessage('Starter Plan idea loaded. Offline stops are prompts only: select real address suggestions, and add online links before publishing.');
++    setMessage(t('plans.create.feedback.starterLoaded'));
+     navigation.setParams({ initialPlanIdeaKey: undefined });
+-  }, [navigation, places.length, route.params?.initialPlanIdeaKey]);
++  }, [navigation, places.length, route.params?.initialPlanIdeaKey, t]);
+ 
+   useEffect(() => {
+     setExpandedAddressPlaceIds((current) => {
+@@ -4003,9 +4057,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+       }
+       return current.map((item, index) => item.sourcePlaceId === updatedPlace.id ? { ...selectedPlaceFromReusable(updatedPlace, index, item.date || toDateInputValue()), id: item.id, date: item.date, time: item.time } : item);
+     });
+-    setMessage(selectAfterFix ? 'Place fixed and added to this Plan.' : 'Place updated in this Plan.');
++    setMessage(selectAfterFix ? t('plans.create.feedback.placeFixedAdded') : t('plans.create.feedback.placeUpdated'));
+     navigation.setParams({ updatedPlace: undefined, updatedPlaceTargetIndex: undefined, updatedPlaceNonce: undefined, updatedPlaceSelectAfterFix: undefined });
+-  }, [navigation, route.params?.updatedPlace, route.params?.updatedPlaceNonce, route.params?.updatedPlaceSelectAfterFix, route.params?.updatedPlaceTargetIndex]);
++  }, [navigation, route.params?.updatedPlace, route.params?.updatedPlaceNonce, route.params?.updatedPlaceSelectAfterFix, route.params?.updatedPlaceTargetIndex, t]);
+ 
+   function cancelPendingCreatePlanDraftSave() {
+     if (createPlanDraftSaveTimeoutRef.current) {
+@@ -4039,7 +4093,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     createPlanDraftHydratingRef.current = true;
+     setRestoringDraft(true);
+     setDraftPrompt(null);
+-    setMessage('Checking saved Places in this draft...');
++    setMessage(t('plans.create.draft.checkingRestored'));
+     setError(null);
+     const restoredPlaces = draft.places.map((place, index) => {
+       const restored = selectedPlanPlaceFromDraft(place, index);
+@@ -4059,8 +4113,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+       }));
+       setStage(needsReviewCount > 0 ? 'build' : draft.stage);
+       setMessage(needsReviewCount > 0
+-        ? `Draft restored. ${needsReviewCount} ${needsReviewCount === 1 ? 'Place needs' : 'Places need'} review before preview or publish.`
+-        : `Draft restored from ${formatCreatePlanDraftSavedAt(draft.updatedAt)}. Saved Places were checked and refreshed.`);
++        ? t(needsReviewCount === 1 ? 'plans.create.draft.restoredReviewOne' : 'plans.create.draft.restoredReviewMany', { count: needsReviewCount })
++        : t('plans.create.draft.restoredSuccess', { date: formatCreatePlanDraftSavedAt(draft.updatedAt, language) }));
+     } finally {
+       setRestoringDraft(false);
+       createPlanDraftHydratingRef.current = false;
+@@ -4082,7 +4136,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     await clearCreatePlanDraft();
+     resetCreatePlanDraftState();
+     setCreatePlanMenuOpen(false);
+-    setMessage('Create Plan draft cleared.');
++    setMessage(t('plans.create.draft.cleared'));
+     createPlanDraftReadyRef.current = true;
+   }
+ 
+@@ -4229,7 +4283,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     }
+     const endDate = schedule.startsAt ? addMinutesToIso(schedule.startsAt, minutes) : null;
+     if (!endDate) {
+-      setError('Choose a start date and time before selecting a duration.');
++      setError(t('plans.create.validation.chooseStartForDuration'));
+       return;
+     }
+     updatePlanEnd(dateAndTimeFromDate(endDate));
+@@ -4271,7 +4325,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     setPlacePickerOpen(false);
+     setExpandedAddressPlaceIds((current) => mergeUniquePlaceIds(current, missingIds));
+     setAddressFocusPlaceId(missingIds[0] ?? null);
+-    setAddressGuidanceNotice(PLAN_OFFLINE_ADDRESS_TOP_ERROR);
++    setAddressGuidanceNotice(t('plans.create.validation.offlineTop'));
+     setError(null);
+     return true;
+   }
+@@ -4279,12 +4333,12 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   function focusDraftPlacesNeedingReview() {
+     if (restoringDraft || draftPlacesChecking.length > 0) {
+       setStage('build');
+-      setError(PLAN_DRAFT_PLACE_CHECKING_ERROR);
++      setError(t('plans.create.validation.draftChecking'));
+       return true;
+     }
+     if (draftPlacesNeedingReview.length > 0) {
+       setStage('build');
+-      setError(PLAN_DRAFT_PLACE_REVIEW_ERROR);
++      setError(t('plans.create.validation.draftReview'));
+       return true;
+     }
+     return false;
+@@ -4292,11 +4346,11 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+ 
+   function showPreviewStage() {
+     setError(null);
+-    if (places.length === 0) { setError('Add at least one place before preview.'); return; }
++    if (places.length === 0) { setError(t('plans.create.validation.addBeforePreview')); return; }
+     if (focusDraftPlacesNeedingReview()) return;
+     if (focusMissingOfflineAddresses()) return;
+     if (schedule.error) { setError(schedule.error); return; }
+-    const addressRuleError = getPlanPlacesAddressRuleError(schedulablePlaces);
++    const addressRuleError = getPlanPlacesAddressRuleError(schedulablePlaces, t);
+     if (addressRuleError) { setError(addressRuleError); return; }
+     if (explicitPlanEnd.error) { setError(explicitPlanEnd.error); return; }
+     setStage('preview');
+@@ -4304,22 +4358,22 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+ 
+   async function submit() {
+     const usablePlaces = places.filter((place) => place.title.trim() || place.sourcePlaceId);
+-    const nextSchedule = buildMobilePlanSchedule(usablePlaces);
++    const nextSchedule = buildMobilePlanSchedule(usablePlaces, t);
+     const customTitle = advancedDetails.title.trim();
+     const customDescription = advancedDetails.description.trim();
+     const customCategory = advancedDetails.category.trim();
+     const customTags = parsePlanTagsInput(advancedDetails.tags);
+-    const nextExplicitEnd = parseOptionalMobilePlanEnd(planEnd, nextSchedule.startsAt);
+-    if (usablePlaces.length === 0) { setError('Add at least one place.'); return; }
++    const nextExplicitEnd = parseOptionalMobilePlanEnd(planEnd, nextSchedule.startsAt, t);
++    if (usablePlaces.length === 0) { setError(t('plans.create.validation.addAtLeastOne')); return; }
+     if (focusDraftPlacesNeedingReview()) return;
+     if (focusMissingOfflineAddresses()) return;
+-    if (nextSchedule.error || !nextSchedule.startsAt) { setError(nextSchedule.error || 'Add at least one place.'); return; }
+-    const addressRuleError = getPlanPlacesAddressRuleError(usablePlaces);
++    if (nextSchedule.error || !nextSchedule.startsAt) { setError(nextSchedule.error || t('plans.create.validation.addAtLeastOne')); return; }
++    const addressRuleError = getPlanPlacesAddressRuleError(usablePlaces, t);
+     if (addressRuleError) { setError(addressRuleError); return; }
+     if (nextExplicitEnd.error) { setError(nextExplicitEnd.error); return; }
+-    if (customTitle && customTitle.length < 3) { setError('Custom Plan title must be at least 3 characters.'); return; }
+-    if (customDescription && customDescription.length < 10) { setError('Custom Plan description must be at least 10 characters, or leave it empty.'); return; }
+-    if (customTags.length > 8 || customTags.some((tag) => tag.length > 32)) { setError('Use up to 8 tags, each 32 characters or less.'); return; }
++    if (customTitle && customTitle.length < 3) { setError(t('plans.create.validation.titleTooShort')); return; }
++    if (customDescription && customDescription.length < 10) { setError(t('plans.create.validation.descriptionTooShort')); return; }
++    if (customTags.length > 8 || customTags.some((tag) => tag.length > 32)) { setError(t('plans.create.validation.tagsInvalid')); return; }
+ 
+     setSaving(true);
+     setError(null);
+@@ -4371,7 +4425,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+ 
+   return (
+     <AppFixedHeaderScreen
+-      header={<AppHeader title="Create plan" onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="more" label="Create Plan options" onPress={() => setCreatePlanMenuOpen((value) => !value)} />} />}
++      header={<AppHeader title={t('plans.create.headerTitle')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="more" label={t('plans.create.optionsAccessibility')} onPress={() => setCreatePlanMenuOpen((value) => !value)} />} />}
+     >
+       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
+         {createPlanMenuOpen ? (
+@@ -4381,34 +4435,34 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                 <MobileIcon name="close" color={theme.semantic.warning.text} size={17} />
+               </View>
+               <View style={styles.menuCopy}>
+-                <AppText style={styles.menuTitle}>Clear draft</AppText>
+-                <AppText style={[styles.menuBody, { color: theme.color.muted }]}>Remove this unfinished Plan from this device and start over.</AppText>
++                <AppText style={styles.menuTitle}>{t('plans.create.menu.clearDraft')}</AppText>
++                <AppText style={[styles.menuBody, { color: theme.color.muted }]}>{t('plans.create.menu.clearDraftBody')}</AppText>
+               </View>
+             </Pressable>
+           </View>
+         ) : null}
+         <ScrollView ref={createPlanScrollRef} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+           <View style={styles.planCreateCompactHeader}>
+-            <SemanticBadge label="Plan" tone="plan" />
+-            <AppText style={styles.heroTitle}>Create plan</AppText>
++            <SemanticBadge label={t('plans.create.badge')} tone="plan" />
++            <AppText style={styles.heroTitle}>{t('plans.create.headerTitle')}</AppText>
+           </View>
+ 
+           <View style={styles.stageSwitchRow}>
+-            <PillButton label="Build" active={stage === 'build'} onPress={() => setStage('build')} />
+-            <PillButton label="Preview" active={stage === 'preview'} onPress={showPreviewStage} />
++            <PillButton label={t('plans.create.stages.build')} active={stage === 'build'} onPress={() => setStage('build')} />
++            <PillButton label={t('plans.create.stages.preview')} active={stage === 'preview'} onPress={showPreviewStage} />
+           </View>
+ 
+           {stage === 'build' && (restoringDraft || draftPlacesChecking.length > 0) ? (
+-            <InfoNotice tone="info" title="Checking saved Places" body="Hellowhen is confirming that the saved Places in this restored draft are still available and usable." />
++            <InfoNotice tone="info" title={t('plans.create.draft.checkingTitle')} body={t('plans.create.draft.checkingBody')} />
+           ) : null}
+           {stage === 'build' && draftPlacesNeedingReview.length > 0 ? (
+             <InfoNotice
+               tone="warning"
+-              title="Draft needs review"
+-              body={`${draftPlacesNeedingReview.length} ${draftPlacesNeedingReview.length === 1 ? 'Place needs' : 'Places need'} attention. Replace, fix, or remove the highlighted ${draftPlacesNeedingReview.length === 1 ? 'Place' : 'Places'} before preview or publish.`}
++              title={t('plans.create.draft.needsReviewTitle')}
++              body={t(draftPlacesNeedingReview.length === 1 ? 'plans.create.draft.needsReviewOne' : 'plans.create.draft.needsReviewMany', { count: draftPlacesNeedingReview.length })}
+             />
+           ) : null}
+-          {stage === 'build' && addressGuidanceNotice ? <InfoNotice tone="warning" title="Address needed" body={addressGuidanceNotice} /> : null}
++          {stage === 'build' && addressGuidanceNotice ? <InfoNotice tone="warning" title={t('plans.create.validation.addressNeeded')} body={addressGuidanceNotice} /> : null}
+ 
+           {stage === 'build' ? (
+             <>
+@@ -4427,17 +4481,17 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                         <View style={styles.planDraftReviewHeader}>
+                           {place.draftReview.status === 'checking' ? <ActivityIndicator size="small" color={theme.semantic.warning.text} /> : <MobileIcon name="warning" size={18} color={theme.semantic.warning.text} />}
+                           <View style={styles.timelineCopy}>
+-                            <SemanticBadge label={place.draftReview.status === 'checking' ? 'Checking saved Place' : 'Needs review'} tone="warning" size="sm" />
++                            <SemanticBadge label={place.draftReview.status === 'checking' ? t('plans.create.draft.checkingBadge') : t('plans.create.draft.reviewBadge')} tone="warning" size="sm" />
+                             <AppText style={[styles.metaText, { color: theme.semantic.warning.text }]}>
+-                              {place.draftReview.status === 'checking' ? 'Confirming that this saved Place is still available.' : place.draftReview.reason || 'This saved Place cannot be used until it is reviewed.'}
++                              {place.draftReview.status === 'checking' ? t('plans.create.draft.checkingPlaceBody') : place.draftReview.reason || t('plans.create.draft.defaultReviewReason')}
+                             </AppText>
+                           </View>
+                         </View>
+                         {place.draftReview.status === 'needs_review' ? (
+                           <View style={styles.actionGrid}>
+-                            <SecondaryButton label="Check again" onPress={() => { void retryDraftPlaceReview(place.id); }} />
+-                            <SecondaryButton label="Change place" onPress={() => openPlaceSourceSheet(index)} />
+-                            <SecondaryButton label="Remove" icon="close" onPress={() => removeSelectedPlace(index)} />
++                            <SecondaryButton label={t('common.actions.tryAgain')} onPress={() => { void retryDraftPlaceReview(place.id); }} />
++                            <SecondaryButton label={t('plans.create.placeDetail.changePlace')} onPress={() => openPlaceSourceSheet(index)} />
++                            <SecondaryButton label={t('plans.create.placeDetail.remove')} icon="close" onPress={() => removeSelectedPlace(index)} />
+                           </View>
+                         ) : null}
+                       </View>
+@@ -4448,22 +4502,22 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                         style={[styles.planAddressGuidance, { borderTopColor: theme.color.border, backgroundColor: theme.semantic.place.softBg }]}
+                       >
+                         <View style={styles.timelineCopy}>
+-                          <SemanticBadge label="Address needed" tone="warning" size="sm" />
+-                          <InfoNotice tone="warning" body={PLAN_OFFLINE_ADDRESS_INLINE_ERROR} />
++                          <SemanticBadge label={t('plans.create.validation.addressNeeded')} tone="warning" size="sm" />
++                          <InfoNotice tone="warning" body={t('plans.create.validation.offlineInline')} />
+                         </View>
+                         <GooglePlacePicker
+-                          label={`Verified address for Place ${index + 1}`}
++                          label={t('plans.create.place.verifiedAddress', { index: index + 1 })}
+                           value={place.location}
+                           onChangeText={(location) => updateSelectedPlace(index, { location })}
+                           onResolvedPlace={(resolvedPlace) => updateSelectedPlaceResolvedAddress(index, resolvedPlace)}
+-                          placeholder="Search and select a real address"
+-                          helperText="Type at least 3 characters, then select a provider suggestion. Starter offline stops cannot use placeholder addresses."
++                          placeholder={t('plans.create.place.addressPlaceholder')}
++                          helperText={t('plans.create.place.starterAddressHelp')}
+                           languageCode={language}
+                           autoFocus={addressFocusPlaceId === place.id}
+                         />
+                         <View style={styles.actionGrid}>
+-                          <SecondaryButton label="Delete this place" icon="close" onPress={() => removeSelectedPlace(index)} />
+-                          <SecondaryButton label="Open details" onPress={() => setDetailPlaceIndex(index)} />
++                          <SecondaryButton label={t('plans.create.place.deleteThis')} icon="close" onPress={() => removeSelectedPlace(index)} />
++                          <SecondaryButton label={t('plans.create.place.openDetails')} onPress={() => setDetailPlaceIndex(index)} />
+                         </View>
+                       </View>
+                     ) : null}
+@@ -4472,8 +4526,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+ 
+                 <Pressable accessibilityRole="button" onPress={() => openPlaceSourceSheet('new')} style={({ pressed }) => [styles.planAddPlaceRow, places.length === 0 && styles.planAddPlaceRowFirst, { borderTopColor: theme.color.border }, pressed && styles.pressed]}>
+                   <View style={styles.timelineCopy}>
+-                    <AppText style={styles.sectionTitle}>+ Add place</AppText>
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{places.length === 0 ? 'Choose the first stop' : 'Choose the next stop'}</AppText>
++                    <AppText style={styles.sectionTitle}>{t('plans.create.place.add')}</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{places.length === 0 ? t('plans.create.place.firstStop') : t('plans.create.place.nextStop')}</AppText>
+                   </View>
+                   <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+                 </Pressable>
+@@ -4489,11 +4543,11 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                 ) : null}
+               </View>
+ 
+-              {conflictWarning ? <InfoNotice tone="warning" title="Time conflict" body={conflictWarning} /> : null}
+-              {error ? <InfoNotice tone="warning" title="Check plan" body={error} /> : null}
++              {conflictWarning ? <InfoNotice tone="warning" title={t('plans.create.validation.timeConflictTitle')} body={conflictWarning} /> : null}
++              {error ? <InfoNotice tone="warning" title={t('plans.create.validation.checkPlan')} body={error} /> : null}
+               {places.length > 0 ? (
+                 <Pressable accessibilityRole="button" disabled={draftPlaceValidationBlocked} onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, draftPlaceValidationBlocked && styles.disabled]}>
+-                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Preview Plan</AppText>
++                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('plans.create.preview.previewPlan')}</AppText>
+                 </Pressable>
+               ) : null}
+             </>
+@@ -4502,22 +4556,22 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+               <View style={[styles.previewConfirmStage, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
+                 <View style={styles.previewConfirmHero}>
+                   <View style={styles.timelineCopy}>
+-                    <SemanticBadge label="Preview" tone="plan" size="sm" />
++                    <SemanticBadge label={t('plans.create.stages.preview')} tone="plan" size="sm" />
+                     <AppText style={styles.previewConfirmTitle}>{previewTitle}</AppText>
+                     <AppText style={[styles.metaText, { color: theme.color.muted }]}>{previewDescription}</AppText>
+                   </View>
+                   <View style={styles.previewInlineMeta}>
+-                    <SemanticBadge label={schedule.startsAt ? formatDate(schedule.startsAt) : 'Start not set'} tone="time" size="sm" />
++                    <SemanticBadge label={schedule.startsAt ? formatDate(schedule.startsAt, language, t) : t('plans.create.preview.startNotSet')} tone="time" size="sm" />
+                     {endSummary ? <SemanticBadge label={`${endSummary.label}: ${endSummary.endLabel}`} tone="time" size="sm" /> : null}
+                     <SemanticBadge label={t(places.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: places.length })} tone="place" size="sm" />
+-                    <SemanticBadge label="Free join" tone="plan" size="sm" />
+-                    <SemanticBadge label="Open" tone="plan" size="sm" />
++                    <SemanticBadge label={t('plans.detail.values.freeJoin')} tone="plan" size="sm" />
++                    <SemanticBadge label={t('plans.status.open')} tone="plan" size="sm" />
+                   </View>
+                 </View>
+ 
+                 <View style={[styles.previewSectionDivider, { borderTopColor: theme.color.border }]}>
+                   <View style={styles.timelineCopy}>
+-                    <SemanticBadge label="Feed preview" tone="plan" size="sm" />
++                    <SemanticBadge label={t('plans.create.preview.feedPreview')} tone="plan" size="sm" />
+                   </View>
+                   <PlanSquareDeck plan={previewPlan} />
+                 </View>
+@@ -4532,7 +4586,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+ 
+                 <View style={[styles.previewSectionDivider, { borderTopColor: theme.color.border }]}>
+                   <View style={styles.timelineCopy}>
+-                    <SemanticBadge label="Route" tone="place" size="sm" />
++                    <SemanticBadge label={t('plans.create.preview.route')} tone="place" size="sm" />
+                   </View>
+                   {places.map((place, index) => (
+                     <View key={`preview-${place.id}`} style={[styles.previewPlaceRow, { borderTopColor: theme.color.border }]}>
+@@ -4540,22 +4594,22 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                         <AppText style={[styles.timelineNumberText, { color: theme.semantic.place.text }]}>{index + 1}</AppText>
+                       </View>
+                       <View style={styles.timelineCopy}>
+-                        <AppText style={styles.rowTitle}>{planPreviewPlaceTitle(place, index)}</AppText>
+-                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{planPreviewTimeLabel(place)} · {placePreviewLocation(place)}</AppText>
++                        <AppText style={styles.rowTitle}>{planPreviewPlaceTitle(place, index, t)}</AppText>
++                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{planPreviewTimeLabel(place, t)} · {placePreviewLocation(place, t)}</AppText>
+                       </View>
+                     </View>
+                   ))}
+                 </View>
+ 
+-                {validationNotice ? <InfoNotice tone="warning" title="Check plan" body={validationNotice} /> : null}
++                {validationNotice ? <InfoNotice tone="warning" title={t('plans.create.validation.checkPlan')} body={validationNotice} /> : null}
+               </View>
+ 
+-              {message ? <InfoNotice tone="success" title="Plans" body={message} /> : null}
+-              {error && !validationNotice ? <InfoNotice tone="warning" title="Could not save" body={error} /> : null}
++              {message ? <InfoNotice tone="success" title={t('plans.common.title')} body={message} /> : null}
++              {error && !validationNotice ? <InfoNotice tone="warning" title={t('plans.create.validation.couldNotSave')} body={error} /> : null}
+               <View style={styles.actionGrid}>
+-                <SecondaryButton label="Back" onPress={() => setStage('build')} />
++                <SecondaryButton label={t('plans.create.preview.back')} onPress={() => setStage('build')} />
+                 <Pressable accessibilityRole="button" disabled={saving || draftPlaceValidationBlocked} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg, flex: 1 }, pressed && styles.pressed, (saving || draftPlaceValidationBlocked) && styles.disabled]}>
+-                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? 'Creating...' : 'Create Plan'}</AppText>
++                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? t('plans.create.preview.creating') : t('plans.create.preview.create')}</AppText>
+                 </Pressable>
+               </View>
+             </>
+@@ -4567,8 +4621,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+             mode={timeSheet.mode}
+             date={timeSheetPlace.date}
+             time={timeSheetPlace.time}
+-            title={timeSheet.mode === 'date' ? `Place ${timeSheet.placeIndex + 1} date` : `Place ${timeSheet.placeIndex + 1} time`}
+-            subtitle={timeSheetPlace.title || timeSheetPlace.sourcePlaceTitle || 'Choose when this stop happens.'}
++            title={t(timeSheet.mode === 'date' ? 'plans.create.time.dateForPlace' : 'plans.create.time.timeForPlace', { index: timeSheet.placeIndex + 1 })}
++            subtitle={timeSheetPlace.title || timeSheetPlace.sourcePlaceTitle || t('plans.create.time.stopSubtitle')}
+             onChange={(patch) => updateSelectedPlace(timeSheet.placeIndex, patch)}
+             onClose={() => setTimeSheet(null)}
+           />
+@@ -4584,48 +4638,48 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+         />
+         <AppConfirmSheet
+           visible={Boolean(draftPrompt)}
+-          title="Continue draft?"
+-          body={draftPrompt ? `You have an unfinished Plan saved on this device from ${formatCreatePlanDraftSavedAt(draftPrompt.updatedAt)}.` : undefined}
+-          cancelLabel="Start new"
+-          confirmLabel="Continue"
++          title={t('plans.create.draft.continueTitle')}
++          body={draftPrompt ? t('plans.create.draft.continueBody', { date: formatCreatePlanDraftSavedAt(draftPrompt.updatedAt, language) }) : undefined}
++          cancelLabel={t('plans.create.draft.startNew')}
++          confirmLabel={t('plans.create.draft.continue')}
+           onCancel={startNewInsteadOfDraft}
+           onConfirm={() => { if (draftPrompt) restoreCreatePlanDraft(draftPrompt); }}
+         />
+         <AppConfirmSheet
+           visible={clearDraftConfirmVisible}
+-          title="Clear draft?"
+-          body="This removes your unfinished Plan from this device and starts a new empty Plan."
+-          cancelLabel="Keep draft"
+-          confirmLabel="Clear draft"
++          title={t('plans.create.draft.clearTitle')}
++          body={t('plans.create.draft.clearBody')}
++          cancelLabel={t('plans.create.draft.keep')}
++          confirmLabel={t('plans.create.draft.clear')}
+           tone="danger"
+           onCancel={() => setClearDraftConfirmVisible(false)}
+           onConfirm={() => { void clearCurrentCreatePlanDraft(); }}
+         />
+         <Modal visible={Boolean(detailPlace)} transparent animationType="slide" onRequestClose={() => setDetailPlaceIndex(null)}>
+           <View style={styles.sourceSheetOverlay}>
+-            <Pressable accessibilityRole="button" accessibilityLabel="Close place details" onPress={() => setDetailPlaceIndex(null)} style={styles.sourceSheetScrim} />
++            <Pressable accessibilityRole="button" accessibilityLabel={t('plans.create.placeDetail.closeAccessibility')} onPress={() => setDetailPlaceIndex(null)} style={styles.sourceSheetScrim} />
+             {detailPlace && detailPlaceIndex !== null ? (
+               <View style={[styles.sourceSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+                 <View style={styles.wizardStepRow}>
+                   <View style={styles.timelineCopy}>
+-                    <AppText style={styles.sectionTitle}>Place {detailPlaceIndex + 1}</AppText>
++                    <AppText style={styles.sectionTitle}>{t('plans.create.place.label', { index: detailPlaceIndex + 1 })}</AppText>
+                   </View>
+-                  <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setDetailPlaceIndex(null)} style={[styles.headerAction, { borderColor: theme.color.border }]}>
++                  <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.close')} onPress={() => setDetailPlaceIndex(null)} style={[styles.headerAction, { borderColor: theme.color.border }]}>
+                     <MobileIcon name="close" color={theme.color.text} size={18} />
+                   </Pressable>
+                 </View>
+                 <ScrollView keyboardShouldPersistTaps="handled" style={styles.sourceListScroll} contentContainerStyle={styles.placeDetailSheetContent}>
+                   <View style={styles.rowTop}>
+-                    {detailPlace.sourcePlaceId ? <SemanticBadge label={detailPlace.sourcePlaceSource === 'hellowhen_library' ? 'Library' : 'My Place'} tone="place" size="sm" /> : <SemanticBadge label="Custom" tone="place" size="sm" />}
++                    {detailPlace.sourcePlaceId ? <SemanticBadge label={detailPlace.sourcePlaceSource === 'hellowhen_library' ? t('plans.create.placeDetail.sourceLibrary') : t('plans.create.placeDetail.sourceMine')} tone="place" size="sm" /> : <SemanticBadge label={t('plans.create.placeDetail.sourceCustom')} tone="place" size="sm" />}
+                   </View>
+                   {detailPlace.sourcePlaceId ? (
+                     <View style={[styles.snapshotStrip, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
+                       <AppText style={[styles.snapshotText, { color: theme.semantic.place.text }]} numberOfLines={3}>
+-                        {detailPlace.sourcePlaceSource === 'my_place' ? 'Updates your saved Place.' : 'Copied into My Places before editing.'}
++                        {detailPlace.sourcePlaceSource === 'my_place' ? t('plans.create.placeDetail.savedUpdateBody') : t('plans.create.placeDetail.libraryCopyBody')}
+                       </AppText>
+-                      {detailPlace.sourcePlaceSource === 'my_place' ? <SecondaryButton label="Edit saved" onPress={() => editMyPlaceFromDetail(detailPlaceIndex)} /> : null}
+-                      {detailPlace.sourcePlaceSource === 'hellowhen_library' ? <SecondaryButton label="Copy to edit" onPress={() => copyLibraryPlaceFromDetail(detailPlaceIndex)} /> : null}
+-                      <SecondaryButton label="Make custom" onPress={() => updateSelectedPlace(detailPlaceIndex, resetSelectedPlaceToCustom(detailPlace))} />
++                      {detailPlace.sourcePlaceSource === 'my_place' ? <SecondaryButton label={t('plans.create.placeDetail.editSaved')} onPress={() => editMyPlaceFromDetail(detailPlaceIndex)} /> : null}
++                      {detailPlace.sourcePlaceSource === 'hellowhen_library' ? <SecondaryButton label={t('plans.create.placeDetail.copyToEdit')} onPress={() => copyLibraryPlaceFromDetail(detailPlaceIndex)} /> : null}
++                      <SecondaryButton label={t('plans.create.placeDetail.makeCustom')} onPress={() => updateSelectedPlace(detailPlaceIndex, resetSelectedPlaceToCustom(detailPlace))} />
+                     </View>
+                   ) : (
+                     <>
+@@ -4639,37 +4693,37 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                           onlineUrl: mode === 'remote' ? detailPlace.onlineUrl : '',
+                         })}
+                       />
+-                      <TextField label="Place name" value={detailPlace.title} onChangeText={(title) => updateSelectedPlace(detailPlaceIndex, { title })} placeholder={detailPlace.mode === 'remote' ? 'Planning call' : 'Coffee meeting point'} maxLength={120} />
++                      <TextField label={t('plans.create.place.name')} value={detailPlace.title} onChangeText={(title) => updateSelectedPlace(detailPlaceIndex, { title })} placeholder={detailPlace.mode === 'remote' ? t('plans.create.place.nameOnlinePlaceholder') : t('plans.create.place.nameOfflinePlaceholder')} maxLength={120} />
+                       {detailPlace.mode === 'remote' ? (
+                         <>
+-                          <TextField label="Online label" value={detailPlace.onlineLabel} onChangeText={(onlineLabel) => updateSelectedPlace(detailPlaceIndex, { onlineLabel })} placeholder="Zoom, Discord, website" maxLength={120} />
+-                          <TextField label="Online URL" value={detailPlace.onlineUrl} onChangeText={(onlineUrl) => updateSelectedPlace(detailPlaceIndex, { onlineUrl })} placeholder="https://..." keyboardType="url" maxLength={500} />
+-                          <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: detailPlace.onlineUrl })} />
++                          <TextField label={t('plans.create.place.onlineLabel')} value={detailPlace.onlineLabel} onChangeText={(onlineLabel) => updateSelectedPlace(detailPlaceIndex, { onlineLabel })} placeholder={t('plans.create.place.onlineLabelPlaceholder')} maxLength={120} />
++                          <TextField label={t('plans.create.place.onlineUrl')} value={detailPlace.onlineUrl} onChangeText={(onlineUrl) => updateSelectedPlace(detailPlaceIndex, { onlineUrl })} placeholder="https://..." keyboardType="url" maxLength={500} />
++                          <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: detailPlace.onlineUrl }, t)} />
+                         </>
+                       ) : (
+                         <>
+                           <GooglePlacePicker
+-                            label="Address or meeting point"
++                            label={t('plans.create.place.address')}
+                             value={detailPlace.location}
+                             onChangeText={(location) => updateSelectedPlace(detailPlaceIndex, { location })}
+                             onResolvedPlace={(place) => updateSelectedPlaceResolvedAddress(detailPlaceIndex, place)}
+-                            placeholder="Search and select a real address"
+-                            helperText="Type at least 3 characters, then select a confirmed Google address. Typed text alone cannot be saved."
++                            placeholder={t('plans.create.place.addressPlaceholder')}
++                            helperText={t('plans.create.place.addressHelp')}
+                             languageCode={language}
+                           />
+-                          {!hasValidOfflineProviderAddress(detailPlace.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(detailPlace.providerAddress)} /> : null}
++                          {!hasValidOfflineProviderAddress(detailPlace.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(detailPlace.providerAddress, t)} /> : null}
+                         </>
+                       )}
+                     </>
+                   )}
+                   <View style={styles.actionGrid}>
+-                    <SecondaryButton label="Move up" disabled={detailPlaceIndex === 0} onPress={() => { moveSelectedPlace(detailPlaceIndex, -1); setDetailPlaceIndex(detailPlaceIndex - 1); }} />
+-                    <SecondaryButton label="Move down" disabled={detailPlaceIndex === places.length - 1} onPress={() => { moveSelectedPlace(detailPlaceIndex, 1); setDetailPlaceIndex(detailPlaceIndex + 1); }} />
+-                    <SecondaryButton label="Change place" onPress={() => openPlaceSourceSheet(detailPlaceIndex)} />
+-                    <SecondaryButton label="Remove" icon="close" onPress={() => removeSelectedPlace(detailPlaceIndex)} />
++                    <SecondaryButton label={t('plans.create.placeDetail.moveUp')} disabled={detailPlaceIndex === 0} onPress={() => { moveSelectedPlace(detailPlaceIndex, -1); setDetailPlaceIndex(detailPlaceIndex - 1); }} />
++                    <SecondaryButton label={t('plans.create.placeDetail.moveDown')} disabled={detailPlaceIndex === places.length - 1} onPress={() => { moveSelectedPlace(detailPlaceIndex, 1); setDetailPlaceIndex(detailPlaceIndex + 1); }} />
++                    <SecondaryButton label={t('plans.create.placeDetail.changePlace')} onPress={() => openPlaceSourceSheet(detailPlaceIndex)} />
++                    <SecondaryButton label={t('plans.create.placeDetail.remove')} icon="close" onPress={() => removeSelectedPlace(detailPlaceIndex)} />
+                   </View>
+                   <Pressable accessibilityRole="button" onPress={() => setDetailPlaceIndex(null)} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+-                    <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Done</AppText>
++                    <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('plans.create.time.done')}</AppText>
+                   </Pressable>
+                 </ScrollView>
+               </View>
+@@ -4678,14 +4732,14 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+         </Modal>
+         <Modal visible={placeSourceSheetOpen} transparent animationType="slide" onRequestClose={closePlaceSourceSheet}>
+           <View style={styles.sourceSheetOverlay}>
+-            <Pressable accessibilityRole="button" accessibilityLabel="Close place source" onPress={closePlaceSourceSheet} style={styles.sourceSheetScrim} />
++            <Pressable accessibilityRole="button" accessibilityLabel={t('plans.create.sourcePicker.closeAccessibility')} onPress={closePlaceSourceSheet} style={styles.sourceSheetScrim} />
+             <View style={[styles.sourceSheet, styles.sourceChoiceSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+               <View style={[styles.sourceSheetHandle, { backgroundColor: theme.color.border }]} />
+               <View style={styles.sourceSheetTopbar}>
+                 <View style={styles.sourceSheetTitleBlock}>
+-                  <AppText style={styles.sourceSheetTitle}>{placePickerOpen ? (pickerTab === 'mine' ? 'My Places' : 'Hellowhen Library') : 'Add place'}</AppText>
++                  <AppText style={styles.sourceSheetTitle}>{placePickerOpen ? (pickerTab === 'mine' ? t('plans.create.sourcePicker.myPlaces') : t('plans.create.sourcePicker.library')) : t('plans.create.sourcePicker.addPlace')}</AppText>
+                 </View>
+-                <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={closePlaceSourceSheet} style={[styles.headerAction, { borderColor: theme.color.border }]}>
++                <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.close')} onPress={closePlaceSourceSheet} style={[styles.headerAction, { borderColor: theme.color.border }]}>
+                   <MobileIcon name="close" color={theme.color.text} size={18} />
+                 </Pressable>
+               </View>
+@@ -4694,22 +4748,22 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                 <View style={styles.sourceOptionList}>
+                   <Pressable accessibilityRole="button" onPress={() => choosePlaceSource('mine')} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                     <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="save" color={theme.semantic.place.text} size={17} /></View>
+-                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>My Places</AppText></View>
++                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>{t('plans.create.sourcePicker.myPlaces')}</AppText></View>
+                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+                   </Pressable>
+                   <Pressable accessibilityRole="button" onPress={() => choosePlaceSource('library')} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                     <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="search" color={theme.semantic.place.text} size={17} /></View>
+-                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>Hellowhen Library</AppText></View>
++                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>{t('plans.create.sourcePicker.library')}</AppText></View>
+                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+                   </Pressable>
+                   <Pressable accessibilityRole="button" onPress={() => { closePlaceSourceSheet(); navigation.navigate('CreatePlace', { returnToCreatePlan: true, targetPlaceIndex: typeof placeSourceTarget === 'number' ? placeSourceTarget : undefined }); }} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                     <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={17} /></View>
+-                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>New Place</AppText></View>
++                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>{t('plans.create.sourcePicker.newPlace')}</AppText></View>
+                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+                   </Pressable>
+                   <Pressable accessibilityRole="button" onPress={addCustomPlace} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                     <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="more" color={theme.semantic.place.text} size={17} /></View>
+-                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>Custom stop</AppText></View>
++                    <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>{t('plans.create.sourcePicker.customStop')}</AppText></View>
+                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+                   </Pressable>
+                 </View>
+@@ -4717,19 +4771,19 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                 <View style={styles.sourceOptionList}>
+                   <View style={styles.sourcePickerToolbar}>
+                     <View style={styles.sourcePickerTabs}>
+-                      <PillButton label="My Places" active={pickerTab === 'mine'} onPress={() => choosePlaceSource('mine')} />
+-                      <PillButton label="Hellowhen Library" active={pickerTab === 'library'} onPress={() => choosePlaceSource('library')} />
++                      <PillButton label={t('plans.create.sourcePicker.myPlaces')} active={pickerTab === 'mine'} onPress={() => choosePlaceSource('mine')} />
++                      <PillButton label={t('plans.create.sourcePicker.library')} active={pickerTab === 'library'} onPress={() => choosePlaceSource('library')} />
+                     </View>
+-                    <PillButton label="Refresh" onPress={() => { void loadReusablePlaces(); }} />
++                    <PillButton label={t('plans.create.sourcePicker.refresh')} onPress={() => { void loadReusablePlaces(); }} />
+                   </View>
+-                  <TextField label="Search Places" value={placeQuery} onChangeText={setPlaceQuery} placeholder="Search Places" />
+-                  {loadingPlaces ? <View style={styles.inlineSmallLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>Loading Places...</AppText></View> : null}
+-                  {!loadingPlaces && activeList.length === 0 ? <EmptyBlock title="No matching Places" body={pickerTab === 'mine' ? 'Create a Place or use a custom stop.' : 'No matching Library Places yet.'} /> : null}
++                  <TextField label={t('plans.create.sourcePicker.searchLabel')} value={placeQuery} onChangeText={setPlaceQuery} placeholder={t('plans.create.sourcePicker.searchPlaceholder')} />
++                  {loadingPlaces ? <View style={styles.inlineSmallLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('plans.create.sourcePicker.loading')}</AppText></View> : null}
++                  {!loadingPlaces && activeList.length === 0 ? <EmptyBlock title={t(pickerTab === 'mine' ? 'plans.create.sourcePicker.noMineTitle' : 'plans.create.sourcePicker.noLibraryTitle')} body={t(pickerTab === 'mine' ? 'plans.create.sourcePicker.noMineBody' : 'plans.create.sourcePicker.noLibraryBody')} /> : null}
+                   <ScrollView style={styles.sourceListScroll} keyboardShouldPersistTaps="handled">
+                     {activeList.map((place) => <PlaceChoiceCard key={place.id} place={place} onPress={() => chooseReusablePlace(place)} />)}
+                   </ScrollView>
+                   <View style={[styles.sourcePickerFooter, { borderTopColor: theme.color.border }]}>
+-                    <SecondaryButton label="Sources" onPress={() => setPlacePickerOpen(false)} />
++                    <SecondaryButton label={t('plans.create.sourcePicker.sources')} onPress={() => setPlacePickerOpen(false)} />
+                   </View>
+                 </View>
+               )}
+diff --git a/packages/i18n/src/locales/en/plans.ts b/packages/i18n/src/locales/en/plans.ts
+index e178070..0d709e7 100644
+--- a/packages/i18n/src/locales/en/plans.ts
++++ b/packages/i18n/src/locales/en/plans.ts
+@@ -392,6 +392,241 @@ export const plans = {
+       safetyBody: 'Do not post private addresses, passwords, payment details, or sensitive documents in public comments.',
+     },
+   },
++  ideaDetail: {
++    title: 'Plan idea',
++    badge: 'Plan idea · {{pack}}',
++    notFound: {
++      title: 'Plan idea not found',
++      body: 'This starter Plan idea is no longer available. You can still create a Plan from scratch.',
++    },
++    review: {
++      title: 'Review first',
++      body: 'This starter idea provides structure only. Add confirmed addresses or real online links before publishing.',
++    },
++    requirements: {
++      title: 'Before publishing, add',
++      body: '{{requirements}}. Prompt text is never saved as a valid offline address.',
++      realAddressOne: '{{count}} real address',
++      realAddressMany: '{{count}} real addresses',
++      onlineLinkOne: '{{count}} online link',
++      onlineLinkMany: '{{count}} online links',
++      onlinePrompt: 'Prompt only — add a real link in Create Plan.',
++      offlinePrompt: 'Prompt only — select a provider address in Create Plan.',
++    },
++    nextStep: {
++      title: 'Next step',
++      body: 'Create your version opens Create Plan with these stops as editable prompts. Offline prompts stay blocked until a confirmed address is selected.',
++    },
++    actions: {
++      createPlan: 'Create Plan',
++      backToPlans: 'Back to Plans',
++      createVersion: 'Create your version',
++    },
++  },
++  create: {
++    headerTitle: 'Create plan',
++    optionsAccessibility: 'Create Plan options',
++    badge: 'Plan',
++    stages: {
++      build: 'Build',
++      preview: 'Preview',
++    },
++    menu: {
++      clearDraft: 'Clear draft',
++      clearDraftBody: 'Remove this unfinished Plan from this device and start over.',
++    },
++    draft: {
++      checkingTitle: 'Checking saved Places',
++      checkingBody: 'Hellowhen is confirming that the saved Places in this restored draft are still available and usable.',
++      needsReviewTitle: 'Draft needs review',
++      needsReviewOne: '{{count}} Place needs attention. Replace, fix, or remove the highlighted Place before preview or publish.',
++      needsReviewMany: '{{count}} Places need attention. Replace, fix, or remove the highlighted Places before preview or publish.',
++      checkingBadge: 'Checking saved Place',
++      reviewBadge: 'Needs review',
++      checkingPlaceBody: 'Confirming that this saved Place is still available.',
++      defaultReviewReason: 'This saved Place cannot be used until it is reviewed.',
++      checkingRestored: 'Checking saved Places in this draft…',
++      restoredReviewOne: 'Draft restored. {{count}} Place needs review before preview or publish.',
++      restoredReviewMany: 'Draft restored. {{count}} Places need review before preview or publish.',
++      restoredSuccess: 'Draft restored from {{date}}. Saved Places were checked and refreshed.',
++      cleared: 'Create Plan draft cleared.',
++      continueTitle: 'Continue draft?',
++      continueBody: 'You have an unfinished Plan saved on this device from {{date}}.',
++      startNew: 'Start new',
++      continue: 'Continue',
++      clearTitle: 'Clear draft?',
++      clearBody: 'This removes your unfinished Plan from this device and starts a new empty Plan.',
++      keep: 'Keep draft',
++      clear: 'Clear draft',
++    },
++    feedback: {
++      starterLoaded: 'Starter Plan idea loaded. Offline stops are prompts only: select real address suggestions, and add online links before publishing.',
++      placeFixedAdded: 'Place fixed and added to this Plan.',
++      placeUpdated: 'Place updated in this Plan.',
++    },
++    validation: {
++      offlineTop: 'Some offline places need an address. Choose a verified address for each offline place, or delete the places you do not want to use.',
++      offlineInline: 'Choose a verified address for this place, or delete it.',
++      draftReview: 'Some restored Places need review. Replace, fix, or remove each highlighted Place before previewing or publishing this Plan.',
++      draftChecking: 'Wait while Hellowhen checks the saved Places restored from this draft.',
++      addressNeeded: 'Address needed',
++      addBeforePreview: 'Add at least one place before preview.',
++      addAtLeastOne: 'Add at least one place.',
++      addValidPlace: 'Add at least one place with a valid date and time.',
++      validDateTime: 'Add a valid date and time for Place {{index}}.',
++      minimumGap: 'Place {{index}} must start at least {{minutes}} minutes after Place {{previous}}.',
++      chooseStartForDuration: 'Choose a start date and time before selecting a duration.',
++      endBoth: 'Add both an end date and end time, or leave the end empty.',
++      invalidEnd: 'Add a valid end date and time, or leave the end empty.',
++      endAfterStart: 'End time must be after the Plan start.',
++      titleTooShort: 'Custom Plan title must be at least 3 characters.',
++      descriptionTooShort: 'Custom Plan description must be at least 10 characters, or leave it empty.',
++      tagsInvalid: 'Use up to 8 tags, each 32 characters or less.',
++      timeConflictTitle: 'Time conflict',
++      timeConflict: 'This time overlaps or sits within 1 hour of “{{plan}}”. Leave at least 1 hour between Plans before publishing.',
++      anotherPlan: 'another Plan',
++      checkPlan: 'Check plan',
++      couldNotSave: 'Could not save',
++    },
++    time: {
++      chooseDate: 'Choose date',
++      chooseTime: 'Choose time',
++      done: 'Done',
++      closePicker: 'Close time picker',
++      systemDateHint: 'Use the system picker to choose a custom date.',
++      systemTimeHint: 'Use the system picker to choose a custom time.',
++      dateForPlace: 'Place {{index}} date',
++      timeForPlace: 'Place {{index}} time',
++      stopSubtitle: 'Choose when this stop happens.',
++      chooseDateAccessibility: 'Choose date for Place {{index}}',
++      chooseTimeAccessibility: 'Choose time for Place {{index}}',
++      firstRequired: 'Plan start · required',
++      laterOptional: 'Optional · same time or after the previous timed place',
++      date: 'Date',
++      time: 'Time',
++      timeRequired: 'Time required',
++    },
++    duration: {
++      helper: 'Duration helper',
++      custom: 'Custom',
++      startFirst: 'Choose a start date and time first.',
++      customEnd: 'Custom end',
++      endDate: 'End date',
++      endTime: 'End time',
++      customEndHelp: 'Choose a custom end only when the automatic estimate is not right.',
++      estimatedEnd: 'Estimated end',
++      noStart: 'Choose a start date and time to calculate the end.',
++      changeEnd: 'Change end time',
++      useEstimate: 'Use estimate',
++      durationTitle: 'Duration',
++      durationSubtitle: 'Choose how long this Plan should last.',
++      customSubtitle: 'Use this only when the automatic end is not right.',
++      manualLabel: 'Manual end',
++      estimatedLabel: 'Estimated end',
++      manualDetail: 'Manual override is active. Clear it to use the automatic estimate from the place times.',
++      singleEstimate: 'Estimated from the single-place default{{duration}}.',
++      multipleEstimate: 'Estimated from the average gap between places{{duration}}.',
++    },
++    advanced: {
++      title: 'More options',
++      hide: 'Hide custom Plan details',
++      show: 'Optional title, description, category, and tags',
++      planTitle: 'Custom Plan title',
++      planDescription: 'Custom Plan description',
++      category: 'Category',
++      categoryPlaceholder: 'Culture, food…',
++      tags: 'Tags',
++      tagsPlaceholder: 'Paris, coffee',
++      help: 'Leave empty to use the generated place/time summary. Separate tags with commas.',
++    },
++    place: {
++      label: 'Place {{index}}',
++      noLocation: 'No location yet',
++      onlinePlace: 'Online place',
++      offlinePlace: 'Offline place',
++      reusable: 'Reusable Place',
++      fixAccessibility: 'Fix {{title}}',
++      addAccessibility: 'Add {{title}}',
++      fix: 'Fix',
++      name: 'Place name',
++      nameOnlinePlaceholder: 'Planning call',
++      nameOfflinePlaceholder: 'Coffee meeting point',
++      onlineLabel: 'Online label',
++      onlineLabelPlaceholder: 'Zoom, Discord, website',
++      onlineUrl: 'Online URL',
++      address: 'Address or meeting point',
++      addressPlaceholder: 'Search and select a real address',
++      addressHelp: 'Type at least 3 characters, then select a confirmed Google address. Typed text alone cannot be saved.',
++      verifiedAddress: 'Verified address for Place {{index}}',
++      starterAddressHelp: 'Type at least 3 characters, then select a provider suggestion. Starter offline stops cannot use placeholder addresses.',
++      add: '+ Add place',
++      firstStop: 'Choose the first stop',
++      nextStop: 'Choose the next stop',
++      deleteThis: 'Delete this place',
++      openDetails: 'Open details',
++    },
++    placeDetail: {
++      closeAccessibility: 'Close place details',
++      sourceLibrary: 'Library',
++      sourceMine: 'My Place',
++      sourceCustom: 'Custom',
++      savedUpdateBody: 'Updates your saved Place.',
++      libraryCopyBody: 'Copied into My Places before editing.',
++      editSaved: 'Edit saved',
++      copyToEdit: 'Copy to edit',
++      makeCustom: 'Make custom',
++      moveUp: 'Move up',
++      moveDown: 'Move down',
++      changePlace: 'Change place',
++      remove: 'Remove',
++      done: 'Done',
++    },
++    sourcePicker: {
++      closeAccessibility: 'Close place source',
++      addPlace: 'Add place',
++      myPlaces: 'My Places',
++      library: 'Hellowhen Library',
++      newPlace: 'New Place',
++      customStop: 'Custom stop',
++      refresh: 'Refresh',
++      searchLabel: 'Search Places',
++      searchPlaceholder: 'Search Places',
++      loading: 'Loading Places…',
++      noMineTitle: 'No matching Places',
++      noMineBody: 'Create a Place or use a custom stop.',
++      noLibraryTitle: 'No matching Places',
++      noLibraryBody: 'No matching Library Places yet.',
++      sources: 'Sources',
++      finishSavedPlace: 'Finish this saved Place before using it in a Plan.',
++      archivedPlace: 'This saved Place is archived.',
++      hiddenPlace: 'This saved Place is hidden.',
++      addOnlineUrl: 'Add a valid online URL before using this Place.',
++      fixAddress: 'Fix this Place first by selecting a confirmed Google address.',
++    },
++    google: {
++      defaultLabel: 'Address or place',
++      defaultPlaceholder: 'Search a real address or place',
++      defaultHelp: 'Type at least {{count}} characters, then select a provider suggestion. Typed text alone cannot be saved as an offline address.',
++      typeMore: 'Type at least {{count}} characters to search Google places.',
++      noSuggestions: 'No confirmed suggestions yet. Try a more precise place name or address.',
++      unavailable: 'Google address suggestions are unavailable. Offline places require selecting a provider address; try again later or switch to Online.',
++      confirmFailed: 'Could not confirm this Google place. Try another suggestion.',
++      confirmed: 'Google-confirmed address',
++      review: 'Google suggestion · review details',
++      selected: 'Google place selected',
++      select: 'Select',
++      searching: 'Searching Google places…',
++    },
++    preview: {
++      startNotSet: 'Start not set',
++      feedPreview: 'Feed preview',
++      route: 'Route',
++      previewPlan: 'Preview Plan',
++      back: 'Back',
++      create: 'Create Plan',
++      creating: 'Creating…',
++    },
++  },
+   workspace: {
+     myPlans: { title: 'My plans', body: 'Plans you created.' },
+     joinedPlans: { title: 'Joined plans', body: 'Plans you joined freely.' },
+diff --git a/packages/i18n/src/locales/es/plans.ts b/packages/i18n/src/locales/es/plans.ts
+index 1e8a80c..07fe570 100644
+--- a/packages/i18n/src/locales/es/plans.ts
++++ b/packages/i18n/src/locales/es/plans.ts
+@@ -392,6 +392,241 @@ export const plans = {
+       safetyBody: 'No publiques direcciones privadas, contraseñas, datos de pago ni documentos sensibles en comentarios públicos.',
+     },
+   },
++  ideaDetail: {
++    title: 'Idea de Plan',
++    badge: 'Idea de Plan · {{pack}}',
++    notFound: {
++      title: 'Idea de Plan no encontrada',
++      body: 'Esta idea inicial ya no está disponible. Aún puedes crear un Plan desde cero.',
++    },
++    review: {
++      title: 'Revísala primero',
++      body: 'Esta idea solo proporciona una estructura. Añade direcciones confirmadas o enlaces reales antes de publicar.',
++    },
++    requirements: {
++      title: 'Antes de publicar, añade',
++      body: '{{requirements}}. El texto orientativo nunca se guarda como una dirección válida sin conexión.',
++      realAddressOne: '{{count}} dirección real',
++      realAddressMany: '{{count}} direcciones reales',
++      onlineLinkOne: '{{count}} enlace en línea',
++      onlineLinkMany: '{{count}} enlaces en línea',
++      onlinePrompt: 'Solo orientación: añade un enlace real en Crear Plan.',
++      offlinePrompt: 'Solo orientación: selecciona una dirección del proveedor en Crear Plan.',
++    },
++    nextStep: {
++      title: 'Siguiente paso',
++      body: 'Crear tu versión abre Crear Plan con estas paradas como indicaciones editables. Las indicaciones sin conexión permanecen bloqueadas hasta seleccionar una dirección confirmada.',
++    },
++    actions: {
++      createPlan: 'Crear Plan',
++      backToPlans: 'Volver a Planes',
++      createVersion: 'Crear tu versión',
++    },
++  },
++  create: {
++    headerTitle: 'Crear Plan',
++    optionsAccessibility: 'Opciones de creación del Plan',
++    badge: 'Plan',
++    stages: {
++      build: 'Crear',
++      preview: 'Vista previa',
++    },
++    menu: {
++      clearDraft: 'Borrar borrador',
++      clearDraftBody: 'Elimina este Plan sin terminar del dispositivo y empieza de nuevo.',
++    },
++    draft: {
++      checkingTitle: 'Comprobando lugares guardados',
++      checkingBody: 'Hellowhen está confirmando que los lugares del borrador restaurado siguen disponibles y se pueden usar.',
++      needsReviewTitle: 'El borrador necesita revisión',
++      needsReviewOne: '{{count}} lugar necesita atención. Sustituye, corrige o elimina el lugar resaltado antes de la vista previa o la publicación.',
++      needsReviewMany: '{{count}} lugares necesitan atención. Sustituye, corrige o elimina los lugares resaltados antes de la vista previa o la publicación.',
++      checkingBadge: 'Comprobando lugar guardado',
++      reviewBadge: 'Necesita revisión',
++      checkingPlaceBody: 'Confirmando que este lugar guardado sigue disponible.',
++      defaultReviewReason: 'Este lugar guardado no se puede usar hasta que se revise.',
++      checkingRestored: 'Comprobando los lugares guardados de este borrador…',
++      restoredReviewOne: 'Borrador restaurado. {{count}} lugar necesita revisión antes de la vista previa o la publicación.',
++      restoredReviewMany: 'Borrador restaurado. {{count}} lugares necesitan revisión antes de la vista previa o la publicación.',
++      restoredSuccess: 'Borrador restaurado del {{date}}. Los lugares guardados se comprobaron y actualizaron.',
++      cleared: 'Borrador de Crear Plan borrado.',
++      continueTitle: '¿Continuar el borrador?',
++      continueBody: 'Tienes un Plan sin terminar guardado en este dispositivo desde el {{date}}.',
++      startNew: 'Empezar de nuevo',
++      continue: 'Continuar',
++      clearTitle: '¿Borrar borrador?',
++      clearBody: 'Esto elimina el Plan sin terminar de este dispositivo y abre un Plan vacío.',
++      keep: 'Conservar borrador',
++      clear: 'Borrar borrador',
++    },
++    feedback: {
++      starterLoaded: 'Idea de Plan cargada. Las paradas sin conexión son solo indicaciones: selecciona direcciones reales y añade enlaces en línea antes de publicar.',
++      placeFixedAdded: 'Lugar corregido y añadido a este Plan.',
++      placeUpdated: 'Lugar actualizado en este Plan.',
++    },
++    validation: {
++      offlineTop: 'Algunos lugares sin conexión necesitan una dirección. Elige una dirección verificada para cada lugar o elimina los que no quieras usar.',
++      offlineInline: 'Elige una dirección verificada para este lugar o elimínalo.',
++      draftReview: 'Algunos lugares restaurados necesitan revisión. Sustituye, corrige o elimina cada lugar resaltado antes de la vista previa o la publicación.',
++      draftChecking: 'Espera mientras Hellowhen comprueba los lugares guardados restaurados desde este borrador.',
++      addressNeeded: 'Dirección necesaria',
++      addBeforePreview: 'Añade al menos un lugar antes de la vista previa.',
++      addAtLeastOne: 'Añade al menos un lugar.',
++      addValidPlace: 'Añade al menos un lugar con fecha y hora válidas.',
++      validDateTime: 'Añade una fecha y hora válidas para el lugar {{index}}.',
++      minimumGap: 'El lugar {{index}} debe comenzar al menos {{minutes}} minutos después del lugar {{previous}}.',
++      chooseStartForDuration: 'Elige una fecha y hora de inicio antes de seleccionar una duración.',
++      endBoth: 'Añade la fecha y la hora de fin o deja ambos campos vacíos.',
++      invalidEnd: 'Añade una fecha y hora de fin válidas o deja el final vacío.',
++      endAfterStart: 'La hora de fin debe ser posterior al inicio del Plan.',
++      titleTooShort: 'El título personalizado del Plan debe tener al menos 3 caracteres.',
++      descriptionTooShort: 'La descripción personalizada debe tener al menos 10 caracteres o quedar vacía.',
++      tagsInvalid: 'Usa hasta 8 etiquetas de 32 caracteres o menos cada una.',
++      timeConflictTitle: 'Conflicto de horario',
++      timeConflict: 'Este horario se solapa o queda a menos de una hora de “{{plan}}”. Deja al menos una hora entre Planes antes de publicar.',
++      anotherPlan: 'otro Plan',
++      checkPlan: 'Revisar Plan',
++      couldNotSave: 'No se pudo guardar',
++    },
++    time: {
++      chooseDate: 'Elegir fecha',
++      chooseTime: 'Elegir hora',
++      done: 'Listo',
++      closePicker: 'Cerrar selector de hora',
++      systemDateHint: 'Usa el selector del sistema para elegir una fecha personalizada.',
++      systemTimeHint: 'Usa el selector del sistema para elegir una hora personalizada.',
++      dateForPlace: 'Fecha del lugar {{index}}',
++      timeForPlace: 'Hora del lugar {{index}}',
++      stopSubtitle: 'Elige cuándo sucede esta parada.',
++      chooseDateAccessibility: 'Elegir fecha del lugar {{index}}',
++      chooseTimeAccessibility: 'Elegir hora del lugar {{index}}',
++      firstRequired: 'Inicio del Plan · obligatorio',
++      laterOptional: 'Opcional · a la misma hora o después del lugar anterior',
++      date: 'Fecha',
++      time: 'Hora',
++      timeRequired: 'Hora obligatoria',
++    },
++    duration: {
++      helper: 'Ayuda de duración',
++      custom: 'Personalizada',
++      startFirst: 'Elige primero una fecha y hora de inicio.',
++      customEnd: 'Fin personalizado',
++      endDate: 'Fecha de fin',
++      endTime: 'Hora de fin',
++      customEndHelp: 'Elige un final personalizado solo cuando la estimación automática no sea correcta.',
++      estimatedEnd: 'Fin estimado',
++      noStart: 'Elige una fecha y hora de inicio para calcular el final.',
++      changeEnd: 'Cambiar hora de fin',
++      useEstimate: 'Usar estimación',
++      durationTitle: 'Duración',
++      durationSubtitle: 'Elige cuánto debe durar este Plan.',
++      customSubtitle: 'Usa esta opción solo cuando el final automático no sea correcto.',
++      manualLabel: 'Fin manual',
++      estimatedLabel: 'Fin estimado',
++      manualDetail: 'Hay un final manual activo. Bórralo para usar la estimación automática calculada con las horas de los lugares.',
++      singleEstimate: 'Estimación basada en el valor predeterminado de un solo lugar{{duration}}.',
++      multipleEstimate: 'Estimación basada en el intervalo medio entre lugares{{duration}}.',
++    },
++    advanced: {
++      title: 'Más opciones',
++      hide: 'Ocultar detalles personalizados del Plan',
++      show: 'Título, descripción, categoría y etiquetas opcionales',
++      planTitle: 'Título personalizado del Plan',
++      planDescription: 'Descripción personalizada del Plan',
++      category: 'Categoría',
++      categoryPlaceholder: 'Cultura, comida…',
++      tags: 'Etiquetas',
++      tagsPlaceholder: 'París, café',
++      help: 'Déjalo vacío para usar el resumen generado de lugares y horas. Separa las etiquetas con comas.',
++    },
++    place: {
++      label: 'Lugar {{index}}',
++      noLocation: 'Todavía no hay ubicación',
++      onlinePlace: 'Lugar en línea',
++      offlinePlace: 'Lugar sin conexión',
++      reusable: 'Lugar reutilizable',
++      fixAccessibility: 'Corregir {{title}}',
++      addAccessibility: 'Añadir {{title}}',
++      fix: 'Corregir',
++      name: 'Nombre del lugar',
++      nameOnlinePlaceholder: 'Llamada de planificación',
++      nameOfflinePlaceholder: 'Punto de encuentro en una cafetería',
++      onlineLabel: 'Etiqueta en línea',
++      onlineLabelPlaceholder: 'Zoom, Discord, sitio web',
++      onlineUrl: 'URL en línea',
++      address: 'Dirección o punto de encuentro',
++      addressPlaceholder: 'Buscar y seleccionar una dirección real',
++      addressHelp: 'Escribe al menos 3 caracteres y selecciona una dirección confirmada por Google. El texto escrito no se puede guardar por sí solo.',
++      verifiedAddress: 'Dirección verificada del lugar {{index}}',
++      starterAddressHelp: 'Escribe al menos 3 caracteres y selecciona una sugerencia del proveedor. Las paradas iniciales sin conexión no pueden usar direcciones de ejemplo.',
++      add: '+ Añadir lugar',
++      firstStop: 'Elegir la primera parada',
++      nextStop: 'Elegir la siguiente parada',
++      deleteThis: 'Eliminar este lugar',
++      openDetails: 'Abrir detalles',
++    },
++    placeDetail: {
++      closeAccessibility: 'Cerrar detalles del lugar',
++      sourceLibrary: 'Biblioteca',
++      sourceMine: 'Mi lugar',
++      sourceCustom: 'Personalizado',
++      savedUpdateBody: 'Actualiza tu lugar guardado.',
++      libraryCopyBody: 'Se copia a Mis lugares antes de editar.',
++      editSaved: 'Editar guardado',
++      copyToEdit: 'Copiar para editar',
++      makeCustom: 'Convertir en personalizado',
++      moveUp: 'Subir',
++      moveDown: 'Bajar',
++      changePlace: 'Cambiar lugar',
++      remove: 'Eliminar',
++      done: 'Listo',
++    },
++    sourcePicker: {
++      closeAccessibility: 'Cerrar origen del lugar',
++      addPlace: 'Añadir lugar',
++      myPlaces: 'Mis lugares',
++      library: 'Biblioteca de Hellowhen',
++      newPlace: 'Nuevo lugar',
++      customStop: 'Parada personalizada',
++      refresh: 'Actualizar',
++      searchLabel: 'Buscar lugares',
++      searchPlaceholder: 'Buscar lugares',
++      loading: 'Cargando lugares…',
++      noMineTitle: 'No hay lugares coincidentes',
++      noMineBody: 'Crea un lugar o usa una parada personalizada.',
++      noLibraryTitle: 'No hay lugares coincidentes',
++      noLibraryBody: 'Todavía no hay lugares coincidentes en la biblioteca.',
++      sources: 'Orígenes',
++      finishSavedPlace: 'Termina este lugar guardado antes de usarlo en un Plan.',
++      archivedPlace: 'Este lugar guardado está archivado.',
++      hiddenPlace: 'Este lugar guardado está oculto.',
++      addOnlineUrl: 'Añade una URL en línea válida antes de usar este lugar.',
++      fixAddress: 'Corrige primero este lugar seleccionando una dirección confirmada por Google.',
++    },
++    google: {
++      defaultLabel: 'Dirección o lugar',
++      defaultPlaceholder: 'Buscar una dirección o lugar real',
++      defaultHelp: 'Escribe al menos {{count}} caracteres y selecciona una sugerencia del proveedor. El texto escrito no se puede guardar como dirección sin conexión.',
++      typeMore: 'Escribe al menos {{count}} caracteres para buscar lugares de Google.',
++      noSuggestions: 'Todavía no hay sugerencias confirmadas. Prueba con un nombre de lugar o dirección más precisos.',
++      unavailable: 'Las sugerencias de direcciones de Google no están disponibles. Los lugares sin conexión requieren seleccionar una dirección; inténtalo más tarde o cambia a En línea.',
++      confirmFailed: 'No se pudo confirmar este lugar de Google. Prueba otra sugerencia.',
++      confirmed: 'Dirección confirmada por Google',
++      review: 'Sugerencia de Google · revisar detalles',
++      selected: 'Lugar de Google seleccionado',
++      select: 'Seleccionar',
++      searching: 'Buscando lugares de Google…',
++    },
++    preview: {
++      startNotSet: 'Inicio no definido',
++      feedPreview: 'Vista previa del feed',
++      route: 'Ruta',
++      previewPlan: 'Vista previa del Plan',
++      back: 'Atrás',
++      create: 'Crear Plan',
++      creating: 'Creando…',
++    },
++  },
+   workspace: {
+     myPlans: { title: 'Mis Planes', body: 'Los Planes que has creado.' },
+     joinedPlans: { title: 'Planes unidos', body: 'Los Planes a los que te has unido libremente.' },
+diff --git a/packages/i18n/src/locales/fr/plans.ts b/packages/i18n/src/locales/fr/plans.ts
+index 93f4c6c..44e4252 100644
+--- a/packages/i18n/src/locales/fr/plans.ts
++++ b/packages/i18n/src/locales/fr/plans.ts
+@@ -392,6 +392,241 @@ export const plans = {
+       safetyBody: 'Ne publiez pas d’adresses privées, de mots de passe, d’informations de paiement ni de documents sensibles dans les commentaires publics.',
+     },
+   },
++  ideaDetail: {
++    title: 'Idée de Plan',
++    badge: 'Idée de Plan · {{pack}}',
++    notFound: {
++      title: 'Idée de Plan introuvable',
++      body: 'Cette idée de départ n’est plus disponible. Vous pouvez toujours créer un Plan à partir de zéro.',
++    },
++    review: {
++      title: 'Vérifiez d’abord',
++      body: 'Cette idée fournit uniquement une structure. Ajoutez des adresses confirmées ou de vrais liens en ligne avant de publier.',
++    },
++    requirements: {
++      title: 'Avant de publier, ajoutez',
++      body: '{{requirements}}. Le texte indicatif n’est jamais enregistré comme adresse hors ligne valide.',
++      realAddressOne: '{{count}} adresse réelle',
++      realAddressMany: '{{count}} adresses réelles',
++      onlineLinkOne: '{{count}} lien en ligne',
++      onlineLinkMany: '{{count}} liens en ligne',
++      onlinePrompt: 'Indication uniquement — ajoutez un vrai lien dans Créer un Plan.',
++      offlinePrompt: 'Indication uniquement — sélectionnez une adresse proposée dans Créer un Plan.',
++    },
++    nextStep: {
++      title: 'Étape suivante',
++      body: 'Créer votre version ouvre Créer un Plan avec ces étapes modifiables. Les étapes hors ligne restent bloquées jusqu’à la sélection d’une adresse confirmée.',
++    },
++    actions: {
++      createPlan: 'Créer un Plan',
++      backToPlans: 'Retour aux Plans',
++      createVersion: 'Créer votre version',
++    },
++  },
++  create: {
++    headerTitle: 'Créer un Plan',
++    optionsAccessibility: 'Options de création du Plan',
++    badge: 'Plan',
++    stages: {
++      build: 'Construire',
++      preview: 'Aperçu',
++    },
++    menu: {
++      clearDraft: 'Effacer le brouillon',
++      clearDraftBody: 'Supprimez ce Plan inachevé de cet appareil et recommencez.',
++    },
++    draft: {
++      checkingTitle: 'Vérification des lieux enregistrés',
++      checkingBody: 'Hellowhen vérifie que les lieux de ce brouillon restauré sont toujours disponibles et utilisables.',
++      needsReviewTitle: 'Brouillon à vérifier',
++      needsReviewOne: '{{count}} lieu nécessite votre attention. Remplacez, corrigez ou supprimez le lieu signalé avant l’aperçu ou la publication.',
++      needsReviewMany: '{{count}} lieux nécessitent votre attention. Remplacez, corrigez ou supprimez les lieux signalés avant l’aperçu ou la publication.',
++      checkingBadge: 'Vérification du lieu',
++      reviewBadge: 'À vérifier',
++      checkingPlaceBody: 'Vérification de la disponibilité de ce lieu enregistré.',
++      defaultReviewReason: 'Ce lieu enregistré ne peut pas être utilisé avant sa vérification.',
++      checkingRestored: 'Vérification des lieux enregistrés dans ce brouillon…',
++      restoredReviewOne: 'Brouillon restauré. {{count}} lieu doit être vérifié avant l’aperçu ou la publication.',
++      restoredReviewMany: 'Brouillon restauré. {{count}} lieux doivent être vérifiés avant l’aperçu ou la publication.',
++      restoredSuccess: 'Brouillon restauré depuis le {{date}}. Les lieux enregistrés ont été vérifiés et actualisés.',
++      cleared: 'Brouillon du Plan effacé.',
++      continueTitle: 'Continuer le brouillon ?',
++      continueBody: 'Un Plan inachevé est enregistré sur cet appareil depuis le {{date}}.',
++      startNew: 'Recommencer',
++      continue: 'Continuer',
++      clearTitle: 'Effacer le brouillon ?',
++      clearBody: 'Cette action supprime le Plan inachevé de cet appareil et ouvre un nouveau Plan vide.',
++      keep: 'Conserver le brouillon',
++      clear: 'Effacer le brouillon',
++    },
++    feedback: {
++      starterLoaded: 'Idée de Plan chargée. Les étapes hors ligne sont uniquement indicatives : sélectionnez de vraies adresses proposées et ajoutez les liens en ligne avant de publier.',
++      placeFixedAdded: 'Lieu corrigé et ajouté à ce Plan.',
++      placeUpdated: 'Lieu mis à jour dans ce Plan.',
++    },
++    validation: {
++      offlineTop: 'Certains lieux hors ligne nécessitent une adresse. Choisissez une adresse vérifiée pour chaque lieu, ou supprimez les lieux inutiles.',
++      offlineInline: 'Choisissez une adresse vérifiée pour ce lieu, ou supprimez-le.',
++      draftReview: 'Certains lieux restaurés doivent être vérifiés. Remplacez, corrigez ou supprimez chaque lieu signalé avant l’aperçu ou la publication.',
++      draftChecking: 'Patientez pendant que Hellowhen vérifie les lieux enregistrés restaurés depuis ce brouillon.',
++      addressNeeded: 'Adresse requise',
++      addBeforePreview: 'Ajoutez au moins un lieu avant l’aperçu.',
++      addAtLeastOne: 'Ajoutez au moins un lieu.',
++      addValidPlace: 'Ajoutez au moins un lieu avec une date et une heure valides.',
++      validDateTime: 'Ajoutez une date et une heure valides pour le lieu {{index}}.',
++      minimumGap: 'Le lieu {{index}} doit commencer au moins {{minutes}} minutes après le lieu {{previous}}.',
++      chooseStartForDuration: 'Choisissez une date et une heure de début avant de sélectionner une durée.',
++      endBoth: 'Ajoutez une date et une heure de fin, ou laissez les deux champs vides.',
++      invalidEnd: 'Ajoutez une date et une heure de fin valides, ou laissez la fin vide.',
++      endAfterStart: 'La fin doit être postérieure au début du Plan.',
++      titleTooShort: 'Le titre personnalisé du Plan doit comporter au moins 3 caractères.',
++      descriptionTooShort: 'La description personnalisée doit comporter au moins 10 caractères, ou rester vide.',
++      tagsInvalid: 'Utilisez jusqu’à 8 tags de 32 caractères maximum chacun.',
++      timeConflictTitle: 'Conflit horaire',
++      timeConflict: 'Cet horaire chevauche « {{plan}} » ou se situe à moins d’une heure. Laissez au moins une heure entre les Plans avant de publier.',
++      anotherPlan: 'un autre Plan',
++      checkPlan: 'Vérifier le Plan',
++      couldNotSave: 'Enregistrement impossible',
++    },
++    time: {
++      chooseDate: 'Choisir la date',
++      chooseTime: 'Choisir l’heure',
++      done: 'Terminé',
++      closePicker: 'Fermer le sélecteur horaire',
++      systemDateHint: 'Utilisez le sélecteur du système pour choisir une date personnalisée.',
++      systemTimeHint: 'Utilisez le sélecteur du système pour choisir une heure personnalisée.',
++      dateForPlace: 'Date du lieu {{index}}',
++      timeForPlace: 'Heure du lieu {{index}}',
++      stopSubtitle: 'Choisissez quand cette étape a lieu.',
++      chooseDateAccessibility: 'Choisir la date du lieu {{index}}',
++      chooseTimeAccessibility: 'Choisir l’heure du lieu {{index}}',
++      firstRequired: 'Début du Plan · requis',
++      laterOptional: 'Facultatif · à la même heure ou après le lieu précédent',
++      date: 'Date',
++      time: 'Heure',
++      timeRequired: 'Heure requise',
++    },
++    duration: {
++      helper: 'Aide pour la durée',
++      custom: 'Personnalisée',
++      startFirst: 'Choisissez d’abord une date et une heure de début.',
++      customEnd: 'Fin personnalisée',
++      endDate: 'Date de fin',
++      endTime: 'Heure de fin',
++      customEndHelp: 'Choisissez une fin personnalisée uniquement si l’estimation automatique ne convient pas.',
++      estimatedEnd: 'Fin estimée',
++      noStart: 'Choisissez une date et une heure de début pour calculer la fin.',
++      changeEnd: 'Modifier la fin',
++      useEstimate: 'Utiliser l’estimation',
++      durationTitle: 'Durée',
++      durationSubtitle: 'Choisissez la durée de ce Plan.',
++      customSubtitle: 'Utilisez cette option uniquement si la fin automatique ne convient pas.',
++      manualLabel: 'Fin manuelle',
++      estimatedLabel: 'Fin estimée',
++      manualDetail: 'Une fin manuelle est active. Effacez-la pour utiliser l’estimation calculée à partir des horaires des lieux.',
++      singleEstimate: 'Estimation basée sur la durée par défaut d’un seul lieu{{duration}}.',
++      multipleEstimate: 'Estimation basée sur l’écart moyen entre les lieux{{duration}}.',
++    },
++    advanced: {
++      title: 'Plus d’options',
++      hide: 'Masquer les détails personnalisés du Plan',
++      show: 'Titre, description, catégorie et tags facultatifs',
++      planTitle: 'Titre personnalisé du Plan',
++      planDescription: 'Description personnalisée du Plan',
++      category: 'Catégorie',
++      categoryPlaceholder: 'Culture, cuisine…',
++      tags: 'Tags',
++      tagsPlaceholder: 'Paris, café',
++      help: 'Laissez vide pour utiliser le résumé généré des lieux et horaires. Séparez les tags par des virgules.',
++    },
++    place: {
++      label: 'Lieu {{index}}',
++      noLocation: 'Aucun emplacement pour le moment',
++      onlinePlace: 'Lieu en ligne',
++      offlinePlace: 'Lieu hors ligne',
++      reusable: 'Lieu réutilisable',
++      fixAccessibility: 'Corriger {{title}}',
++      addAccessibility: 'Ajouter {{title}}',
++      fix: 'Corriger',
++      name: 'Nom du lieu',
++      nameOnlinePlaceholder: 'Appel de préparation',
++      nameOfflinePlaceholder: 'Point de rendez-vous au café',
++      onlineLabel: 'Libellé en ligne',
++      onlineLabelPlaceholder: 'Zoom, Discord, site web',
++      onlineUrl: 'URL en ligne',
++      address: 'Adresse ou point de rendez-vous',
++      addressPlaceholder: 'Rechercher et sélectionner une adresse réelle',
++      addressHelp: 'Saisissez au moins 3 caractères, puis sélectionnez une adresse Google confirmée. Le texte saisi seul ne peut pas être enregistré.',
++      verifiedAddress: 'Adresse vérifiée du lieu {{index}}',
++      starterAddressHelp: 'Saisissez au moins 3 caractères, puis sélectionnez une suggestion. Les étapes hors ligne de départ ne peuvent pas utiliser d’adresses fictives.',
++      add: '+ Ajouter un lieu',
++      firstStop: 'Choisir la première étape',
++      nextStop: 'Choisir l’étape suivante',
++      deleteThis: 'Supprimer ce lieu',
++      openDetails: 'Ouvrir les détails',
++    },
++    placeDetail: {
++      closeAccessibility: 'Fermer les détails du lieu',
++      sourceLibrary: 'Bibliothèque',
++      sourceMine: 'Mon lieu',
++      sourceCustom: 'Personnalisé',
++      savedUpdateBody: 'Met à jour votre lieu enregistré.',
++      libraryCopyBody: 'Copié dans Mes lieux avant la modification.',
++      editSaved: 'Modifier le lieu enregistré',
++      copyToEdit: 'Copier pour modifier',
++      makeCustom: 'Rendre personnalisé',
++      moveUp: 'Monter',
++      moveDown: 'Descendre',
++      changePlace: 'Changer de lieu',
++      remove: 'Supprimer',
++      done: 'Terminé',
++    },
++    sourcePicker: {
++      closeAccessibility: 'Fermer le choix de la source',
++      addPlace: 'Ajouter un lieu',
++      myPlaces: 'Mes lieux',
++      library: 'Bibliothèque Hellowhen',
++      newPlace: 'Nouveau lieu',
++      customStop: 'Étape personnalisée',
++      refresh: 'Actualiser',
++      searchLabel: 'Rechercher des lieux',
++      searchPlaceholder: 'Rechercher des lieux',
++      loading: 'Chargement des lieux…',
++      noMineTitle: 'Aucun lieu correspondant',
++      noMineBody: 'Créez un lieu ou utilisez une étape personnalisée.',
++      noLibraryTitle: 'Aucun lieu correspondant',
++      noLibraryBody: 'Aucun lieu correspondant dans la bibliothèque pour le moment.',
++      sources: 'Sources',
++      finishSavedPlace: 'Terminez ce lieu enregistré avant de l’utiliser dans un Plan.',
++      archivedPlace: 'Ce lieu enregistré est archivé.',
++      hiddenPlace: 'Ce lieu enregistré est masqué.',
++      addOnlineUrl: 'Ajoutez une URL en ligne valide avant d’utiliser ce lieu.',
++      fixAddress: 'Corrigez d’abord ce lieu en sélectionnant une adresse Google confirmée.',
++    },
++    google: {
++      defaultLabel: 'Adresse ou lieu',
++      defaultPlaceholder: 'Rechercher une adresse ou un lieu réel',
++      defaultHelp: 'Saisissez au moins {{count}} caractères, puis sélectionnez une suggestion. Le texte saisi seul ne peut pas être enregistré comme adresse hors ligne.',
++      typeMore: 'Saisissez au moins {{count}} caractères pour rechercher des lieux Google.',
++      noSuggestions: 'Aucune suggestion confirmée. Essayez un nom de lieu ou une adresse plus précise.',
++      unavailable: 'Les suggestions d’adresses Google sont indisponibles. Les lieux hors ligne nécessitent une adresse proposée ; réessayez plus tard ou passez en ligne.',
++      confirmFailed: 'Impossible de confirmer ce lieu Google. Essayez une autre suggestion.',
++      confirmed: 'Adresse confirmée par Google',
++      review: 'Suggestion Google · à vérifier',
++      selected: 'Lieu Google sélectionné',
++      select: 'Sélectionner',
++      searching: 'Recherche de lieux Google…',
++    },
++    preview: {
++      startNotSet: 'Début non défini',
++      feedPreview: 'Aperçu dans le fil',
++      route: 'Parcours',
++      previewPlan: 'Prévisualiser le Plan',
++      back: 'Retour',
++      create: 'Créer le Plan',
++      creating: 'Création…',
++    },
++  },
+   workspace: {
+     myPlans: { title: 'Mes Plans', body: 'Les Plans que vous avez créés.' },
+     joinedPlans: { title: 'Plans rejoints', body: 'Les Plans que vous avez rejoints librement.' },

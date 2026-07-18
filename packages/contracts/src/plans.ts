@@ -613,6 +613,8 @@ export const placeSchema = z
     mode: planPlaceModeSchema.default("local"),
     title: z.string(),
     description: z.string().nullable().optional(),
+    originalTitle: z.string().optional(),
+    originalDescription: z.string().nullable().optional(),
     defaultLanguage: discoveryLanguageSchema.optional().default("en"),
     translations: z.array(inventoryTranslationSchema).optional(),
     category: z.string().nullable().optional(),

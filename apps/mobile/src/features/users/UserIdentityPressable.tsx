@@ -5,6 +5,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppText } from '../../components/AppText';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 import { UserAvatar, getUserDisplayName, type UserAvatarSize } from './UserAvatar';
 
 type UserIdentityProfile = {
@@ -82,6 +83,7 @@ export function UserIdentityPressable({
 }: UserIdentityPressableProps) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const resolvedUserId = userId ?? user?.id ?? null;
   const profile = user?.profile ?? null;
   const resolvedDisplayName = displayName ?? profile?.displayName ?? null;
@@ -141,8 +143,8 @@ export function UserIdentityPressable({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel ?? `Open ${name}'s public profile`}
-      accessibilityHint="Shows public marketplace profile information only."
+      accessibilityLabel={accessibilityLabel ?? t('profile.accessibility.openPublicProfile', { name })}
+      accessibilityHint={t('profile.accessibility.publicProfileHint')}
       hitSlop={6}
       onPress={handlePress}
       disabled={isStatic && !onPress}

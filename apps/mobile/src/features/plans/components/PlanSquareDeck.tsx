@@ -8,6 +8,7 @@ import { POSTER_CARD_GEOMETRY } from '../../../components/PosterCardGeometry';
 import { PosterCardFooter } from '../../../components/PosterCardFooter';
 import { SemanticBadge } from '../../../components/SemanticUI';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
+import { useTranslation } from '../../../providers/MobileI18nProvider';
 import { ContinuousSquareStackDeck, type SquareStackDeckCard } from '../../trade/deck';
 import { resolveMediaVariantUrl } from '../../trade/mediaUrls';
 
@@ -97,11 +98,12 @@ function buildPlanPlaceDeckCards(plan: PlanDto): PlanPlaceDeckCard[] {
   }));
 }
 
-function formatPlanPlaceDate(value?: string | null) {
-  if (!value) return 'Flexible time';
+function formatPlanPlaceDate(value: string | null | undefined, language: 'en' | 'fr' | 'es', flexibleLabel: string) {
+  if (!value) return flexibleLabel;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
+  const locale = language === 'fr' ? 'fr-FR' : language === 'es' ? 'es-ES' : 'en-US';
+  return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
 function getPlaceLocationLabel(place: PlanPlaceDto | undefined) {
@@ -116,17 +118,13 @@ function getPlaceLanguageLabel(place: PlanPlaceDto | undefined) {
   return displayLanguage.languageCode.toUpperCase();
 }
 
-function getPlanParticipantLabel(plan: PlanDto) {
-  const count = plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
-  return `${count} joined`;
-}
-
-function getPlaceDateLabel(place: PlanPlaceDto | undefined, planStartsAt: string) {
-  return formatPlanPlaceDate(place?.startsAt ?? planStartsAt);
+function getPlanParticipantCount(plan: PlanDto) {
+  return plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
 }
 
 function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'instruction', showModeBadge = true }: { card: PlanPlaceDeckCard; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
   const theme = useThemeTokens();
+  const { language, t } = useTranslation();
   const isDark = theme.mode === 'dark';
   const mediaUrl = activeMediaUrl(card.media);
   const staticMapUrl = staticMapUrlForTheme(card.staticMap, theme.mode);
@@ -134,13 +132,15 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
   const fallback = useMemo(() => fallbackModel(card.id), [card.id]);
   const place = card.place;
   const isEmpty = card.kind === 'emptyPlace' || !place;
-  const cardCounter = isEmpty ? '0 places' : `${String(card.placeIndex + 1).padStart(2, '0')}/${String(card.placeTotal).padStart(2, '0')}`;
-  const modeLabel = place?.mode === 'remote' ? 'Online' : 'Offline';
-  const placeTitle = place?.title ?? 'No places yet';
+  const cardCounter = isEmpty ? t('plans.deck.noPlacesCount') : `${String(card.placeIndex + 1).padStart(2, '0')}/${String(card.placeTotal).padStart(2, '0')}`;
+  const modeLabel = place?.mode === 'remote' ? t('plans.deck.online') : t('plans.deck.offline');
+  const placeTitle = place?.title ?? t('plans.deck.noPlaces');
   const languageLabel = isEmpty ? '' : getPlaceLanguageLabel(place);
   const locationLabel = isEmpty ? '' : [languageLabel, getPlaceLocationLabel(place)].filter(Boolean).join(' · ');
-  const timeLabel = isEmpty ? getPlanParticipantLabel(card.plan) : getPlaceDateLabel(place, card.plan.startsAt);
-  const primaryBadgeLabel = topBadgeLabel ?? `Place · ${cardCounter}`;
+  const timeLabel = isEmpty
+    ? t('plans.deck.participants', { count: getPlanParticipantCount(card.plan) })
+    : formatPlanPlaceDate(place?.startsAt ?? card.plan.startsAt, language, t('plans.common.flexibleTime'));
+  const primaryBadgeLabel = topBadgeLabel ?? t('plans.deck.placeBadge', { counter: cardCounter });
   const hasPosterImage = Boolean(imageUrl);
   const posterTextShadow = hasPosterImage ? 'rgba(0,0,0,0.34)' : isDark ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.48)';
   const posterTitleColor = hasPosterImage ? '#FFFFFF' : theme.color.text;
@@ -154,7 +154,9 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${card.plan.title}. ${isEmpty ? 'No places yet' : `Place ${card.placeIndex + 1}: ${placeTitle}`}. Open plan.`}
+      accessibilityLabel={isEmpty
+        ? t('plans.deck.accessibilityEmpty', { plan: card.plan.title })
+        : t('plans.deck.accessibilityPlace', { plan: card.plan.title, index: card.placeIndex + 1, place: placeTitle })}
       onPress={onOpen}
       style={({ pressed }) => [
         styles.card,
@@ -219,7 +221,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
       >
         <AppText style={[styles.planTitle, { color: posterSubtleColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{card.plan.title}</AppText>
         <AppText style={[styles.placeTitle, { color: posterTitleColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{placeTitle}</AppText>
-        {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>Add a first stop to turn this Plan into route cards.</AppText> : null}
+        {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{t('plans.deck.addFirstStop')}</AppText> : null}
         {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{locationLabel}</AppText> : null}
         <AppText style={[styles.placeTimeText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{timeLabel}</AppText>
       </PosterCardFooter>

@@ -18,9 +18,63 @@ export type InventoryTranslationLike = {
 export type InventoryTranslatableLike = {
   title?: string | null;
   description?: string | null;
+  originalTitle?: string | null;
+  originalDescription?: string | null;
   defaultLanguage?: string | null;
   translations?: InventoryTranslationLike[] | null;
+  displayLanguage?: { options?: LocalizedContentOption[] | null } | null;
 };
+
+export type InventoryOriginalCopy = {
+  title: string;
+  description: string;
+  defaultLanguage: InventoryLanguageCode;
+  translations: InventoryTranslationLike[];
+};
+
+function originalOptionFromDisplay(item: InventoryTranslatableLike, defaultLanguage: InventoryLanguageCode) {
+  const options = item.displayLanguage?.options ?? [];
+  return options.find((option) => option.isOriginal)
+    ?? options.find((option) => option.languageCode === defaultLanguage);
+}
+
+/**
+ * Returns the creator-authored source copy for an editor. Display APIs may
+ * replace title/description with the viewer's preferred translation, so edit
+ * forms must never initialize directly from those display fields.
+ */
+export function resolveInventoryOriginalCopy(item: InventoryTranslatableLike): InventoryOriginalCopy {
+  const defaultLanguage = normalizeInventoryLanguageCode(item.defaultLanguage) ?? 'en';
+  const displayOriginal = originalOptionFromDisplay(item, defaultLanguage);
+  const hasExplicitOriginalTitle = Object.prototype.hasOwnProperty.call(item, 'originalTitle');
+  const hasExplicitOriginalDescription = Object.prototype.hasOwnProperty.call(item, 'originalDescription');
+  const title = hasExplicitOriginalTitle
+    ? item.originalTitle ?? ''
+    : displayOriginal?.title ?? item.title ?? '';
+  const description = hasExplicitOriginalDescription
+    ? item.originalDescription ?? ''
+    : displayOriginal?.description ?? item.description ?? '';
+  const storedTranslations = (item.translations ?? []).filter((translation) =>
+    normalizeInventoryLanguageCode(translation.languageCode) !== defaultLanguage,
+  );
+  const translations = storedTranslations.length
+    ? storedTranslations
+    : (item.displayLanguage?.options ?? [])
+      .filter((option) => !option.isOriginal && option.languageCode !== defaultLanguage)
+      .map((option) => ({
+        languageCode: option.languageCode,
+        title: option.title,
+        description: option.description,
+        source: option.source,
+      }));
+
+  return {
+    title,
+    description,
+    defaultLanguage,
+    translations,
+  };
+}
 
 export type InventoryDisplayLanguage = {
   languageCode: string;
@@ -47,12 +101,13 @@ export function getAlternateInventoryLanguage(languageCode: string): InventoryLa
 }
 
 export function resolveInventoryDisplayCopy(item: InventoryTranslatableLike, viewerLanguage?: string | null, preferredLanguages?: readonly (string | null | undefined)[] | null): InventoryDisplayCopy {
+  const original = resolveInventoryOriginalCopy(item);
   const display = resolveLocalizedContent({
     viewerLanguage,
     preferredLanguages,
-    defaultLanguage: item.defaultLanguage,
-    translations: item.translations,
-    fallbackFields: item,
+    defaultLanguage: original.defaultLanguage,
+    translations: original.translations,
+    fallbackFields: original,
   });
 
   return {
@@ -67,10 +122,13 @@ export function resolveInventoryDisplayCopy(item: InventoryTranslatableLike, vie
   };
 }
 
-export function withResolvedInventoryDisplay<T extends InventoryTranslatableLike>(item: T, viewerLanguage?: string | null, preferredLanguages?: readonly (string | null | undefined)[] | null): T & { displayLanguage: InventoryDisplayLanguage } {
+export function withResolvedInventoryDisplay<T extends InventoryTranslatableLike>(item: T, viewerLanguage?: string | null, preferredLanguages?: readonly (string | null | undefined)[] | null): T & { originalTitle: string; originalDescription: string; displayLanguage: InventoryDisplayLanguage } {
+  const original = resolveInventoryOriginalCopy(item);
   const display = resolveInventoryDisplayCopy(item, viewerLanguage, preferredLanguages);
   return {
     ...item,
+    originalTitle: original.title,
+    originalDescription: original.description,
     title: display.title,
     description: display.description,
     displayLanguage: {

@@ -5,6 +5,7 @@ import type { SemanticColorName } from '@hellowhen/theme';
 import { AppText } from '../../components/AppText';
 import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 
 type FeatureGuidePromptCardProps = {
   title: string;
@@ -18,6 +19,7 @@ type FeatureGuidePromptCardProps = {
 export function FeatureGuidePromptCard({ title, body, icon, tone, onStart, onDismiss }: FeatureGuidePromptCardProps) {
   const theme = useThemeTokens();
   const semanticTone = theme.semantic[tone];
+  const { t } = useTranslation();
 
   return (
     <View style={[styles.card, { backgroundColor: theme.color.surface, borderColor: semanticTone.border }]}>
@@ -33,19 +35,19 @@ export function FeatureGuidePromptCard({ title, body, icon, tone, onStart, onDis
       <View style={styles.actions}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Start ${title.replace('?', '')} guide`}
+          accessibilityLabel={t('onboarding.prompt.startAccessibility', { title })}
           onPress={onStart}
           style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}
         >
-          <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Start guide</AppText>
+          <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('onboarding.prompt.start')}</AppText>
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Dismiss ${title.replace('?', '')} guide prompt`}
+          accessibilityLabel={t('onboarding.prompt.dismissAccessibility', { title })}
           onPress={onDismiss}
           style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.color.border, backgroundColor: theme.color.subtleSurface }, pressed && styles.pressed]}
         >
-          <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>Dismiss</AppText>
+          <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{t('onboarding.prompt.dismiss')}</AppText>
         </Pressable>
       </View>
     </View>

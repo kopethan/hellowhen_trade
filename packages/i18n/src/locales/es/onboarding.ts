@@ -3,6 +3,42 @@ import { onboarding as enOnboarding } from '../en/onboarding';
 export const onboarding = {
   ...enOnboarding,
   ariaLabel: 'Guía de bienvenida de Hellowhen',
+  hub: {
+    ...enOnboarding.hub,
+    title: 'Guías',
+    eyebrow: 'Biblioteca de guías',
+    heroTitle: 'Repite las guías cuando quieras',
+    heroBody: 'Elige la guía de la app, de Plans o de Trade. Los feeds públicos siguen abiertos y estas guías siempre están disponibles desde Me.',
+    choices: {
+      global: {
+        title: 'Guía de la app',
+        body: 'Repite la guía general sobre navegación, Me, feeds públicos y seguridad básica.',
+        badge: 'App',
+        action: 'Repetir guía de la app',
+      },
+      plans: {
+        title: 'Guía de Plans',
+        body: 'Aprende cómo funcionan Plans, lugares, unirse, crear y la seguridad.',
+        badge: 'Plans',
+        action: 'Abrir guía de Plans',
+      },
+      trade: {
+        title: 'Guía de Trade',
+        body: 'Aprende sobre tarjetas Trade, Necesidades/Ofertas, propuestas y acuerdos seguros.',
+        badge: 'Trade',
+        action: 'Abrir guía de Trade',
+      },
+    },
+  },
+  prompt: {
+    ...enOnboarding.prompt,
+    start: 'Empezar guía',
+    dismiss: 'Descartar',
+    startAccessibility: 'Empezar {{title}}',
+    dismissAccessibility: 'Descartar aviso de {{title}}',
+    tradeTitle: '¿Eres nuevo en Trade?',
+    tradeBody: 'Aprende sobre tarjetas Trade, Necesidades/Ofertas, propuestas y acuerdos seguros.',
+  },
   actions: {
     ...enOnboarding.actions,
     skip: 'Saltar',

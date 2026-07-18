@@ -9,15 +9,16 @@ import { AppText } from '../../components/AppText';
 import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 import type { OnboardingGuideType } from './onboardingGuide.slides';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'GuideHub'>;
 
 type GuideChoice = {
-  title: string;
-  body: string;
-  badge: string;
-  action: string;
+  titleKey: string;
+  bodyKey: string;
+  badgeKey: string;
+  actionKey: string;
   guide: OnboardingGuideType;
   icon: MobileIconName;
   tone: SemanticColorName;
@@ -25,28 +26,28 @@ type GuideChoice = {
 
 const guideChoices: GuideChoice[] = [
   {
-    title: 'App guide',
-    body: 'Replay the global app guide for navigation, Me, public feeds, and safety basics.',
-    badge: 'App',
-    action: 'Replay app guide',
+    titleKey: 'onboarding.hub.choices.global.title',
+    bodyKey: 'onboarding.hub.choices.global.body',
+    badgeKey: 'onboarding.hub.choices.global.badge',
+    actionKey: 'onboarding.hub.choices.global.action',
     guide: 'global',
     icon: 'help',
     tone: 'info',
   },
   {
-    title: 'Plans guide',
-    body: 'Learn how plans, places, joining, creating, and safety work.',
-    badge: 'Plans',
-    action: 'Open Plans guide',
+    titleKey: 'onboarding.hub.choices.plans.title',
+    bodyKey: 'onboarding.hub.choices.plans.body',
+    badgeKey: 'onboarding.hub.choices.plans.badge',
+    actionKey: 'onboarding.hub.choices.plans.action',
     guide: 'plans',
     icon: 'plan',
     tone: 'plan',
   },
   {
-    title: 'Trade guide',
-    body: 'Learn trade cards, needs/offers, proposals, and safe agreements.',
-    badge: 'Trade',
-    action: 'Open Trade guide',
+    titleKey: 'onboarding.hub.choices.trade.title',
+    bodyKey: 'onboarding.hub.choices.trade.body',
+    badgeKey: 'onboarding.hub.choices.trade.badge',
+    actionKey: 'onboarding.hub.choices.trade.action',
     guide: 'trade',
     icon: 'trade',
     tone: 'trade',
@@ -55,18 +56,19 @@ const guideChoices: GuideChoice[] = [
 
 export function GuideHubScreen({ navigation }: Props) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
 
   function openGuide(guide: OnboardingGuideType) {
     navigation.navigate('OnboardingGuide', { guide, replay: true });
   }
 
   return (
-    <AppFixedHeaderScreen header={<AppHeader title="Guides" onBack={() => navigation.goBack()} />}>
+    <AppFixedHeaderScreen header={<AppHeader title={t('onboarding.hub.title')} onBack={() => navigation.goBack()} />}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={[styles.hero, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-          <AppText style={styles.heroEyebrow}>GUIDE LIBRARY</AppText>
-          <AppText style={styles.heroTitle}>Replay guides anytime</AppText>
-          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>Choose the App, Plans, or Trade guide. Public feeds stay open, and these guides are always available from Me.</AppText>
+          <AppText style={styles.heroEyebrow}>{t('onboarding.hub.eyebrow')}</AppText>
+          <AppText style={styles.heroTitle}>{t('onboarding.hub.heroTitle')}</AppText>
+          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t('onboarding.hub.heroBody')}</AppText>
         </View>
 
         <View style={styles.cards}>
@@ -75,7 +77,7 @@ export function GuideHubScreen({ navigation }: Props) {
             return (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={choice.action}
+                accessibilityLabel={t(choice.actionKey)}
                 key={choice.guide}
                 onPress={() => openGuide(choice.guide)}
                 style={({ pressed }) => [styles.card, { backgroundColor: theme.color.surface, borderColor: tone.border }, pressed && styles.pressed]}
@@ -84,10 +86,10 @@ export function GuideHubScreen({ navigation }: Props) {
                   <MobileIcon name={choice.icon} size={20} color={tone.text} />
                 </View>
                 <View style={styles.cardCopy}>
-                  <AppText style={[styles.badge, { color: tone.text }]}>{choice.badge}</AppText>
-                  <AppText style={styles.cardTitle}>{choice.title}</AppText>
-                  <AppText style={[styles.cardBody, { color: theme.color.muted }]}>{choice.body}</AppText>
-                  <AppText style={[styles.cardAction, { color: tone.text }]}>{choice.action}</AppText>
+                  <AppText style={[styles.badge, { color: tone.text }]}>{t(choice.badgeKey)}</AppText>
+                  <AppText style={styles.cardTitle}>{t(choice.titleKey)}</AppText>
+                  <AppText style={[styles.cardBody, { color: theme.color.muted }]}>{t(choice.bodyKey)}</AppText>
+                  <AppText style={[styles.cardAction, { color: tone.text }]}>{t(choice.actionKey)}</AppText>
                 </View>
                 <MobileIcon name="chevron-right" size={22} color={theme.color.muted} />
               </Pressable>

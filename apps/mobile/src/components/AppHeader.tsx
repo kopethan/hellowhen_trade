@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText } from './AppText';
 import { MobileIcon } from './MobileIcon';
 import { useThemeTokens } from '../providers/ThemeProvider';
+import { useTranslation } from '../providers/MobileI18nProvider';
 
 type AppHeaderProps = {
   title: string;
@@ -12,12 +13,13 @@ type AppHeaderProps = {
 
 export function AppHeader({ title, onBack, rightSlot }: AppHeaderProps) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
 
   return (
     <View style={styles.headerRow}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Go back"
+        accessibilityLabel={t('navigation.goBack')}
         onPress={onBack}
         style={({ pressed }) => [
           styles.backButton,

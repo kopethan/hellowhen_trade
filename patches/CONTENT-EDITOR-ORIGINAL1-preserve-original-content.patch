@@ -1,0 +1,463 @@
+diff --git a/apps/api/package.json b/apps/api/package.json
+index ace9dbf..4b2913d 100644
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -16,7 +16,8 @@
+     "media:s3-migrate": "tsx src/scripts/migrateLocalMediaToS3.ts",
+     "places:address-cleanup": "tsx src/scripts/cleanupInvalidOfflinePlaces.ts",
+     "test:plans": "tsx --test src/modules/plans/__tests__/plans.safety.test.ts",
+-    "test:places": "tsx --test src/modules/places/__tests__/placeUpdatePolicy.test.ts"
++    "test:places": "tsx --test src/modules/places/__tests__/placeUpdatePolicy.test.ts",
++    "test:inventory-original": "tsx --test src/modules/__tests__/inventoryOriginalCopy.test.ts"
+   },
+   "dependencies": {
+     "@aws-sdk/client-s3": "^3.1077.0",
+diff --git a/apps/api/src/modules/__tests__/inventoryOriginalCopy.test.ts b/apps/api/src/modules/__tests__/inventoryOriginalCopy.test.ts
+new file mode 100644
+index 0000000..a223028
+--- /dev/null
++++ b/apps/api/src/modules/__tests__/inventoryOriginalCopy.test.ts
+@@ -0,0 +1,87 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import {
++  resolveInventoryOriginalCopy,
++  withResolvedInventoryDisplay,
++  type InventoryTranslatableLike,
++} from '@hellowhen/shared';
++
++const englishOriginal: InventoryTranslatableLike & { id: string } = {
++  id: 'place-1',
++  title: 'Test place for time check',
++  description: 'Useful details for this Place.',
++  defaultLanguage: 'en',
++  translations: [
++    {
++      languageCode: 'fr',
++      title: 'Teste français',
++      description: 'Test descriptin pur',
++      source: 'creator',
++    },
++  ],
++};
++
++test('localized display payload retains explicit creator-authored source fields', () => {
++  const localized = withResolvedInventoryDisplay(englishOriginal, 'fr', ['fr', 'en']);
++
++  assert.equal(localized.title, 'Teste français');
++  assert.equal(localized.description, 'Test descriptin pur');
++  assert.equal(localized.originalTitle, 'Test place for time check');
++  assert.equal(localized.originalDescription, 'Useful details for this Place.');
++
++  const editorSource = resolveInventoryOriginalCopy(localized);
++  assert.equal(editorSource.title, 'Test place for time check');
++  assert.equal(editorSource.description, 'Useful details for this Place.');
++  assert.equal(editorSource.defaultLanguage, 'en');
++  assert.equal(editorSource.translations[0]?.languageCode, 'fr');
++});
++
++test('legacy localized payloads recover the original from display options', () => {
++  const editorSource = resolveInventoryOriginalCopy({
++    title: 'Teste français',
++    description: 'Test descriptin pur',
++    defaultLanguage: 'en',
++    displayLanguage: {
++      options: [
++        {
++          languageCode: 'en',
++          title: 'Test place for time check',
++          description: 'Useful details for this Place.',
++          source: 'creator',
++          isOriginal: true,
++        },
++        {
++          languageCode: 'fr',
++          title: 'Teste français',
++          description: 'Test descriptin pur',
++          source: 'creator',
++          isOriginal: false,
++        },
++      ],
++    },
++  });
++
++  assert.equal(editorSource.title, 'Test place for time check');
++  assert.equal(editorSource.description, 'Useful details for this Place.');
++  assert.deepEqual(editorSource.translations.map((translation) => translation.languageCode), ['fr']);
++});
++
++test('explicit original fields win over localized title and description', () => {
++  const editorSource = resolveInventoryOriginalCopy({
++    title: 'J’ai besoin d’accéder à une imprimante',
++    description: 'Besoin d’une imprimante',
++    originalTitle: 'I need access to a printer',
++    originalDescription: 'Need a printer',
++    defaultLanguage: 'en',
++    translations: [
++      {
++        languageCode: 'fr',
++        title: 'J’ai besoin d’accéder à une imprimante',
++        description: 'Besoin d’une imprimante',
++      },
++    ],
++  });
++
++  assert.equal(editorSource.title, 'I need access to a printer');
++  assert.equal(editorSource.description, 'Need a printer');
++});
+diff --git a/apps/api/src/modules/inventoryTranslations.ts b/apps/api/src/modules/inventoryTranslations.ts
+index 707103b..817ca6b 100644
+--- a/apps/api/src/modules/inventoryTranslations.ts
++++ b/apps/api/src/modules/inventoryTranslations.ts
+@@ -5,7 +5,7 @@ import type { DiscoveryLanguage } from '@hellowhen/contracts';
+ type InventoryTranslationTargetType = 'need' | 'offer' | 'place';
+ type InventoryTranslationInput = { languageCode: DiscoveryLanguage; title: string; description: string };
+ type StoredInventoryTranslation = InventoryTranslationLike & { id?: string; targetType?: InventoryTranslationTargetType; targetId?: string; createdAt?: Date; updatedAt?: Date };
+-type InventoryWithId = { id: string; defaultLanguage?: string | null; title?: string | null; description?: string | null; translations?: StoredInventoryTranslation[] | null };
++type InventoryWithId = { id: string; defaultLanguage?: string | null; title?: string | null; description?: string | null; originalTitle?: string | null; originalDescription?: string | null; translations?: StoredInventoryTranslation[] | null };
+ type TxClient = PrismaClient | Prisma.TransactionClient;
+ 
+ function normalizeTranslations(input: InventoryTranslationInput[] | undefined, defaultLanguage: string) {
+@@ -86,7 +86,12 @@ export async function withInventoryTranslations<T extends InventoryWithId>(
+   items: T[],
+ ): Promise<T[]> {
+   const translationsByTargetId = await loadInventoryTranslationsByTargetIds(prisma, targetType, items.map((item) => item.id));
+-  return items.map((item) => ({ ...item, translations: translationsByTargetId.get(item.id) ?? [] }));
++  return items.map((item) => ({
++    ...item,
++    originalTitle: item.originalTitle ?? item.title ?? '',
++    originalDescription: item.originalDescription ?? item.description ?? '',
++    translations: translationsByTargetId.get(item.id) ?? [],
++  }));
+ }
+ 
+ export async function withOneInventoryTranslation<T extends InventoryWithId>(
+@@ -95,7 +100,12 @@ export async function withOneInventoryTranslation<T extends InventoryWithId>(
+   item: T,
+ ): Promise<T> {
+   const [hydrated] = await withInventoryTranslations(prisma, targetType, [item]);
+-  return hydrated ?? ({ ...item, translations: [] } as T);
++  return hydrated ?? ({
++    ...item,
++    originalTitle: item.originalTitle ?? item.title ?? '',
++    originalDescription: item.originalDescription ?? item.description ?? '',
++    translations: [],
++  } as T);
+ }
+ 
+ export function applyInventoryDisplayLanguage<T extends InventoryWithId>(items: T[], viewerLanguage?: string | null, preferredLanguages?: readonly (string | null | undefined)[] | null): T[] {
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 778625d..e95a6ff 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -7,7 +7,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+ import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
+ import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
+-import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
++import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, resolveInventoryOriginalCopy, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppText } from '../../components/AppText';
+@@ -781,13 +781,14 @@ function makePlaceCreateForm(defaultLanguage: DiscoveryLanguage = 'en'): PlaceCr
+ 
+ function placeCreateFormFromPlace(place: PlaceDto): PlaceCreateFormState {
+   const mode = place.mode === 'remote' ? 'remote' : 'local';
+-  const defaultLanguage = normalizePlaceLanguage(place.defaultLanguage);
++  const original = resolveInventoryOriginalCopy(place);
++  const defaultLanguage = normalizePlaceLanguage(original.defaultLanguage);
+   return {
+     mode,
+-    title: place.title ?? '',
+-    description: place.description ?? '',
++    title: original.title,
++    description: original.description,
+     defaultLanguage,
+-    translations: normalizeLocalizedContentTranslationDrafts((place.translations ?? []) as InventoryTranslationDto[], defaultLanguage),
++    translations: normalizeLocalizedContentTranslationDrafts(original.translations as InventoryTranslationDto[], defaultLanguage),
+     location: mode === 'local' ? place.formattedAddress ?? place.addressPublicText ?? place.areaLabel ?? '' : '',
+     providerAddress: mode === 'local' ? placeAddressFromReusablePlace(place) : null,
+     onlineLabel: mode === 'remote' ? place.onlineLabel ?? '' : '',
+diff --git a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+index 07c136a..cd15148 100644
+--- a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+@@ -64,7 +64,7 @@ import {
+   INVENTORY_TITLE_MIN_LENGTH,
+ } from '@hellowhen/contracts/src/inventoryLimits';
+ import { formatLocalizedDate } from '@hellowhen/i18n';
+-import { useLocalizedInventoryItem } from './inventoryDisplay';
++import { resolveInventoryEditorSource, useLocalizedInventoryItem } from './inventoryDisplay';
+ import type { NeedItem, OfferItem } from './types';
+ import {
+   buildInventoryTranslationsPayload,
+@@ -218,13 +218,13 @@ export function InventoryDetailScreen({
+     const itemTimingOrAvailability = isNeed
+       ? getOptionalString(item, 'timing')
+       : getOptionalString(item, 'availability');
+-    const itemDefaultLanguage =
+-      (item.defaultLanguage as DiscoveryLanguage | undefined) ?? language;
+-    const itemTranslations = inventoryTranslationDraftsFromItem(item.translations, itemDefaultLanguage);
++    const original = resolveInventoryEditorSource(item);
++    const itemDefaultLanguage = original.defaultLanguage as DiscoveryLanguage;
++    const itemTranslations = inventoryTranslationDraftsFromItem(original.translations, itemDefaultLanguage);
+ 
+     return Boolean(
+-      title !== (item.title ?? '') ||
+-        description !== (item.description ?? '') ||
++      title !== original.title ||
++        description !== original.description ||
+         defaultLanguage !== itemDefaultLanguage ||
+         !inventoryTranslationDraftsEqual(translations, itemTranslations, defaultLanguage) ||
+         itemType !== ((item.itemType as InventoryItemType | undefined) ?? 'service') ||
+@@ -236,7 +236,7 @@ export function InventoryDetailScreen({
+         existingMedia.find((media) => media.isCover)?.id !== (item.media ?? []).find((media) => media.isCover)?.id ||
+         newImages.length > 0,
+     );
+-  }, [category, defaultLanguage, description, editing, isNeed, item, itemType, language, locationLabel, mode, newImages.length, timingOrAvailability, title, translations]);
++  }, [category, defaultLanguage, description, editing, isNeed, item, itemType, locationLabel, mode, newImages.length, timingOrAvailability, title, translations]);
+ 
+   const unsavedChangesConfirm = useUnsavedChangesWarning({
+     navigation,
+@@ -257,13 +257,13 @@ export function InventoryDetailScreen({
+ 
+   const hydrateForm = useCallback(
+     (nextItem: InventoryItem) => {
++      const original = resolveInventoryEditorSource(nextItem);
+       setItem(nextItem);
+-      setTitle(nextItem.title ?? '');
+-      setDescription(nextItem.description ?? '');
+-      const nextDefaultLanguage =
+-        (nextItem.defaultLanguage as DiscoveryLanguage | undefined) ?? language;
++      setTitle(original.title);
++      setDescription(original.description);
++      const nextDefaultLanguage = original.defaultLanguage as DiscoveryLanguage;
+       setDefaultLanguage(nextDefaultLanguage);
+-      setTranslations(inventoryTranslationDraftsFromItem(nextItem.translations, nextDefaultLanguage));
++      setTranslations(inventoryTranslationDraftsFromItem(original.translations, nextDefaultLanguage));
+       setItemType(
+         (nextItem.itemType as InventoryItemType | undefined) ?? 'service',
+       );
+@@ -279,7 +279,7 @@ export function InventoryDetailScreen({
+       setNewImages([]);
+       setLanguagePanelExpanded(false);
+     },
+-    [isNeed, language],
++    [isNeed],
+   );
+ 
+   const loadItem = useCallback(async () => {
+@@ -487,6 +487,7 @@ export function InventoryDetailScreen({
+       }),
+     [category, itemType, locationLabel, mode, structuredTiming.duration, t, tone],
+   );
++  const editorSource = useMemo(() => item ? resolveInventoryEditorSource(item) : null, [item]);
+   const displayItem = useLocalizedInventoryItem(item);
+   const languageSelection = useContentLanguageSelection({
+     displayLanguage: !editing ? displayItem?.displayLanguage : null,
+@@ -602,7 +603,7 @@ export function InventoryDetailScreen({
+           <>
+             <DetailHero
+               eyebrow={`${label} · ${statusLabel(status, t)}`}
+-              title={editing ? title || item.title : languageSelection.title}
++              title={editing ? title || editorSource?.title || item.title : languageSelection.title}
+               subtitle={!editing ? languageSelection.description : undefined}
+               meta={
+                 updatedAt
+diff --git a/apps/mobile/src/features/trade/inventoryDisplay.ts b/apps/mobile/src/features/trade/inventoryDisplay.ts
+index 9b9b4b8..89874df 100644
+--- a/apps/mobile/src/features/trade/inventoryDisplay.ts
++++ b/apps/mobile/src/features/trade/inventoryDisplay.ts
+@@ -1,50 +1,31 @@
+ import { useCallback, useMemo } from 'react';
+ import type { InventoryDisplayLanguage } from '@hellowhen/contracts';
+-import { resolveInventoryDisplayCopy } from '@hellowhen/shared';
++import { resolveInventoryDisplayCopy, resolveInventoryOriginalCopy } from '@hellowhen/shared';
+ import { useAppSettings } from '../../providers/AppSettingsProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import type { NeedItem, OfferItem } from './types';
+ 
+ type InventoryDisplayable = Pick<
+   NeedItem | OfferItem,
+-  'title' | 'description' | 'defaultLanguage' | 'translations' | 'displayLanguage'
++  'title' | 'description' | 'originalTitle' | 'originalDescription' | 'defaultLanguage' | 'translations' | 'displayLanguage'
+ >;
+ 
+ type LocalizedInventoryItem<T extends InventoryDisplayable> = T & {
+   displayLanguage: InventoryDisplayLanguage;
+ };
+ 
+-function sourceInventoryCopy(item: InventoryDisplayable) {
+-  const options = item.displayLanguage?.options ?? [];
+-  const defaultLanguage = item.defaultLanguage ?? 'en';
+-  const original = options.find((option) => option.isOriginal)
+-    ?? options.find((option) => option.languageCode === defaultLanguage);
+-
+-  if (!original) return item;
+-  const originalLanguage = original.languageCode ?? defaultLanguage;
+-
+-  return {
+-    title: original.title,
+-    description: original.description,
+-    defaultLanguage: originalLanguage,
+-    translations: options
+-      .filter((option) => option.languageCode !== original.languageCode)
+-      .map((option) => ({
+-        languageCode: option.languageCode,
+-        title: option.title,
+-        description: option.description,
+-        source: option.source,
+-      })),
+-  };
++export function resolveInventoryEditorSource(item: InventoryDisplayable) {
++  return resolveInventoryOriginalCopy(item);
+ }
+ 
++
+ export function resolveMobileInventoryDisplay<T extends InventoryDisplayable>(
+   item: T,
+   viewerLanguage?: string | null,
+   preferredLanguages?: readonly (string | null | undefined)[] | null,
+ ): LocalizedInventoryItem<T> {
+   const display = resolveInventoryDisplayCopy(
+-    sourceInventoryCopy(item),
++    resolveInventoryEditorSource(item),
+     viewerLanguage,
+     preferredLanguages,
+   );
+diff --git a/packages/contracts/src/plans.ts b/packages/contracts/src/plans.ts
+index f681f20..74da90c 100644
+--- a/packages/contracts/src/plans.ts
++++ b/packages/contracts/src/plans.ts
+@@ -613,6 +613,8 @@ export const placeSchema = z
+     mode: planPlaceModeSchema.default("local"),
+     title: z.string(),
+     description: z.string().nullable().optional(),
++    originalTitle: z.string().optional(),
++    originalDescription: z.string().nullable().optional(),
+     defaultLanguage: discoveryLanguageSchema.optional().default("en"),
+     translations: z.array(inventoryTranslationSchema).optional(),
+     category: z.string().nullable().optional(),
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index fb99959..b44beb1 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -361,6 +361,8 @@ export const needSchema = z.object({
+   sourceTemplateId: z.string().nullable().optional(),
+   title: z.string(),
+   description: z.string(),
++  originalTitle: z.string().optional(),
++  originalDescription: z.string().nullable().optional(),
+   defaultLanguage: discoveryLanguageSchema.optional().default('en'),
+   translations: z.array(inventoryTranslationSchema).optional(),
+   itemType: inventoryItemTypeSchema.optional().default('service'),
+@@ -391,6 +393,8 @@ export const offerSchema = z.object({
+   sourceTemplateId: z.string().nullable().optional(),
+   title: z.string(),
+   description: z.string(),
++  originalTitle: z.string().optional(),
++  originalDescription: z.string().nullable().optional(),
+   defaultLanguage: discoveryLanguageSchema.optional().default('en'),
+   translations: z.array(inventoryTranslationSchema).optional(),
+   itemType: inventoryItemTypeSchema.optional().default('service'),
+diff --git a/packages/shared/src/inventoryTranslations.ts b/packages/shared/src/inventoryTranslations.ts
+index 43f7977..53b4187 100644
+--- a/packages/shared/src/inventoryTranslations.ts
++++ b/packages/shared/src/inventoryTranslations.ts
+@@ -18,10 +18,64 @@ export type InventoryTranslationLike = {
+ export type InventoryTranslatableLike = {
+   title?: string | null;
+   description?: string | null;
++  originalTitle?: string | null;
++  originalDescription?: string | null;
+   defaultLanguage?: string | null;
+   translations?: InventoryTranslationLike[] | null;
++  displayLanguage?: { options?: LocalizedContentOption[] | null } | null;
+ };
+ 
++export type InventoryOriginalCopy = {
++  title: string;
++  description: string;
++  defaultLanguage: InventoryLanguageCode;
++  translations: InventoryTranslationLike[];
++};
++
++function originalOptionFromDisplay(item: InventoryTranslatableLike, defaultLanguage: InventoryLanguageCode) {
++  const options = item.displayLanguage?.options ?? [];
++  return options.find((option) => option.isOriginal)
++    ?? options.find((option) => option.languageCode === defaultLanguage);
++}
++
++/**
++ * Returns the creator-authored source copy for an editor. Display APIs may
++ * replace title/description with the viewer's preferred translation, so edit
++ * forms must never initialize directly from those display fields.
++ */
++export function resolveInventoryOriginalCopy(item: InventoryTranslatableLike): InventoryOriginalCopy {
++  const defaultLanguage = normalizeInventoryLanguageCode(item.defaultLanguage) ?? 'en';
++  const displayOriginal = originalOptionFromDisplay(item, defaultLanguage);
++  const hasExplicitOriginalTitle = Object.prototype.hasOwnProperty.call(item, 'originalTitle');
++  const hasExplicitOriginalDescription = Object.prototype.hasOwnProperty.call(item, 'originalDescription');
++  const title = hasExplicitOriginalTitle
++    ? item.originalTitle ?? ''
++    : displayOriginal?.title ?? item.title ?? '';
++  const description = hasExplicitOriginalDescription
++    ? item.originalDescription ?? ''
++    : displayOriginal?.description ?? item.description ?? '';
++  const storedTranslations = (item.translations ?? []).filter((translation) =>
++    normalizeInventoryLanguageCode(translation.languageCode) !== defaultLanguage,
++  );
++  const translations = storedTranslations.length
++    ? storedTranslations
++    : (item.displayLanguage?.options ?? [])
++      .filter((option) => !option.isOriginal && option.languageCode !== defaultLanguage)
++      .map((option) => ({
++        languageCode: option.languageCode,
++        title: option.title,
++        description: option.description,
++        source: option.source,
++      }));
++
++  return {
++    title,
++    description,
++    defaultLanguage,
++    translations,
++  };
++}
++
+ export type InventoryDisplayLanguage = {
+   languageCode: string;
+   isTranslated: boolean;
+@@ -47,12 +101,13 @@ export function getAlternateInventoryLanguage(languageCode: string): InventoryLa
+ }
+ 
+ export function resolveInventoryDisplayCopy(item: InventoryTranslatableLike, viewerLanguage?: string | null, preferredLanguages?: readonly (string | null | undefined)[] | null): InventoryDisplayCopy {
++  const original = resolveInventoryOriginalCopy(item);
+   const display = resolveLocalizedContent({
+     viewerLanguage,
+     preferredLanguages,
+-    defaultLanguage: item.defaultLanguage,
+-    translations: item.translations,
+-    fallbackFields: item,
++    defaultLanguage: original.defaultLanguage,
++    translations: original.translations,
++    fallbackFields: original,
+   });
+ 
+   return {
+@@ -67,10 +122,13 @@ export function resolveInventoryDisplayCopy(item: InventoryTranslatableLike, vie
+   };
+ }
+ 
+-export function withResolvedInventoryDisplay<T extends InventoryTranslatableLike>(item: T, viewerLanguage?: string | null, preferredLanguages?: readonly (string | null | undefined)[] | null): T & { displayLanguage: InventoryDisplayLanguage } {
++export function withResolvedInventoryDisplay<T extends InventoryTranslatableLike>(item: T, viewerLanguage?: string | null, preferredLanguages?: readonly (string | null | undefined)[] | null): T & { originalTitle: string; originalDescription: string; displayLanguage: InventoryDisplayLanguage } {
++  const original = resolveInventoryOriginalCopy(item);
+   const display = resolveInventoryDisplayCopy(item, viewerLanguage, preferredLanguages);
+   return {
+     ...item,
++    originalTitle: original.title,
++    originalDescription: original.description,
+     title: display.title,
+     description: display.description,
+     displayLanguage: {
