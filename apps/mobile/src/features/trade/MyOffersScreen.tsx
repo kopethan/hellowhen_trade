@@ -14,6 +14,7 @@ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
 import { InventoryCompactRow } from './components/InventoryCompactRow';
 import { InventoryFoldersPanel, type InventoryFolderSelection } from './components/InventoryFoldersPanel';
+import { useInventoryDisplayResolver, useLocalizedInventoryItem, useLocalizedInventoryItems } from './inventoryDisplay';
 import type { OfferItem } from './types';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
@@ -28,6 +29,7 @@ export function MyOffersScreen() {
   const theme = useThemeTokens();
   const { t, language } = useTranslation();
   const auth = useAuth();
+  const resolveInventoryDisplay = useInventoryDisplayResolver();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [sourceTab, setSourceTab] = useState<SourceTab>('mine');
   const [items, setItems] = useState<OfferItem[]>([]);
@@ -72,14 +74,17 @@ export function MyOffersScreen() {
 
   useFocusEffect(useCallback(() => { void loadItems(); void loadTemplates(); setFolderRefreshKey((key) => key + 1); }, [loadItems, loadTemplates]));
 
+  const displayItems = useLocalizedInventoryItems(items);
+  const displayCreatedItem = useLocalizedInventoryItem(createdOffer);
+
   const activeLoading = sourceTab === 'starter' ? templateLoading : loading;
   const header = <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label={t('inventory.labels.offer')} tone="offer" /><AppText style={styles.title}>{t('inventory.labels.offers')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('inventory.empty.offerNativeBody')}</AppText></View><Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateOffer')} style={({ pressed }) => [styles.createButton, { backgroundColor: theme.semantic.offer.bg }, pressed && styles.pressed]}><View style={styles.createButtonContent}><MobileIcon name="add" size={16} color={theme.color.background} /><AppText style={[styles.createButtonText, { color: theme.color.background }]}>{t('common.actions.create')}</AppText></View></Pressable></View>;
 
   const sortedItems = useMemo(() => {
-    if (!folderSelection.folderId) return items;
+    if (!folderSelection.folderId) return displayItems;
     const visibleIds = new Set(folderSelection.itemIds);
-    return items.filter((item) => visibleIds.has(item.id));
-  }, [folderSelection.folderId, folderSelection.itemIds, items]);
+    return displayItems.filter((item) => visibleIds.has(item.id));
+  }, [displayItems, folderSelection.folderId, folderSelection.itemIds]);
 
   const emptyTitle = folderSelection.folderId && folderSelection.folderTitle ? t('inventory.empty.noFolderItems', { folder: folderSelection.folderTitle }) : t('inventory.empty.createFirstOffer');
   const emptyBody = folderSelection.folderId ? t('inventory.empty.noFolderItemsBody', { items: t('inventory.labels.offers').toLowerCase() }) : t('inventory.empty.offerNativeBody');
@@ -94,7 +99,7 @@ export function MyOffersScreen() {
       if (!result.offer) throw new Error(t('inventory.errors.starterSavedUnreadableOffer'));
       setItems((current) => [result.offer!, ...current.filter((item) => item.id !== result.offer!.id)]);
       setCreatedOffer(result.offer);
-      setNotice(t('inventory.messages.starterSavedToMine', { title: result.offer.title, collection: t('inventory.labels.myOffers') }));
+      setNotice(t('inventory.messages.starterSavedToMine', { title: resolveInventoryDisplay(result.offer).title, collection: t('inventory.labels.myOffers') }));
       setSourceTab('mine');
     } catch (caughtError) {
       setTemplateError(getFriendlyApiErrorMessage(caughtError, t('inventory.errors.couldNotSaveStarterOffer')));
@@ -109,9 +114,9 @@ export function MyOffersScreen() {
         <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={activeLoading} onRefresh={() => { void loadItems(); void loadTemplates(); setFolderRefreshKey((key) => key + 1); }} />}>
           <SourceTabs value={sourceTab} onChange={(nextTab) => { setSourceTab(nextTab); setNotice(null); setCreatedOffer(null); }} />
           {notice ? <InfoNotice tone="success" title={t('inventory.messages.starterSaved')} body={notice} /> : null}
-          {createdOffer ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: createdOffer.id, title: createdOffer.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.offer.softBg, borderColor: theme.semantic.offer.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.offer.text }]}>{t('inventory.actions.openSavedOffer')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.offer.text} /></Pressable> : null}
+          {createdOffer ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: createdOffer.id, title: displayCreatedItem?.title ?? createdOffer.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.offer.softBg, borderColor: theme.semantic.offer.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.offer.text }]}>{t('inventory.actions.openSavedOffer')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.offer.text} /></Pressable> : null}
           {sourceTab === 'starter' ? <StarterInventoryLibrary kind="offer" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('inventory.actions.useThisOffer')} onUseTemplate={(template) => { void cloneTemplate(template); }} /> : <>
-            {betaFeatures.inventoryFoldersEnabled ? <InventoryFoldersPanel kind="offer" items={items.map((item) => ({ id: item.id, title: item.title }))} refreshKey={folderRefreshKey} onSelectionChange={setFolderSelection} /> : null}
+            {betaFeatures.inventoryFoldersEnabled ? <InventoryFoldersPanel kind="offer" items={displayItems.map((item) => ({ id: item.id, title: item.title }))} refreshKey={folderRefreshKey} onSelectionChange={setFolderSelection} /> : null}
             {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotLoadOffer')} body={error} /> : null}
             {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title={emptyTitle} body={emptyBody} tone="offer" onPress={() => navigation.navigate('CreateOffer')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><InventoryCompactRow kind="offer" item={item} /></Pressable>)}
           </>}

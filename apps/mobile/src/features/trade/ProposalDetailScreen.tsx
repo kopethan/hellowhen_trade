@@ -21,6 +21,7 @@ import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { UserIdentityPressable } from '../users/UserIdentityPressable';
 import { MediaStrip } from './components/MediaStrip';
+import { useLocalizedInventoryItem, useLocalizedInventoryItems } from './inventoryDisplay';
 import type { NeedItem, OfferItem, ProposalMessageItem, TradeDeckItem, TradeProposalItem } from './types';
 import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
 
@@ -360,10 +361,14 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
     void loadProposalInventory();
   }, [canEditProposalContent, loadProposalInventory]);
 
-  const activePackageNeeds = useMemo(() => proposalNeeds.filter(isNeedAvailable), [proposalNeeds]);
-  const activePackageOffers = useMemo(() => proposalOffers.filter(isOfferAvailable), [proposalOffers]);
-  const selectedPackageNeed = useMemo(() => activePackageNeeds.find((need) => need.id === packageNeedId) ?? (proposal?.proposedNeed?.id === packageNeedId ? proposal.proposedNeed as NeedItem : null), [activePackageNeeds, packageNeedId, proposal?.proposedNeed]);
-  const selectedPackageOffer = useMemo(() => activePackageOffers.find((offer) => offer.id === packageOfferId) ?? (proposal?.proposedOffer?.id === packageOfferId ? proposal.proposedOffer as OfferItem : null), [activePackageOffers, packageOfferId, proposal?.proposedOffer]);
+  const availablePackageNeeds = useMemo(() => proposalNeeds.filter(isNeedAvailable), [proposalNeeds]);
+  const availablePackageOffers = useMemo(() => proposalOffers.filter(isOfferAvailable), [proposalOffers]);
+  const activePackageNeeds = useLocalizedInventoryItems(availablePackageNeeds);
+  const activePackageOffers = useLocalizedInventoryItems(availablePackageOffers);
+  const rawSelectedPackageNeed = useMemo(() => activePackageNeeds.find((need) => need.id === packageNeedId) ?? (proposal?.proposedNeed?.id === packageNeedId ? proposal.proposedNeed as NeedItem : null), [activePackageNeeds, packageNeedId, proposal?.proposedNeed]);
+  const rawSelectedPackageOffer = useMemo(() => activePackageOffers.find((offer) => offer.id === packageOfferId) ?? (proposal?.proposedOffer?.id === packageOfferId ? proposal.proposedOffer as OfferItem : null), [activePackageOffers, packageOfferId, proposal?.proposedOffer]);
+  const selectedPackageNeed = useLocalizedInventoryItem(rawSelectedPackageNeed);
+  const selectedPackageOffer = useLocalizedInventoryItem(rawSelectedPackageOffer);
   const packageChanged = Boolean(proposal && ((proposal.proposedNeedId ?? proposal.proposedNeed?.id ?? '') !== packageNeedId || (proposal.proposedOfferId ?? proposal.proposedOffer?.id ?? '') !== packageOfferId));
 
   const visibleMessages = useMemo(() => proposal ? firstNonDeletedMessages(messages, proposal) : messages, [messages, proposal]);

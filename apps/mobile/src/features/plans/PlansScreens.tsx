@@ -28,6 +28,17 @@ import { resolveMediaVariantUrl } from '../trade/mediaUrls';
 import { ImagePickerField } from '../trade/components/ImagePickerField';
 import type { SelectedLocalImage, SelectedImageUploadProgress } from '../trade/mediaUpload';
 import { SelectedImageUploadError, uploadSelectedImages } from '../trade/mediaUpload';
+import {
+  addLocalizedContentTranslationDraft,
+  buildLocalizedContentTranslationsPayload,
+  changeLocalizedContentOriginalLanguage,
+  getAvailableLocalizedContentTranslationLanguages,
+  normalizeLocalizedContentTranslationDrafts,
+  removeLocalizedContentTranslationDraft,
+  supportedLocalizedContentLanguages,
+  updateLocalizedContentTranslationDraft,
+  type LocalizedContentTranslationDraft,
+} from '../localizedContentTranslations';
 import { FeatureGuidePromptCard } from '../onboarding-guide/FeatureGuidePromptCard';
 import { useFeatureGuidePrompt } from '../onboarding-guide/onboardingGuideStorage';
 import { PlanSquareDeck } from './components/PlanSquareDeck';
@@ -324,7 +335,7 @@ const PLAN_OFFLINE_ADDRESS_INLINE_ERROR = 'Choose a verified address for this pl
 const PLAN_DRAFT_PLACE_REVIEW_ERROR = 'Some restored Places need review. Replace, fix, or remove each highlighted Place before previewing or publishing this Plan.';
 const PLAN_DRAFT_PLACE_CHECKING_ERROR = 'Wait while Hellowhen checks the saved Places restored from this draft.';
 
-type PlaceTranslationFormValue = { languageCode: DiscoveryLanguage; title: string; description: string };
+type PlaceTranslationFormValue = LocalizedContentTranslationDraft;
 
 type NativeProviderAddressState = PlaceProviderAddressInput;
 
@@ -524,65 +535,102 @@ function formatCreatePlanDraftSavedAt(value: string) {
 }
 
 
-const placeLanguageOptions: DiscoveryLanguage[] = ['en', 'fr', 'es'];
+type PlanTranslationFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
+type PlaceTranslationValidationIssue = 'incomplete' | 'title_too_short';
+
+const placeLanguageOptions: DiscoveryLanguage[] = [...supportedLocalizedContentLanguages];
 
 function normalizePlaceLanguage(value?: string | null): DiscoveryLanguage {
   if (value === 'fr' || value === 'es') return value;
   return 'en';
 }
 
-function placeLanguageLabel(language: DiscoveryLanguage) {
-  if (language === 'fr') return 'French';
-  if (language === 'es') return 'Spanish';
-  return 'English';
+function placeLanguageLabel(language: DiscoveryLanguage, t?: PlanTranslationFunction) {
+  if (language === 'fr') return t?.('places.languages.fr') ?? 'French';
+  if (language === 'es') return t?.('places.languages.es') ?? 'Spanish';
+  return t?.('places.languages.en') ?? 'English';
 }
 
 function availablePlaceTranslationLanguages(state: PlaceCreateFormState) {
-  const used = new Set([state.defaultLanguage, ...state.translations.map((translation) => translation.languageCode)]);
-  return placeLanguageOptions.filter((language) => !used.has(language));
+  return getAvailableLocalizedContentTranslationLanguages(state.defaultLanguage, state.translations);
 }
 
 function addPlaceTranslationDraft(state: PlaceCreateFormState, languageCode: DiscoveryLanguage): PlaceCreateFormState {
-  if (!availablePlaceTranslationLanguages(state).includes(languageCode)) return state;
-  return { ...state, translations: [...state.translations, { languageCode, title: '', description: '' }] };
-}
-
-function updatePlaceTranslationDraft(state: PlaceCreateFormState, draft: PlaceTranslationFormValue): PlaceCreateFormState {
-  return { ...state, translations: state.translations.map((translation) => translation.languageCode === draft.languageCode ? draft : translation) };
-}
-
-function removePlaceTranslationDraft(state: PlaceCreateFormState, languageCode: DiscoveryLanguage): PlaceCreateFormState {
-  return { ...state, translations: state.translations.filter((translation) => translation.languageCode !== languageCode) };
-}
-
-function setPlaceOriginalLanguage(state: PlaceCreateFormState, languageCode: DiscoveryLanguage): PlaceCreateFormState {
-  if (state.defaultLanguage === languageCode) return state;
   return {
     ...state,
-    defaultLanguage: languageCode,
-    translations: state.translations.filter((translation) => translation.languageCode !== languageCode),
+    translations: addLocalizedContentTranslationDraft(state.translations, state.defaultLanguage, languageCode),
   };
 }
 
+function updatePlaceTranslationDraft(state: PlaceCreateFormState, draft: PlaceTranslationFormValue): PlaceCreateFormState {
+  return {
+    ...state,
+    translations: updateLocalizedContentTranslationDraft(state.translations, state.defaultLanguage, draft),
+  };
+}
+
+function removePlaceTranslationDraft(state: PlaceCreateFormState, languageCode: DiscoveryLanguage): PlaceCreateFormState {
+  return {
+    ...state,
+    translations: removeLocalizedContentTranslationDraft(state.translations, languageCode),
+  };
+}
+
+function setPlaceOriginalLanguage(state: PlaceCreateFormState, languageCode: DiscoveryLanguage): PlaceCreateFormState {
+  const nextLanguageState = changeLocalizedContentOriginalLanguage({
+    defaultLanguage: state.defaultLanguage,
+    title: state.title,
+    description: state.description,
+    translations: state.translations,
+  }, languageCode);
+  return { ...state, ...nextLanguageState };
+}
+
 function normalizePlaceTranslationsForPayload(state: PlaceCreateFormState) {
-  return state.translations
-    .filter((translation) => translation.languageCode !== state.defaultLanguage)
-    .filter((translation) => translation.title.trim() || translation.description.trim())
-    .map((translation) => ({ languageCode: translation.languageCode, title: translation.title.trim(), description: translation.description.trim() }));
+  return buildLocalizedContentTranslationsPayload(state.defaultLanguage, state.translations);
 }
 
-function validatePlaceTranslations(state: PlaceCreateFormState) {
+function validatePlaceTranslations(state: PlaceCreateFormState): PlaceTranslationValidationIssue | null {
   for (const translation of normalizePlaceTranslationsForPayload(state)) {
-    if (!translation.title || !translation.description) return 'Complete both translated title and description, or remove that language.';
-    if (translation.title.length < 3) return 'Translated Place name must be at least 3 characters.';
+    if (!translation.title || !translation.description) return 'incomplete';
+    if (translation.title.length < 3) return 'title_too_short';
   }
-  return '';
+  return null;
 }
 
-function placeTranslationSummary(state: PlaceCreateFormState) {
-  const draftCount = state.translations.length;
-  if (!draftCount) return `Original: ${placeLanguageLabel(state.defaultLanguage)} · Optional`;
-  return `Original: ${placeLanguageLabel(state.defaultLanguage)} · ${draftCount} translation${draftCount === 1 ? '' : 's'}`;
+function placeTranslationValidationMessage(issue: PlaceTranslationValidationIssue, t: PlanTranslationFunction) {
+  if (issue === 'title_too_short') return t('places.editor.errors.translationNameTooShort');
+  return t('places.editor.errors.translationIncomplete');
+}
+
+function placeTranslationSummary(state: PlaceCreateFormState, t: PlanTranslationFunction) {
+  const original = placeLanguageLabel(state.defaultLanguage, t);
+  if (!state.translations.length) return t('places.editor.language.summaryNone', { original });
+
+  const [firstTranslation, secondTranslation] = state.translations;
+  const completeTranslations = state.translations.filter((translation) => translation.title.trim() && translation.description.trim());
+  if (completeTranslations.length !== state.translations.length) {
+    if (!secondTranslation && firstTranslation) {
+      return t('places.editor.language.summaryDraftOne', {
+        original,
+        translation: placeLanguageLabel(firstTranslation.languageCode, t),
+      });
+    }
+    return t('places.editor.language.summaryDraftMany', { original, count: state.translations.length });
+  }
+
+  if (!secondTranslation && firstTranslation) {
+    return t('places.editor.language.summaryOne', {
+      original,
+      translation: placeLanguageLabel(firstTranslation.languageCode, t),
+    });
+  }
+
+  return t('places.editor.language.summaryTwo', {
+    original,
+    first: placeLanguageLabel(firstTranslation?.languageCode ?? state.defaultLanguage, t),
+    second: placeLanguageLabel(secondTranslation?.languageCode ?? state.defaultLanguage, t),
+  });
 }
 
 function placeHasTranslationContent(place?: PlaceDto | null) {
@@ -634,22 +682,22 @@ function hasValidOnlineDestinationFields(value: { onlineUrl?: string | null }) {
   return hasOnlineDestination(value) && isHttpUrl(value.onlineUrl);
 }
 
-function getOfflineAddressRequirementMessage(address?: NativeProviderAddressState | null) {
+function getOfflineAddressRequirementMessage(address?: NativeProviderAddressState | null, t?: PlanTranslationFunction) {
   if (hasValidOfflineProviderAddress(address)) return '';
-  return 'Select a confirmed Google address before saving an offline Place. Typed text alone cannot be used as a valid offline address.';
+  return t?.('places.editor.errors.confirmedAddress') ?? 'Select a confirmed Google address before saving an offline Place. Typed text alone cannot be used as a valid offline address.';
 }
 
-function getOnlineDestinationRequirementMessage(value: { onlineUrl?: string | null }) {
+function getOnlineDestinationRequirementMessage(value: { onlineUrl?: string | null }, t?: PlanTranslationFunction) {
   if (hasValidOnlineDestinationFields(value)) return '';
-  return 'Add a valid online URL starting with http:// or https://.';
+  return t?.('places.editor.errors.onlineUrl') ?? 'Add a valid online URL starting with http:// or https://.';
 }
 
-function getOnlineProviderHint(value: { onlineUrl?: string | null }) {
+function getOnlineProviderHint(value: { onlineUrl?: string | null }, t?: PlanTranslationFunction) {
   const rawUrl = value.onlineUrl?.trim();
-  if (!rawUrl) return 'Add a valid http:// or https:// link. We do not fetch previews yet.';
+  if (!rawUrl) return t?.('places.editor.provider.empty') ?? 'Add a valid http:// or https:// link. We do not fetch previews yet.';
   const metadata = getOnlinePlaceProviderMetadata(rawUrl);
-  if (!metadata) return 'Use a valid http:// or https:// link to detect the provider.';
-  return `Detected: ${metadata.label}`;
+  if (!metadata) return t?.('places.editor.provider.invalid') ?? 'Use a valid http:// or https:// link to detect the provider.';
+  return t?.('places.editor.provider.detected', { provider: metadata.label }) ?? `Detected: ${metadata.label}`;
 }
 
 function providerAddressPayload(address?: NativeProviderAddressState | null) {
@@ -682,12 +730,13 @@ function makePlaceCreateForm(defaultLanguage: DiscoveryLanguage = 'en'): PlaceCr
 
 function placeCreateFormFromPlace(place: PlaceDto): PlaceCreateFormState {
   const mode = place.mode === 'remote' ? 'remote' : 'local';
+  const defaultLanguage = normalizePlaceLanguage(place.defaultLanguage);
   return {
     mode,
     title: place.title ?? '',
     description: place.description ?? '',
-    defaultLanguage: normalizePlaceLanguage(place.defaultLanguage),
-    translations: ((place.translations ?? []) as InventoryTranslationDto[]).map((translation) => ({ languageCode: normalizePlaceLanguage(translation.languageCode), title: translation.title ?? '', description: translation.description ?? '' })),
+    defaultLanguage,
+    translations: normalizeLocalizedContentTranslationDrafts((place.translations ?? []) as InventoryTranslationDto[], defaultLanguage),
     location: mode === 'local' ? place.formattedAddress ?? place.addressPublicText ?? place.areaLabel ?? '' : '',
     providerAddress: mode === 'local' ? placeAddressFromReusablePlace(place) : null,
     onlineLabel: mode === 'remote' ? place.onlineLabel ?? '' : '',
@@ -1223,14 +1272,14 @@ function reusablePlaceMediaForEdit(place?: PlaceDto | null) {
   return (place?.media ?? []).filter((asset) => asset.status !== 'removed').slice(0, 1);
 }
 
-function formatPlaceUploadProgress(progress: SelectedImageUploadProgress | null) {
+function formatPlaceUploadProgress(progress: SelectedImageUploadProgress | null, t?: PlanTranslationFunction) {
   if (!progress) return null;
-  return `Uploading image ${progress.current}/${progress.total}...`;
+  return t?.('places.editor.image.uploadProgress', { current: progress.current, total: progress.total }) ?? `Uploading image ${progress.current}/${progress.total}...`;
 }
 
-function getPlaceUploadErrorMessage(error: unknown) {
+function getPlaceUploadErrorMessage(error: unknown, t?: PlanTranslationFunction) {
   if (error instanceof SelectedImageUploadError) {
-    return `Image upload failed (${error.current}/${error.total}). Try a smaller image or upload again.`;
+    return t?.('places.editor.errors.uploadFailed', { current: error.current, total: error.total }) ?? `Image upload failed (${error.current}/${error.total}). Try a smaller image or upload again.`;
   }
   return getFriendlyApiErrorMessage(error);
 }
@@ -2867,13 +2916,14 @@ export function PlaceLibraryScreen({ navigation }: SimpleScreenProps<'PlaceLibra
 
 function ModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (value: PlanPlaceMode) => void }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   return (
     <View style={[styles.modeSegment, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
       {(['local', 'remote'] as PlanPlaceMode[]).map((mode) => {
         const active = value === mode;
         return (
           <Pressable key={mode} accessibilityRole="button" onPress={() => onChange(mode)} style={({ pressed }) => [styles.modeSegmentButton, { backgroundColor: active ? theme.semantic.place.bg : 'transparent' }, pressed && styles.pressed]}>
-            <AppText style={[styles.modeSegmentText, { color: active ? theme.color.background : theme.color.text }]}>{mode === 'remote' ? 'Online' : 'Offline'}</AppText>
+            <AppText style={[styles.modeSegmentText, { color: active ? theme.color.background : theme.color.text }]}>{mode === 'remote' ? t('places.editor.mode.online') : t('places.editor.mode.offline')}</AppText>
           </Pressable>
         );
       })}
@@ -4654,7 +4704,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
 export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'CreatePlace'>) {
   const theme = useThemeTokens();
-  const { language } = useTranslation();
+  const { language, t } = useTranslation();
   const editPlace = route.params?.editPlace;
   const copyFromPlace = route.params?.copyFromPlace;
   const returnToPlan = Boolean(route.params?.returnToCreatePlan);
@@ -4681,17 +4731,17 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
 
   function goToImageStep() {
-    if (state.title.trim().length < 3) { setError('Add a Place name before adding an image.'); return; }
+    if (state.title.trim().length < 3) { setError(t('places.editor.errors.addNameBeforeImage')); return; }
     if (state.mode === 'local') {
-      const addressError = getOfflineAddressRequirementMessage(state.providerAddress);
+      const addressError = getOfflineAddressRequirementMessage(state.providerAddress, t);
       if (addressError) { setError(addressError); return; }
     }
     if (state.mode === 'remote') {
-      const onlineError = getOnlineDestinationRequirementMessage(state);
+      const onlineError = getOnlineDestinationRequirementMessage(state, t);
       if (onlineError) { setError(onlineError); return; }
     }
     const translationError = validatePlaceTranslations(state);
-    if (translationError) { setTranslationPanelOpen(true); setError(translationError); return; }
+    if (translationError) { setTranslationPanelOpen(true); setError(placeTranslationValidationMessage(translationError, t)); return; }
     setError(null);
     setMessage(null);
     setStep('image');
@@ -4703,17 +4753,17 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
   }
 
   async function submit() {
-    if (state.title.trim().length < 3) { setError('Add a Place name.'); setStep('details'); return; }
+    if (state.title.trim().length < 3) { setError(t('places.editor.errors.addName')); setStep('details'); return; }
     if (state.mode === 'local') {
-      const addressError = getOfflineAddressRequirementMessage(state.providerAddress);
+      const addressError = getOfflineAddressRequirementMessage(state.providerAddress, t);
       if (addressError) { setError(addressError); setStep('details'); return; }
     }
     if (state.mode === 'remote') {
-      const onlineError = getOnlineDestinationRequirementMessage(state);
+      const onlineError = getOnlineDestinationRequirementMessage(state, t);
       if (onlineError) { setError(onlineError); setStep('details'); return; }
     }
     const translationError = validatePlaceTranslations(state);
-    if (translationError) { setTranslationPanelOpen(true); setError(translationError); setStep('details'); return; }
+    if (translationError) { setTranslationPanelOpen(true); setError(placeTranslationValidationMessage(translationError, t)); setStep('details'); return; }
     setSaving(true);
     setError(null);
     setMessage(null);
@@ -4746,7 +4796,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
         }
         return;
       }
-      setMessage(isEditing ? `${response.place.title} was updated.` : `${response.place.title} was saved to My Places.`);
+      setMessage(isEditing ? t('places.editor.messages.updated', { title: response.place.title }) : t('places.editor.messages.saved', { title: response.place.title }));
       if (!isEditing) {
         setState(makePlaceCreateForm(normalizePlaceLanguage(language)));
         setTranslationPanelOpen(false);
@@ -4755,7 +4805,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
         setStep('details');
       }
     } catch (caughtError) {
-      setError(getPlaceUploadErrorMessage(caughtError));
+      setError(getPlaceUploadErrorMessage(caughtError, t));
     } finally {
       setUploadProgress(null);
       setSaving(false);
@@ -4764,30 +4814,30 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
 
   const placeDestinationReady = state.mode === 'local' ? hasValidOfflineProviderAddress(state.providerAddress) : hasValidOnlineDestinationFields(state);
   const placeDetailsReady = state.title.trim().length >= 3 && placeDestinationReady;
-  const uploadProgressLabel = formatPlaceUploadProgress(uploadProgress);
+  const uploadProgressLabel = formatPlaceUploadProgress(uploadProgress, t);
   const selectedExistingMedia = existingMedia[0];
   const selectedExistingMediaUrl = activeMediaUrl(selectedExistingMedia);
   const imageSlotFilled = Boolean(selectedExistingMedia || newImages.length > 0);
 
   return (
-    <AppFixedHeaderScreen header={<AppHeader title={isEditing ? 'Edit place' : 'Create place'} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label="My Places" onPress={() => navigation.navigate('MyPlaces')} />} />}>
+    <AppFixedHeaderScreen header={<AppHeader title={isEditing ? t('places.editor.header.edit') : t('places.editor.header.create')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label={t('places.editor.header.myPlaces')} onPress={() => navigation.navigate('MyPlaces')} />} />}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
         <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           <View style={styles.placeCreateCompactHeader}>
-            <SemanticBadge label="My Place" tone="place" />
-            <AppText style={styles.placeCreateTitle}>{isEditing ? 'Edit Place' : 'Create Place'}</AppText>
-            <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? 'Update details and image for this reusable Place.' : copyFromPlace ? 'Save a private copy, add an optional image, then return to your Plan.' : 'Save an offline or online Place with an optional image.'}</AppText>
+            <SemanticBadge label={t('places.editor.badge')} tone="place" />
+            <AppText style={styles.placeCreateTitle}>{isEditing ? t('places.editor.title.edit') : t('places.editor.title.create')}</AppText>
+            <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? t('places.editor.subtitle.edit') : copyFromPlace ? t('places.editor.subtitle.copy') : t('places.editor.subtitle.create')}</AppText>
           </View>
           <View style={styles.placeStepRow}>
-            <PillButton label="1. Details" active={step === 'details'} disabled={saving} onPress={() => setStep('details')} />
-            <PillButton label="2. Image" active={step === 'image'} disabled={saving} onPress={goToImageStep} />
+            <PillButton label={t('places.editor.steps.details')} active={step === 'details'} disabled={saving} onPress={() => setStep('details')} />
+            <PillButton label={t('places.editor.steps.image')} active={step === 'image'} disabled={saving} onPress={goToImageStep} />
           </View>
           {step === 'details' ? (
             <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: 'transparent', borderColor: theme.semantic.place.border }]}>
               <View style={styles.placeCreateSectionHeader}>
                 <View style={styles.feedTitleWrap}>
-                  <AppText style={styles.sectionTitle}>Place details</AppText>
-                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>Private by default.</AppText>
+                  <AppText style={styles.sectionTitle}>{t('places.editor.details.title')}</AppText>
+                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.details.privateByDefault')}</AppText>
                 </View>
               </View>
               <View style={styles.placeCreateDividerBlock}>
@@ -4803,28 +4853,28 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                   }))}
                 />
               </View>
-              <TextField label="Place name" value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder="Quiet coffee near République" maxLength={120} />
+              <TextField label={t('places.editor.fields.name')} value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder={t('places.editor.fields.namePlaceholder')} maxLength={120} />
               {state.mode === 'remote' ? (
                 <>
-                  <TextField label="Online label" value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder="Zoom, Discord, website" maxLength={120} />
-                  <TextField label="Online URL" value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
-                  <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: state.onlineUrl })} />
+                  <TextField label={t('places.editor.fields.onlineLabel')} value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} maxLength={120} />
+                  <TextField label={t('places.editor.fields.onlineUrl')} value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
+                  <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: state.onlineUrl }, t)} />
                 </>
               ) : (
                 <>
                   <GooglePlacePicker
-                    label="Area / address"
+                    label={t('places.editor.fields.address')}
                     value={state.location}
                     onChangeText={(location) => setState((current) => ({ ...current, location }))}
                     onResolvedPlace={(place) => setState((current) => ({ ...current, providerAddress: place ? placeAddressFromGoogleResolvedPlace(place) : null }))}
-                    placeholder="Search and select a real address"
-                    helperText="Type at least 3 characters, then select a confirmed Google address. Typed text alone cannot be saved."
+                    placeholder={t('places.editor.fields.addressPlaceholder')}
+                    helperText={t('places.editor.fields.addressHelp')}
                     languageCode={language}
                   />
-                  {!hasValidOfflineProviderAddress(state.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(state.providerAddress)} /> : null}
+                  {!hasValidOfflineProviderAddress(state.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(state.providerAddress, t)} /> : null}
                 </>
               )}
-              <TextField label="Description (optional)" value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder="Useful details for this Place." multiline maxLength={2000} />
+              <TextField label={t('places.editor.fields.description')} value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder={t('places.editor.fields.descriptionPlaceholder')} multiline maxLength={2000} />
               <View style={styles.placeTranslationBlock}>
                 <Pressable
                   accessibilityRole="button"
@@ -4833,8 +4883,8 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                   style={({ pressed }) => [styles.placeTranslationToggle, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}
                 >
                   <View style={styles.feedTitleWrap}>
-                    <AppText style={styles.placeTranslationAddTitle}>{translationPanelOpen ? 'Hide language options' : 'Language & translations'}</AppText>
-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{placeTranslationSummary(state)}</AppText>
+                    <AppText style={styles.placeTranslationAddTitle}>{translationPanelOpen ? t('places.editor.language.hideOptions') : t('places.editor.language.panelTitle')}</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{placeTranslationSummary(state, t)}</AppText>
                   </View>
                   <MobileIcon name={translationPanelOpen ? 'chevron-up' : 'chevron-down'} color={theme.color.muted} size={18} />
                 </Pressable>
@@ -4843,22 +4893,22 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                   <View style={styles.placeTranslationPanel}>
                     <View style={styles.placeTranslationSummaryRow}>
                       <View style={styles.feedTitleWrap}>
-                        <AppText style={styles.formLabel}>Languages</AppText>
-                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>Choose the language used for the main Place name and description. Add translations only when you write them manually.</AppText>
+                        <AppText style={styles.formLabel}>{t('places.editor.language.sectionTitle')}</AppText>
+                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.language.sectionBody')}</AppText>
                       </View>
-                      <SemanticBadge label={`Original content: ${placeLanguageLabel(state.defaultLanguage)}`} tone="place" />
+                      <SemanticBadge label={t('places.editor.language.originalBadge', { language: placeLanguageLabel(state.defaultLanguage, t) })} tone="place" />
                     </View>
 
                     <View style={[styles.placeTranslationFields, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }]}>
                       <View style={styles.feedTitleWrap}>
-                        <AppText style={styles.formLabel}>Original Place language</AppText>
-                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>Viewers fall back to this language when their preferred languages are not available.</AppText>
+                        <AppText style={styles.formLabel}>{t('places.editor.language.originalLabel')}</AppText>
+                        <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.language.originalHelp')}</AppText>
                       </View>
                       <View style={styles.placeLanguageChips}>
                         {placeLanguageOptions.map((languageCode) => (
                           <PillButton
                             key={languageCode}
-                            label={placeLanguageLabel(languageCode)}
+                            label={placeLanguageLabel(languageCode, t)}
                             active={state.defaultLanguage === languageCode}
                             onPress={() => setState((current) => setPlaceOriginalLanguage(current, languageCode))}
                           />
@@ -4870,31 +4920,31 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                       <View key={translation.languageCode} style={[styles.placeTranslationFields, { borderColor: theme.semantic.place.border, backgroundColor: theme.semantic.place.softBg }]}>
                         <View style={styles.placeTranslationFieldsHeader}>
                           <View style={styles.feedTitleWrap}>
-                            <AppText style={styles.formLabel}>Manual translation for {placeLanguageLabel(translation.languageCode)}</AppText>
-                            <AppText style={[styles.metaText, { color: theme.color.muted }]}>Complete both fields, or leave both empty and remove this language.</AppText>
+                            <AppText style={styles.formLabel}>{t('places.editor.language.manualFor', { language: placeLanguageLabel(translation.languageCode, t) })}</AppText>
+                            <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.language.manualHelp')}</AppText>
                           </View>
-                          <SecondaryButton label="Remove" onPress={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))} />
+                          <SecondaryButton label={t('places.editor.language.remove')} onPress={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))} />
                         </View>
-                        <TextField label="Translated Place name (optional)" value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder="Translated place name" maxLength={120} />
-                        <TextField label="Translated description (optional)" value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder="Translated description" multiline maxLength={2000} />
+                        <TextField label={t('places.editor.language.translatedName')} value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder={t('places.editor.language.translatedNamePlaceholder')} maxLength={120} />
+                        <TextField label={t('places.editor.language.translatedDescription')} value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder={t('places.editor.language.translatedDescriptionPlaceholder')} multiline maxLength={2000} />
                       </View>
                     ))}
 
                     {!state.translations.length ? (
-                      <AppText style={[styles.metaText, styles.placeTranslationEmptyText, { color: theme.color.muted }]}>Translations are optional. Add a language only if you want to write a manual translation for this Place.</AppText>
+                      <AppText style={[styles.metaText, styles.placeTranslationEmptyText, { color: theme.color.muted }]}>{t('places.editor.language.optionalBody')}</AppText>
                     ) : null}
 
                     {availablePlaceTranslationLanguages(state).length ? (
                       <View style={[styles.placeTranslationAddRow, { borderColor: theme.semantic.place.border, backgroundColor: theme.color.surface }]}>
                         <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={16} /></View>
                         <View style={styles.sourceOptionCopy}>
-                          <AppText style={styles.placeTranslationAddTitle}>{state.translations.length ? 'Add another language' : 'Add language'}</AppText>
-                          <AppText style={[styles.metaText, { color: theme.color.muted }]}>Manual translation</AppText>
+                          <AppText style={styles.placeTranslationAddTitle}>{state.translations.length ? t('places.editor.language.addAnotherLanguage') : t('places.editor.language.addLanguage')}</AppText>
+                          <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.language.manualTranslation')}</AppText>
                           <View style={styles.placeLanguageChips}>
                             {availablePlaceTranslationLanguages(state).map((languageCode) => (
                               <PillButton
                                 key={languageCode}
-                                label={placeLanguageLabel(languageCode)}
+                                label={placeLanguageLabel(languageCode, t)}
                                 active={false}
                                 onPress={() => setState((current) => addPlaceTranslationDraft(current, languageCode))}
                               />
@@ -4903,7 +4953,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                         </View>
                       </View>
                     ) : (
-                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>All supported languages are already added.</AppText>
+                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.language.allAdded')}</AppText>
                     )}
                   </View>
                 ) : null}
@@ -4911,15 +4961,15 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
               {message ? <InfoNotice tone="success" body={message} /> : null}
               {error ? <InfoNotice tone="danger" body={error} /> : null}
               <View style={[styles.placeCreateActionFooter, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
-                <PrimaryButton label="Continue to image" onPress={goToImageStep} disabled={saving || !placeDetailsReady} />
+                <PrimaryButton label={t('places.editor.actions.continueToImage')} onPress={goToImageStep} disabled={saving || !placeDetailsReady} />
               </View>
             </View>
           ) : (
             <View style={[styles.formCard, styles.placeCreateFormCard, { backgroundColor: 'transparent', borderColor: theme.semantic.place.border }]}>
               <View style={styles.placeCreateSectionHeader}>
                 <View style={styles.feedTitleWrap}>
-                  <AppText style={styles.sectionTitle}>Place image</AppText>
-                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>Optional. One image can become the background for Plan cards later.</AppText>
+                  <AppText style={styles.sectionTitle}>{t('places.editor.image.title')}</AppText>
+                  <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.image.body')}</AppText>
                 </View>
               </View>
               {selectedExistingMedia && selectedExistingMediaUrl ? (
@@ -4927,10 +4977,10 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                   <Image source={{ uri: selectedExistingMediaUrl }} style={styles.placeImagePreview as ImageStyle} resizeMode="cover" />
                   <View style={styles.placeImagePreviewFooter}>
                     <View style={styles.feedTitleWrap}>
-                      <AppText style={styles.formLabel}>Current image</AppText>
-                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>Remove it to choose a different image.</AppText>
+                      <AppText style={styles.formLabel}>{t('places.editor.image.current')}</AppText>
+                      <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('places.editor.image.currentBody')}</AppText>
                     </View>
-                    <SecondaryButton label="Remove" disabled={saving} onPress={() => removeExistingImage(selectedExistingMedia.id)} />
+                    <SecondaryButton label={t('places.editor.actions.remove')} disabled={saving} onPress={() => removeExistingImage(selectedExistingMedia.id)} />
                   </View>
                 </View>
               ) : null}
@@ -4939,17 +4989,17 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                 onChange={(images) => setNewImages(images.slice(0, 1))}
                 disabled={saving || Boolean(selectedExistingMedia)}
                 maxImages={1}
-                label="Place image"
-                hint={imageSlotFilled ? 'Remove the current image to choose another one.' : 'Add one photo that represents this Place.'}
-                reviewBody="Place images are optional and should show the location or online context without private/sensitive information."
+                label={t('places.editor.image.fieldLabel')}
+                hint={imageSlotFilled ? t('places.editor.image.removeCurrentHint') : t('places.editor.image.addHint')}
+                reviewBody={t('places.editor.image.reviewBody')}
               />
-              {uploadProgressLabel ? <InfoNotice tone="info" title="Uploading image" body={uploadProgressLabel} /> : null}
+              {uploadProgressLabel ? <InfoNotice tone="info" title={t('places.editor.image.uploading')} body={uploadProgressLabel} /> : null}
               {message ? <InfoNotice tone="success" body={message} /> : null}
               {error ? <InfoNotice tone="danger" body={error} /> : null}
               <View style={[styles.placeCreateActionFooter, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
                 <View style={styles.twoColumnRow}>
-                  <SecondaryButton label="Back" onPress={() => setStep('details')} disabled={saving} />
-                  <PrimaryButton label={saving ? uploadProgressLabel ? 'Uploading...' : 'Saving...' : returnToPlan ? isEditing ? 'Update and return' : 'Save and return' : isEditing ? 'Update Place' : 'Save Place'} onPress={() => { void submit(); }} disabled={saving || !placeDetailsReady} />
+                  <SecondaryButton label={t('places.editor.actions.back')} onPress={() => setStep('details')} disabled={saving} />
+                  <PrimaryButton label={saving ? uploadProgressLabel ? t('places.editor.actions.uploading') : t('places.editor.actions.saving') : returnToPlan ? isEditing ? t('places.editor.actions.updateAndReturn') : t('places.editor.actions.saveAndReturn') : isEditing ? t('places.editor.actions.update') : t('places.editor.actions.save')} onPress={() => { void submit(); }} disabled={saving || !placeDetailsReady} />
                 </View>
               </View>
             </View>

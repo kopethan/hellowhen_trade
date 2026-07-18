@@ -19,6 +19,7 @@ import { useTranslation } from '../../providers/MobileI18nProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { itemTypeLabel, modeLabel } from './components/InventoryFormFields';
 import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
+import { useLocalizedInventoryItems } from './inventoryDisplay';
 import type { NeedItem, OfferItem } from './types';
 import type { TradeCreateSide, TradeCreateSideSelection } from './CreateTradeScreen';
 
@@ -35,7 +36,10 @@ function needMeta(need: NeedItem, t: TFunction) { return [itemTypeLabel(need.ite
 function offerMeta(offer: OfferItem, t: TFunction) { return [itemTypeLabel(offer.itemType ?? 'service', t), offer.category, offer.availability, optionalModeLabel(offer.mode, t), offer.locationLabel].filter(Boolean).join(' · ') || t('trade.labels.offerDetails'); }
 function isNeedAvailable(need: NeedItem) { return !['fulfilled', 'closed', 'expired'].includes(need.status); }
 function isOfferAvailable(offer: OfferItem) { return !['accepted', 'closed', 'expired'].includes(offer.status); }
-function itemSearchText(item: NeedItem | OfferItem) { return [item.title, item.description, item.category, 'timing' in item ? item.timing : undefined, 'availability' in item ? item.availability : undefined, item.locationLabel, ...(item.tags ?? [])].filter(Boolean).join(' ').toLowerCase(); }
+function itemSearchText(item: NeedItem | OfferItem) {
+  const translationText = (item.translations ?? []).flatMap((translation) => [translation.title, translation.description]);
+  return [item.title, item.description, ...translationText, item.category, 'timing' in item ? item.timing : undefined, 'availability' in item ? item.availability : undefined, item.locationLabel, ...(item.tags ?? [])].filter(Boolean).join(' ').toLowerCase();
+}
 
 export function TradeSidePickerScreen({ route, navigation }: Props) {
   const theme = useThemeTokens();
@@ -95,6 +99,8 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
 
   const usableNeeds = useMemo(() => needs.filter(isNeedAvailable), [needs]);
   const usableOffers = useMemo(() => offers.filter(isOfferAvailable), [offers]);
+  const displayNeeds = useLocalizedInventoryItems(usableNeeds);
+  const displayOffers = useLocalizedInventoryItems(usableOffers);
   const label = side === 'need' ? t('inventory.labels.need') : t('inventory.labels.offer');
   const lowerLabel = label.toLowerCase();
   const pluralLabel = side === 'need' ? t('inventory.labels.needs') : t('inventory.labels.offers');
@@ -107,14 +113,14 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
 
   const filteredNeeds = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return usableNeeds;
-    return usableNeeds.filter((need) => itemSearchText(need).includes(needle));
-  }, [query, usableNeeds]);
+    if (!needle) return displayNeeds;
+    return displayNeeds.filter((need) => itemSearchText(need).includes(needle));
+  }, [displayNeeds, query]);
   const filteredOffers = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return usableOffers;
-    return usableOffers.filter((offer) => itemSearchText(offer).includes(needle));
-  }, [query, usableOffers]);
+    if (!needle) return displayOffers;
+    return displayOffers.filter((offer) => itemSearchText(offer).includes(needle));
+  }, [displayOffers, query]);
 
   function createNewItem() {
     const returnTo = route.params.returnTo ?? 'createTrade';

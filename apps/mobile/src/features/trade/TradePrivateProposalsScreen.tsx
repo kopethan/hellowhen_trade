@@ -20,6 +20,7 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { UserIdentityPressable } from '../users/UserIdentityPressable';
+import { useLocalizedInventoryItems } from './inventoryDisplay';
 import type { NeedItem, OfferItem, TradeDeckItem, TradeProposalItem } from './types';
 import type { TradeCreateSideSelection } from './CreateTradeScreen';
 import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
@@ -130,8 +131,10 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
 
   const myProposal = useMemo(() => proposals.find((proposal) => proposal.applicantId === auth.user?.id) ?? null, [auth.user?.id, proposals]);
   const requiredSide = requiredProposalSide(trade);
-  const activeProposalNeeds = useMemo(() => proposalNeeds.filter(isNeedAvailable), [proposalNeeds]);
-  const activeProposalOffers = useMemo(() => proposalOffers.filter(isOfferAvailable), [proposalOffers]);
+  const availableProposalNeeds = useMemo(() => proposalNeeds.filter(isNeedAvailable), [proposalNeeds]);
+  const availableProposalOffers = useMemo(() => proposalOffers.filter(isOfferAvailable), [proposalOffers]);
+  const activeProposalNeeds = useLocalizedInventoryItems(availableProposalNeeds);
+  const activeProposalOffers = useLocalizedInventoryItems(availableProposalOffers);
   const selectedProposalNeed = useMemo(() => activeProposalNeeds.find((need) => need.id === selectedProposalNeedId) ?? null, [activeProposalNeeds, selectedProposalNeedId]);
   const selectedProposalOffer = useMemo(() => activeProposalOffers.find((offer) => offer.id === selectedProposalOfferId) ?? null, [activeProposalOffers, selectedProposalOfferId]);
 

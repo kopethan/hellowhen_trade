@@ -26,6 +26,7 @@ import { TradeSquareDeck } from './components/TradeSquareDeck';
 import { buildTradeSquareDeckCards } from './components/TradeSquareDeckCards';
 import { buildMobileWizardDraftKey, useMobileWizardDraft, WizardFooter, WizardShell } from './create';
 import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedTradeIdeaPostType, getLocalizedTemplateKeyCandidates, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+import { useLocalizedInventoryItems } from './inventoryDisplay';
 import type { NeedItem, OfferItem, TradeDeckItem } from './types';
 
 export type TradeCreateSide = 'need' | 'offer';
@@ -217,8 +218,10 @@ export function CreateTradeScreen({ route, navigation }: Props) {
 
   const usableNeeds = useMemo(() => needs.filter(isNeedAvailable), [needs]);
   const usableOffers = useMemo(() => offers.filter(isOfferAvailable), [offers]);
-  const selectedNeed = useMemo(() => needSelection?.kind === 'need' ? usableNeeds.find((need) => need.id === needSelection.id) ?? null : null, [needSelection, usableNeeds]);
-  const selectedOffer = useMemo(() => offerSelection?.kind === 'offer' ? usableOffers.find((offer) => offer.id === offerSelection.id) ?? null : null, [offerSelection, usableOffers]);
+  const displayNeeds = useLocalizedInventoryItems(usableNeeds);
+  const displayOffers = useLocalizedInventoryItems(usableOffers);
+  const selectedNeed = useMemo(() => needSelection?.kind === 'need' ? displayNeeds.find((need) => need.id === needSelection.id) ?? null : null, [displayNeeds, needSelection]);
+  const selectedOffer = useMemo(() => offerSelection?.kind === 'offer' ? displayOffers.find((offer) => offer.id === offerSelection.id) ?? null : null, [displayOffers, offerSelection]);
   const amountCents = amountFor(needSelection, offerSelection);
   const currency = currencyFor(needSelection, offerSelection);
   const previewTrade = useMemo(() => buildPreviewTrade({ postType, needSelection, offerSelection, need: selectedNeed, offer: selectedOffer, amountCents, currency, expiryDays, t }), [amountCents, currency, expiryDays, needSelection, offerSelection, postType, selectedNeed, selectedOffer, t]);

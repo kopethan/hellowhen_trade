@@ -1,0 +1,776 @@
+diff --git a/apps/mobile/src/components/ContentLanguageControls.tsx b/apps/mobile/src/components/ContentLanguageControls.tsx
+index 52a78f5..6f10e21 100644
+--- a/apps/mobile/src/components/ContentLanguageControls.tsx
++++ b/apps/mobile/src/components/ContentLanguageControls.tsx
+@@ -41,10 +41,10 @@ export function useContentLanguageSelection({ displayLanguage, fallbackTitle, fa
+   };
+ }
+ 
+-function shouldShowControls(displayLanguage?: InventoryDisplayLanguage | null, options?: readonly LanguageOption[]) {
++export function shouldShowContentLanguageControls(displayLanguage?: InventoryDisplayLanguage | null, options?: readonly LanguageOption[]) {
+   if (!displayLanguage?.languageCode) return false;
+   if ((options?.length ?? 0) > 1) return true;
+-  return displayLanguage.source !== 'exact';
++  return displayLanguage.source === 'default' || displayLanguage.source === 'fallback' || displayLanguage.source === 'machine';
+ }
+ 
+ export function ContentLanguageControls({
+@@ -59,53 +59,70 @@ export function ContentLanguageControls({
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+   const options = displayLanguage?.options ?? [];
+-  if (!shouldShowControls(displayLanguage, options)) return null;
++  if (!shouldShowContentLanguageControls(displayLanguage, options)) return null;
+ 
+   const activeLanguage = selectedLanguage || displayLanguage?.languageCode || options[0]?.languageCode || 'en';
++  const activeOption = options.find((option) => option.languageCode === activeLanguage) ?? null;
+   const firstRequested = displayLanguage?.requestedLanguages?.[0] ?? null;
+-  const missingRequested = firstRequested && firstRequested !== activeLanguage && !(displayLanguage?.availableLanguages ?? []).includes(firstRequested as any)
+-    ? languageLabel(firstRequested, t)
+-    : null;
++  const missingRequested = Boolean(
++    firstRequested
++    && firstRequested !== activeLanguage
++    && !(displayLanguage?.availableLanguages ?? []).includes(firstRequested as any),
++  );
++  const fallbackMessage = missingRequested
++    ? t('inventory.languages.fallbackShowing', {
++        requested: languageLabel(firstRequested, t),
++        active: languageLabel(activeLanguage, t),
++      })
++    : (displayLanguage?.source === 'default' || displayLanguage?.source === 'fallback') && (activeOption?.isOriginal ?? true)
++      ? t('inventory.languages.showingOriginal', { language: languageLabel(activeLanguage, t) })
++      : null;
+ 
+   return (
+     <View style={styles.wrap} accessibilityLabel={t('inventory.languages.contentLanguage')}>
+-      <View style={styles.summaryRow}>
+-        <SemanticBadge label={languageLabel(activeLanguage, t)} tone="instruction" size="sm" />
+-        {missingRequested ? <AppText style={[styles.missingText, { color: theme.color.muted }]}>{t('inventory.languages.notAvailable', { language: missingRequested })}</AppText> : null}
+-      </View>
+       {options.length > 1 ? (
+-        <View style={styles.optionRow}>
+-          {options.map((option) => {
+-            const active = option.languageCode === activeLanguage;
+-            return (
+-              <Pressable
+-                key={option.languageCode}
+-                accessibilityRole="button"
+-                accessibilityState={{ selected: active }}
+-                onPress={() => onSelectLanguage(option.languageCode)}
+-                style={({ pressed }) => [
+-                  styles.optionButton,
+-                  {
+-                    backgroundColor: active ? theme.semantic.instruction.softBg : theme.color.surface,
+-                    borderColor: active ? theme.semantic.instruction.border : theme.color.border,
+-                  },
+-                  pressed && styles.pressed,
+-                ]}
+-              >
+-                <AppText style={[styles.optionText, { color: active ? theme.semantic.instruction.text : theme.color.muted }]}>{languageLabel(option.languageCode, t)}</AppText>
+-              </Pressable>
+-            );
+-          })}
++        <>
++          <AppText style={[styles.label, { color: theme.color.muted }]}>{t('inventory.languages.contentLanguage')}</AppText>
++          <View style={styles.optionRow}>
++            {options.map((option) => {
++              const active = option.languageCode === activeLanguage;
++              return (
++                <Pressable
++                  key={option.languageCode}
++                  accessibilityRole="button"
++                  accessibilityState={{ selected: active }}
++                  onPress={() => onSelectLanguage(option.languageCode)}
++                  style={({ pressed }) => [
++                    styles.optionButton,
++                    {
++                      backgroundColor: active ? theme.semantic.instruction.softBg : theme.color.surface,
++                      borderColor: active ? theme.semantic.instruction.border : theme.color.border,
++                    },
++                    pressed && styles.pressed,
++                  ]}
++                >
++                  <AppText style={[styles.optionText, { color: active ? theme.semantic.instruction.text : theme.color.muted }]}>{languageLabel(option.languageCode, t)}</AppText>
++                </Pressable>
++              );
++            })}
++          </View>
++          {fallbackMessage ? <AppText style={[styles.fallbackText, { color: theme.color.muted }]}>{fallbackMessage}</AppText> : null}
++        </>
++      ) : (
++        <View style={styles.summaryRow}>
++          <SemanticBadge label={languageLabel(activeLanguage, t)} tone="instruction" size="sm" />
++          {fallbackMessage ? <AppText style={[styles.fallbackText, { color: theme.color.muted }]}>{fallbackMessage}</AppText> : null}
+         </View>
+-      ) : null}
++      )}
+     </View>
+   );
+ }
+ 
+ const styles = StyleSheet.create({
+   wrap: { gap: 8, marginTop: 2, marginBottom: 6 },
++  label: { fontSize: 11, lineHeight: 15, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
+   summaryRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+-  missingText: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
++  fallbackText: { flex: 1, minWidth: 180, fontSize: 12, lineHeight: 17, fontWeight: '800' },
+   optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+   optionButton: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+   optionText: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+diff --git a/apps/mobile/src/features/trade/CreateNeedFullScreen.tsx b/apps/mobile/src/features/trade/CreateNeedFullScreen.tsx
+index b95be7e..a7af33f 100644
+--- a/apps/mobile/src/features/trade/CreateNeedFullScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateNeedFullScreen.tsx
+@@ -14,7 +14,7 @@ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { ImagePickerField } from './components/ImagePickerField';
+-import { CategoryPicker, InventoryTextField, InventoryTranslationsEditor, LanguagePicker, ModePicker, optionalText, OriginalLanguageSummary } from './components/InventoryFormFields';
++import { CategoryPicker, InventoryLanguagePanel, InventoryTextField, ModePicker, optionalText } from './components/InventoryFormFields';
+ import { InventoryAiAssistCard } from './components/InventoryAiAssistCard';
+ import { PreviewThemePickerCard } from './components/PreviewThemePickerCard';
+ import { formatUploadProgress, getFriendlyUploadErrorMessage, uploadSelectedImages, type SelectedImageUploadProgress, type SelectedLocalImage } from './mediaUpload';
+@@ -64,6 +64,7 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
+   const [uploadProgress, setUploadProgress] = useState<SelectedImageUploadProgress | null>(null);
+   const [error, setError] = useState<string | null>(null);
+   const [starterPrefillApplied, setStarterPrefillApplied] = useState(false);
++  const [languagePanelExpanded, setLanguagePanelExpanded] = useState(false);
+ 
+   const hasDraft = useMemo(() => Boolean(
+     title.trim() ||
+@@ -149,6 +150,7 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
+   }
+ 
+   function applyAiTranslation(languageCode: DiscoveryLanguage, titleText: string, descriptionText: string) {
++    setLanguagePanelExpanded(true);
+     if (languageCode === defaultLanguage) {
+       setTitle(titleText);
+       setDescription(descriptionText);
+@@ -169,6 +171,7 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
+     const cleanDescription = description.trim();
+     const validationError = validateForm();
+     if (validationError) {
++      if (validateInventoryTranslationDrafts(defaultLanguage, translations)) setLanguagePanelExpanded(true);
+       setError(validationError);
+       return;
+     }
+@@ -279,20 +282,17 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
+ 
+         <PreviewThemePickerCard value={previewTheme} onChange={setPreviewTheme} disabled={submitting} />
+ 
+-        <AppCard>
+-          <AppText style={styles.sectionTitle}>{t('inventory.form.languageTitle')}</AppText>
+-          <AppText style={styles.sectionBody}>{t('inventory.form.languageBody')}</AppText>
+-          <LanguagePicker value={defaultLanguage} onChange={changeDefaultLanguage} disabled={submitting} />
+-          <OriginalLanguageSummary languageCode={defaultLanguage} />
+-          <InventoryTranslationsEditor
+-            defaultLanguage={defaultLanguage}
+-            translations={translations}
+-            onChange={setTranslations}
+-            titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
+-            descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
+-            disabled={submitting}
+-          />
+-        </AppCard>
++        <InventoryLanguagePanel
++          defaultLanguage={defaultLanguage}
++          translations={translations}
++          onChangeDefaultLanguage={changeDefaultLanguage}
++          onChangeTranslations={setTranslations}
++          expanded={languagePanelExpanded}
++          onToggle={() => setLanguagePanelExpanded((value) => !value)}
++          titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
++          descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
++          disabled={submitting}
++        />
+ 
+         <AppCard>
+           <AppText style={styles.sectionTitle}>{t('inventory.form.simplifiedDetailsTitle')}</AppText>
+diff --git a/apps/mobile/src/features/trade/CreateOfferFullScreen.tsx b/apps/mobile/src/features/trade/CreateOfferFullScreen.tsx
+index d5963ef..83334b7 100644
+--- a/apps/mobile/src/features/trade/CreateOfferFullScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateOfferFullScreen.tsx
+@@ -14,7 +14,7 @@ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { ImagePickerField } from './components/ImagePickerField';
+-import { CategoryPicker, InventoryTextField, InventoryTranslationsEditor, LanguagePicker, ModePicker, optionalText, OriginalLanguageSummary } from './components/InventoryFormFields';
++import { CategoryPicker, InventoryLanguagePanel, InventoryTextField, ModePicker, optionalText } from './components/InventoryFormFields';
+ import { InventoryAiAssistCard } from './components/InventoryAiAssistCard';
+ import { PreviewThemePickerCard } from './components/PreviewThemePickerCard';
+ import { formatUploadProgress, getFriendlyUploadErrorMessage, uploadSelectedImages, type SelectedImageUploadProgress, type SelectedLocalImage } from './mediaUpload';
+@@ -64,6 +64,7 @@ export function CreateOfferFullScreen({ route, navigation }: Props) {
+   const [uploadProgress, setUploadProgress] = useState<SelectedImageUploadProgress | null>(null);
+   const [error, setError] = useState<string | null>(null);
+   const [starterPrefillApplied, setStarterPrefillApplied] = useState(false);
++  const [languagePanelExpanded, setLanguagePanelExpanded] = useState(false);
+ 
+   const hasDraft = useMemo(() => Boolean(
+     title.trim() ||
+@@ -149,6 +150,7 @@ export function CreateOfferFullScreen({ route, navigation }: Props) {
+   }
+ 
+   function applyAiTranslation(languageCode: DiscoveryLanguage, titleText: string, descriptionText: string) {
++    setLanguagePanelExpanded(true);
+     if (languageCode === defaultLanguage) {
+       setTitle(titleText);
+       setDescription(descriptionText);
+@@ -169,6 +171,7 @@ export function CreateOfferFullScreen({ route, navigation }: Props) {
+     const cleanDescription = description.trim();
+     const validationError = validateForm();
+     if (validationError) {
++      if (validateInventoryTranslationDrafts(defaultLanguage, translations)) setLanguagePanelExpanded(true);
+       setError(validationError);
+       return;
+     }
+@@ -280,20 +283,17 @@ export function CreateOfferFullScreen({ route, navigation }: Props) {
+ 
+         <PreviewThemePickerCard value={previewTheme} onChange={setPreviewTheme} disabled={submitting} />
+ 
+-        <AppCard>
+-          <AppText style={styles.sectionTitle}>{t('inventory.form.languageTitle')}</AppText>
+-          <AppText style={styles.sectionBody}>{t('inventory.form.languageBody')}</AppText>
+-          <LanguagePicker value={defaultLanguage} onChange={changeDefaultLanguage} disabled={submitting} />
+-          <OriginalLanguageSummary languageCode={defaultLanguage} />
+-          <InventoryTranslationsEditor
+-            defaultLanguage={defaultLanguage}
+-            translations={translations}
+-            onChange={setTranslations}
+-            titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
+-            descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
+-            disabled={submitting}
+-          />
+-        </AppCard>
++        <InventoryLanguagePanel
++          defaultLanguage={defaultLanguage}
++          translations={translations}
++          onChangeDefaultLanguage={changeDefaultLanguage}
++          onChangeTranslations={setTranslations}
++          expanded={languagePanelExpanded}
++          onToggle={() => setLanguagePanelExpanded((value) => !value)}
++          titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
++          descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
++          disabled={submitting}
++        />
+ 
+         <AppCard>
+           <AppText style={styles.sectionTitle}>{t('inventory.form.simplifiedDetailsTitle')}</AppText>
+diff --git a/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx b/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
+index 56191d8..8b13897 100644
+--- a/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
+@@ -29,10 +29,8 @@ import {
+   durationPresetLabel,
+   durationPresetMinutes,
+   DurationPresetPicker,
++  InventoryLanguagePanel,
+   InventoryTextField,
+-  LanguagePicker,
+-  InventoryTranslationsEditor,
+-  OriginalLanguageSummary,
+   ModePicker,
+   categoryLabel,
+   modeLabel,
+@@ -517,29 +515,17 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+               error={descriptionError}
+             />
+           </AppCard>
+-          {renderCompactToggle({
+-            title: translationPanelExpanded ? t('inventory.wizard.hideManualTranslation') : t('inventory.wizard.showManualTranslation'),
+-            body: hasInventoryTranslationDraftContent(translations) ? t('inventory.wizard.translationPreparedShort') : t('inventory.form.languageBody'),
+-            icon: 'edit',
+-            expanded: translationPanelExpanded,
+-            onPress: () => setTranslationPanelExpanded((value) => !value),
+-            disabled: submitting,
+-          })}
+-          {translationPanelExpanded ? (
+-            <AppCard style={styles.compactCard}>
+-              <AppText style={[styles.translationBody, { color: theme.color.muted }]}>{t('inventory.form.languageBody')}</AppText>
+-              <LanguagePicker value={defaultLanguage} onChange={changeDefaultLanguage} disabled={submitting} />
+-              <OriginalLanguageSummary languageCode={defaultLanguage} />
+-              <InventoryTranslationsEditor
+-                defaultLanguage={defaultLanguage}
+-                translations={translations}
+-                onChange={setTranslations}
+-                titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
+-                descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
+-                disabled={submitting}
+-              />
+-            </AppCard>
+-          ) : null}
++          <InventoryLanguagePanel
++            defaultLanguage={defaultLanguage}
++            translations={translations}
++            onChangeDefaultLanguage={changeDefaultLanguage}
++            onChangeTranslations={setTranslations}
++            expanded={translationPanelExpanded}
++            onToggle={() => setTranslationPanelExpanded((value) => !value)}
++            titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
++            descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
++            disabled={submitting}
++          />
+           {betaFeatures.plusSubscriptionFeatures.aiAssistEnabled ? (
+             <>
+               {renderCompactToggle({
+@@ -790,7 +776,6 @@ const styles = StyleSheet.create({
+   compactToggleCopy: { flex: 1, gap: 2 },
+   compactToggleTitle: { fontSize: 14, fontWeight: '900' },
+   compactToggleBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
+-  translationBody: { fontSize: 13, lineHeight: 19, fontWeight: '600' },
+   reviewCard: { gap: 0, overflow: 'hidden', padding: 0 },
+   reviewCoverWrap: { position: 'relative' },
+   reviewCover: { width: '100%', height: 172 },
+diff --git a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+index a7e7504..07c136a 100644
+--- a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+@@ -27,7 +27,7 @@ import {
+   DetailSection,
+ } from '../../components/detail';
+ import { InfoNotice, StatusBadge } from '../../components/SemanticUI';
+-import { ContentLanguageControls, useContentLanguageSelection } from '../../components/ContentLanguageControls';
++import { ContentLanguageControls, shouldShowContentLanguageControls, useContentLanguageSelection } from '../../components/ContentLanguageControls';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { useAuth } from '../../providers/AuthProvider';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+@@ -37,9 +37,7 @@ import {
+   categoryLabel,
+   durationPresetLabel,
+   itemTypeLabel,
+-  InventoryTranslationsEditor,
+-  LanguagePicker,
+-  OriginalLanguageSummary,
++  InventoryLanguagePanel,
+ } from './components/InventoryFormFields';
+ import {
+   DangerButton,
+@@ -195,6 +193,7 @@ export function InventoryDetailScreen({
+   const [uploadProgress, setUploadProgress] = useState<SelectedImageUploadProgress | null>(null);
+   const [error, setError] = useState<string | null>(null);
+   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
++  const [languagePanelExpanded, setLanguagePanelExpanded] = useState(false);
+ 
+   const isNeed = kind === 'need';
+   const label = isNeed
+@@ -278,6 +277,7 @@ export function InventoryDetailScreen({
+       setLocationLabel(getOptionalString(nextItem, 'locationLabel'));
+       setExistingMedia(normalizeMediaOrder(nextItem.media ?? []));
+       setNewImages([]);
++      setLanguagePanelExpanded(false);
+     },
+     [isNeed, language],
+   );
+@@ -347,6 +347,7 @@ export function InventoryDetailScreen({
+     }
+     const translationIssue = validateInventoryTranslationDrafts(defaultLanguage, translations);
+     if (translationIssue) {
++      setLanguagePanelExpanded(true);
+       setError(translationValidationMessage(translationIssue));
+       return;
+     }
+@@ -492,6 +493,10 @@ export function InventoryDetailScreen({
+     fallbackTitle: displayItem?.title ?? item?.title ?? fallbackTitle ?? label,
+     fallbackDescription: displayItem?.description ?? item?.description ?? '',
+   });
++  const showDisplayLanguageControls = !editing && shouldShowContentLanguageControls(
++    displayItem?.displayLanguage,
++    displayItem?.displayLanguage?.options,
++  );
+   const status = typeof item?.status === 'string' ? item.status : 'draft';
+   const isActive = status === 'active';
+   const ownerId = typeof item?.ownerId === 'string' ? item.ownerId : null;
+@@ -613,15 +618,22 @@ export function InventoryDetailScreen({
+                 ]}
+               />
+               {!editing ? (
+-                <>
+-                  <ContentLanguageControls displayLanguage={displayItem?.displayLanguage} selectedLanguage={languageSelection.selectedLanguage} onSelectLanguage={languageSelection.setSelectedLanguage} />
+-                  <View style={styles.heroActionRow}>
+-                    <AddToAgendaButton sourceType={kind} sourceId={item.id} itemType={kind} title={languageSelection.title} note={languageSelection.description} style={styles.heroAgendaButton} />
+-                  </View>
+-                </>
++                <View style={styles.heroActionRow}>
++                  <AddToAgendaButton sourceType={kind} sourceId={item.id} itemType={kind} title={languageSelection.title} note={languageSelection.description} style={styles.heroAgendaButton} />
++                </View>
+               ) : null}
+             </DetailHero>
+ 
++            {showDisplayLanguageControls ? (
++              <DetailSection compact>
++                <ContentLanguageControls
++                  displayLanguage={displayItem?.displayLanguage}
++                  selectedLanguage={languageSelection.selectedLanguage}
++                  onSelectLanguage={languageSelection.setSelectedLanguage}
++                />
++              </DetailSection>
++            ) : null}
++
+             {editing ? (
+               <>
+                 <DetailSection
+@@ -658,23 +670,18 @@ export function InventoryDetailScreen({
+                   </View>
+                 </DetailSection>
+ 
+-                <DetailSection
+-                  eyebrow={t('inventory.form.languageTitle')}
+-                  title={t('inventory.labels.manualTranslation')}
+-                  description={t('inventory.form.languageBody')}
+-                >
+-                  <View style={styles.form}>
+-                    <LanguagePicker value={defaultLanguage} onChange={changeDefaultLanguage} disabled={saving} />
+-                    <OriginalLanguageSummary languageCode={defaultLanguage} />
+-                    <InventoryTranslationsEditor
+-                      defaultLanguage={defaultLanguage}
+-                      translations={translations}
+-                      onChange={setTranslations}
+-                      titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
+-                      descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
+-                      disabled={saving}
+-                    />
+-                  </View>
++                <DetailSection compact>
++                  <InventoryLanguagePanel
++                    defaultLanguage={defaultLanguage}
++                    translations={translations}
++                    onChangeDefaultLanguage={changeDefaultLanguage}
++                    onChangeTranslations={setTranslations}
++                    expanded={languagePanelExpanded}
++                    onToggle={() => setLanguagePanelExpanded((value) => !value)}
++                    titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
++                    descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
++                    disabled={saving}
++                  />
+                 </DetailSection>
+ 
+                 <DetailSection
+@@ -751,6 +758,7 @@ export function InventoryDetailScreen({
+                       disabled: saving,
+                       onPress: () => {
+                         hydrateForm(item);
++                        setLanguagePanelExpanded(false);
+                         setEditing(false);
+                       },
+                     },
+@@ -826,7 +834,10 @@ export function InventoryDetailScreen({
+                         : t('inventory.actions.editOffer'),
+                       disabled: saving,
+                       icon: 'edit',
+-                      onPress: () => setEditing(true),
++                      onPress: () => {
++                        setLanguagePanelExpanded(false);
++                        setEditing(true);
++                      },
+                     },
+                     item.status !== 'active'
+                       ? {
+diff --git a/apps/mobile/src/features/trade/components/InventoryFormFields.tsx b/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
+index 16e0d13..5094119 100644
+--- a/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
++++ b/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
+@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+ import type { DiscoveryLanguage, InventoryAvailabilityPreset, InventoryDurationPreset, InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
+ import { findInventoryCategoryOption, inventoryCategoryOptions } from '@hellowhen/shared';
+ import { AppText } from '../../../components/AppText';
++import { MobileIcon } from '../../../components/MobileIcon';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+ import { useTranslation } from '../../../providers/MobileI18nProvider';
+ import { KEYBOARD_DONE_ACCESSORY_ID } from '../../../components/KeyboardDoneAccessory';
+@@ -193,6 +194,43 @@ export function OriginalLanguageSummary({ languageCode }: { languageCode: Discov
+   );
+ }
+ 
++
++export function inventoryLanguagePanelSummary(
++  defaultLanguage: DiscoveryLanguage,
++  translations: readonly InventoryTranslationDraft[],
++  t: TFunction,
++) {
++  const original = inventoryLanguageLabel(defaultLanguage, t);
++  if (!translations.length) return t('inventory.form.languageSummaryNone', { original });
++
++  const [firstTranslation, secondTranslation] = translations;
++  if (!firstTranslation) return t('inventory.form.languageSummaryNone', { original });
++
++  const completeTranslations = translations.filter((translation) => translation.title.trim() && translation.description.trim());
++  if (completeTranslations.length !== translations.length) {
++    if (!secondTranslation) {
++      return t('inventory.form.languageSummaryDraftOne', {
++        original,
++        translation: inventoryLanguageLabel(firstTranslation.languageCode, t),
++      });
++    }
++    return t('inventory.form.languageSummaryDraftMany', { original, count: translations.length });
++  }
++
++  if (!secondTranslation) {
++    return t('inventory.form.languageSummaryOne', {
++      original,
++      translation: inventoryLanguageLabel(firstTranslation.languageCode, t),
++    });
++  }
++
++  return t('inventory.form.languageSummaryTwo', {
++    original,
++    first: inventoryLanguageLabel(firstTranslation.languageCode, t),
++    second: inventoryLanguageLabel(secondTranslation.languageCode, t),
++  });
++}
++
+ export function ManualTranslationFields({
+   languageCode,
+   title,
+@@ -286,23 +324,30 @@ export function InventoryTranslationsEditor({
+         />
+       ))}
+ 
++      {!translations.length ? (
++        <AppText style={[styles.translationEmptyText, { color: theme.color.muted }]}>{t('inventory.form.translationsOptional')}</AppText>
++      ) : null}
++
+       {availableLanguages.length ? (
+         <View style={[styles.addLanguageCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-          <View style={styles.labelRow}>
+-            <AppText style={styles.label}>{t('inventory.actions.addLanguage')}</AppText>
+-            <AppText style={[styles.hint, { color: theme.color.muted }]}>{t('inventory.form.chooseTranslationLanguage')}</AppText>
++          <View style={[styles.addLanguageIcon, { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }]}>
++            <MobileIcon name="add" size={18} color={theme.semantic.proposal.text} decorative />
+           </View>
+-          <View style={styles.modeRow}>
+-            {availableLanguages.map((languageCode) => (
+-              <Pressable
+-                key={languageCode}
+-                disabled={disabled}
+-                onPress={() => onChange(addInventoryTranslationDraft(translations, defaultLanguage, languageCode))}
+-                style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, disabled && styles.disabled, pressed && styles.pressed]}
+-              >
+-                <AppText style={[styles.modeButtonText, { color: theme.color.text }]}>{inventoryLanguageLabel(languageCode, t)}</AppText>
+-              </Pressable>
+-            ))}
++          <View style={styles.addLanguageCopy}>
++            <AppText style={styles.label}>{translations.length ? t('inventory.actions.addAnotherLanguage') : t('inventory.actions.addLanguage')}</AppText>
++            <AppText style={[styles.hint, { color: theme.color.muted }]}>{t('inventory.form.chooseTranslationLanguage')}</AppText>
++            <View style={styles.modeRow}>
++              {availableLanguages.map((languageCode) => (
++                <Pressable
++                  key={languageCode}
++                  disabled={disabled}
++                  onPress={() => onChange(addInventoryTranslationDraft(translations, defaultLanguage, languageCode))}
++                  style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, disabled && styles.disabled, pressed && styles.pressed]}
++                >
++                  <AppText style={[styles.modeButtonText, { color: theme.color.text }]}>{inventoryLanguageLabel(languageCode, t)}</AppText>
++                </Pressable>
++              ))}
++            </View>
+           </View>
+         </View>
+       ) : (
+@@ -312,6 +357,77 @@ export function InventoryTranslationsEditor({
+   );
+ }
+ 
++export function InventoryLanguagePanel({
++  defaultLanguage,
++  translations,
++  onChangeDefaultLanguage,
++  onChangeTranslations,
++  expanded,
++  onToggle,
++  disabled,
++  titleMaxLength,
++  descriptionMaxLength,
++}: {
++  defaultLanguage: DiscoveryLanguage;
++  translations: InventoryTranslationDraft[];
++  onChangeDefaultLanguage: (language: DiscoveryLanguage) => void;
++  onChangeTranslations: (translations: InventoryTranslationDraft[]) => void;
++  expanded: boolean;
++  onToggle: () => void;
++  disabled?: boolean;
++  titleMaxLength?: number;
++  descriptionMaxLength?: number;
++}) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  const summary = inventoryLanguagePanelSummary(defaultLanguage, translations, t);
++
++  return (
++    <View style={styles.languagePanelWrap}>
++      <Pressable
++        accessibilityRole="button"
++        accessibilityState={{ expanded, disabled }}
++        accessibilityLabel={expanded ? t('inventory.form.hideLanguageOptions') : t('inventory.form.languagePanelTitle')}
++        disabled={disabled}
++        onPress={onToggle}
++        style={({ pressed }) => [
++          styles.languagePanelToggle,
++          { backgroundColor: theme.color.surface, borderColor: theme.semantic.proposal.border },
++          disabled && styles.disabled,
++          pressed && styles.pressed,
++        ]}
++      >
++        <View style={styles.languagePanelToggleCopy}>
++          <AppText style={styles.languagePanelToggleTitle}>{expanded ? t('inventory.form.hideLanguageOptions') : t('inventory.form.languagePanelTitle')}</AppText>
++          <AppText style={[styles.languagePanelToggleSummary, { color: theme.color.muted }]} numberOfLines={2}>{summary}</AppText>
++        </View>
++        <MobileIcon name={expanded ? 'chevron-up' : 'chevron-down'} size={19} color={theme.color.muted} decorative />
++      </Pressable>
++
++      {expanded ? (
++        <View style={styles.languagePanelBody}>
++          <View style={styles.languagePanelIntro}>
++            <AppText style={styles.languagePanelIntroTitle}>{t('inventory.form.languageTitle')}</AppText>
++            <AppText style={[styles.languagePanelIntroBody, { color: theme.color.muted }]}>{t('inventory.form.languageBody')}</AppText>
++          </View>
++          <OriginalLanguageSummary languageCode={defaultLanguage} />
++          <View style={[styles.originalLanguageCard, { backgroundColor: theme.color.surface, borderColor: theme.semantic.proposal.border }]}>
++            <LanguagePicker value={defaultLanguage} onChange={onChangeDefaultLanguage} disabled={disabled} />
++          </View>
++          <InventoryTranslationsEditor
++            defaultLanguage={defaultLanguage}
++            translations={translations}
++            onChange={onChangeTranslations}
++            titleMaxLength={titleMaxLength}
++            descriptionMaxLength={descriptionMaxLength}
++            disabled={disabled}
++          />
++        </View>
++      ) : null}
++    </View>
++  );
++}
++
+ 
+ export function CategoryPicker({ value, onChange, disabled }: { value: string; onChange: (category: string) => void; disabled?: boolean }) {
+   const theme = useThemeTokens();
+@@ -566,7 +682,20 @@ const styles = StyleSheet.create({
+   },
+   translationList: { gap: 12 },
+   translationCard: { borderRadius: 18, borderWidth: 1, padding: 14, gap: 12 },
+-  addLanguageCard: { borderRadius: 18, borderWidth: 1, padding: 14, gap: 10 },
++  translationEmptyText: { fontSize: 13, lineHeight: 19, fontWeight: '700', paddingHorizontal: 2 },
++  addLanguageCard: { minHeight: 62, borderRadius: 18, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
++  addLanguageIcon: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  addLanguageCopy: { flex: 1, gap: 7 },
++  languagePanelWrap: { gap: 12 },
++  languagePanelToggle: { minHeight: 66, borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
++  languagePanelToggleCopy: { flex: 1, gap: 4 },
++  languagePanelToggleTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
++  languagePanelToggleSummary: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
++  languagePanelBody: { gap: 12 },
++  languagePanelIntro: { gap: 4 },
++  languagePanelIntroTitle: { fontSize: 14, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' },
++  languagePanelIntroBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
++  originalLanguageCard: { borderRadius: 18, borderWidth: 1, padding: 14 },
+   languageSummary: {
+     alignSelf: 'flex-start',
+     borderRadius: 999,
+diff --git a/packages/i18n/src/locales/en/inventory.ts b/packages/i18n/src/locales/en/inventory.ts
+index 4d4837b..c5f8780 100644
+--- a/packages/i18n/src/locales/en/inventory.ts
++++ b/packages/i18n/src/locales/en/inventory.ts
+@@ -117,6 +117,8 @@ export const inventory = {
+     es: 'Spanish',
+     contentLanguage: 'Content language',
+     notAvailable: '{{language}} not available',
++    fallbackShowing: '{{requested}} is not available. Showing {{active}}.',
++    showingOriginal: 'Showing the original content in {{language}}.',
+   },
+   categories: {
+     design: 'Design',
+@@ -203,6 +205,7 @@ export const inventory = {
+     uploadImages: 'Upload images',
+     imageLimitReached: 'Image limit reached',
+     addLanguage: 'Add language',
++    addAnotherLanguage: 'Add another language',
+     removeTranslation: 'Remove',
+     delete: 'Delete',
+     cancel: 'Cancel',
+@@ -265,6 +268,14 @@ export const inventory = {
+     simplifiedDetailsBody: 'Add only the basics now. Categories and tags can be improved later.',
+     categoryHelp: 'Optional, but recommended. It helps people find and understand your Need or Offer.',
+     languageTitle: 'Languages',
++    languagePanelTitle: 'Languages & translations',
++    hideLanguageOptions: 'Hide language options',
++    languageSummaryNone: 'Original: {{original}} · No translations',
++    languageSummaryOne: 'Original: {{original}} · {{translation}} available',
++    languageSummaryTwo: 'Original: {{original}} · {{first}} and {{second}} available',
++    languageSummaryDraftOne: 'Original: {{original}} · {{translation}} draft',
++    languageSummaryDraftMany: 'Original: {{original}} · {{count}} translation drafts',
++    translationsOptional: 'Translations are optional. Add a language only when you want to write it manually.',
+     languageBody: 'Your original text is saved in the language below. Add another language only when you want to write a manual translation.',
+     originalContentLanguage: 'Original content: {{language}}',
+     originalLanguageSelector: 'Original text language',
+diff --git a/packages/i18n/src/locales/es/inventory.ts b/packages/i18n/src/locales/es/inventory.ts
+index 4e3d5ab..6c45bef 100644
+--- a/packages/i18n/src/locales/es/inventory.ts
++++ b/packages/i18n/src/locales/es/inventory.ts
+@@ -125,6 +125,8 @@ export const inventory = {
+     es: 'Español',
+     contentLanguage: 'Idioma del contenido',
+     notAvailable: '{{language}} no disponible',
++    fallbackShowing: 'El contenido en {{requested}} no está disponible. Se muestra en {{active}}.',
++    showingOriginal: 'Se muestra el contenido original en {{language}}.',
+   },
+   categories: {
+     ...enInventory.categories,
+@@ -216,6 +218,7 @@ export const inventory = {
+     uploadImages: 'Subir imágenes',
+     imageLimitReached: 'Límite de imágenes alcanzado',
+     addLanguage: 'Añadir idioma',
++    addAnotherLanguage: 'Añadir otro idioma',
+     removeTranslation: 'Eliminar',
+     delete: 'Eliminar',
+     cancel: 'Cancelar',
+@@ -279,6 +282,14 @@ export const inventory = {
+     simplifiedDetailsBody: 'Añade solo lo básico por ahora. Las categorías y etiquetas se pueden mejorar después.',
+     categoryHelp: 'Opcional, pero recomendado. Ayuda a que otros encuentren y entiendan tu necesidad u oferta.',
+     languageTitle: 'Idiomas',
++    languagePanelTitle: 'Idiomas y traducciones',
++    hideLanguageOptions: 'Ocultar opciones de idioma',
++    languageSummaryNone: 'Original: {{original}} · Sin traducciones',
++    languageSummaryOne: 'Original: {{original}} · {{translation}} disponible',
++    languageSummaryTwo: 'Original: {{original}} · {{first}} y {{second}} disponibles',
++    languageSummaryDraftOne: 'Original: {{original}} · Borrador en {{translation}}',
++    languageSummaryDraftMany: 'Original: {{original}} · {{count}} borradores de traducción',
++    translationsOptional: 'Las traducciones son opcionales. Añade un idioma solo cuando quieras escribirlo manualmente.',
+     languageBody: 'Tu texto original se guarda en el idioma de abajo. Añade otro idioma solo si quieres escribir una traducción manual.',
+     originalContentLanguage: 'Contenido original: {{language}}',
+     originalLanguageSelector: 'Idioma del texto original',
+diff --git a/packages/i18n/src/locales/fr/inventory.ts b/packages/i18n/src/locales/fr/inventory.ts
+index 064d6a7..b6ee842 100644
+--- a/packages/i18n/src/locales/fr/inventory.ts
++++ b/packages/i18n/src/locales/fr/inventory.ts
+@@ -117,6 +117,8 @@ export const inventory = {
+     es: 'Espagnol',
+     contentLanguage: 'Langue du contenu',
+     notAvailable: '{{language}} non disponible',
++    fallbackShowing: 'Le contenu en {{requested}} n’est pas disponible. Affichage en {{active}}.',
++    showingOriginal: 'Affichage du contenu original en {{language}}.',
+   },
+   categories: {
+     design: 'Design',
+@@ -203,6 +205,7 @@ export const inventory = {
+     uploadImages: 'Importer des images',
+     imageLimitReached: 'Limite d’images atteinte',
+     addLanguage: 'Ajouter une langue',
++    addAnotherLanguage: 'Ajouter une autre langue',
+     removeTranslation: 'Retirer',
+     delete: 'Supprimer',
+     cancel: 'Annuler',
+@@ -265,6 +268,14 @@ export const inventory = {
+     simplifiedDetailsBody: 'Ajoutez seulement l’essentiel maintenant. Les catégories et tags pourront être améliorés plus tard.',
+     categoryHelp: 'Optionnel, mais recommandé. Cela aide les autres à trouver et comprendre votre Need ou votre Offer.',
+     languageTitle: 'Langues',
++    languagePanelTitle: 'Langues et traductions',
++    hideLanguageOptions: 'Masquer les options de langue',
++    languageSummaryNone: 'Original : {{original}} · Aucune traduction',
++    languageSummaryOne: 'Original : {{original}} · {{translation}} disponible',
++    languageSummaryTwo: 'Original : {{original}} · {{first}} et {{second}} disponibles',
++    languageSummaryDraftOne: 'Original : {{original}} · Brouillon en {{translation}}',
++    languageSummaryDraftMany: 'Original : {{original}} · {{count}} brouillons de traduction',
++    translationsOptional: 'Les traductions sont optionnelles. Ajoutez une langue uniquement si vous souhaitez la rédiger manuellement.',
+     languageBody: 'Votre texte original est enregistré dans la langue ci-dessous. Ajoutez une autre langue uniquement si vous voulez rédiger une traduction manuelle.',
+     originalContentLanguage: 'Contenu original : {{language}}',
+     originalLanguageSelector: 'Langue du texte original',

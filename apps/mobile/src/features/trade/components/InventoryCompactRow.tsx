@@ -7,6 +7,7 @@ import { SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { useTranslation } from '../../../providers/MobileI18nProvider';
 import { resolveMediaVariantUrl } from '../mediaUrls';
+import { useLocalizedInventoryItem } from '../inventoryDisplay';
 import type { NeedItem, OfferItem } from '../types';
 
 type TFunction = ReturnType<typeof useTranslation>['t'];
@@ -19,15 +20,24 @@ function modeLabel(mode: string | null | undefined, t: TFunction) { if (mode ===
 function typeLabel(itemType: string | undefined, t: TFunction) { if (itemType === 'goods') return t('inventory.itemTypes.goods'); if (itemType === 'other') return t('inventory.itemTypes.other'); return t('inventory.itemTypes.service'); }
 function metadataFor(kind: 'need' | 'offer', item: NeedItem | OfferItem, t: TFunction) { const timing = kind === 'need' ? (item as NeedItem).timing : (item as OfferItem).availability; const parts = [item.category ? labelize(item.category) : typeLabel(item.itemType, t), modeLabel(item.mode, t), timing?.trim()].filter(Boolean); return parts.join(' · '); }
 function mediaCountLabel(count: number, t: TFunction) { return `${count} ${t('inventory.labels.images').toLowerCase()}`; }
+function fallbackLanguageCode(item: NeedItem | OfferItem) {
+  const displayLanguage = item.displayLanguage;
+  const firstRequested = displayLanguage?.requestedLanguages?.[0];
+  if (!firstRequested || firstRequested === displayLanguage?.languageCode) return null;
+  if ((displayLanguage?.availableLanguages ?? []).includes(firstRequested)) return null;
+  return displayLanguage?.languageCode?.toUpperCase() ?? null;
+}
 
 export function InventoryCompactRow({ kind, item }: InventoryCompactRowProps) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
   const semantic = kind === 'need' ? theme.semantic.need : theme.semantic.offer;
+  const displayItem = useLocalizedInventoryItem(item) ?? item;
   const media = visibleMedia(item.media);
   const thumbnailUrl = firstMediaUrl(item.media);
-  const metadata = metadataFor(kind, item, t);
+  const metadata = metadataFor(kind, displayItem, t);
   const imageLabel = mediaCountLabel(media.length, t);
+  const fallbackCode = fallbackLanguageCode(displayItem);
 
   return (
     <View style={[styles.card, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
@@ -36,8 +46,8 @@ export function InventoryCompactRow({ kind, item }: InventoryCompactRowProps) {
         {media[0]?.status && media[0].status !== 'active' ? <View style={styles.mediaStatus}><StatusBadge status={media[0].status} size="sm" /></View> : null}
       </View>
       <View style={styles.contentZone}>
-        <View style={styles.topRow}><SemanticBadge label={t(`inventory.labels.${kind}`)} tone={kind} size="sm" style={styles.kindBadge} /><StatusBadge status={item.status} size="sm" /></View>
-        <View style={styles.mainCopy}><AppText style={styles.title} numberOfLines={2}>{item.title}</AppText>{metadata ? <AppText style={[styles.meta, { color: theme.color.muted }]} numberOfLines={1}>{metadata}</AppText> : null}</View>
+        <View style={styles.topRow}><SemanticBadge label={t(`inventory.labels.${kind}`)} tone={kind} size="sm" style={styles.kindBadge} /><View style={styles.statusGroup}>{fallbackCode ? <SemanticBadge label={fallbackCode} tone="instruction" size="sm" /> : null}<StatusBadge status={item.status} size="sm" /></View></View>
+        <View style={styles.mainCopy}><AppText style={styles.title} numberOfLines={2}>{displayItem.title}</AppText>{metadata ? <AppText style={[styles.meta, { color: theme.color.muted }]} numberOfLines={1}>{metadata}</AppText> : null}</View>
         {media.length > 0 ? (
           <View style={styles.footerRow}>
             <MobileIcon name="image" size={14} color={theme.color.muted} />
@@ -58,6 +68,7 @@ const styles = StyleSheet.create({
   contentZone: { flex: 1, paddingHorizontal: 12, paddingVertical: 9, justifyContent: 'space-between', gap: 5 },
   topRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
   kindBadge: { flexShrink: 1 },
+  statusGroup: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   mainCopy: { gap: 2 },
   title: { fontSize: 16, lineHeight: 20, fontWeight: '900', letterSpacing: -0.15 },
   meta: { fontSize: 12, lineHeight: 16, fontWeight: '800' },

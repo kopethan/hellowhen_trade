@@ -14,13 +14,22 @@ import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { ImagePickerField } from './components/ImagePickerField';
-import { AddTranslationButton, buildManualTranslation, CategoryPicker, InventoryTextField, LanguagePicker, ManualTranslationFields, ModePicker, optionalText, OriginalLanguageSummary } from './components/InventoryFormFields';
+import { CategoryPicker, InventoryLanguagePanel, InventoryTextField, ModePicker, optionalText } from './components/InventoryFormFields';
 import { InventoryAiAssistCard } from './components/InventoryAiAssistCard';
 import { PreviewThemePickerCard } from './components/PreviewThemePickerCard';
 import { formatUploadProgress, getFriendlyUploadErrorMessage, uploadSelectedImages, type SelectedImageUploadProgress, type SelectedLocalImage } from './mediaUpload';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import type { NeedItem } from './types';
 import { getLocalizedTemplateKeyCandidates } from './tradeFeedIdeas';
+import {
+  buildInventoryTranslationsPayload,
+  changeInventoryOriginalLanguage,
+  hasInventoryTranslationDraftContent,
+  upsertInventoryTranslationDraft,
+  validateInventoryTranslationDrafts,
+  type InventoryTranslationDraft,
+  type InventoryTranslationValidationIssue,
+} from './inventoryTranslations';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateNeedFull'>;
 type CreateNeedResponse = { need: NeedItem };
@@ -43,9 +52,7 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [defaultLanguage, setDefaultLanguage] = useState<DiscoveryLanguage>(language);
-  const [translationTitle, setTranslationTitle] = useState('');
-  const [translationDescription, setTranslationDescription] = useState('');
-  const [translationEnabled, setTranslationEnabled] = useState(false);
+  const [translations, setTranslations] = useState<InventoryTranslationDraft[]>([]);
   const [mode, setMode] = useState<TradeExchangeMode>('remote');
   const [previewTheme, setPreviewTheme] = useState<PreviewCardTheme>('default');
   const [category, setCategory] = useState('');
@@ -57,18 +64,18 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
   const [uploadProgress, setUploadProgress] = useState<SelectedImageUploadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starterPrefillApplied, setStarterPrefillApplied] = useState(false);
+  const [languagePanelExpanded, setLanguagePanelExpanded] = useState(false);
 
   const hasDraft = useMemo(() => Boolean(
     title.trim() ||
     description.trim() ||
-    translationTitle.trim() ||
-    translationDescription.trim() ||
+    hasInventoryTranslationDraftContent(translations) ||
     category.trim() ||
     tags.trim() ||
     locationLabel.trim() ||
     previewTheme !== 'default' ||
     images.length > 0,
-  ), [category, description, images.length, locationLabel, previewTheme, tags, title, translationDescription, translationTitle]);
+  ), [category, description, images.length, locationLabel, previewTheme, tags, title, translations]);
 
   const unsavedChangesConfirm = useUnsavedChangesWarning({
     navigation,
@@ -86,9 +93,8 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
     if (cleanTitle.length > INVENTORY_TITLE_MAX_LENGTH) return t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH });
     if (cleanDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return t('validation.needDescriptionTooShort');
     if (cleanDescription.length > INVENTORY_DESCRIPTION_MAX_LENGTH) return t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH });
-    if ((translationTitle.trim() && !translationDescription.trim()) || (!translationTitle.trim() && translationDescription.trim())) return t('inventory.errors.translationIncomplete');
-    if (translationTitle.trim() && translationTitle.trim().length < INVENTORY_TITLE_MIN_LENGTH) return t('inventory.errors.translationTitleTooShort');
-    if (translationDescription.trim() && translationDescription.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH) return t('inventory.errors.translationDescriptionTooShort');
+    const translationIssue = validateInventoryTranslationDrafts(defaultLanguage, translations);
+    if (translationIssue) return translationValidationMessage(translationIssue);
     return null;
   }
 
@@ -127,19 +133,30 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
     return () => { mounted = false; };
   }, [language, route.params?.initialTemplateKey, starterPrefillApplied, t]);
 
-  function changeDefaultLanguage(nextLanguage: DiscoveryLanguage) {
-    setDefaultLanguage(nextLanguage);
-    if (translationEnabled) {
-      setTranslationEnabled(false);
-      setTranslationTitle('');
-      setTranslationDescription('');
-    }
+  function translationValidationMessage(issue: InventoryTranslationValidationIssue) {
+    if (issue === 'incomplete') return t('inventory.errors.translationIncomplete');
+    if (issue === 'title_too_short') return t('inventory.errors.translationTitleTooShort');
+    if (issue === 'title_too_long') return t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH });
+    if (issue === 'description_too_short') return t('inventory.errors.translationDescriptionTooShort');
+    return t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH });
   }
 
-  function applyAiTranslation(_languageCode: DiscoveryLanguage, titleText: string, descriptionText: string) {
-    setTranslationEnabled(true);
-    setTranslationTitle(titleText);
-    setTranslationDescription(descriptionText);
+  function changeDefaultLanguage(nextLanguage: DiscoveryLanguage) {
+    const nextDraft = changeInventoryOriginalLanguage({ defaultLanguage, title, description, translations }, nextLanguage);
+    setDefaultLanguage(nextDraft.defaultLanguage);
+    setTitle(nextDraft.title);
+    setDescription(nextDraft.description);
+    setTranslations(nextDraft.translations);
+  }
+
+  function applyAiTranslation(languageCode: DiscoveryLanguage, titleText: string, descriptionText: string) {
+    setLanguagePanelExpanded(true);
+    if (languageCode === defaultLanguage) {
+      setTitle(titleText);
+      setDescription(descriptionText);
+      return;
+    }
+    setTranslations((current) => upsertInventoryTranslationDraft(current, defaultLanguage, { languageCode, title: titleText, description: descriptionText }));
   }
 
   function applyAiCategoryTags(categoryText: string, tagList: string[]) {
@@ -154,6 +171,7 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
     const cleanDescription = description.trim();
     const validationError = validateForm();
     if (validationError) {
+      if (validateInventoryTranslationDrafts(defaultLanguage, translations)) setLanguagePanelExpanded(true);
       setError(validationError);
       return;
     }
@@ -168,7 +186,7 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
         title: cleanTitle,
         description: cleanDescription,
         defaultLanguage,
-        translations: translationEnabled ? buildManualTranslation(defaultLanguage, translationTitle, translationDescription) : [],
+        translations: buildInventoryTranslationsPayload(defaultLanguage, translations),
         itemType: 'service',
         category: optionalText(category),
         mode,
@@ -264,27 +282,17 @@ export function CreateNeedFullScreen({ route, navigation }: Props) {
 
         <PreviewThemePickerCard value={previewTheme} onChange={setPreviewTheme} disabled={submitting} />
 
-        <AppCard>
-          <AppText style={styles.sectionTitle}>{t('inventory.form.languageTitle')}</AppText>
-          <AppText style={styles.sectionBody}>{t('inventory.form.languageBody')}</AppText>
-          <LanguagePicker value={defaultLanguage} onChange={changeDefaultLanguage} disabled={submitting} />
-          <OriginalLanguageSummary languageCode={defaultLanguage} />
-          {translationEnabled ? (
-            <ManualTranslationFields
-              defaultLanguage={defaultLanguage}
-              title={translationTitle}
-              description={translationDescription}
-              onChangeTitle={setTranslationTitle}
-              onChangeDescription={setTranslationDescription}
-              onRemove={() => { setTranslationEnabled(false); setTranslationTitle(''); setTranslationDescription(''); }}
-              titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
-              descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
-              disabled={submitting}
-            />
-          ) : (
-            <AddTranslationButton defaultLanguage={defaultLanguage} onAdd={() => setTranslationEnabled(true)} disabled={submitting} />
-          )}
-        </AppCard>
+        <InventoryLanguagePanel
+          defaultLanguage={defaultLanguage}
+          translations={translations}
+          onChangeDefaultLanguage={changeDefaultLanguage}
+          onChangeTranslations={setTranslations}
+          expanded={languagePanelExpanded}
+          onToggle={() => setLanguagePanelExpanded((value) => !value)}
+          titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
+          descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
+          disabled={submitting}
+        />
 
         <AppCard>
           <AppText style={styles.sectionTitle}>{t('inventory.form.simplifiedDetailsTitle')}</AppText>

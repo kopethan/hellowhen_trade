@@ -6,6 +6,7 @@ import { media } from './media';
 import { legal } from './legal';
 import { navigation } from './navigation';
 import { onboarding } from './onboarding';
+import { places } from './places';
 import { profile } from './profile';
 import { report } from './report';
 import { settings } from './settings';
@@ -22,6 +23,7 @@ export const fr = {
   legal,
   navigation,
   onboarding,
+  places,
   profile,
   report,
   settings,

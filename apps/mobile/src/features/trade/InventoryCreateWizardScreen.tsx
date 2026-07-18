@@ -25,16 +25,12 @@ import { useAuth } from '../../providers/AuthProvider';
 import { buildMobileWizardDraftKey, useMobileWizardDraft, WizardFooter, WizardShell } from './create';
 import { ImagePickerField } from './components/ImagePickerField';
 import {
-  AddTranslationButton,
   CategoryPicker,
   durationPresetLabel,
   durationPresetMinutes,
   DurationPresetPicker,
+  InventoryLanguagePanel,
   InventoryTextField,
-  LanguagePicker,
-  ManualTranslationFields,
-  OriginalLanguageSummary,
-  buildManualTranslation,
   ModePicker,
   categoryLabel,
   modeLabel,
@@ -52,6 +48,17 @@ import {
 } from './mediaUpload';
 import type { TradeCreateSideSelection } from './CreateTradeScreen';
 import type { NeedItem, OfferItem } from './types';
+import {
+  buildInventoryTranslationsPayload,
+  changeInventoryOriginalLanguage,
+  hasInventoryTranslationDraftContent,
+  normalizeInventoryTranslationDrafts,
+  restoreLegacyInventoryTranslationDraft,
+  upsertInventoryTranslationDraft,
+  validateInventoryTranslationDrafts,
+  type InventoryTranslationDraft,
+  type InventoryTranslationValidationIssue,
+} from './inventoryTranslations';
 
 type InventoryWizardKind = 'need' | 'offer';
 type InventoryWizardStepId = 'idea' | 'details' | 'images' | 'review';
@@ -80,9 +87,10 @@ type InventoryWizardDraft = {
 type InventoryWizardPersistedDraft = InventoryWizardDraft & {
   activeStepId: InventoryWizardStepId;
   defaultLanguage?: DiscoveryLanguage;
-  translationTitle: string;
-  translationDescription: string;
-  translationEnabled: boolean;
+  translations?: InventoryTranslationDraft[];
+  translationTitle?: string;
+  translationDescription?: string;
+  translationEnabled?: boolean;
 };
 
 const stepIds: InventoryWizardStepId[] = ['idea', 'details', 'images'];
@@ -91,12 +99,11 @@ function safeWizardText(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function hasDraftContent(draft: InventoryWizardDraft, translationTitle: string, translationDescription: string) {
+function hasDraftContent(draft: InventoryWizardDraft, translations: readonly InventoryTranslationDraft[]) {
   return Boolean(
     safeWizardText(draft.title) ||
     safeWizardText(draft.description) ||
-    safeWizardText(translationTitle) ||
-    safeWizardText(translationDescription) ||
+    hasInventoryTranslationDraftContent(translations) ||
     safeWizardText(draft.category) ||
     Boolean(draft.durationPreset) ||
     safeWizardText(draft.tags) ||
@@ -124,9 +131,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [defaultLanguage, setDefaultLanguage] = useState<DiscoveryLanguage>(language);
-  const [translationTitle, setTranslationTitle] = useState('');
-  const [translationDescription, setTranslationDescription] = useState('');
-  const [translationEnabled, setTranslationEnabled] = useState(false);
+  const [translations, setTranslations] = useState<InventoryTranslationDraft[]>([]);
   const [mode, setMode] = useState<TradeExchangeMode>('remote');
   const [previewTheme, setPreviewTheme] = useState<PreviewCardTheme>('default');
   const [category, setCategory] = useState('');
@@ -161,10 +166,8 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     ...draft,
     activeStepId,
     defaultLanguage,
-    translationTitle,
-    translationDescription,
-    translationEnabled,
-  }), [activeStepId, defaultLanguage, draft, translationDescription, translationEnabled, translationTitle]);
+    translations,
+  }), [activeStepId, defaultLanguage, draft, translations]);
 
   const draftStorageKey = useMemo(() => buildMobileWizardDraftKey(kind === 'need' ? 'create-need' : 'create-offer', auth.user?.id), [auth.user?.id, kind]);
 
@@ -178,14 +181,13 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     setLocationLabel(typeof savedDraft.locationLabel === 'string' ? savedDraft.locationLabel : '');
     setPreviewTheme(['default', 'blue', 'green', 'purple', 'amber', 'rose'].includes(savedDraft.previewTheme) ? savedDraft.previewTheme : 'default');
     setImages(Array.isArray(savedDraft.images) ? savedDraft.images : []);
-    setDefaultLanguage(savedDraft.defaultLanguage === 'fr' || savedDraft.defaultLanguage === 'es' ? savedDraft.defaultLanguage : language);
-    const restoredTranslationTitle = typeof savedDraft.translationTitle === 'string' ? savedDraft.translationTitle : '';
-    const restoredTranslationDescription = typeof savedDraft.translationDescription === 'string' ? savedDraft.translationDescription : '';
-    const restoredTranslationEnabled = Boolean(savedDraft.translationEnabled);
-    setTranslationTitle(restoredTranslationTitle);
-    setTranslationDescription(restoredTranslationDescription);
-    setTranslationEnabled(restoredTranslationEnabled);
-    setTranslationPanelExpanded(restoredTranslationEnabled || Boolean(restoredTranslationTitle.trim() || restoredTranslationDescription.trim()));
+    const restoredDefaultLanguage = savedDraft.defaultLanguage === 'fr' || savedDraft.defaultLanguage === 'es' ? savedDraft.defaultLanguage : language;
+    setDefaultLanguage(restoredDefaultLanguage);
+    const restoredTranslations = Array.isArray(savedDraft.translations)
+      ? normalizeInventoryTranslationDrafts(savedDraft.translations, restoredDefaultLanguage)
+      : restoreLegacyInventoryTranslationDraft(restoredDefaultLanguage, savedDraft.translationTitle, savedDraft.translationDescription, savedDraft.translationEnabled);
+    setTranslations(restoredTranslations);
+    setTranslationPanelExpanded(restoredTranslations.length > 0);
     setActiveStepId(stepIds.includes(savedDraft.activeStepId) ? savedDraft.activeStepId : (savedDraft.activeStepId === 'review' ? 'images' : 'idea'));
   }, [language]);
 
@@ -193,7 +195,13 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     storageKey: draftStorageKey,
     draft: persistedDraft,
     enabled: !submitting,
-    hasContent: (candidate) => hasDraftContent(candidate, candidate.translationTitle, candidate.translationDescription) || Boolean(candidate.defaultLanguage && candidate.defaultLanguage !== language),
+    hasContent: (candidate) => {
+      const candidateDefaultLanguage = candidate.defaultLanguage === 'fr' || candidate.defaultLanguage === 'es' ? candidate.defaultLanguage : language;
+      const candidateTranslations = Array.isArray(candidate.translations)
+        ? normalizeInventoryTranslationDrafts(candidate.translations, candidateDefaultLanguage)
+        : restoreLegacyInventoryTranslationDraft(candidateDefaultLanguage, candidate.translationTitle, candidate.translationDescription, candidate.translationEnabled);
+      return hasDraftContent(candidate, candidateTranslations) || Boolean(candidate.defaultLanguage && candidate.defaultLanguage !== language);
+    },
     onRestore: restoreDraft,
   });
 
@@ -216,7 +224,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     },
   ], [category, description, durationPreset, images.length, isNeed, locationLabel, mode, previewTheme, t, tags, title]);
 
-  const hasDraft = hasDraftContent(draft, translationTitle, translationDescription);
+  const hasDraft = hasDraftContent(draft, translations);
   const uploadProgressBody = formatUploadProgress(uploadProgress, t);
   const activeStepIndex = getStepIndex(activeStepId);
   const shouldShowIdeaErrors = attemptedStepId === 'idea';
@@ -236,14 +244,16 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     discardLabel: t('inventory.form.discardDraft'),
   });
 
+  function translationValidationMessage(issue: InventoryTranslationValidationIssue) {
+    if (issue === 'incomplete') return t('inventory.errors.translationIncomplete');
+    if (issue === 'title_too_short') return t('inventory.errors.translationTitleTooShort');
+    if (issue === 'title_too_long') return t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH });
+    if (issue === 'description_too_short') return t('inventory.errors.translationDescriptionTooShort');
+    return t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH });
+  }
+
   function hasTranslationFieldIssue() {
-    if (!translationEnabled) return false;
-    const cleanTranslationTitle = translationTitle.trim();
-    const cleanTranslationDescription = translationDescription.trim();
-    if ((cleanTranslationTitle && !cleanTranslationDescription) || (!cleanTranslationTitle && cleanTranslationDescription)) return true;
-    if (cleanTranslationTitle && cleanTranslationTitle.length < INVENTORY_TITLE_MIN_LENGTH) return true;
-    if (cleanTranslationDescription && cleanTranslationDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return true;
-    return false;
+    return validateInventoryTranslationDrafts(defaultLanguage, translations) !== null;
   }
 
   function validateIdeaStep() {
@@ -253,13 +263,8 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     if (cleanTitle.length > INVENTORY_TITLE_MAX_LENGTH) return t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH });
     if (cleanDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return isNeed ? t('validation.needDescriptionTooShort') : t('validation.offerDescriptionTooShort');
     if (cleanDescription.length > INVENTORY_DESCRIPTION_MAX_LENGTH) return t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH });
-    if (translationEnabled) {
-      const cleanTranslationTitle = translationTitle.trim();
-      const cleanTranslationDescription = translationDescription.trim();
-      if ((cleanTranslationTitle && !cleanTranslationDescription) || (!cleanTranslationTitle && cleanTranslationDescription)) return t('inventory.errors.translationIncomplete');
-      if (cleanTranslationTitle && cleanTranslationTitle.length < INVENTORY_TITLE_MIN_LENGTH) return t('inventory.errors.translationTitleTooShort');
-      if (cleanTranslationDescription && cleanTranslationDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return t('inventory.errors.translationDescriptionTooShort');
-    }
+    const translationIssue = validateInventoryTranslationDrafts(defaultLanguage, translations);
+    if (translationIssue) return translationValidationMessage(translationIssue);
     return null;
   }
 
@@ -287,19 +292,21 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
   }
 
   function changeDefaultLanguage(nextLanguage: DiscoveryLanguage) {
-    setDefaultLanguage(nextLanguage);
-    if (translationEnabled) {
-      setTranslationEnabled(false);
-      setTranslationTitle('');
-      setTranslationDescription('');
-    }
+    const nextDraft = changeInventoryOriginalLanguage({ defaultLanguage, title, description, translations }, nextLanguage);
+    setDefaultLanguage(nextDraft.defaultLanguage);
+    setTitle(nextDraft.title);
+    setDescription(nextDraft.description);
+    setTranslations(nextDraft.translations);
   }
 
-  function applyAiTranslation(_languageCode: DiscoveryLanguage, titleText: string, descriptionText: string) {
-    setTranslationEnabled(true);
+  function applyAiTranslation(languageCode: DiscoveryLanguage, titleText: string, descriptionText: string) {
     setTranslationPanelExpanded(true);
-    setTranslationTitle(titleText);
-    setTranslationDescription(descriptionText);
+    if (languageCode === defaultLanguage) {
+      setTitle(titleText);
+      setDescription(descriptionText);
+      return;
+    }
+    setTranslations((current) => upsertInventoryTranslationDraft(current, defaultLanguage, { languageCode, title: titleText, description: descriptionText }));
   }
 
   function applyAiCategoryTags(categoryText: string, tagList: string[]) {
@@ -326,9 +333,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     setActiveStepId('idea');
     setTitle('');
     setDescription('');
-    setTranslationTitle('');
-    setTranslationDescription('');
-    setTranslationEnabled(false);
+    setTranslations([]);
     setTranslationPanelExpanded(false);
     setMode('remote');
     setPreviewTheme('default');
@@ -449,7 +454,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
         title: cleanTitle,
         description: cleanDescription,
         defaultLanguage,
-        translations: translationEnabled ? buildManualTranslation(defaultLanguage, translationTitle, translationDescription) : [],
+        translations: buildInventoryTranslationsPayload(defaultLanguage, translations),
         itemType: 'service' as const,
         category: optionalText(category),
         ...(isNeed
@@ -510,36 +515,17 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
               error={descriptionError}
             />
           </AppCard>
-          {renderCompactToggle({
-            title: translationPanelExpanded ? t('inventory.wizard.hideManualTranslation') : t('inventory.wizard.showManualTranslation'),
-            body: translationEnabled ? t('inventory.wizard.translationPreparedShort') : t('inventory.form.languageBody'),
-            icon: 'edit',
-            expanded: translationPanelExpanded,
-            onPress: () => setTranslationPanelExpanded((value) => !value),
-            disabled: submitting,
-          })}
-          {translationPanelExpanded ? (
-            <AppCard style={styles.compactCard}>
-              <AppText style={[styles.translationBody, { color: theme.color.muted }]}>{t('inventory.form.languageBody')}</AppText>
-              <LanguagePicker value={defaultLanguage} onChange={changeDefaultLanguage} disabled={submitting} />
-              <OriginalLanguageSummary languageCode={defaultLanguage} />
-              {translationEnabled ? (
-                <ManualTranslationFields
-                  defaultLanguage={defaultLanguage}
-                  title={translationTitle}
-                  description={translationDescription}
-                  onChangeTitle={setTranslationTitle}
-                  onChangeDescription={setTranslationDescription}
-                  onRemove={() => { setTranslationEnabled(false); setTranslationTitle(''); setTranslationDescription(''); }}
-                  titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
-                  descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
-                  disabled={submitting}
-                />
-              ) : (
-                <AddTranslationButton defaultLanguage={defaultLanguage} onAdd={() => setTranslationEnabled(true)} disabled={submitting} />
-              )}
-            </AppCard>
-          ) : null}
+          <InventoryLanguagePanel
+            defaultLanguage={defaultLanguage}
+            translations={translations}
+            onChangeDefaultLanguage={changeDefaultLanguage}
+            onChangeTranslations={setTranslations}
+            expanded={translationPanelExpanded}
+            onToggle={() => setTranslationPanelExpanded((value) => !value)}
+            titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
+            descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
+            disabled={submitting}
+          />
           {betaFeatures.plusSubscriptionFeatures.aiAssistEnabled ? (
             <>
               {renderCompactToggle({
@@ -620,7 +606,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
               ) : null}
             </>
           ) : null}
-          {translationEnabled ? <InfoNotice tone="success" title={t('inventory.wizard.translationPreparedTitle')} body={t('inventory.wizard.translationPreparedBody')} /> : null}
+          {hasInventoryTranslationDraftContent(translations) ? <InfoNotice tone="success" title={t('inventory.wizard.translationPreparedTitle')} body={t('inventory.wizard.translationPreparedBody')} /> : null}
         </>
       );
     }
@@ -662,7 +648,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
               <View style={[styles.reviewKindChip, { backgroundColor: theme.color.subtleSurface }]}>
                 <AppText style={[styles.reviewKindText, { color: theme.color.muted }]}>{isNeed ? t('inventory.labels.need') : t('inventory.labels.offer')}</AppText>
               </View>
-              {translationEnabled ? (
+              {hasInventoryTranslationDraftContent(translations) ? (
                 <View style={[styles.reviewKindChip, { backgroundColor: theme.color.subtleSurface }]}>
                   <AppText style={[styles.reviewKindText, { color: theme.color.muted }]}>{t('inventory.wizard.translationPreparedShort')}</AppText>
                 </View>
@@ -790,7 +776,6 @@ const styles = StyleSheet.create({
   compactToggleCopy: { flex: 1, gap: 2 },
   compactToggleTitle: { fontSize: 14, fontWeight: '900' },
   compactToggleBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
-  translationBody: { fontSize: 13, lineHeight: 19, fontWeight: '600' },
   reviewCard: { gap: 0, overflow: 'hidden', padding: 0 },
   reviewCoverWrap: { position: 'relative' },
   reviewCover: { width: '100%', height: 172 },

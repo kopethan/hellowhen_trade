@@ -1,0 +1,598 @@
+diff --git a/apps/mobile/src/components/ContentLanguageControls.tsx b/apps/mobile/src/components/ContentLanguageControls.tsx
+index 844c9452357c99c7b40e946b429c4ec423b30bf9..52a78f566886293e0fd4f9a206c7a2f7e533ae0b 100644
+--- a/apps/mobile/src/components/ContentLanguageControls.tsx
++++ b/apps/mobile/src/components/ContentLanguageControls.tsx
+@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
+ import type { InventoryDisplayLanguage } from '@hellowhen/contracts';
+ import { AppText } from './AppText';
+ import { SemanticBadge } from './SemanticUI';
++import { useTranslation } from '../providers/MobileI18nProvider';
+ import { useThemeTokens } from '../providers/ThemeProvider';
+ 
+ type LanguageOption = NonNullable<InventoryDisplayLanguage['options']>[number];
+@@ -13,10 +14,10 @@ type LanguageSelectionInput = {
+   fallbackDescription?: string | null;
+ };
+ 
+-function languageLabel(languageCode?: string | null) {
+-  if (languageCode === 'fr') return 'French';
+-  if (languageCode === 'es') return 'Spanish';
+-  return 'English';
++function languageLabel(languageCode: string | null | undefined, t: ReturnType<typeof useTranslation>['t']) {
++  if (languageCode === 'fr') return t('inventory.languages.fr');
++  if (languageCode === 'es') return t('inventory.languages.es');
++  return t('inventory.languages.en');
+ }
+ 
+ export function useContentLanguageSelection({ displayLanguage, fallbackTitle, fallbackDescription }: LanguageSelectionInput) {
+@@ -56,20 +57,21 @@ export function ContentLanguageControls({
+   onSelectLanguage: (languageCode: string) => void;
+ }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const options = displayLanguage?.options ?? [];
+   if (!shouldShowControls(displayLanguage, options)) return null;
+ 
+   const activeLanguage = selectedLanguage || displayLanguage?.languageCode || options[0]?.languageCode || 'en';
+   const firstRequested = displayLanguage?.requestedLanguages?.[0] ?? null;
+   const missingRequested = firstRequested && firstRequested !== activeLanguage && !(displayLanguage?.availableLanguages ?? []).includes(firstRequested as any)
+-    ? languageLabel(firstRequested)
++    ? languageLabel(firstRequested, t)
+     : null;
+ 
+   return (
+-    <View style={styles.wrap} accessibilityLabel="Content language">
++    <View style={styles.wrap} accessibilityLabel={t('inventory.languages.contentLanguage')}>
+       <View style={styles.summaryRow}>
+-        <SemanticBadge label={languageLabel(activeLanguage)} tone="instruction" size="sm" />
+-        {missingRequested ? <AppText style={[styles.missingText, { color: theme.color.muted }]}>{missingRequested} not available</AppText> : null}
++        <SemanticBadge label={languageLabel(activeLanguage, t)} tone="instruction" size="sm" />
++        {missingRequested ? <AppText style={[styles.missingText, { color: theme.color.muted }]}>{t('inventory.languages.notAvailable', { language: missingRequested })}</AppText> : null}
+       </View>
+       {options.length > 1 ? (
+         <View style={styles.optionRow}>
+@@ -90,7 +92,7 @@ export function ContentLanguageControls({
+                   pressed && styles.pressed,
+                 ]}
+               >
+-                <AppText style={[styles.optionText, { color: active ? theme.semantic.instruction.text : theme.color.muted }]}>{languageLabel(option.languageCode)}</AppText>
++                <AppText style={[styles.optionText, { color: active ? theme.semantic.instruction.text : theme.color.muted }]}>{languageLabel(option.languageCode, t)}</AppText>
+               </Pressable>
+             );
+           })}
+diff --git a/apps/mobile/src/features/trade/CreateTradeFullScreen.tsx b/apps/mobile/src/features/trade/CreateTradeFullScreen.tsx
+index bf60541b0d2a2b9d448bf2eef55942b696b3e5a5..5a0e2c8c8584c4e6a7e917b0318b36fc9eb3876b 100644
+--- a/apps/mobile/src/features/trade/CreateTradeFullScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeFullScreen.tsx
+@@ -24,6 +24,7 @@ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { categoryLabel, itemTypeLabel, modeLabel } from './components/InventoryFormFields';
+ import { TradeSquareDeck } from './components/TradeSquareDeck';
+ import { buildTradeSquareDeckCards } from './components/TradeSquareDeckCards';
++import { useLocalizedInventoryItems } from './inventoryDisplay';
+ import type { NeedItem, OfferItem, TradeDeckItem } from './types';
+ import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, parseFeedTradeIdeaKey } from './tradeFeedIdeas';
+ 
+@@ -160,8 +161,10 @@ export function CreateTradeFullScreen({ route, navigation }: Props) {
+ 
+   const usableNeeds = useMemo(() => needs.filter(isNeedAvailable), [needs]);
+   const usableOffers = useMemo(() => offers.filter(isOfferAvailable), [offers]);
+-  const selectedNeed = useMemo(() => needSelection?.kind === 'need' ? usableNeeds.find((need) => need.id === needSelection.id) ?? null : null, [needSelection, usableNeeds]);
+-  const selectedOffer = useMemo(() => offerSelection?.kind === 'offer' ? usableOffers.find((offer) => offer.id === offerSelection.id) ?? null : null, [offerSelection, usableOffers]);
++  const displayNeeds = useLocalizedInventoryItems(usableNeeds);
++  const displayOffers = useLocalizedInventoryItems(usableOffers);
++  const selectedNeed = useMemo(() => needSelection?.kind === 'need' ? displayNeeds.find((need) => need.id === needSelection.id) ?? null : null, [displayNeeds, needSelection]);
++  const selectedOffer = useMemo(() => offerSelection?.kind === 'offer' ? displayOffers.find((offer) => offer.id === offerSelection.id) ?? null : null, [displayOffers, offerSelection]);
+   const amountCents = amountFor(needSelection, offerSelection);
+   const currency = currencyFor(needSelection, offerSelection);
+   const previewTrade = useMemo(() => buildPreviewTrade({ postType, needSelection, offerSelection, need: selectedNeed, offer: selectedOffer, amountCents, currency, expiryDays, t }), [amountCents, currency, expiryDays, needSelection, offerSelection, postType, selectedNeed, selectedOffer, t]);
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index ecc43abf526cf165cf7f94f9ff3133116b9cc157..736f93c43a4578b44a682b50934a1f10c00a5046 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -26,6 +26,7 @@ import { TradeSquareDeck } from './components/TradeSquareDeck';
+ import { buildTradeSquareDeckCards } from './components/TradeSquareDeckCards';
+ import { buildMobileWizardDraftKey, useMobileWizardDraft, WizardFooter, WizardShell } from './create';
+ import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedTradeIdeaPostType, getLocalizedTemplateKeyCandidates, parseFeedTradeIdeaKey, type FeedTradeIdeaKey } from './tradeFeedIdeas';
++import { useLocalizedInventoryItems } from './inventoryDisplay';
+ import type { NeedItem, OfferItem, TradeDeckItem } from './types';
+ 
+ export type TradeCreateSide = 'need' | 'offer';
+@@ -217,8 +218,10 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+ 
+   const usableNeeds = useMemo(() => needs.filter(isNeedAvailable), [needs]);
+   const usableOffers = useMemo(() => offers.filter(isOfferAvailable), [offers]);
+-  const selectedNeed = useMemo(() => needSelection?.kind === 'need' ? usableNeeds.find((need) => need.id === needSelection.id) ?? null : null, [needSelection, usableNeeds]);
+-  const selectedOffer = useMemo(() => offerSelection?.kind === 'offer' ? usableOffers.find((offer) => offer.id === offerSelection.id) ?? null : null, [offerSelection, usableOffers]);
++  const displayNeeds = useLocalizedInventoryItems(usableNeeds);
++  const displayOffers = useLocalizedInventoryItems(usableOffers);
++  const selectedNeed = useMemo(() => needSelection?.kind === 'need' ? displayNeeds.find((need) => need.id === needSelection.id) ?? null : null, [displayNeeds, needSelection]);
++  const selectedOffer = useMemo(() => offerSelection?.kind === 'offer' ? displayOffers.find((offer) => offer.id === offerSelection.id) ?? null : null, [displayOffers, offerSelection]);
+   const amountCents = amountFor(needSelection, offerSelection);
+   const currency = currencyFor(needSelection, offerSelection);
+   const previewTrade = useMemo(() => buildPreviewTrade({ postType, needSelection, offerSelection, need: selectedNeed, offer: selectedOffer, amountCents, currency, expiryDays, t }), [amountCents, currency, expiryDays, needSelection, offerSelection, postType, selectedNeed, selectedOffer, t]);
+diff --git a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+index adbf80d57734a41d24ceb0c1c74637e19b418367..a0c541b6f3bb763977fc44afa6caf65297846d85 100644
+--- a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+@@ -69,6 +69,7 @@ import {
+   INVENTORY_TITLE_MIN_LENGTH,
+ } from '@hellowhen/contracts/src/inventoryLimits';
+ import { formatLocalizedDate } from '@hellowhen/i18n';
++import { useLocalizedInventoryItem } from './inventoryDisplay';
+ import type { NeedItem, OfferItem } from './types';
+ 
+ type InventoryKind = 'need' | 'offer';
+@@ -532,10 +533,11 @@ export function InventoryDetailScreen({
+       }),
+     [category, itemType, locationLabel, mode, structuredTiming.duration, t, tone],
+   );
++  const displayItem = useLocalizedInventoryItem(item);
+   const languageSelection = useContentLanguageSelection({
+-    displayLanguage: !editing ? item?.displayLanguage : null,
+-    fallbackTitle: item?.title ?? fallbackTitle ?? label,
+-    fallbackDescription: item?.description ?? '',
++    displayLanguage: !editing ? displayItem?.displayLanguage : null,
++    fallbackTitle: displayItem?.title ?? item?.title ?? fallbackTitle ?? label,
++    fallbackDescription: displayItem?.description ?? item?.description ?? '',
+   });
+   const status = typeof item?.status === 'string' ? item.status : 'draft';
+   const isActive = status === 'active';
+@@ -659,7 +661,7 @@ export function InventoryDetailScreen({
+               />
+               {!editing ? (
+                 <>
+-                  <ContentLanguageControls displayLanguage={item.displayLanguage} selectedLanguage={languageSelection.selectedLanguage} onSelectLanguage={languageSelection.setSelectedLanguage} />
++                  <ContentLanguageControls displayLanguage={displayItem?.displayLanguage} selectedLanguage={languageSelection.selectedLanguage} onSelectLanguage={languageSelection.setSelectedLanguage} />
+                   <View style={styles.heroActionRow}>
+                     <AddToAgendaButton sourceType={kind} sourceId={item.id} itemType={kind} title={languageSelection.title} note={languageSelection.description} style={styles.heroAgendaButton} />
+                   </View>
+diff --git a/apps/mobile/src/features/trade/MyNeedsScreen.tsx b/apps/mobile/src/features/trade/MyNeedsScreen.tsx
+index d7ebbb7485f85cf4d42af0fdbc3c151160b8087f..92c116b9e5af236758be64bc1c77a526e44416b2 100644
+--- a/apps/mobile/src/features/trade/MyNeedsScreen.tsx
++++ b/apps/mobile/src/features/trade/MyNeedsScreen.tsx
+@@ -14,6 +14,7 @@ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
+ import { InventoryCompactRow } from './components/InventoryCompactRow';
+ import { InventoryFoldersPanel, type InventoryFolderSelection } from './components/InventoryFoldersPanel';
++import { useInventoryDisplayResolver, useLocalizedInventoryItem, useLocalizedInventoryItems } from './inventoryDisplay';
+ import type { NeedItem } from './types';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+@@ -28,6 +29,7 @@ export function MyNeedsScreen() {
+   const theme = useThemeTokens();
+   const { t, language } = useTranslation();
+   const auth = useAuth();
++  const resolveInventoryDisplay = useInventoryDisplayResolver();
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const [sourceTab, setSourceTab] = useState<SourceTab>('mine');
+   const [items, setItems] = useState<NeedItem[]>([]);
+@@ -72,14 +74,17 @@ export function MyNeedsScreen() {
+ 
+   useFocusEffect(useCallback(() => { void loadItems(); void loadTemplates(); setFolderRefreshKey((key) => key + 1); }, [loadItems, loadTemplates]));
+ 
++  const displayItems = useLocalizedInventoryItems(items);
++  const displayCreatedItem = useLocalizedInventoryItem(createdNeed);
++
+   const activeLoading = sourceTab === 'starter' ? templateLoading : loading;
+   const header = <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label={t('inventory.labels.need')} tone="need" /><AppText style={styles.title}>{t('inventory.labels.needs')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('inventory.empty.needNativeBody')}</AppText></View><Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateNeed')} style={({ pressed }) => [styles.createButton, { backgroundColor: theme.semantic.need.bg }, pressed && styles.pressed]}><View style={styles.createButtonContent}><MobileIcon name="add" size={16} color={theme.color.background} /><AppText style={[styles.createButtonText, { color: theme.color.background }]}>{t('common.actions.create')}</AppText></View></Pressable></View>;
+ 
+   const sortedItems = useMemo(() => {
+-    if (!folderSelection.folderId) return items;
++    if (!folderSelection.folderId) return displayItems;
+     const visibleIds = new Set(folderSelection.itemIds);
+-    return items.filter((item) => visibleIds.has(item.id));
+-  }, [folderSelection.folderId, folderSelection.itemIds, items]);
++    return displayItems.filter((item) => visibleIds.has(item.id));
++  }, [displayItems, folderSelection.folderId, folderSelection.itemIds]);
+ 
+   const emptyTitle = folderSelection.folderId && folderSelection.folderTitle ? t('inventory.empty.noFolderItems', { folder: folderSelection.folderTitle }) : t('inventory.empty.createFirstNeed');
+   const emptyBody = folderSelection.folderId ? t('inventory.empty.noFolderItemsBody', { items: t('inventory.labels.needs').toLowerCase() }) : t('inventory.empty.needNativeBody');
+@@ -94,7 +99,7 @@ export function MyNeedsScreen() {
+       if (!result.need) throw new Error(t('inventory.errors.starterSavedUnreadableNeed'));
+       setItems((current) => [result.need!, ...current.filter((item) => item.id !== result.need!.id)]);
+       setCreatedNeed(result.need);
+-      setNotice(t('inventory.messages.starterSavedToMine', { title: result.need.title, collection: t('inventory.labels.myNeeds') }));
++      setNotice(t('inventory.messages.starterSavedToMine', { title: resolveInventoryDisplay(result.need).title, collection: t('inventory.labels.myNeeds') }));
+       setSourceTab('mine');
+     } catch (caughtError) {
+       setTemplateError(getFriendlyApiErrorMessage(caughtError, t('inventory.errors.couldNotSaveStarterNeed')));
+@@ -109,9 +114,9 @@ export function MyNeedsScreen() {
+         <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={activeLoading} onRefresh={() => { void loadItems(); void loadTemplates(); setFolderRefreshKey((key) => key + 1); }} />}>
+           <SourceTabs value={sourceTab} onChange={(nextTab) => { setSourceTab(nextTab); setNotice(null); setCreatedNeed(null); }} />
+           {notice ? <InfoNotice tone="success" title={t('inventory.messages.starterSaved')} body={notice} /> : null}
+-          {createdNeed ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: createdNeed.id, title: createdNeed.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.need.softBg, borderColor: theme.semantic.need.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.need.text }]}>{t('inventory.actions.openSavedNeed')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.need.text} /></Pressable> : null}
++          {createdNeed ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: createdNeed.id, title: displayCreatedItem?.title ?? createdNeed.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.need.softBg, borderColor: theme.semantic.need.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.need.text }]}>{t('inventory.actions.openSavedNeed')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.need.text} /></Pressable> : null}
+           {sourceTab === 'starter' ? <StarterInventoryLibrary kind="need" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('inventory.actions.useThisNeed')} onUseTemplate={(template) => { void cloneTemplate(template); }} /> : <>
+-            {betaFeatures.inventoryFoldersEnabled ? <InventoryFoldersPanel kind="need" items={items.map((item) => ({ id: item.id, title: item.title }))} refreshKey={folderRefreshKey} onSelectionChange={setFolderSelection} /> : null}
++            {betaFeatures.inventoryFoldersEnabled ? <InventoryFoldersPanel kind="need" items={displayItems.map((item) => ({ id: item.id, title: item.title }))} refreshKey={folderRefreshKey} onSelectionChange={setFolderSelection} /> : null}
+             {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotLoadNeed')} body={error} /> : null}
+             {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title={emptyTitle} body={emptyBody} tone="need" onPress={() => navigation.navigate('CreateNeed')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><InventoryCompactRow kind="need" item={item} /></Pressable>)}
+           </>}
+diff --git a/apps/mobile/src/features/trade/MyOffersScreen.tsx b/apps/mobile/src/features/trade/MyOffersScreen.tsx
+index 4f72f3152035bb2d302a424fdca0939919d23a82..18d0db702fcf841ae32ecf536cd9aeab14949fa0 100644
+--- a/apps/mobile/src/features/trade/MyOffersScreen.tsx
++++ b/apps/mobile/src/features/trade/MyOffersScreen.tsx
+@@ -14,6 +14,7 @@ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
+ import { InventoryCompactRow } from './components/InventoryCompactRow';
+ import { InventoryFoldersPanel, type InventoryFolderSelection } from './components/InventoryFoldersPanel';
++import { useInventoryDisplayResolver, useLocalizedInventoryItem, useLocalizedInventoryItems } from './inventoryDisplay';
+ import type { OfferItem } from './types';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+@@ -28,6 +29,7 @@ export function MyOffersScreen() {
+   const theme = useThemeTokens();
+   const { t, language } = useTranslation();
+   const auth = useAuth();
++  const resolveInventoryDisplay = useInventoryDisplayResolver();
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const [sourceTab, setSourceTab] = useState<SourceTab>('mine');
+   const [items, setItems] = useState<OfferItem[]>([]);
+@@ -72,14 +74,17 @@ export function MyOffersScreen() {
+ 
+   useFocusEffect(useCallback(() => { void loadItems(); void loadTemplates(); setFolderRefreshKey((key) => key + 1); }, [loadItems, loadTemplates]));
+ 
++  const displayItems = useLocalizedInventoryItems(items);
++  const displayCreatedItem = useLocalizedInventoryItem(createdOffer);
++
+   const activeLoading = sourceTab === 'starter' ? templateLoading : loading;
+   const header = <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label={t('inventory.labels.offer')} tone="offer" /><AppText style={styles.title}>{t('inventory.labels.offers')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('inventory.empty.offerNativeBody')}</AppText></View><Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateOffer')} style={({ pressed }) => [styles.createButton, { backgroundColor: theme.semantic.offer.bg }, pressed && styles.pressed]}><View style={styles.createButtonContent}><MobileIcon name="add" size={16} color={theme.color.background} /><AppText style={[styles.createButtonText, { color: theme.color.background }]}>{t('common.actions.create')}</AppText></View></Pressable></View>;
+ 
+   const sortedItems = useMemo(() => {
+-    if (!folderSelection.folderId) return items;
++    if (!folderSelection.folderId) return displayItems;
+     const visibleIds = new Set(folderSelection.itemIds);
+-    return items.filter((item) => visibleIds.has(item.id));
+-  }, [folderSelection.folderId, folderSelection.itemIds, items]);
++    return displayItems.filter((item) => visibleIds.has(item.id));
++  }, [displayItems, folderSelection.folderId, folderSelection.itemIds]);
+ 
+   const emptyTitle = folderSelection.folderId && folderSelection.folderTitle ? t('inventory.empty.noFolderItems', { folder: folderSelection.folderTitle }) : t('inventory.empty.createFirstOffer');
+   const emptyBody = folderSelection.folderId ? t('inventory.empty.noFolderItemsBody', { items: t('inventory.labels.offers').toLowerCase() }) : t('inventory.empty.offerNativeBody');
+@@ -94,7 +99,7 @@ export function MyOffersScreen() {
+       if (!result.offer) throw new Error(t('inventory.errors.starterSavedUnreadableOffer'));
+       setItems((current) => [result.offer!, ...current.filter((item) => item.id !== result.offer!.id)]);
+       setCreatedOffer(result.offer);
+-      setNotice(t('inventory.messages.starterSavedToMine', { title: result.offer.title, collection: t('inventory.labels.myOffers') }));
++      setNotice(t('inventory.messages.starterSavedToMine', { title: resolveInventoryDisplay(result.offer).title, collection: t('inventory.labels.myOffers') }));
+       setSourceTab('mine');
+     } catch (caughtError) {
+       setTemplateError(getFriendlyApiErrorMessage(caughtError, t('inventory.errors.couldNotSaveStarterOffer')));
+@@ -109,9 +114,9 @@ export function MyOffersScreen() {
+         <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={activeLoading} onRefresh={() => { void loadItems(); void loadTemplates(); setFolderRefreshKey((key) => key + 1); }} />}>
+           <SourceTabs value={sourceTab} onChange={(nextTab) => { setSourceTab(nextTab); setNotice(null); setCreatedOffer(null); }} />
+           {notice ? <InfoNotice tone="success" title={t('inventory.messages.starterSaved')} body={notice} /> : null}
+-          {createdOffer ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: createdOffer.id, title: createdOffer.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.offer.softBg, borderColor: theme.semantic.offer.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.offer.text }]}>{t('inventory.actions.openSavedOffer')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.offer.text} /></Pressable> : null}
++          {createdOffer ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: createdOffer.id, title: displayCreatedItem?.title ?? createdOffer.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.offer.softBg, borderColor: theme.semantic.offer.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.offer.text }]}>{t('inventory.actions.openSavedOffer')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.offer.text} /></Pressable> : null}
+           {sourceTab === 'starter' ? <StarterInventoryLibrary kind="offer" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('inventory.actions.useThisOffer')} onUseTemplate={(template) => { void cloneTemplate(template); }} /> : <>
+-            {betaFeatures.inventoryFoldersEnabled ? <InventoryFoldersPanel kind="offer" items={items.map((item) => ({ id: item.id, title: item.title }))} refreshKey={folderRefreshKey} onSelectionChange={setFolderSelection} /> : null}
++            {betaFeatures.inventoryFoldersEnabled ? <InventoryFoldersPanel kind="offer" items={displayItems.map((item) => ({ id: item.id, title: item.title }))} refreshKey={folderRefreshKey} onSelectionChange={setFolderSelection} /> : null}
+             {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotLoadOffer')} body={error} /> : null}
+             {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title={emptyTitle} body={emptyBody} tone="offer" onPress={() => navigation.navigate('CreateOffer')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><InventoryCompactRow kind="offer" item={item} /></Pressable>)}
+           </>}
+diff --git a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+index 0f2836f245616e14d5fd2fcf354a61cad6be96f3..9f838574d05c0843b8b61f33b998c1ce5c47cd83 100644
+--- a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+@@ -21,6 +21,7 @@ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { UserIdentityPressable } from '../users/UserIdentityPressable';
+ import { MediaStrip } from './components/MediaStrip';
++import { useLocalizedInventoryItem, useLocalizedInventoryItems } from './inventoryDisplay';
+ import type { NeedItem, OfferItem, ProposalMessageItem, TradeDeckItem, TradeProposalItem } from './types';
+ import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
+ 
+@@ -360,10 +361,14 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+     void loadProposalInventory();
+   }, [canEditProposalContent, loadProposalInventory]);
+ 
+-  const activePackageNeeds = useMemo(() => proposalNeeds.filter(isNeedAvailable), [proposalNeeds]);
+-  const activePackageOffers = useMemo(() => proposalOffers.filter(isOfferAvailable), [proposalOffers]);
+-  const selectedPackageNeed = useMemo(() => activePackageNeeds.find((need) => need.id === packageNeedId) ?? (proposal?.proposedNeed?.id === packageNeedId ? proposal.proposedNeed as NeedItem : null), [activePackageNeeds, packageNeedId, proposal?.proposedNeed]);
+-  const selectedPackageOffer = useMemo(() => activePackageOffers.find((offer) => offer.id === packageOfferId) ?? (proposal?.proposedOffer?.id === packageOfferId ? proposal.proposedOffer as OfferItem : null), [activePackageOffers, packageOfferId, proposal?.proposedOffer]);
++  const availablePackageNeeds = useMemo(() => proposalNeeds.filter(isNeedAvailable), [proposalNeeds]);
++  const availablePackageOffers = useMemo(() => proposalOffers.filter(isOfferAvailable), [proposalOffers]);
++  const activePackageNeeds = useLocalizedInventoryItems(availablePackageNeeds);
++  const activePackageOffers = useLocalizedInventoryItems(availablePackageOffers);
++  const rawSelectedPackageNeed = useMemo(() => activePackageNeeds.find((need) => need.id === packageNeedId) ?? (proposal?.proposedNeed?.id === packageNeedId ? proposal.proposedNeed as NeedItem : null), [activePackageNeeds, packageNeedId, proposal?.proposedNeed]);
++  const rawSelectedPackageOffer = useMemo(() => activePackageOffers.find((offer) => offer.id === packageOfferId) ?? (proposal?.proposedOffer?.id === packageOfferId ? proposal.proposedOffer as OfferItem : null), [activePackageOffers, packageOfferId, proposal?.proposedOffer]);
++  const selectedPackageNeed = useLocalizedInventoryItem(rawSelectedPackageNeed);
++  const selectedPackageOffer = useLocalizedInventoryItem(rawSelectedPackageOffer);
+   const packageChanged = Boolean(proposal && ((proposal.proposedNeedId ?? proposal.proposedNeed?.id ?? '') !== packageNeedId || (proposal.proposedOfferId ?? proposal.proposedOffer?.id ?? '') !== packageOfferId));
+ 
+   const visibleMessages = useMemo(() => proposal ? firstNonDeletedMessages(messages, proposal) : messages, [messages, proposal]);
+diff --git a/apps/mobile/src/features/trade/TradeDetailScreen.tsx b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+index 7924c558830888ebf0742c5a99129e770e060b4f..24d3207cb42abc1c50416f91823454b43067888c 100644
+--- a/apps/mobile/src/features/trade/TradeDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+@@ -28,6 +28,7 @@ import { DetailBottomActionBar, DetailEmptyState, DetailHero, DetailImageGrid, D
+ import { UserIdentityPressable } from '../users/UserIdentityPressable';
+ import { resolveMediaUrl } from './mediaUrls';
+ import { durationPresetLabel } from './components/InventoryFormFields';
++import { useLocalizedInventoryItems } from './inventoryDisplay';
+ import type { NeedItem, OfferItem, TradeDeckItem, TradeProposalItem } from './types';
+ import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
+ 
+@@ -137,8 +138,10 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+   const myProposal = useMemo(() => proposals.find((proposal) => proposal.applicantId === auth.user?.id) ?? null, [auth.user?.id, proposals]);
+   const acceptedProposal = useMemo(() => proposals.find((proposal) => proposal.status === 'accepted') ?? null, [proposals]);
+   const requiredSide = requiredProposalSide(trade);
+-  const activeProposalNeeds = useMemo(() => proposalNeeds.filter(isNeedAvailable), [proposalNeeds]);
+-  const activeProposalOffers = useMemo(() => proposalOffers.filter(isOfferAvailable), [proposalOffers]);
++  const availableProposalNeeds = useMemo(() => proposalNeeds.filter(isNeedAvailable), [proposalNeeds]);
++  const availableProposalOffers = useMemo(() => proposalOffers.filter(isOfferAvailable), [proposalOffers]);
++  const activeProposalNeeds = useLocalizedInventoryItems(availableProposalNeeds);
++  const activeProposalOffers = useLocalizedInventoryItems(availableProposalOffers);
+   const selectedProposalNeed = useMemo(() => activeProposalNeeds.find((need) => need.id === selectedProposalNeedId) ?? null, [activeProposalNeeds, selectedProposalNeedId]);
+   const selectedProposalOffer = useMemo(() => activeProposalOffers.find((offer) => offer.id === selectedProposalOfferId) ?? null, [activeProposalOffers, selectedProposalOfferId]);
+   const paymentLabel = exchangeLabel(trade, t);
+diff --git a/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx b/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
+index 79a578ba9b89e6f6339628cab60bdfe61d145927..67271093116c1cf2ebd383a8bd7f60a20c09d074 100644
+--- a/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
++++ b/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
+@@ -20,6 +20,7 @@ import { useAuth } from '../../providers/AuthProvider';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { UserIdentityPressable } from '../users/UserIdentityPressable';
++import { useLocalizedInventoryItems } from './inventoryDisplay';
+ import type { NeedItem, OfferItem, TradeDeckItem, TradeProposalItem } from './types';
+ import type { TradeCreateSideSelection } from './CreateTradeScreen';
+ import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
+@@ -130,8 +131,10 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
+ 
+   const myProposal = useMemo(() => proposals.find((proposal) => proposal.applicantId === auth.user?.id) ?? null, [auth.user?.id, proposals]);
+   const requiredSide = requiredProposalSide(trade);
+-  const activeProposalNeeds = useMemo(() => proposalNeeds.filter(isNeedAvailable), [proposalNeeds]);
+-  const activeProposalOffers = useMemo(() => proposalOffers.filter(isOfferAvailable), [proposalOffers]);
++  const availableProposalNeeds = useMemo(() => proposalNeeds.filter(isNeedAvailable), [proposalNeeds]);
++  const availableProposalOffers = useMemo(() => proposalOffers.filter(isOfferAvailable), [proposalOffers]);
++  const activeProposalNeeds = useLocalizedInventoryItems(availableProposalNeeds);
++  const activeProposalOffers = useLocalizedInventoryItems(availableProposalOffers);
+   const selectedProposalNeed = useMemo(() => activeProposalNeeds.find((need) => need.id === selectedProposalNeedId) ?? null, [activeProposalNeeds, selectedProposalNeedId]);
+   const selectedProposalOffer = useMemo(() => activeProposalOffers.find((offer) => offer.id === selectedProposalOfferId) ?? null, [activeProposalOffers, selectedProposalOfferId]);
+ 
+diff --git a/apps/mobile/src/features/trade/TradeSidePickerScreen.tsx b/apps/mobile/src/features/trade/TradeSidePickerScreen.tsx
+index a3d2fcb585e88111620886f4048425b53f296fe0..3f47dd84d8147b37d63d453a9b37bc488b9e616f 100644
+--- a/apps/mobile/src/features/trade/TradeSidePickerScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeSidePickerScreen.tsx
+@@ -19,6 +19,7 @@ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { useAuth } from '../../providers/AuthProvider';
+ import { itemTypeLabel, modeLabel } from './components/InventoryFormFields';
+ import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
++import { useLocalizedInventoryItems } from './inventoryDisplay';
+ import type { NeedItem, OfferItem } from './types';
+ import type { TradeCreateSide, TradeCreateSideSelection } from './CreateTradeScreen';
+ 
+@@ -35,7 +36,10 @@ function needMeta(need: NeedItem, t: TFunction) { return [itemTypeLabel(need.ite
+ function offerMeta(offer: OfferItem, t: TFunction) { return [itemTypeLabel(offer.itemType ?? 'service', t), offer.category, offer.availability, optionalModeLabel(offer.mode, t), offer.locationLabel].filter(Boolean).join(' · ') || t('trade.labels.offerDetails'); }
+ function isNeedAvailable(need: NeedItem) { return !['fulfilled', 'closed', 'expired'].includes(need.status); }
+ function isOfferAvailable(offer: OfferItem) { return !['accepted', 'closed', 'expired'].includes(offer.status); }
+-function itemSearchText(item: NeedItem | OfferItem) { return [item.title, item.description, item.category, 'timing' in item ? item.timing : undefined, 'availability' in item ? item.availability : undefined, item.locationLabel, ...(item.tags ?? [])].filter(Boolean).join(' ').toLowerCase(); }
++function itemSearchText(item: NeedItem | OfferItem) {
++  const translationText = (item.translations ?? []).flatMap((translation) => [translation.title, translation.description]);
++  return [item.title, item.description, ...translationText, item.category, 'timing' in item ? item.timing : undefined, 'availability' in item ? item.availability : undefined, item.locationLabel, ...(item.tags ?? [])].filter(Boolean).join(' ').toLowerCase();
++}
+ 
+ export function TradeSidePickerScreen({ route, navigation }: Props) {
+   const theme = useThemeTokens();
+@@ -95,6 +99,8 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
+ 
+   const usableNeeds = useMemo(() => needs.filter(isNeedAvailable), [needs]);
+   const usableOffers = useMemo(() => offers.filter(isOfferAvailable), [offers]);
++  const displayNeeds = useLocalizedInventoryItems(usableNeeds);
++  const displayOffers = useLocalizedInventoryItems(usableOffers);
+   const label = side === 'need' ? t('inventory.labels.need') : t('inventory.labels.offer');
+   const lowerLabel = label.toLowerCase();
+   const pluralLabel = side === 'need' ? t('inventory.labels.needs') : t('inventory.labels.offers');
+@@ -107,14 +113,14 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
+ 
+   const filteredNeeds = useMemo(() => {
+     const needle = query.trim().toLowerCase();
+-    if (!needle) return usableNeeds;
+-    return usableNeeds.filter((need) => itemSearchText(need).includes(needle));
+-  }, [query, usableNeeds]);
++    if (!needle) return displayNeeds;
++    return displayNeeds.filter((need) => itemSearchText(need).includes(needle));
++  }, [displayNeeds, query]);
+   const filteredOffers = useMemo(() => {
+     const needle = query.trim().toLowerCase();
+-    if (!needle) return usableOffers;
+-    return usableOffers.filter((offer) => itemSearchText(offer).includes(needle));
+-  }, [query, usableOffers]);
++    if (!needle) return displayOffers;
++    return displayOffers.filter((offer) => itemSearchText(offer).includes(needle));
++  }, [displayOffers, query]);
+ 
+   function createNewItem() {
+     const returnTo = route.params.returnTo ?? 'createTrade';
+diff --git a/apps/mobile/src/features/trade/components/InventoryCompactRow.tsx b/apps/mobile/src/features/trade/components/InventoryCompactRow.tsx
+index f2843ea34a199787b7d17a929e8d81bc6e5114bc..1fe34886fc865a0830a67ea515c26b14c2041eb0 100644
+--- a/apps/mobile/src/features/trade/components/InventoryCompactRow.tsx
++++ b/apps/mobile/src/features/trade/components/InventoryCompactRow.tsx
+@@ -7,6 +7,7 @@ import { SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+ import { useTranslation } from '../../../providers/MobileI18nProvider';
+ import { resolveMediaVariantUrl } from '../mediaUrls';
++import { useLocalizedInventoryItem } from '../inventoryDisplay';
+ import type { NeedItem, OfferItem } from '../types';
+ 
+ type TFunction = ReturnType<typeof useTranslation>['t'];
+@@ -19,15 +20,24 @@ function modeLabel(mode: string | null | undefined, t: TFunction) { if (mode ===
+ function typeLabel(itemType: string | undefined, t: TFunction) { if (itemType === 'goods') return t('inventory.itemTypes.goods'); if (itemType === 'other') return t('inventory.itemTypes.other'); return t('inventory.itemTypes.service'); }
+ function metadataFor(kind: 'need' | 'offer', item: NeedItem | OfferItem, t: TFunction) { const timing = kind === 'need' ? (item as NeedItem).timing : (item as OfferItem).availability; const parts = [item.category ? labelize(item.category) : typeLabel(item.itemType, t), modeLabel(item.mode, t), timing?.trim()].filter(Boolean); return parts.join(' · '); }
+ function mediaCountLabel(count: number, t: TFunction) { return `${count} ${t('inventory.labels.images').toLowerCase()}`; }
++function fallbackLanguageCode(item: NeedItem | OfferItem) {
++  const displayLanguage = item.displayLanguage;
++  const firstRequested = displayLanguage?.requestedLanguages?.[0];
++  if (!firstRequested || firstRequested === displayLanguage?.languageCode) return null;
++  if ((displayLanguage?.availableLanguages ?? []).includes(firstRequested)) return null;
++  return displayLanguage?.languageCode?.toUpperCase() ?? null;
++}
+ 
+ export function InventoryCompactRow({ kind, item }: InventoryCompactRowProps) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+   const semantic = kind === 'need' ? theme.semantic.need : theme.semantic.offer;
++  const displayItem = useLocalizedInventoryItem(item) ?? item;
+   const media = visibleMedia(item.media);
+   const thumbnailUrl = firstMediaUrl(item.media);
+-  const metadata = metadataFor(kind, item, t);
++  const metadata = metadataFor(kind, displayItem, t);
+   const imageLabel = mediaCountLabel(media.length, t);
++  const fallbackCode = fallbackLanguageCode(displayItem);
+ 
+   return (
+     <View style={[styles.card, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+@@ -36,8 +46,8 @@ export function InventoryCompactRow({ kind, item }: InventoryCompactRowProps) {
+         {media[0]?.status && media[0].status !== 'active' ? <View style={styles.mediaStatus}><StatusBadge status={media[0].status} size="sm" /></View> : null}
+       </View>
+       <View style={styles.contentZone}>
+-        <View style={styles.topRow}><SemanticBadge label={t(`inventory.labels.${kind}`)} tone={kind} size="sm" style={styles.kindBadge} /><StatusBadge status={item.status} size="sm" /></View>
+-        <View style={styles.mainCopy}><AppText style={styles.title} numberOfLines={2}>{item.title}</AppText>{metadata ? <AppText style={[styles.meta, { color: theme.color.muted }]} numberOfLines={1}>{metadata}</AppText> : null}</View>
++        <View style={styles.topRow}><SemanticBadge label={t(`inventory.labels.${kind}`)} tone={kind} size="sm" style={styles.kindBadge} /><View style={styles.statusGroup}>{fallbackCode ? <SemanticBadge label={fallbackCode} tone="instruction" size="sm" /> : null}<StatusBadge status={item.status} size="sm" /></View></View>
++        <View style={styles.mainCopy}><AppText style={styles.title} numberOfLines={2}>{displayItem.title}</AppText>{metadata ? <AppText style={[styles.meta, { color: theme.color.muted }]} numberOfLines={1}>{metadata}</AppText> : null}</View>
+         {media.length > 0 ? (
+           <View style={styles.footerRow}>
+             <MobileIcon name="image" size={14} color={theme.color.muted} />
+@@ -58,6 +68,7 @@ const styles = StyleSheet.create({
+   contentZone: { flex: 1, paddingHorizontal: 12, paddingVertical: 9, justifyContent: 'space-between', gap: 5 },
+   topRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
+   kindBadge: { flexShrink: 1 },
++  statusGroup: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+   mainCopy: { gap: 2 },
+   title: { fontSize: 16, lineHeight: 20, fontWeight: '900', letterSpacing: -0.15 },
+   meta: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
+diff --git a/apps/mobile/src/features/trade/inventoryDisplay.ts b/apps/mobile/src/features/trade/inventoryDisplay.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..9b9b4b8c990d3b9e6854f5cbaade64f4bc0d68a8
+--- /dev/null
++++ b/apps/mobile/src/features/trade/inventoryDisplay.ts
+@@ -0,0 +1,89 @@
++import { useCallback, useMemo } from 'react';
++import type { InventoryDisplayLanguage } from '@hellowhen/contracts';
++import { resolveInventoryDisplayCopy } from '@hellowhen/shared';
++import { useAppSettings } from '../../providers/AppSettingsProvider';
++import { useTranslation } from '../../providers/MobileI18nProvider';
++import type { NeedItem, OfferItem } from './types';
++
++type InventoryDisplayable = Pick<
++  NeedItem | OfferItem,
++  'title' | 'description' | 'defaultLanguage' | 'translations' | 'displayLanguage'
++>;
++
++type LocalizedInventoryItem<T extends InventoryDisplayable> = T & {
++  displayLanguage: InventoryDisplayLanguage;
++};
++
++function sourceInventoryCopy(item: InventoryDisplayable) {
++  const options = item.displayLanguage?.options ?? [];
++  const defaultLanguage = item.defaultLanguage ?? 'en';
++  const original = options.find((option) => option.isOriginal)
++    ?? options.find((option) => option.languageCode === defaultLanguage);
++
++  if (!original) return item;
++  const originalLanguage = original.languageCode ?? defaultLanguage;
++
++  return {
++    title: original.title,
++    description: original.description,
++    defaultLanguage: originalLanguage,
++    translations: options
++      .filter((option) => option.languageCode !== original.languageCode)
++      .map((option) => ({
++        languageCode: option.languageCode,
++        title: option.title,
++        description: option.description,
++        source: option.source,
++      })),
++  };
++}
++
++export function resolveMobileInventoryDisplay<T extends InventoryDisplayable>(
++  item: T,
++  viewerLanguage?: string | null,
++  preferredLanguages?: readonly (string | null | undefined)[] | null,
++): LocalizedInventoryItem<T> {
++  const display = resolveInventoryDisplayCopy(
++    sourceInventoryCopy(item),
++    viewerLanguage,
++    preferredLanguages,
++  );
++
++  return {
++    ...item,
++    title: display.title,
++    description: display.description,
++    displayLanguage: {
++      languageCode: display.languageCode,
++      isTranslated: display.isTranslated,
++      source: display.source,
++      requestedLanguages: display.requestedLanguages,
++      availableLanguages: display.availableLanguages,
++      options: display.options,
++    },
++  };
++}
++
++export function useInventoryDisplayResolver() {
++  const { language } = useTranslation();
++  const { settings } = useAppSettings();
++
++  return useCallback(
++    <T extends InventoryDisplayable>(item: T) => resolveMobileInventoryDisplay(
++      item,
++      language,
++      settings.contentLanguageOrder,
++    ),
++    [language, settings.contentLanguageOrder],
++  );
++}
++
++export function useLocalizedInventoryItem<T extends InventoryDisplayable>(item: T | null | undefined) {
++  const resolveDisplay = useInventoryDisplayResolver();
++  return useMemo(() => item ? resolveDisplay(item) : null, [item, resolveDisplay]);
++}
++
++export function useLocalizedInventoryItems<T extends InventoryDisplayable>(items: readonly T[]) {
++  const resolveDisplay = useInventoryDisplayResolver();
++  return useMemo(() => items.map((item) => resolveDisplay(item)), [items, resolveDisplay]);
++}
+diff --git a/packages/i18n/src/locales/en/inventory.ts b/packages/i18n/src/locales/en/inventory.ts
+index 1f79787572f862a5c1d5f615b1189dd605785b58..570e76103673e8b935b4dfc7bdaf0bcd77c6dc02 100644
+--- a/packages/i18n/src/locales/en/inventory.ts
++++ b/packages/i18n/src/locales/en/inventory.ts
+@@ -115,6 +115,8 @@ export const inventory = {
+     en: 'English',
+     fr: 'French',
+     es: 'Spanish',
++    contentLanguage: 'Content language',
++    notAvailable: '{{language}} not available',
+   },
+   categories: {
+     design: 'Design',
+diff --git a/packages/i18n/src/locales/es/inventory.ts b/packages/i18n/src/locales/es/inventory.ts
+index e9b899d0c9b6762e4bffb0c798205d13f3e8679f..5b4e49ede995a5526cac139afb372532b7afff85 100644
+--- a/packages/i18n/src/locales/es/inventory.ts
++++ b/packages/i18n/src/locales/es/inventory.ts
+@@ -123,6 +123,8 @@ export const inventory = {
+     en: 'Inglés',
+     fr: 'Francés',
+     es: 'Español',
++    contentLanguage: 'Idioma del contenido',
++    notAvailable: '{{language}} no disponible',
+   },
+   categories: {
+     ...enInventory.categories,
+diff --git a/packages/i18n/src/locales/fr/inventory.ts b/packages/i18n/src/locales/fr/inventory.ts
+index c511df8458c1d8f5b420af52a8470ad96d0fb6b6..56dbafbde66cbb12cd9887305574b25ebb8cc73a 100644
+--- a/packages/i18n/src/locales/fr/inventory.ts
++++ b/packages/i18n/src/locales/fr/inventory.ts
+@@ -115,6 +115,8 @@ export const inventory = {
+     en: 'Anglais',
+     fr: 'Français',
+     es: 'Espagnol',
++    contentLanguage: 'Langue du contenu',
++    notAvailable: '{{language}} non disponible',
+   },
+   categories: {
+     design: 'Design',

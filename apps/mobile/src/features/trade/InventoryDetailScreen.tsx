@@ -27,22 +27,17 @@ import {
   DetailSection,
 } from '../../components/detail';
 import { InfoNotice, StatusBadge } from '../../components/SemanticUI';
-import { ContentLanguageControls, useContentLanguageSelection } from '../../components/ContentLanguageControls';
+import { ContentLanguageControls, shouldShowContentLanguageControls, useContentLanguageSelection } from '../../components/ContentLanguageControls';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { ImagePickerField } from './components/ImagePickerField';
 import {
-  AddTranslationButton,
-  buildManualTranslation,
   CategoryPicker,
   categoryLabel,
-  getEditableTranslationLanguage,
   durationPresetLabel,
   itemTypeLabel,
-  LanguagePicker,
-  ManualTranslationFields,
-  OriginalLanguageSummary,
+  InventoryLanguagePanel,
 } from './components/InventoryFormFields';
 import {
   DangerButton,
@@ -69,7 +64,17 @@ import {
   INVENTORY_TITLE_MIN_LENGTH,
 } from '@hellowhen/contracts/src/inventoryLimits';
 import { formatLocalizedDate } from '@hellowhen/i18n';
+import { useLocalizedInventoryItem } from './inventoryDisplay';
 import type { NeedItem, OfferItem } from './types';
+import {
+  buildInventoryTranslationsPayload,
+  changeInventoryOriginalLanguage,
+  inventoryTranslationDraftsEqual,
+  inventoryTranslationDraftsFromItem,
+  validateInventoryTranslationDrafts,
+  type InventoryTranslationDraft,
+  type InventoryTranslationValidationIssue,
+} from './inventoryTranslations';
 
 type InventoryKind = 'need' | 'offer';
 type InventoryItem = (NeedItem | OfferItem) & Record<string, unknown>;
@@ -174,9 +179,7 @@ export function InventoryDetailScreen({
   const [description, setDescription] = useState('');
   const [defaultLanguage, setDefaultLanguage] =
     useState<DiscoveryLanguage>(language);
-  const [translationTitle, setTranslationTitle] = useState('');
-  const [translationDescription, setTranslationDescription] = useState('');
-  const [translationEnabled, setTranslationEnabled] = useState(false);
+  const [translations, setTranslations] = useState<InventoryTranslationDraft[]>([]);
   const [itemType, setItemType] = useState<InventoryItemType>('service');
   const [category, setCategory] = useState('');
   const [timingOrAvailability, setTimingOrAvailability] = useState('');
@@ -190,6 +193,7 @@ export function InventoryDetailScreen({
   const [uploadProgress, setUploadProgress] = useState<SelectedImageUploadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  const [languagePanelExpanded, setLanguagePanelExpanded] = useState(false);
 
   const isNeed = kind === 'need';
   const label = isNeed
@@ -216,29 +220,13 @@ export function InventoryDetailScreen({
       : getOptionalString(item, 'availability');
     const itemDefaultLanguage =
       (item.defaultLanguage as DiscoveryLanguage | undefined) ?? language;
-    const itemTranslationLanguage = getEditableTranslationLanguage(itemDefaultLanguage);
-    const itemTranslation = Array.isArray(item.translations)
-      ? item.translations.find(
-          (translation) => translation?.languageCode === itemTranslationLanguage,
-        )
-      : null;
-    const itemTranslationTitle =
-      typeof itemTranslation?.title === 'string' ? itemTranslation.title : '';
-    const itemTranslationDescription =
-      typeof itemTranslation?.description === 'string'
-        ? itemTranslation.description
-        : '';
-    const itemTranslationEnabled = Boolean(
-      itemTranslationTitle.trim() || itemTranslationDescription.trim(),
-    );
+    const itemTranslations = inventoryTranslationDraftsFromItem(item.translations, itemDefaultLanguage);
 
     return Boolean(
       title !== (item.title ?? '') ||
         description !== (item.description ?? '') ||
         defaultLanguage !== itemDefaultLanguage ||
-        translationEnabled !== itemTranslationEnabled ||
-        translationTitle !== itemTranslationTitle ||
-        translationDescription !== itemTranslationDescription ||
+        !inventoryTranslationDraftsEqual(translations, itemTranslations, defaultLanguage) ||
         itemType !== ((item.itemType as InventoryItemType | undefined) ?? 'service') ||
         category !== getOptionalString(item, 'category') ||
         timingOrAvailability !== itemTimingOrAvailability ||
@@ -248,7 +236,7 @@ export function InventoryDetailScreen({
         existingMedia.find((media) => media.isCover)?.id !== (item.media ?? []).find((media) => media.isCover)?.id ||
         newImages.length > 0,
     );
-  }, [category, defaultLanguage, description, editing, isNeed, item, itemType, language, locationLabel, mode, newImages.length, timingOrAvailability, title, translationDescription, translationEnabled, translationTitle]);
+  }, [category, defaultLanguage, description, editing, isNeed, item, itemType, language, locationLabel, mode, newImages.length, timingOrAvailability, title, translations]);
 
   const unsavedChangesConfirm = useUnsavedChangesWarning({
     navigation,
@@ -260,12 +248,11 @@ export function InventoryDetailScreen({
   });
 
   function changeDefaultLanguage(nextLanguage: DiscoveryLanguage) {
-    setDefaultLanguage(nextLanguage);
-    if (translationEnabled) {
-      setTranslationEnabled(false);
-      setTranslationTitle('');
-      setTranslationDescription('');
-    }
+    const nextDraft = changeInventoryOriginalLanguage({ defaultLanguage, title, description, translations }, nextLanguage);
+    setDefaultLanguage(nextDraft.defaultLanguage);
+    setTitle(nextDraft.title);
+    setDescription(nextDraft.description);
+    setTranslations(nextDraft.translations);
   }
 
   const hydrateForm = useCallback(
@@ -275,28 +262,8 @@ export function InventoryDetailScreen({
       setDescription(nextItem.description ?? '');
       const nextDefaultLanguage =
         (nextItem.defaultLanguage as DiscoveryLanguage | undefined) ?? language;
-      const nextTranslationLanguage =
-        getEditableTranslationLanguage(nextDefaultLanguage);
-      const nextTranslation = Array.isArray(nextItem.translations)
-        ? nextItem.translations.find(
-            (translation) =>
-              translation?.languageCode === nextTranslationLanguage,
-          )
-        : null;
       setDefaultLanguage(nextDefaultLanguage);
-      const nextTranslationTitle =
-        typeof nextTranslation?.title === 'string' ? nextTranslation.title : '';
-      const nextTranslationDescription =
-        typeof nextTranslation?.description === 'string'
-          ? nextTranslation.description
-          : '';
-      setTranslationTitle(nextTranslationTitle);
-      setTranslationDescription(nextTranslationDescription);
-      setTranslationEnabled(
-        Boolean(
-          nextTranslationTitle.trim() || nextTranslationDescription.trim(),
-        ),
-      );
+      setTranslations(inventoryTranslationDraftsFromItem(nextItem.translations, nextDefaultLanguage));
       setItemType(
         (nextItem.itemType as InventoryItemType | undefined) ?? 'service',
       );
@@ -310,6 +277,7 @@ export function InventoryDetailScreen({
       setLocationLabel(getOptionalString(nextItem, 'locationLabel'));
       setExistingMedia(normalizeMediaOrder(nextItem.media ?? []));
       setNewImages([]);
+      setLanguagePanelExpanded(false);
     },
     [isNeed, language],
   );
@@ -337,6 +305,14 @@ export function InventoryDetailScreen({
   useEffect(() => {
     void loadItem();
   }, [loadItem]);
+
+  function translationValidationMessage(issue: InventoryTranslationValidationIssue) {
+    if (issue === 'incomplete') return t('inventory.errors.translationIncomplete');
+    if (issue === 'title_too_short') return t('inventory.errors.translationTitleTooShort');
+    if (issue === 'title_too_long') return t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH });
+    if (issue === 'description_too_short') return t('inventory.errors.translationDescriptionTooShort');
+    return t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH });
+  }
 
   async function saveItem(nextStatus?: string) {
     if (title.trim().length < INVENTORY_TITLE_MIN_LENGTH) {
@@ -369,25 +345,10 @@ export function InventoryDetailScreen({
       );
       return;
     }
-    if (
-      (translationTitle.trim() && !translationDescription.trim()) ||
-      (!translationTitle.trim() && translationDescription.trim())
-    ) {
-      setError(t('inventory.errors.translationIncomplete'));
-      return;
-    }
-    if (
-      translationTitle.trim() &&
-      translationTitle.trim().length < INVENTORY_TITLE_MIN_LENGTH
-    ) {
-      setError(t('inventory.errors.translationTitleTooShort'));
-      return;
-    }
-    if (
-      translationDescription.trim() &&
-      translationDescription.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH
-    ) {
-      setError(t('inventory.errors.translationDescriptionTooShort'));
+    const translationIssue = validateInventoryTranslationDrafts(defaultLanguage, translations);
+    if (translationIssue) {
+      setLanguagePanelExpanded(true);
+      setError(translationValidationMessage(translationIssue));
       return;
     }
 
@@ -403,13 +364,7 @@ export function InventoryDetailScreen({
         title: title.trim(),
         description: description.trim(),
         defaultLanguage,
-        translations: translationEnabled
-          ? buildManualTranslation(
-              defaultLanguage,
-              translationTitle,
-              translationDescription,
-            )
-          : [],
+        translations: buildInventoryTranslationsPayload(defaultLanguage, translations),
         category: optionalText(category),
         mode,
         locationLabel: optionalText(locationLabel),
@@ -532,11 +487,16 @@ export function InventoryDetailScreen({
       }),
     [category, itemType, locationLabel, mode, structuredTiming.duration, t, tone],
   );
+  const displayItem = useLocalizedInventoryItem(item);
   const languageSelection = useContentLanguageSelection({
-    displayLanguage: !editing ? item?.displayLanguage : null,
-    fallbackTitle: item?.title ?? fallbackTitle ?? label,
-    fallbackDescription: item?.description ?? '',
+    displayLanguage: !editing ? displayItem?.displayLanguage : null,
+    fallbackTitle: displayItem?.title ?? item?.title ?? fallbackTitle ?? label,
+    fallbackDescription: displayItem?.description ?? item?.description ?? '',
   });
+  const showDisplayLanguageControls = !editing && shouldShowContentLanguageControls(
+    displayItem?.displayLanguage,
+    displayItem?.displayLanguage?.options,
+  );
   const status = typeof item?.status === 'string' ? item.status : 'draft';
   const isActive = status === 'active';
   const ownerId = typeof item?.ownerId === 'string' ? item.ownerId : null;
@@ -658,14 +618,21 @@ export function InventoryDetailScreen({
                 ]}
               />
               {!editing ? (
-                <>
-                  <ContentLanguageControls displayLanguage={item.displayLanguage} selectedLanguage={languageSelection.selectedLanguage} onSelectLanguage={languageSelection.setSelectedLanguage} />
-                  <View style={styles.heroActionRow}>
-                    <AddToAgendaButton sourceType={kind} sourceId={item.id} itemType={kind} title={languageSelection.title} note={languageSelection.description} style={styles.heroAgendaButton} />
-                  </View>
-                </>
+                <View style={styles.heroActionRow}>
+                  <AddToAgendaButton sourceType={kind} sourceId={item.id} itemType={kind} title={languageSelection.title} note={languageSelection.description} style={styles.heroAgendaButton} />
+                </View>
               ) : null}
             </DetailHero>
+
+            {showDisplayLanguageControls ? (
+              <DetailSection compact>
+                <ContentLanguageControls
+                  displayLanguage={displayItem?.displayLanguage}
+                  selectedLanguage={languageSelection.selectedLanguage}
+                  onSelectLanguage={languageSelection.setSelectedLanguage}
+                />
+              </DetailSection>
+            ) : null}
 
             {editing ? (
               <>
@@ -703,38 +670,18 @@ export function InventoryDetailScreen({
                   </View>
                 </DetailSection>
 
-                <DetailSection
-                  eyebrow={t('inventory.form.languageTitle')}
-                  title={t('inventory.labels.manualTranslation')}
-                  description={t('inventory.form.languageBody')}
-                >
-                  <View style={styles.form}>
-                    <LanguagePicker value={defaultLanguage} onChange={changeDefaultLanguage} disabled={saving} />
-                    <OriginalLanguageSummary languageCode={defaultLanguage} />
-                    {translationEnabled ? (
-                      <ManualTranslationFields
-                        defaultLanguage={defaultLanguage}
-                        title={translationTitle}
-                        description={translationDescription}
-                        onChangeTitle={setTranslationTitle}
-                        onChangeDescription={setTranslationDescription}
-                        onRemove={() => {
-                          setTranslationEnabled(false);
-                          setTranslationTitle('');
-                          setTranslationDescription('');
-                        }}
-                        titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
-                        descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
-                        disabled={saving}
-                      />
-                    ) : (
-                      <AddTranslationButton
-                        defaultLanguage={defaultLanguage}
-                        onAdd={() => setTranslationEnabled(true)}
-                        disabled={saving}
-                      />
-                    )}
-                  </View>
+                <DetailSection compact>
+                  <InventoryLanguagePanel
+                    defaultLanguage={defaultLanguage}
+                    translations={translations}
+                    onChangeDefaultLanguage={changeDefaultLanguage}
+                    onChangeTranslations={setTranslations}
+                    expanded={languagePanelExpanded}
+                    onToggle={() => setLanguagePanelExpanded((value) => !value)}
+                    titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
+                    descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
+                    disabled={saving}
+                  />
                 </DetailSection>
 
                 <DetailSection
@@ -811,6 +758,7 @@ export function InventoryDetailScreen({
                       disabled: saving,
                       onPress: () => {
                         hydrateForm(item);
+                        setLanguagePanelExpanded(false);
                         setEditing(false);
                       },
                     },
@@ -886,7 +834,10 @@ export function InventoryDetailScreen({
                         : t('inventory.actions.editOffer'),
                       disabled: saving,
                       icon: 'edit',
-                      onPress: () => setEditing(true),
+                      onPress: () => {
+                        setLanguagePanelExpanded(false);
+                        setEditing(true);
+                      },
                     },
                     item.status !== 'active'
                       ? {
