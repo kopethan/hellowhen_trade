@@ -13,7 +13,7 @@ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { APP_SCREEN_HORIZONTAL_PADDING } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
-import { KeyboardDoneAccessory, KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
+import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
 import { MobileIcon } from '../../components/MobileIcon';
 import { ReportContentPanel } from '../../components/ReportContentPanel';
 import { InfoNotice } from '../../components/SemanticUI';
@@ -330,7 +330,6 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
             />
           ))}
         </ScrollView>
-        <KeyboardDoneAccessory />
         {isCancelled ? (
           <View style={[styles.closedComposer, { backgroundColor: theme.color.background, borderColor: theme.color.border, paddingBottom: Math.max(10, insets.bottom + 8) }]}>
             <InfoNotice tone="warning" title={t('plans.discussion.cancelled.title')} body={t('plans.discussion.cancelled.body')} />

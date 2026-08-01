@@ -41,6 +41,8 @@
     "plans:test": "npm run test:plans -w @hellowhen/api"
   },
   "devDependencies": {
+    "expo": "~51.0.39",
+    "expo-modules-autolinking": "~1.11.0",
     "typescript": "^5.4.5"
   },
   "engines": {

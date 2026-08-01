@@ -6,14 +6,14 @@ import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linkin
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
-import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
+import { formatLocalizedDateTime, type SupportedLanguage, type TranslationValues } from '@hellowhen/i18n';
 import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, resolveInventoryOriginalCopy, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { AppText } from '../../components/AppText';
 import { AppConfirmSheet } from '../../components/AppConfirmSheet';
 import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
-import { KeyboardDoneAccessory, KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
+import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
 import { ReportContentPanel } from '../../components/ReportContentPanel';
 import { ContentLanguageControls, useContentLanguageSelection } from '../../components/ContentLanguageControls';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
@@ -4809,7 +4809,6 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
             </View>
           </View>
         </Modal>
-        <KeyboardDoneAccessory />
       </KeyboardAvoidingView>
     </AppFixedHeaderScreen>
   );
@@ -4983,9 +4982,9 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
       applySavedPlaceBaseline(response.place);
       if (route.params?.returnToCreatePlan) {
         if (isEditing) {
-          queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params.targetPlaceIndex, updatedPlaceNonce: Date.now(), updatedPlaceSelectAfterFix: route.params.selectPlaceAfterSave }));
+          queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params?.targetPlaceIndex, updatedPlaceNonce: Date.now(), updatedPlaceSelectAfterFix: route.params?.selectPlaceAfterSave }));
         } else {
-          queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { createdPlace: response.place, createdPlaceTargetIndex: route.params.targetPlaceIndex, createdPlaceNonce: Date.now() }));
+          queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { createdPlace: response.place, createdPlaceTargetIndex: route.params?.targetPlaceIndex, createdPlaceNonce: Date.now() }));
         }
         return;
       }
@@ -5237,7 +5236,6 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
             </View>
           </View>
         </View>
-        <KeyboardDoneAccessory />
         <AppConfirmSheet {...unsavedChangesConfirm} />
       </KeyboardAvoidingView>
     </AppFixedHeaderScreen>

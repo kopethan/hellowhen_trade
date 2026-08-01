@@ -1,4 +1,4 @@
-import type { DiscoveryLanguage, InventoryTranslationDto } from '@hellowhen/contracts';
+import type { DiscoveryLanguage } from '@hellowhen/contracts';
 import {
   INVENTORY_DESCRIPTION_MAX_LENGTH,
   INVENTORY_DESCRIPTION_MIN_LENGTH,
@@ -15,6 +15,7 @@ import {
   supportedLocalizedContentLanguages,
   updateLocalizedContentTranslationDraft,
   type LocalizedContentOriginalDraft,
+  type LocalizedContentTranslationInput,
   type LocalizedContentTranslationDraft,
 } from '../localizedContentTranslations';
 
@@ -31,14 +32,14 @@ export type InventoryTranslationValidationIssue =
 export const supportedInventoryLanguages = supportedLocalizedContentLanguages;
 
 export function normalizeInventoryTranslationDrafts(
-  translations: readonly Partial<InventoryTranslationDraft | InventoryTranslationDto>[] | null | undefined,
+  translations: readonly LocalizedContentTranslationInput[] | null | undefined,
   defaultLanguage: DiscoveryLanguage,
 ) {
   return normalizeLocalizedContentTranslationDrafts(translations, defaultLanguage);
 }
 
 export function inventoryTranslationDraftsFromItem(
-  translations: readonly Partial<InventoryTranslationDto>[] | null | undefined,
+  translations: readonly LocalizedContentTranslationInput[] | null | undefined,
   defaultLanguage: DiscoveryLanguage,
 ) {
   return normalizeInventoryTranslationDrafts(translations, defaultLanguage);
