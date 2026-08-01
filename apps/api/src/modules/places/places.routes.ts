@@ -31,6 +31,7 @@ import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
 import { googlePlacesRoutes } from './googlePlaces.routes.js';
 import { buildPlaceStaticMapResult } from './placeStaticMap.js';
 import { createRandomPlaceStaticMapTemplateAssignment, isPlaceStaticMapTemplateFamily } from './placeStaticMapTemplates.js';
+import { countOwnedPlanUsageByPlace, type PlaceUsageTarget } from './placeOwnershipPolicy.js';
 import { canUpdatePlaceLockedByPlan, isArchiveOnlyPlaceUpdate, isTranslationOnlyPlaceUpdate } from './placeUpdatePolicy.js';
 
 export const placesRoutes = Router();
@@ -347,20 +348,23 @@ function updatePlaceData(input: ReturnType<typeof updatePlaceRequestSchema.parse
   return data;
 }
 
-async function loadPlaceUsageCounts(placeIds: string[]) {
-  const ids = Array.from(new Set(placeIds.filter(Boolean)));
-  if (!ids.length) return new Map<string, number>();
-  const rows = await prisma.planPlace.groupBy({
-    by: ['placeId'],
-    where: { placeId: { in: ids } },
-    _count: { _all: true },
-  } as any);
-  return new Map((rows as any[]).map((row) => [row.placeId, row._count?._all ?? 0]));
+async function loadPlaceUsageCounts(places: PlaceUsageTarget[]) {
+  const targets = Array.from(new Map<string, PlaceUsageTarget>(places.filter((place) => Boolean(place.id)).map((place) => [place.id, place] as [string, PlaceUsageTarget])).values());
+  if (!targets.length) return new Map<string, number>();
+  const rows = await prisma.planPlace.findMany({
+    where: { placeId: { in: targets.map((place) => place.id) } },
+    select: {
+      placeId: true,
+      planId: true,
+      plan: { select: { ownerId: true, deletedAt: true } },
+    },
+  });
+  return countOwnedPlanUsageByPlace(targets, rows);
 }
 
-async function placeUsedInPlansCount(placeId: string) {
-  const counts = await loadPlaceUsageCounts([placeId]);
-  return counts.get(placeId) ?? 0;
+async function placeUsedInPlansCount(place: PlaceUsageTarget) {
+  const counts = await loadPlaceUsageCounts([place]);
+  return counts.get(place.id) ?? 0;
 }
 
 function cleanPlaceForViewer(place: any, viewerId?: string | null, actorRole?: string | null, surface: 'detail' | 'list' | 'preview' = 'detail') {
@@ -393,7 +397,7 @@ async function decoratePlaces(
   const withTranslations = await withInventoryTranslations(prisma, 'place', places);
   const displayReadyPlaces = applyInventoryDisplayLanguage(withTranslations, languagePreferences?.language, languagePreferences?.contentLanguageOrder);
   const withPlaceMedia = await withMedia('place' as any, displayReadyPlaces, visibility);
-  const usageCounts = await loadPlaceUsageCounts(withPlaceMedia.map((place: any) => place.id));
+  const usageCounts = await loadPlaceUsageCounts(withPlaceMedia.map((place: any) => ({ id: place.id, ownerId: place.ownerId, source: place.source })));
   return withPlaceMedia.map((place: any) => cleanPlaceForViewer({ ...place, usedInPlansCount: usageCounts.get(place.id) ?? 0 }, viewerId ?? null, actorRole ?? null, 'list'));
 }
 
@@ -407,7 +411,7 @@ async function decoratePlace(
   const withTranslations = await withOneInventoryTranslation(prisma, 'place', place);
   const [displayReadyPlace] = applyInventoryDisplayLanguage([withTranslations], languagePreferences?.language, languagePreferences?.contentLanguageOrder);
   const [withPlaceMedia] = await withMedia('place' as any, [displayReadyPlace], visibility);
-  const usageCounts = await loadPlaceUsageCounts([withPlaceMedia.id]);
+  const usageCounts = await loadPlaceUsageCounts([{ id: withPlaceMedia.id, ownerId: withPlaceMedia.ownerId, source: withPlaceMedia.source }]);
   return cleanPlaceForViewer({ ...withPlaceMedia, usedInPlansCount: usageCounts.get(withPlaceMedia.id) ?? 0 }, viewerId ?? null, actorRole ?? null, 'detail');
 }
 
@@ -516,7 +520,7 @@ placesRoutes.patch('/:placeId', requireAuth, requireActiveAccount, asyncRoute(as
     include: placeInclude(),
   });
   if (!existing) return res.status(404).json({ error: 'not_found' });
-  const usedInPlansCount = await placeUsedInPlansCount(existing.id);
+  const usedInPlansCount = await placeUsedInPlansCount({ id: existing.id, ownerId: existing.ownerId, source: existing.source });
   const lockedByPlan = existing.source === 'user' && usedInPlansCount > 0;
   if (lockedByPlan && !canUpdatePlaceLockedByPlan(input)) {
     return res.status(409).json({

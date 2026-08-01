@@ -65,13 +65,13 @@ function PlaceManageCard({ place, onArchive, archiving, themeMode }: { place: Pl
             <h3>{place.title}</h3>
             <p>{place.description || 'Reusable Place for future Plans.'}</p>
             <small>{meta || 'Private reusable Place'}</small>
-            {isLocked ? <small className="place-manage-card__locked-note">Already used Places are locked so old Plans keep the saved details.</small> : null}
+            {isLocked ? <small className="place-manage-card__locked-note">Places used in your Plans are locked so those Plans keep their saved details.</small> : null}
           </div>
         </div>
       </div>
       <div className="place-manage-card__actions" aria-label={`Manage ${place.title}`}>
         {isLocked ? (
-          <button type="button" className="button secondary compact" disabled title="This Place is already used in a Plan.">Edit locked</button>
+          <button type="button" className="button secondary compact" disabled title="This Place is already used in one of your Plans.">Edit locked</button>
         ) : (
           <Link className="button secondary compact" href={`/places/${place.id}/edit`}>Edit</Link>
         )}
@@ -163,7 +163,7 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
           <>
             <section className="mobile-card mobile-card--soft place-manage-note">
               <strong>Safe delete</strong>
-              <span>Deleting a Place archives it from My Places and future pickers. Places already used in Plans are locked for editing, and old Plans still show the saved snapshot.</span>
+              <span>Deleting a Place archives it from My Places and future pickers. Places used in your Plans are locked for editing, and those Plans still show the saved snapshot.</span>
             </section>
             {message ? <p className="success-message">{message}</p> : null}
             {error ? <p className="form-error">{error}</p> : null}

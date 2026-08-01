@@ -40,6 +40,7 @@ import { runAiTextReview } from '../moderation/moderation.textPipeline.js';
 import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } from '../moderation/moderation.textEnforcement.js';
 import { buildPlaceStaticMapResult } from '../places/placeStaticMap.js';
 import { createRandomPlaceStaticMapTemplateAssignment } from '../places/placeStaticMapTemplates.js';
+import { canUseReusablePlaceInPlan, planPlaceSourceForOwner } from '../places/placeOwnershipPolicy.js';
 
 export const plansRoutes = Router();
 
@@ -160,9 +161,14 @@ async function syncPlanCapacityStatus(planId: string) {
   }
 }
 
-async function withPlanPlaceMediaFallback(places: any[], publicMediaVisibility: 'public' | 'public_anonymous') {
+async function withPlanPlaceMediaFallback(
+  places: any[],
+  publicMediaVisibility: 'public' | 'public_anonymous',
+  planOwnerByPlaceId: Map<string, string>,
+) {
   const planPlaceMedia = await withMedia('plan_place' as any, places, publicMediaVisibility);
   const sourcePlaces = places
+    .filter((place) => canUseReusablePlaceInPlan(place.sourcePlace, planOwnerByPlaceId.get(place.id) ?? ''))
     .map((place) => place.sourcePlace)
     .filter((place): place is any => Boolean(place?.id));
   if (!sourcePlaces.length) return planPlaceMedia;
@@ -170,7 +176,8 @@ async function withPlanPlaceMediaFallback(places: any[], publicMediaVisibility: 
   const sourcePlaceMedia = await withMedia('place' as any, sourcePlaces, publicMediaVisibility);
   const sourceMediaById = new Map(sourcePlaceMedia.map((place: any) => [place.id, place.media ?? []]));
   return planPlaceMedia.map((place: any) => {
-    if (place.media?.length || !place.placeId) return place;
+    const planOwnerId = planOwnerByPlaceId.get(place.id) ?? '';
+    if (place.media?.length || !place.placeId || !canUseReusablePlaceInPlan(place.sourcePlace, planOwnerId)) return place;
     return { ...place, media: sourceMediaById.get(place.placeId) ?? [] };
   });
 }
@@ -178,7 +185,8 @@ async function withPlanPlaceMediaFallback(places: any[], publicMediaVisibility: 
 async function decoratePlan(plan: any, viewerId?: string | null) {
   const publicMediaVisibility = viewerId ? 'public' : 'public_anonymous';
   const [withPlanMedia] = await withMedia('plan' as any, [plan], publicMediaVisibility);
-  const places = await withPlanPlaceMediaFallback(plan.places ?? [], publicMediaVisibility);
+  const planOwnerByPlaceId = new Map<string, string>((plan.places ?? []).map((place: any) => [place.id, plan.ownerId] as [string, string]));
+  const places = await withPlanPlaceMediaFallback(plan.places ?? [], publicMediaVisibility, planOwnerByPlaceId);
   return serializePlan({ ...withPlanMedia, places }, viewerId ?? null, 'detail');
 }
 
@@ -186,7 +194,8 @@ async function decoratePlans(plans: any[], viewerId?: string | null) {
   const publicMediaVisibility = viewerId ? 'public' : 'public_anonymous';
   const planMediaMap = await withMedia('plan' as any, plans, publicMediaVisibility);
   const allPlaces = plans.flatMap((plan) => plan.places ?? []);
-  const placeMedia = await withPlanPlaceMediaFallback(allPlaces, publicMediaVisibility);
+  const planOwnerByPlaceId = new Map<string, string>(plans.flatMap((plan) => (plan.places ?? []).map((place: any) => [place.id, plan.ownerId] as [string, string])));
+  const placeMedia = await withPlanPlaceMediaFallback(allPlaces, publicMediaVisibility, planOwnerByPlaceId);
   const placeById = new Map(placeMedia.map((place: any) => [place.id, place]));
   return planMediaMap.map((plan: any) => serializePlan({ ...plan, places: (plan.places ?? []).map((place: any) => placeById.get(place.id) ?? place) }, viewerId ?? null, 'list'));
 }
@@ -228,11 +237,6 @@ function cleanReusablePlaceForViewer(place: any, canSeePrivateDetails: boolean, 
   return { ...cleaned, onlineProvider, staticMap: staticMapResult.staticMap, staticMapStatus: staticMapResult.staticMapStatus };
 }
 
-function planPlaceSourceFor(place: any) {
-  if (!place?.placeId) return 'custom';
-  return place.sourcePlace?.source === 'hellowhen_library' ? 'hellowhen_library' : 'my_place';
-}
-
 function serializePlan(plan: any, viewerId: string | null, surface: 'detail' | 'list' | 'preview' = 'detail') {
   const isOwner = Boolean(viewerId && plan.ownerId === viewerId);
   const myParticipant = viewerId ? (plan.participants ?? []).find((participant: any) => participant.userId === viewerId) : null;
@@ -247,10 +251,13 @@ function serializePlan(plan: any, viewerId: string | null, surface: 'detail' | '
   return {
     ...plan,
     places: (plan.places ?? []).map((place: any) => {
-      const sourcePlace = canSeeSourcePlace ? cleanReusablePlaceForViewer(place.sourcePlace, canSeePrivatePlaceDetails, viewerId, surface) : null;
+      const source = planPlaceSourceForOwner(place, plan.ownerId);
+      const sourcePlace = canSeeSourcePlace && source !== 'custom'
+        ? cleanReusablePlaceForViewer(place.sourcePlace, canSeePrivatePlaceDetails, viewerId, surface)
+        : null;
       const cleanedPlace = {
         ...place,
-        source: planPlaceSourceFor(place),
+        source,
         sourcePlace,
         mode: place.mode ?? 'local',
         addressPrivateText: canSeePrivatePlaceDetails ? place.addressPrivateText ?? null : null,
@@ -775,9 +782,8 @@ async function loadReusablePlaceForSnapshot(placeId: string, userId: string) {
       id: placeId,
       status: 'active' as any,
       OR: [
-        { ownerId: userId },
+        { ownerId: userId, source: 'user' as any },
         { source: 'hellowhen_library' as any, visibility: 'library' as any },
-        { visibility: 'public' as any },
       ],
     },
   });
