@@ -4,8 +4,10 @@ import {
   ACTIVE_PLAN_TIME_STATUSES,
   canReadPlan,
   findStopGapViolation,
+  isRemoveIdempotent,
   isCancelOnlyUpdate,
   rangesConflictWithRequiredGap,
+  restoredPlanStatus,
 } from '../plans.safety.testkit.js';
 
 const at = (hour: number, minute = 0) => `2026-07-20T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000Z`;
@@ -42,10 +44,29 @@ test('created plan content remains immutable while cancellation is allowed', () 
   assert.equal(isCancelOnlyUpdate({ places: [] }), false);
 });
 
-test('deleted plans are hidden from public and owner detail access', () => {
+test('legacy deleted plans are hidden from public and owner detail access', () => {
   const deleted = { status: 'cancelled', deletedAt: new Date() };
   assert.equal(canReadPlan(deleted, false), false);
   assert.equal(canReadPlan(deleted, true), false);
+});
+
+test('removed plans are private to the owner and are not public', () => {
+  const removed = { status: 'cancelled', deletedAt: null };
+  assert.equal(canReadPlan(removed, true), true);
+  assert.equal(canReadPlan(removed, false), false);
+});
+
+test('remove is idempotent for already removed and legacy deleted plans', () => {
+  assert.equal(isRemoveIdempotent({ status: 'cancelled', deletedAt: null }), true);
+  assert.equal(isRemoveIdempotent({ status: 'hidden', deletedAt: new Date() }), true);
+  assert.equal(isRemoveIdempotent({ status: 'open', deletedAt: null }), false);
+});
+
+test('restore recalculates public status from date and capacity eligibility', () => {
+  assert.equal(restoredPlanStatus({ startsAt: at(12), endsAt: at(13), maxParticipants: 2, acceptedCount: 0 }, at(10)), 'open');
+  assert.equal(restoredPlanStatus({ startsAt: at(12), endsAt: at(13), maxParticipants: 2, acceptedCount: 2 }, at(10)), 'full');
+  assert.equal(restoredPlanStatus({ startsAt: at(10), endsAt: at(13) }, at(11)), 'started');
+  assert.equal(restoredPlanStatus({ startsAt: at(10), endsAt: at(11) }, at(11)), null);
 });
 
 test('owners can read non-public drafts while public viewers cannot', () => {

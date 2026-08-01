@@ -50,7 +50,7 @@ const placePresenceVerificationRateLimit = createRateLimiter({
   message: 'Too many place verification attempts. Please wait and try again.',
 });
 
-const publicPlanStatuses = ['open', 'full', 'started', 'cancelled'] as const;
+const publicPlanStatuses = ['open', 'full', 'started'] as const;
 const writablePlanDiscussionStatuses = ['open', 'full', 'started'] as const;
 const lockedPlanInteractionStatuses = ['cancelled'] as const;
 const userSummarySelect = {
@@ -287,7 +287,9 @@ async function loadReadablePlanForDiscussion(planId: string, actorId?: string | 
     where: { id: planId },
     select: { id: true, ownerId: true, status: true, deletedAt: true, owner: { select: { trustTier: true } } },
   });
-  if (!plan || plan.deletedAt || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') return null;
+  if (!plan || plan.deletedAt || plan.owner?.trustTier === 'restricted') return null;
+  const isOwner = Boolean(actorId && plan.ownerId === actorId);
+  if (!isOwner && !publicPlanStatuses.includes(plan.status as any)) return null;
   if (actorId && plan.ownerId !== actorId && await usersHaveBlockBetween(actorId, plan.ownerId)) return null;
   return plan;
 }
@@ -660,7 +662,7 @@ function planLockedAfterCreationResponse() {
 function planContentLockedResponse() {
   return {
     ...planLockedAfterCreationResponse(),
-    message: 'Plans are locked after creation. You can cancel this Plan, or create a new Plan if the details need to change.',
+    message: 'Plans are locked after creation. You can remove this Plan from the feed, or create a new Plan if the details need to change.',
   };
 }
 
@@ -676,6 +678,41 @@ function planDeletedResponse() {
     error: 'plan_deleted',
     message: 'This Plan was deleted and is no longer available.',
   };
+}
+
+function planRemovedResponse() {
+  return {
+    removed: true,
+    message: 'This Plan is private and removed from public feeds.',
+  };
+}
+
+function restoredPlanStatus(plan: { startsAt: Date; endsAt: Date | null; maxParticipants: number | null; participants?: Array<{ status: string }> }, now = new Date()) {
+  const effectiveEnd = plan.endsAt ?? plan.startsAt;
+  if (effectiveEnd.getTime() <= now.getTime()) return null;
+  if (plan.startsAt.getTime() <= now.getTime()) return 'started' as const;
+  const acceptedCount = (plan.participants ?? []).filter((participant) => participant.status === 'accepted').length;
+  if (plan.maxParticipants && acceptedCount >= plan.maxParticipants) return 'full' as const;
+  return 'open' as const;
+}
+
+async function planHasRestoreModerationBlock(planId: string) {
+  const [moderationCase, latestAdminVisibilityAction] = await Promise.all([
+    prisma.moderationCase.findFirst({
+      where: {
+        contentType: 'plan',
+        contentId: planId,
+        status: { in: ['pending', 'needs_review', 'limited', 'removed', 'rejected'] as any },
+      },
+      select: { id: true },
+    }),
+    prisma.adminAuditLog.findFirst({
+      where: { targetType: 'plan', targetId: planId, action: { in: ['plan.hide', 'plan.cancel', 'plan.restore'] } },
+      orderBy: { createdAt: 'desc' },
+      select: { action: true },
+    }),
+  ]);
+  return Boolean(moderationCase) || latestAdminVisibilityAction?.action === 'plan.hide' || latestAdminVisibilityAction?.action === 'plan.cancel';
 }
 
 function planUpdateData(input: ReturnType<typeof updatePlanRequestSchema.parse>) {
@@ -974,6 +1011,59 @@ plansRoutes.patch('/:planId', requireAuth, requireActiveAccount, asyncRoute(asyn
   const plan = await prisma.plan.update({ where: { id: existing.id }, data: planUpdateData(input) as any });
   const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
   res.json({ plan: await decoratePlan(updated, req.user!.id) });
+}));
+
+plansRoutes.post('/:planId/remove', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const existing = await prisma.plan.findFirst({
+    where: { id: req.params.planId, ownerId: req.user!.id },
+    include: planInclude(),
+  });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  if (existing.deletedAt) return res.json({ ...planRemovedResponse(), alreadyRemoved: true });
+  if (existing.status === 'cancelled') {
+    return res.json({ plan: await decoratePlan(existing, req.user!.id), ...planRemovedResponse(), alreadyRemoved: true });
+  }
+  if (existing.status === 'hidden') {
+    return res.status(409).json({ error: 'plan_moderation_hidden', message: 'This Plan is hidden by moderation and cannot be changed here.' });
+  }
+
+  const plan = await prisma.plan.update({
+    where: { id: existing.id },
+    data: { status: 'cancelled' as any, cancelledAt: existing.cancelledAt ?? new Date() },
+    include: planInclude(),
+  });
+  return res.json({ plan: await decoratePlan(plan, req.user!.id), ...planRemovedResponse(), alreadyRemoved: false });
+}));
+
+plansRoutes.post('/:planId/restore', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const existing = await prisma.plan.findFirst({
+    where: { id: req.params.planId, ownerId: req.user!.id },
+    include: planInclude(),
+  });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  if (existing.deletedAt) return res.status(410).json(planDeletedResponse());
+  if (publicPlanStatuses.includes(existing.status as any)) {
+    return res.json({ plan: await decoratePlan(existing, req.user!.id), restored: true, alreadyRestored: true });
+  }
+  if (existing.status !== 'cancelled') {
+    return res.status(409).json({ error: 'plan_not_restorable', message: 'Only an owner-removed Plan can be restored to the feed.' });
+  }
+  if (await planHasRestoreModerationBlock(existing.id)) {
+    return res.status(409).json({ error: 'plan_moderation_blocked', message: 'This Plan cannot return to the feed until its moderation review is resolved.' });
+  }
+  const nextStatus = restoredPlanStatus(existing);
+  if (!nextStatus) {
+    return res.status(409).json({ error: 'plan_restore_date_ineligible', message: 'This Plan has already ended and cannot be restored to the feed.' });
+  }
+  const conflictingPlan = await findOwnedPlanTimeConflict(existing.ownerId, existing, existing.id);
+  if (conflictingPlan) return res.status(409).json(planTimeConflictResponse(conflictingPlan, existing));
+
+  const plan = await prisma.plan.update({
+    where: { id: existing.id },
+    data: { status: nextStatus as any, cancelledAt: null },
+    include: planInclude(),
+  });
+  return res.json({ plan: await decoratePlan(plan, req.user!.id), restored: true, alreadyRestored: false });
 }));
 
 plansRoutes.delete('/:planId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {

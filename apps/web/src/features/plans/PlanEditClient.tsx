@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
 import { PlanPreviewDeck } from './PlanPreviewDeck';
 import { buildPlanSchedule, toDateInputValue, toTimeInputValue } from './planSchedule';
@@ -187,6 +188,7 @@ type PlanEditClientProps = {
 export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditClientProps) {
   const router = useRouter();
   const auth = useWebAuth();
+  const { t } = useWebTranslation();
   const [plan, setPlan] = useState<PlanDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -200,6 +202,7 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
 
   const isOwner = Boolean(auth.user?.id && plan?.ownerId === auth.user.id);
   const participantCount = plan?.participantCount ?? 0;
+  const hasAffectedParticipants = Boolean(plan?.participants?.some((participant) => participant.status === 'accepted' || participant.status === 'pending'));
   const usablePlacesForPreview = useMemo(() => places.filter((place) => place.date.trim() && place.time.trim()), [places]);
   const schedule = useMemo(() => buildPlanSchedule(usablePlacesForPreview), [usablePlacesForPreview]);
   const explicitPlanEnd = useMemo(() => parseOptionalPlanEnd(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
@@ -349,18 +352,20 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
     }
   }
 
-  async function cancelPlan() {
-    if (!isOwner) return;
+  async function removePlan() {
+    if (!isOwner || !plan || plan.status === 'cancelled') return;
+    const body = hasAffectedParticipants ? t('plans.detail.confirm.removeParticipantsBody') : t('plans.detail.confirm.removeBody');
+    if (!window.confirm(`${t('plans.detail.confirm.removeTitle')}\n\n${body}`)) return;
     setSaving(true);
     setError('');
     setMessage('');
     try {
-      const response = await api.plans.update(planId, { status: 'cancelled' });
+      const response = await api.plans.remove(planId);
       hydrateForm(response.plan);
-      setMessage('Plan cancelled.');
+      setMessage(t('plans.detail.feedback.removed'));
       router.refresh();
-    } catch (cancelError) {
-      setError(getFriendlyApiErrorMessage(cancelError, 'Could not cancel Plan.'));
+    } catch (removeError) {
+      setError(getFriendlyApiErrorMessage(removeError, 'Could not remove Plan from the feed.'));
     } finally {
       setSaving(false);
     }
@@ -517,7 +522,7 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
             {message ? <p className="success-message">{message}</p> : null}
             {error ? <p className="form-error">{error}</p> : null}
             <button className="button primary full" type="submit" disabled={saving || places.some((place) => place.uploading)}>{saving ? 'Saving...' : 'Save Plan'}</button>
-            <button className="button secondary full" type="button" disabled={saving} onClick={cancelPlan}>Cancel Plan</button>
+            {plan?.status !== 'cancelled' ? <button className="button secondary full" type="button" disabled={saving} onClick={removePlan}>{t('plans.detail.actions.remove')}</button> : null}
           </form>
         ) : null}
       </main>

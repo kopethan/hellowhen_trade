@@ -10,6 +10,7 @@ import { api } from '../../lib/api';
 import { buildPublicPlanUrl, copyTextToClipboard } from '../../lib/publicUrls';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { UserIdentityLink } from '../users/UserIdentityLink';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
 import { planDateTime, planMediaSrc, planMetadata, planOwnerName, planParticipantStatusLabel, planStatusLabel } from './plansPresentation';
@@ -72,6 +73,7 @@ function planModeLabel(plan: PlanDto) {
 }
 
 function planVisibilityLabel(plan: PlanDto) {
+  if (plan.status === 'cancelled') return 'Private · Removed from feed';
   return plan.status === 'hidden' ? 'Hidden' : 'Public';
 }
 
@@ -534,6 +536,7 @@ type PlanDetailClientProps = {
 
 export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDetailClientProps) {
   const auth = useWebAuth();
+  const { t } = useWebTranslation();
   const router = useRouter();
   const [plan, setPlan] = useState<PlanDto | null>(null);
   const [joinRequests, setJoinRequests] = useState<PlanParticipantDto[]>([]);
@@ -551,14 +554,14 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
   const canJoin = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner && plan.status === 'open' && canJoinFromParticipantStatus(currentParticipantStatus));
   const canLeave = Boolean(!isCancelled && !isOwner && currentParticipantStatus === 'accepted');
   const canVerifyPresence = Boolean(!isCancelled && auth.hydrated && auth.isAuthenticated && plan && (isOwner || currentParticipantStatus === 'accepted'));
-  const canCancelPlan = Boolean(isOwner && plan && plan.status !== 'cancelled');
-  const canDeletePlan = Boolean(isOwner && plan);
+  const canRemovePlan = Boolean(isOwner && plan && plan.status !== 'cancelled' && plan.status !== 'hidden');
   const participantCopy = !isOwner ? participantStateCopy(currentParticipantStatus) : '';
   const showReportActions = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner);
   const places = plan?.places ?? [];
   const routeMapsLink = buildPlanRouteMapsLink(places);
   const shouldShowRoutePreview = Boolean(routeMapsLink && routeMapsLink.totalStopCount >= 2);
   const joinedCount = plan?.participantCount ?? 0;
+  const hasAffectedParticipants = Boolean(plan?.participants?.some((participant) => participant.status === 'accepted' || participant.status === 'pending'));
   const placeCount = places.length;
   const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
 
@@ -680,34 +683,31 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
     }
   }
 
-  async function cancelPlan() {
-    if (!plan || !canCancelPlan) return;
-    const confirmed = window.confirm('Cancel this Plan? People will no longer be able to join, but the Plan will remain visible with a Cancelled status.');
+  async function removePlan() {
+    if (!plan || !canRemovePlan) return;
+    const body = hasAffectedParticipants ? t('plans.detail.confirm.removeParticipantsBody') : t('plans.detail.confirm.removeBody');
+    const confirmed = window.confirm(`${t('plans.detail.confirm.removeTitle')}\n\n${body}`);
     if (!confirmed) return;
 
     setAction({ loading: true, message: '', error: '' });
     try {
-      const response = await api.plans.update(plan.id, { status: 'cancelled' });
+      const response = await api.plans.remove(plan.id);
       setPlan(response.plan);
-      setAction({ loading: false, message: 'Plan cancelled. It remains visible with a Cancelled status.', error: '' });
-    } catch (cancelError) {
-      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(cancelError, 'Could not cancel this Plan.') });
+      setAction({ loading: false, message: t('plans.detail.feedback.removed'), error: '' });
+    } catch (removeError) {
+      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(removeError, 'Could not remove this Plan from the feed.') });
     }
   }
 
-
-  async function deletePlan() {
-    if (!plan || !canDeletePlan) return;
-    const confirmed = window.confirm('Delete this Plan? It will disappear from feeds, search, and public detail pages.');
-    if (!confirmed) return;
-
+  async function restorePlan() {
+    if (!plan || !isOwner || !isCancelled) return;
     setAction({ loading: true, message: '', error: '' });
     try {
-      await api.plans.delete(plan.id);
-      router.push('/plans');
-      router.refresh();
-    } catch (deleteError) {
-      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(deleteError, 'Could not delete this Plan.') });
+      const response = await api.plans.restore(plan.id);
+      setPlan(response.plan);
+      setAction({ loading: false, message: t('plans.detail.feedback.restored'), error: '' });
+    } catch (restoreError) {
+      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(restoreError, 'Could not restore this Plan to the feed.') });
     }
   }
 
@@ -768,7 +768,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
           </Link>
           <div className="plan-detail-toolbar__actions">
             <PlansInternalBadge plansVisible={plansVisible} />
-            {plan ? (
+            {plan && !isCancelled ? (
               <button type="button" className="plan-detail-icon-button" onClick={() => void sharePlan()} disabled={shareLoading}>
                 <WebIcon name="share" size={17} decorative />
                 <span>{shareLoading ? 'Sharing...' : 'Share'}</span>
@@ -784,7 +784,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
           <>
             <section className="plan-detail-hero-social">
               <div className="status-row plan-detail-status-row">
-                <span className={`semantic-badge ${detailStatusTone(plan.status)}`}>{planStatusLabel(plan.status)}</span>
+                <span className={`semantic-badge ${detailStatusTone(plan.status)}`}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status)}</span>
                 <span className="semantic-badge trade">Plan</span>
               </div>
               <h1>{plan.title}</h1>
@@ -804,7 +804,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
                 />
               </div>
               <div className="plan-detail-chip-row" aria-label="Plan summary">
-                <span className={`semantic-badge ${detailStatusTone(plan.status)}`}>{planStatusLabel(plan.status)}</span>
+                <span className={`semantic-badge ${detailStatusTone(plan.status)}`}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status)}</span>
                 <span className="semantic-badge instruction">{planJoinModeLabel(plan.joinApprovalMode)}</span>
                 <span className="semantic-badge neutral">{placeCount} {placeCount === 1 ? 'place' : 'places'}</span>
                 <span className="semantic-badge neutral">{planModeLabel(plan)}</span>
@@ -816,15 +816,15 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
               <div className="plan-section-heading trade-thread-section-heading trade-thread-section-heading--clean">
                 <div>
                   <p className="eyebrow">Discussion</p>
-                  <h2 id="plan-conversations-title">Public discussion</h2>
+                  <h2 id="plan-conversations-title">{isCancelled && isOwner ? 'Saved discussion' : 'Public discussion'}</h2>
                 </div>
               </div>
               <div className="trade-thread-action-grid trade-thread-action-grid--simple trade-thread-action-grid--clean">
                 <Link href={`/plans/${plan.id}/discussion`} className="trade-thread-action-card trade-thread-action-card--public" aria-label="Open public discussion">
                   <span className="trade-thread-action-card__icon trade-thread-action-card__icon--public"><WebIcon name="activity" size={20} decorative /></span>
                   <span className="trade-thread-action-card__body">
-                    <strong>Public discussion</strong>
-                    <small>{isCancelled ? 'Read earlier comments. New public replies are closed for this cancelled Plan.' : 'Ask visible questions about joining, timing, places, or plan details.'}</small>
+                    <strong>{isCancelled && isOwner ? 'Private discussion history' : 'Public discussion'}</strong>
+                    <small>{isCancelled ? 'Read the preserved comments. Other users cannot open this removed Plan or its discussion.' : 'Ask visible questions about joining, timing, places, or plan details.'}</small>
                   </span>
                   <span className="trade-thread-action-card__cta">Open<WebIcon name="arrow-right" size={14} decorative /></span>
                 </Link>
@@ -865,7 +865,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
                 <h2>Plan info</h2>
               </div>
               <dl className="plan-detail-list">
-                <PlanDetailItem label="Status" value={planStatusLabel(plan.status)} />
+                <PlanDetailItem label="Status" value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status)} />
                 <PlanDetailItem label="Visibility" value={planVisibilityLabel(plan)} />
                 <PlanDetailItem label="Join mode" value={planJoinModeLabel(plan.joinApprovalMode)} />
                 <PlanDetailItem label="Time" value={planMetadata(plan)} />
@@ -895,37 +895,37 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
             <section className="plan-social-section plan-actions-section">
               <div className="plan-section-heading">
                 <p className="eyebrow">Actions</p>
-                <h2>{isCancelled ? 'This Plan was cancelled' : isOwner ? 'Manage this Plan' : canLeave ? 'You joined this Plan' : 'Join this Plan'}</h2>
-                <p>{isCancelled ? 'It remains visible for context, but joining, participant changes, public replies, and place verification are closed.' : isOwner && plan ? 'Share, cancel, or delete this Plan. Plan content editing is locked after publishing.' : plan ? planJoinActionCopy(plan) : ''}</p>
+                <h2>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : isOwner ? 'Manage this Plan' : canLeave ? 'You joined this Plan' : 'Join this Plan'}</h2>
+                <p>{isCancelled && isOwner ? t('plans.detail.actions.cancelledLongBody') : isOwner && plan ? t('plans.detail.actions.ownerBody') : plan ? planJoinActionCopy(plan) : ''}</p>
               </div>
               <div className="plan-detail-actions plan-detail-actions--social">
                 {isOwner ? (
                   <div className="plan-action-status plan-action-status--owner">
                     <span className="semantic-badge trade">Owner</span>
                     <strong>Manage Plan</strong>
-                    <p className="meta">{isCancelled ? 'You can share or delete this cancelled Plan. Editing places and times remains locked.' : 'You can share, cancel, or delete this Plan. Editing places and times is locked after publishing.'}</p>
+                    <p className="meta">{isCancelled ? t('plans.detail.actions.manageCancelledBody') : t('plans.detail.actions.manageBody')}</p>
                   </div>
                 ) : null}
-                {isOwner ? (
+                {isOwner && !isCancelled ? (
                   <button type="button" className="button secondary" onClick={() => void sharePlan()} disabled={shareLoading}>
                     {shareLoading ? 'Sharing...' : 'Share Plan'}
                   </button>
                 ) : null}
-                {canCancelPlan ? (
-                  <button type="button" className="button danger" disabled={action.loading} onClick={() => void cancelPlan()}>
-                    {action.loading ? 'Cancelling...' : 'Cancel Plan'}
+                {canRemovePlan ? (
+                  <button type="button" className="button danger" disabled={action.loading} onClick={() => void removePlan()}>
+                    {action.loading ? t('plans.detail.actions.removing') : t('plans.detail.actions.remove')}
                   </button>
                 ) : null}
-                {canDeletePlan ? (
-                  <button type="button" className="button danger" disabled={action.loading} onClick={() => void deletePlan()}>
-                    {action.loading ? 'Updating...' : 'Delete Plan'}
+                {isOwner && isCancelled ? (
+                  <button type="button" className="button secondary" disabled={action.loading} onClick={() => void restorePlan()}>
+                    {action.loading ? t('plans.detail.actions.restoring') : t('plans.detail.actions.restore')}
                   </button>
                 ) : null}
                 {isCancelled ? (
                   <div className="plan-action-status plan-action-status--cancelled">
-                    <span className="semantic-badge danger">Cancelled</span>
-                    <strong>This Plan is cancelled</strong>
-                    <p className="meta">It remains visible for context. Joining, leaving, participant changes, public replies, and presence verification are no longer available.</p>
+                    <span className="semantic-badge danger">{t('plans.detail.actions.cancelledTitle')}</span>
+                    <strong>{t('plans.detail.actions.cancelledTitle')}</strong>
+                    <p className="meta">{t('plans.detail.actions.cancelledLongBody')}</p>
                   </div>
                 ) : null}
                 {!auth.isAuthenticated && plan.status === 'open' ? <Link className="button primary" href={`/auth?next=/plans/${plan.id}`}>Log in to join</Link> : null}

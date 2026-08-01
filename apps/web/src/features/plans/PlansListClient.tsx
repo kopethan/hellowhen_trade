@@ -205,6 +205,8 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
   }, [activeView, auth.hydrated, activeFilters, activeSearchQuery]);
 
   const sortedPlans = useMemo(() => [...plans].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime()), [plans]);
+  const activeOwnedPlans = useMemo(() => activeView === 'mine' ? sortedPlans.filter((plan) => plan.status !== 'cancelled') : sortedPlans, [activeView, sortedPlans]);
+  const removedOwnedPlans = useMemo(() => activeView === 'mine' ? sortedPlans.filter((plan) => plan.status === 'cancelled') : [], [activeView, sortedPlans]);
   const hasActiveSearchOrFilters = activeFilterCount > 0;
   const starterIdeaKeys = useMemo(() => selectStarterPlanIdeaKeys({
     realPlanCount: sortedPlans.length,
@@ -333,8 +335,19 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
             if (item.type === 'idea') return <PlanIdeaCard key={`idea-${item.ideaKey}`} ideaKey={item.ideaKey} onOpen={() => markStarterIdeaSeen(item.ideaKey)} />;
             const plan = sortedPlans[item.planIndex];
             return plan ? <PlanCard key={plan.id} plan={plan} /> : null;
-          }) : sortedPlans.map((plan) => <PlanCard key={plan.id} plan={plan} />)}
+          }) : activeOwnedPlans.map((plan) => <PlanCard key={plan.id} plan={plan} />)}
         </section>
+        {activeView === 'mine' && removedOwnedPlans.length ? (
+          <section className="mobile-list plans-feed-deck-list" aria-label="Removed Plans">
+            <div className="plan-section-heading">
+              <div>
+                <p className="eyebrow">{t('plans.detail.values.private')}</p>
+                <h2>{t('plans.list.removed')}</h2>
+              </div>
+            </div>
+            {removedOwnedPlans.map((plan) => <PlanCard key={plan.id} plan={plan} />)}
+          </section>
+        ) : null}
       </main>
     </PlansFeatureGate>
   );

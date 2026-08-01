@@ -1,0 +1,964 @@
+diff --git a/apps/api/src/modules/plans/__tests__/plans.safety.test.ts b/apps/api/src/modules/plans/__tests__/plans.safety.test.ts
+index fbcc428..96777d1 100644
+--- a/apps/api/src/modules/plans/__tests__/plans.safety.test.ts
++++ b/apps/api/src/modules/plans/__tests__/plans.safety.test.ts
+@@ -4,8 +4,10 @@ import {
+   ACTIVE_PLAN_TIME_STATUSES,
+   canReadPlan,
+   findStopGapViolation,
++  isRemoveIdempotent,
+   isCancelOnlyUpdate,
+   rangesConflictWithRequiredGap,
++  restoredPlanStatus,
+ } from '../plans.safety.testkit.js';
+ 
+ const at = (hour: number, minute = 0) => `2026-07-20T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000Z`;
+@@ -42,12 +44,31 @@ test('created plan content remains immutable while cancellation is allowed', ()
+   assert.equal(isCancelOnlyUpdate({ places: [] }), false);
+ });
+ 
+-test('deleted plans are hidden from public and owner detail access', () => {
++test('legacy deleted plans are hidden from public and owner detail access', () => {
+   const deleted = { status: 'cancelled', deletedAt: new Date() };
+   assert.equal(canReadPlan(deleted, false), false);
+   assert.equal(canReadPlan(deleted, true), false);
+ });
+ 
++test('removed plans are private to the owner and are not public', () => {
++  const removed = { status: 'cancelled', deletedAt: null };
++  assert.equal(canReadPlan(removed, true), true);
++  assert.equal(canReadPlan(removed, false), false);
++});
++
++test('remove is idempotent for already removed and legacy deleted plans', () => {
++  assert.equal(isRemoveIdempotent({ status: 'cancelled', deletedAt: null }), true);
++  assert.equal(isRemoveIdempotent({ status: 'hidden', deletedAt: new Date() }), true);
++  assert.equal(isRemoveIdempotent({ status: 'open', deletedAt: null }), false);
++});
++
++test('restore recalculates public status from date and capacity eligibility', () => {
++  assert.equal(restoredPlanStatus({ startsAt: at(12), endsAt: at(13), maxParticipants: 2, acceptedCount: 0 }, at(10)), 'open');
++  assert.equal(restoredPlanStatus({ startsAt: at(12), endsAt: at(13), maxParticipants: 2, acceptedCount: 2 }, at(10)), 'full');
++  assert.equal(restoredPlanStatus({ startsAt: at(10), endsAt: at(13) }, at(11)), 'started');
++  assert.equal(restoredPlanStatus({ startsAt: at(10), endsAt: at(11) }, at(11)), null);
++});
++
+ test('owners can read non-public drafts while public viewers cannot', () => {
+   const draft = { status: 'draft', deletedAt: null };
+   assert.equal(canReadPlan(draft, true), true);
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+index 03fb630..4438133 100644
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -50,7 +50,7 @@ const placePresenceVerificationRateLimit = createRateLimiter({
+   message: 'Too many place verification attempts. Please wait and try again.',
+ });
+ 
+-const publicPlanStatuses = ['open', 'full', 'started', 'cancelled'] as const;
++const publicPlanStatuses = ['open', 'full', 'started'] as const;
+ const writablePlanDiscussionStatuses = ['open', 'full', 'started'] as const;
+ const lockedPlanInteractionStatuses = ['cancelled'] as const;
+ const userSummarySelect = {
+@@ -287,7 +287,9 @@ async function loadReadablePlanForDiscussion(planId: string, actorId?: string |
+     where: { id: planId },
+     select: { id: true, ownerId: true, status: true, deletedAt: true, owner: { select: { trustTier: true } } },
+   });
+-  if (!plan || plan.deletedAt || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') return null;
++  if (!plan || plan.deletedAt || plan.owner?.trustTier === 'restricted') return null;
++  const isOwner = Boolean(actorId && plan.ownerId === actorId);
++  if (!isOwner && !publicPlanStatuses.includes(plan.status as any)) return null;
+   if (actorId && plan.ownerId !== actorId && await usersHaveBlockBetween(actorId, plan.ownerId)) return null;
+   return plan;
+ }
+@@ -660,7 +662,7 @@ function planLockedAfterCreationResponse() {
+ function planContentLockedResponse() {
+   return {
+     ...planLockedAfterCreationResponse(),
+-    message: 'Plans are locked after creation. You can cancel this Plan, or create a new Plan if the details need to change.',
++    message: 'Plans are locked after creation. You can remove this Plan from the feed, or create a new Plan if the details need to change.',
+   };
+ }
+ 
+@@ -678,6 +680,41 @@ function planDeletedResponse() {
+   };
+ }
+ 
++function planRemovedResponse() {
++  return {
++    removed: true,
++    message: 'This Plan is private and removed from public feeds.',
++  };
++}
++
++function restoredPlanStatus(plan: { startsAt: Date; endsAt: Date | null; maxParticipants: number | null; participants?: Array<{ status: string }> }, now = new Date()) {
++  const effectiveEnd = plan.endsAt ?? plan.startsAt;
++  if (effectiveEnd.getTime() <= now.getTime()) return null;
++  if (plan.startsAt.getTime() <= now.getTime()) return 'started' as const;
++  const acceptedCount = (plan.participants ?? []).filter((participant) => participant.status === 'accepted').length;
++  if (plan.maxParticipants && acceptedCount >= plan.maxParticipants) return 'full' as const;
++  return 'open' as const;
++}
++
++async function planHasRestoreModerationBlock(planId: string) {
++  const [moderationCase, latestAdminVisibilityAction] = await Promise.all([
++    prisma.moderationCase.findFirst({
++      where: {
++        contentType: 'plan',
++        contentId: planId,
++        status: { in: ['pending', 'needs_review', 'limited', 'removed', 'rejected'] as any },
++      },
++      select: { id: true },
++    }),
++    prisma.adminAuditLog.findFirst({
++      where: { targetType: 'plan', targetId: planId, action: { in: ['plan.hide', 'plan.cancel', 'plan.restore'] } },
++      orderBy: { createdAt: 'desc' },
++      select: { action: true },
++    }),
++  ]);
++  return Boolean(moderationCase) || latestAdminVisibilityAction?.action === 'plan.hide' || latestAdminVisibilityAction?.action === 'plan.cancel';
++}
++
+ function planUpdateData(input: ReturnType<typeof updatePlanRequestSchema.parse>) {
+   return {
+     ...(input.title !== undefined ? { title: input.title } : {}),
+@@ -976,6 +1013,59 @@ plansRoutes.patch('/:planId', requireAuth, requireActiveAccount, asyncRoute(asyn
+   res.json({ plan: await decoratePlan(updated, req.user!.id) });
+ }));
+ 
++plansRoutes.post('/:planId/remove', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
++  const existing = await prisma.plan.findFirst({
++    where: { id: req.params.planId, ownerId: req.user!.id },
++    include: planInclude(),
++  });
++  if (!existing) return res.status(404).json({ error: 'not_found' });
++  if (existing.deletedAt) return res.json({ ...planRemovedResponse(), alreadyRemoved: true });
++  if (existing.status === 'cancelled') {
++    return res.json({ plan: await decoratePlan(existing, req.user!.id), ...planRemovedResponse(), alreadyRemoved: true });
++  }
++  if (existing.status === 'hidden') {
++    return res.status(409).json({ error: 'plan_moderation_hidden', message: 'This Plan is hidden by moderation and cannot be changed here.' });
++  }
++
++  const plan = await prisma.plan.update({
++    where: { id: existing.id },
++    data: { status: 'cancelled' as any, cancelledAt: existing.cancelledAt ?? new Date() },
++    include: planInclude(),
++  });
++  return res.json({ plan: await decoratePlan(plan, req.user!.id), ...planRemovedResponse(), alreadyRemoved: false });
++}));
++
++plansRoutes.post('/:planId/restore', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
++  const existing = await prisma.plan.findFirst({
++    where: { id: req.params.planId, ownerId: req.user!.id },
++    include: planInclude(),
++  });
++  if (!existing) return res.status(404).json({ error: 'not_found' });
++  if (existing.deletedAt) return res.status(410).json(planDeletedResponse());
++  if (publicPlanStatuses.includes(existing.status as any)) {
++    return res.json({ plan: await decoratePlan(existing, req.user!.id), restored: true, alreadyRestored: true });
++  }
++  if (existing.status !== 'cancelled') {
++    return res.status(409).json({ error: 'plan_not_restorable', message: 'Only an owner-removed Plan can be restored to the feed.' });
++  }
++  if (await planHasRestoreModerationBlock(existing.id)) {
++    return res.status(409).json({ error: 'plan_moderation_blocked', message: 'This Plan cannot return to the feed until its moderation review is resolved.' });
++  }
++  const nextStatus = restoredPlanStatus(existing);
++  if (!nextStatus) {
++    return res.status(409).json({ error: 'plan_restore_date_ineligible', message: 'This Plan has already ended and cannot be restored to the feed.' });
++  }
++  const conflictingPlan = await findOwnedPlanTimeConflict(existing.ownerId, existing, existing.id);
++  if (conflictingPlan) return res.status(409).json(planTimeConflictResponse(conflictingPlan, existing));
++
++  const plan = await prisma.plan.update({
++    where: { id: existing.id },
++    data: { status: nextStatus as any, cancelledAt: null },
++    include: planInclude(),
++  });
++  return res.json({ plan: await decoratePlan(plan, req.user!.id), restored: true, alreadyRestored: false });
++}));
++
+ plansRoutes.delete('/:planId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+   const existing = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id } });
+   if (!existing) return res.status(404).json({ error: 'not_found' });
+diff --git a/apps/api/src/modules/plans/plans.safety.testkit.ts b/apps/api/src/modules/plans/plans.safety.testkit.ts
+index 490843f..4b04272 100644
+--- a/apps/api/src/modules/plans/plans.safety.testkit.ts
++++ b/apps/api/src/modules/plans/plans.safety.testkit.ts
+@@ -1,5 +1,5 @@
+ export const ACTIVE_PLAN_TIME_STATUSES = ['draft', 'open', 'full', 'started'] as const;
+-export const PUBLIC_PLAN_STATUSES = ['open', 'full', 'started', 'cancelled'] as const;
++export const PUBLIC_PLAN_STATUSES = ['open', 'full', 'started'] as const;
+ export const PLAN_TIME_MIN_GAP_MINUTES = 60;
+ export const PLAN_STOP_MIN_GAP_MINUTES = 15;
+ 
+@@ -62,3 +62,17 @@ export function canReadPlan(plan: { deletedAt?: Date | string | null; status: st
+   if (plan.deletedAt) return false;
+   return isOwner || PUBLIC_PLAN_STATUSES.includes(plan.status as (typeof PUBLIC_PLAN_STATUSES)[number]);
+ }
++
++export function restoredPlanStatus(plan: { startsAt: string | Date; endsAt?: string | Date | null; maxParticipants?: number | null; acceptedCount?: number }, now: string | Date) {
++  const startsAt = asDate(plan.startsAt);
++  const effectiveEnd = plan.endsAt ? asDate(plan.endsAt) : startsAt;
++  const current = asDate(now);
++  if (effectiveEnd.getTime() <= current.getTime()) return null;
++  if (startsAt.getTime() <= current.getTime()) return 'started' as const;
++  if (plan.maxParticipants && (plan.acceptedCount ?? 0) >= plan.maxParticipants) return 'full' as const;
++  return 'open' as const;
++}
++
++export function isRemoveIdempotent(plan: { deletedAt?: Date | string | null; status: string }) {
++  return Boolean(plan.deletedAt) || plan.status === 'cancelled';
++}
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index e95a6ff..ef23314 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -52,7 +52,7 @@ type SimpleScreenProps<RouteName extends keyof RootStackParamList> = NativeStack
+ type PlanListScope = 'feed' | 'mine' | 'joined';
+ type PlaceListScope = 'mine' | 'library';
+ type PlanFeedListItem = ReturnType<typeof buildPlanFeedItems>[number];
+-type PlanRowListItem = { type: 'plan'; key: string; plan: PlanDto };
++type PlanRowListItem = { type: 'plan'; key: string; plan: PlanDto } | { type: 'section'; key: string; label: string };
+ 
+ function isPlanUnavailableError(error: unknown) {
+   if (!error || typeof error !== 'object') return false;
+@@ -1818,7 +1818,16 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
+     recentIdeaIds: recentStarterIdeaIds,
+   }), [anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, isDeckFeed, plans.length, recentStarterIdeaIds.join('|'), starterRefreshKey]);
+   const feedItems = useMemo(() => buildPlanFeedItems(plans.length, starterIdeas), [plans.length, starterIdeas.join('|')]);
+-  const rowItems = useMemo<PlanRowListItem[]>(() => plans.map((plan) => ({ type: 'plan', key: plan.id, plan })), [plans]);
++  const rowItems = useMemo<PlanRowListItem[]>(() => {
++    if (scope !== 'mine') return plans.map((plan) => ({ type: 'plan' as const, key: plan.id, plan }));
++    const activePlans = plans.filter((plan) => plan.status !== 'cancelled');
++    const removedPlans = plans.filter((plan) => plan.status === 'cancelled');
++    return [
++      ...activePlans.map((plan) => ({ type: 'plan' as const, key: plan.id, plan })),
++      ...(removedPlans.length ? [{ type: 'section' as const, key: 'removed-plans', label: t('plans.list.removed') }] : []),
++      ...removedPlans.map((plan) => ({ type: 'plan' as const, key: plan.id, plan })),
++    ];
++  }, [plans, scope, t]);
+ 
+   const markStarterIdeaSeen = useCallback((ideaKey: StarterPlanIdeaKey) => {
+     setRecentStarterIdeaIds((current) => {
+@@ -1838,9 +1847,10 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
+     return <PlanDeckSection plan={plan} index={index} total={feedItems.length} navigation={navigation} />;
+   }, [feedItems.length, markStarterIdeaSeen, navigation, plans]);
+ 
+-  const renderPlanRow = useCallback(({ item }: { item: PlanRowListItem }) => (
+-    <PlanRow plan={item.plan} onPress={() => navigation.navigate('PlanDetail', { planId: item.plan.id, title: item.plan.title })} />
+-  ), [navigation]);
++  const renderPlanRow = useCallback(({ item }: { item: PlanRowListItem }) => {
++    if (item.type === 'section') return <View style={styles.contentPad}><AppText style={styles.sectionTitle}>{item.label}</AppText></View>;
++    return <PlanRow plan={item.plan} onPress={() => navigation.navigate('PlanDetail', { planId: item.plan.id, title: item.plan.title })} />;
++  }, [navigation]);
+ 
+   const activeCount = activePlanFilterCount(activeFilters, activeSearchQuery);
+   const filterHeader = scope === 'feed' && hasActiveSearchOrFilters ? (
+@@ -2534,8 +2544,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   const [publicMessageCount, setPublicMessageCount] = useState(0);
+   const [verifyingPlaceId, setVerifyingPlaceId] = useState<string | null>(null);
+   const [presenceNotices, setPresenceNotices] = useState<Record<string, PlanPlacePresenceNotice>>({});
+-  const [cancelConfirmVisible, setCancelConfirmVisible] = useState(false);
+-  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
++  const [removeConfirmVisible, setRemoveConfirmVisible] = useState(false);
+ 
+   const load = useCallback(async () => {
+     if (!isPlansVisible()) { setLoading(false); return; }
+@@ -2619,21 +2628,21 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+     }
+   }
+ 
+-  function cancelPlan() {
+-    if (!plan || !canCancelPlan || busy) return;
+-    setCancelConfirmVisible(true);
++  function removePlan() {
++    if (!plan || !canRemovePlan || busy) return;
++    setRemoveConfirmVisible(true);
+   }
+ 
+-  async function confirmCancelPlan() {
+-    if (!plan || !canCancelPlan || busy) return;
+-    setCancelConfirmVisible(false);
++  async function confirmRemovePlan() {
++    if (!plan || !canRemovePlan || busy) return;
++    setRemoveConfirmVisible(false);
+     setBusy(true);
+     setError(null);
+     setActionMessage(null);
+     setActionError(null);
+     try {
+-      await api.plans.update(plan.id, { status: 'cancelled' });
+-      setActionMessage(t('plans.detail.feedback.cancelled'));
++      await api.plans.remove(plan.id);
++      setActionMessage(t('plans.detail.feedback.removed'));
+       await load();
+     } catch (caughtError) {
+       setActionError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.actionBody')));
+@@ -2643,21 +2652,16 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   }
+ 
+ 
+-  function deletePlan() {
+-    if (!plan || !isOwner || busy) return;
+-    setDeleteConfirmVisible(true);
+-  }
+-
+-  async function confirmDeletePlan() {
+-    if (!plan || !isOwner || busy) return;
+-    setDeleteConfirmVisible(false);
++  async function restorePlan() {
++    if (!plan || !isOwner || plan.status !== 'cancelled' || busy) return;
+     setBusy(true);
+     setError(null);
+     setActionMessage(null);
+     setActionError(null);
+     try {
+-      await api.plans.delete(plan.id);
+-      navigation.navigate('Plans');
++      await api.plans.restore(plan.id);
++      setActionMessage(t('plans.detail.feedback.restored'));
++      await load();
+     } catch (caughtError) {
+       setActionError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.actionBody')));
+     } finally {
+@@ -2736,19 +2740,20 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   const isJoined = participantStatus === 'accepted';
+   const canJoin = Boolean(plan && auth.user && !isOwner && canJoinPlanFromParticipantStatus(participantStatus) && plan.status === 'open');
+   const canLeave = Boolean(plan && !isCancelled && !isOwner && isJoined);
+-  const canCancelPlan = Boolean(plan && isOwner && plan.status !== 'cancelled');
++  const canRemovePlan = Boolean(plan && isOwner && plan.status !== 'cancelled' && plan.status !== 'hidden');
+   const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus, t) : '';
+   const places = plan ? sortedPlanPlaces(plan) : [];
+   const routeMaps = buildPlanRouteMapsLink(places, t);
+   const acceptedParticipants = plan ? getAcceptedParticipants(plan) : [];
+   const joinedCount = plan?.participantCount ?? acceptedParticipants.length;
++  const hasAffectedParticipants = Boolean(plan?.participants?.some((participant) => participant.status === 'accepted' || participant.status === 'pending'));
+   const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
+   const showReportActions = Boolean(auth.user && plan && !isOwner);
+   const header = (
+     <AppHeader
+       title={t('plans.detail.headerTitle')}
+       onBack={() => navigation.goBack()}
+-      rightSlot={plan ? (
++      rightSlot={plan && !isCancelled ? (
+         <Pressable
+           accessibilityRole="button"
+           accessibilityLabel={t('plans.detail.shareAccessibility')}
+@@ -2765,33 +2770,22 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   return (
+     <AppFixedHeaderScreen header={header}>
+       <AppConfirmSheet
+-        visible={cancelConfirmVisible}
+-        title={t('plans.detail.confirm.cancelTitle')}
+-        body={t('plans.detail.confirm.cancelBody')}
+-        cancelLabel={t('plans.detail.confirm.keepPlan')}
+-        confirmLabel={t('plans.detail.confirm.cancelPlan')}
+-        tone="danger"
+-        confirmDisabled={busy}
+-        onCancel={() => setCancelConfirmVisible(false)}
+-        onConfirm={() => { void confirmCancelPlan(); }}
+-      />
+-      <AppConfirmSheet
+-        visible={deleteConfirmVisible}
+-        title={t('plans.detail.confirm.deleteTitle')}
+-        body={t('plans.detail.confirm.deleteBody')}
++        visible={removeConfirmVisible}
++        title={t('plans.detail.confirm.removeTitle')}
++        body={hasAffectedParticipants ? t('plans.detail.confirm.removeParticipantsBody') : t('plans.detail.confirm.removeBody')}
+         cancelLabel={t('plans.detail.confirm.keepPlan')}
+-        confirmLabel={t('plans.detail.confirm.deletePlan')}
++        confirmLabel={t('plans.detail.confirm.removePlan')}
+         tone="danger"
+         confirmDisabled={busy}
+-        onCancel={() => setDeleteConfirmVisible(false)}
+-        onConfirm={() => { void confirmDeletePlan(); }}
++        onCancel={() => setRemoveConfirmVisible(false)}
++        onConfirm={() => { void confirmRemovePlan(); }}
+       />
+       {loading ? <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('plans.detail.loading')}</AppText></View> : null}
+       {!loading && error ? <View style={styles.contentPad}><InfoNotice tone="warning" title={t('plans.detail.errors.loadTitle')} body={error} /></View> : null}
+       {!loading && plan ? (
+         <ScrollView contentContainerStyle={styles.planDetailContent} showsVerticalScrollIndicator={false}>
+           <View style={styles.planDetailHero}>
+-            <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{t('plans.detail.hero.eyebrow', { status: planStatusLabel(plan.status, t) })}</AppText>
++            <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : t('plans.detail.hero.eyebrow', { status: planStatusLabel(plan.status, t) })}</AppText>
+             <AppText style={styles.planDetailTitle}>{plan.title}</AppText>
+             <AppText style={[styles.planDetailStart, { color: theme.color.muted }]}>{t('plans.detail.hero.starts', { date: formatDate(plan.startsAt, language, t) })}</AppText>
+             <View style={styles.planDetailOwnerLine}>
+@@ -2799,7 +2793,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+               <AppText style={styles.planDetailOwnerName}>{getOwnerName(plan, t)}</AppText>
+             </View>
+             <View style={styles.planDetailChips}>
+-              <SemanticBadge label={planStatusLabel(plan.status, t)} tone={getPlanStatusTone(plan.status)} size="sm" />
++              <SemanticBadge label={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status, t)} tone={getPlanStatusTone(plan.status)} size="sm" />
+               <SemanticBadge label={getPlanJoinModeLabel(plan, t)} tone="proposal" size="sm" />
+               <SemanticBadge label={t(places.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: places.length })} tone="place" size="sm" />
+               <SemanticBadge label={getPlanModeLabel(plan, t)} tone="muted" size="sm" />
+@@ -2850,8 +2844,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+           <View style={styles.planDetailSectionFlat}>
+             <AppText style={styles.sectionTitle}>{t('plans.detail.sections.details')}</AppText>
+             <View style={styles.planDetailInfoList}>
+-              <PlanDetailInfoRow label={t('plans.detail.fields.status')} value={planStatusLabel(plan.status, t)} />
+-              <PlanDetailInfoRow label={t('plans.detail.fields.visibility')} value={plan.status === 'hidden' ? t('plans.detail.values.hidden') : t('plans.detail.values.public')} />
++              <PlanDetailInfoRow label={t('plans.detail.fields.status')} value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status, t)} />
++              <PlanDetailInfoRow label={t('plans.detail.fields.visibility')} value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : plan.status === 'hidden' ? t('plans.detail.values.hidden') : t('plans.detail.values.public')} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.joinMode')} value={getPlanJoinModeLabel(plan, t)} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.time')} value={formatPlanDateRange(plan, language, t)} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.placeMode')} value={getPlanModeLabel(plan, t)} />
+@@ -2888,7 +2882,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+                 <AppText style={styles.sectionTitle}>{t('plans.detail.sections.discussion')}</AppText>
+                 <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{t(publicMessageCount === 1 ? 'plans.detail.discussion.summaryOne' : 'plans.detail.discussion.summaryMany', { count: publicMessageCount })}</AppText>
+               </View>
+-              <SemanticBadge label={t('plans.detail.values.public')} tone="plan" size="sm" />
++              <SemanticBadge label={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : t('plans.detail.values.public')} tone={isCancelled ? "muted" : "plan"} size="sm" />
+             </View>
+             <Pressable
+               accessibilityRole="button"
+@@ -2932,14 +2926,14 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+                   <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{sharing ? t('plans.detail.actions.sharing') : t('plans.detail.actions.share')}</AppText>
+                 </Pressable>
+               ) : null}
+-              {canCancelPlan ? (
+-                <Pressable disabled={busy} accessibilityRole="button" onPress={cancelPlan} style={({ pressed }) => [styles.dangerButton, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, busy && styles.disabled]}>
+-                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? t('plans.detail.actions.cancelling') : t('plans.detail.actions.cancel')}</AppText>
++              {canRemovePlan ? (
++                <Pressable disabled={busy} accessibilityRole="button" onPress={removePlan} style={({ pressed }) => [styles.dangerButton, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, busy && styles.disabled]}>
++                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? t('plans.detail.actions.removing') : t('plans.detail.actions.remove')}</AppText>
+                 </Pressable>
+               ) : null}
+-              {isOwner ? (
+-                <Pressable disabled={busy} accessibilityRole="button" onPress={deletePlan} style={({ pressed }) => [styles.dangerButton, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, busy && styles.disabled]}>
+-                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? t('plans.detail.actions.updating') : t('plans.detail.actions.delete')}</AppText>
++              {isOwner && isCancelled ? (
++                <Pressable disabled={busy} accessibilityRole="button" onPress={() => { void restorePlan(); }} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, busy && styles.disabled]}>
++                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{busy ? t('plans.detail.actions.restoring') : t('plans.detail.actions.restore')}</AppText>
+                 </Pressable>
+               ) : null}
+               {isCancelled ? (
+diff --git a/apps/web/src/features/plans/PlanDetailClient.tsx b/apps/web/src/features/plans/PlanDetailClient.tsx
+index 0b0b81b..714ad29 100644
+--- a/apps/web/src/features/plans/PlanDetailClient.tsx
++++ b/apps/web/src/features/plans/PlanDetailClient.tsx
+@@ -10,6 +10,7 @@ import { api } from '../../lib/api';
+ import { buildPublicPlanUrl, copyTextToClipboard } from '../../lib/publicUrls';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
++import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { UserIdentityLink } from '../users/UserIdentityLink';
+ import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
+ import { planDateTime, planMediaSrc, planMetadata, planOwnerName, planParticipantStatusLabel, planStatusLabel } from './plansPresentation';
+@@ -72,6 +73,7 @@ function planModeLabel(plan: PlanDto) {
+ }
+ 
+ function planVisibilityLabel(plan: PlanDto) {
++  if (plan.status === 'cancelled') return 'Private · Removed from feed';
+   return plan.status === 'hidden' ? 'Hidden' : 'Public';
+ }
+ 
+@@ -534,6 +536,7 @@ type PlanDetailClientProps = {
+ 
+ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDetailClientProps) {
+   const auth = useWebAuth();
++  const { t } = useWebTranslation();
+   const router = useRouter();
+   const [plan, setPlan] = useState<PlanDto | null>(null);
+   const [joinRequests, setJoinRequests] = useState<PlanParticipantDto[]>([]);
+@@ -551,14 +554,14 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+   const canJoin = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner && plan.status === 'open' && canJoinFromParticipantStatus(currentParticipantStatus));
+   const canLeave = Boolean(!isCancelled && !isOwner && currentParticipantStatus === 'accepted');
+   const canVerifyPresence = Boolean(!isCancelled && auth.hydrated && auth.isAuthenticated && plan && (isOwner || currentParticipantStatus === 'accepted'));
+-  const canCancelPlan = Boolean(isOwner && plan && plan.status !== 'cancelled');
+-  const canDeletePlan = Boolean(isOwner && plan);
++  const canRemovePlan = Boolean(isOwner && plan && plan.status !== 'cancelled' && plan.status !== 'hidden');
+   const participantCopy = !isOwner ? participantStateCopy(currentParticipantStatus) : '';
+   const showReportActions = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner);
+   const places = plan?.places ?? [];
+   const routeMapsLink = buildPlanRouteMapsLink(places);
+   const shouldShowRoutePreview = Boolean(routeMapsLink && routeMapsLink.totalStopCount >= 2);
+   const joinedCount = plan?.participantCount ?? 0;
++  const hasAffectedParticipants = Boolean(plan?.participants?.some((participant) => participant.status === 'accepted' || participant.status === 'pending'));
+   const placeCount = places.length;
+   const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
+ 
+@@ -680,34 +683,31 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+     }
+   }
+ 
+-  async function cancelPlan() {
+-    if (!plan || !canCancelPlan) return;
+-    const confirmed = window.confirm('Cancel this Plan? People will no longer be able to join, but the Plan will remain visible with a Cancelled status.');
++  async function removePlan() {
++    if (!plan || !canRemovePlan) return;
++    const body = hasAffectedParticipants ? t('plans.detail.confirm.removeParticipantsBody') : t('plans.detail.confirm.removeBody');
++    const confirmed = window.confirm(`${t('plans.detail.confirm.removeTitle')}\n\n${body}`);
+     if (!confirmed) return;
+ 
+     setAction({ loading: true, message: '', error: '' });
+     try {
+-      const response = await api.plans.update(plan.id, { status: 'cancelled' });
++      const response = await api.plans.remove(plan.id);
+       setPlan(response.plan);
+-      setAction({ loading: false, message: 'Plan cancelled. It remains visible with a Cancelled status.', error: '' });
+-    } catch (cancelError) {
+-      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(cancelError, 'Could not cancel this Plan.') });
++      setAction({ loading: false, message: t('plans.detail.feedback.removed'), error: '' });
++    } catch (removeError) {
++      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(removeError, 'Could not remove this Plan from the feed.') });
+     }
+   }
+ 
+-
+-  async function deletePlan() {
+-    if (!plan || !canDeletePlan) return;
+-    const confirmed = window.confirm('Delete this Plan? It will disappear from feeds, search, and public detail pages.');
+-    if (!confirmed) return;
+-
++  async function restorePlan() {
++    if (!plan || !isOwner || !isCancelled) return;
+     setAction({ loading: true, message: '', error: '' });
+     try {
+-      await api.plans.delete(plan.id);
+-      router.push('/plans');
+-      router.refresh();
+-    } catch (deleteError) {
+-      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(deleteError, 'Could not delete this Plan.') });
++      const response = await api.plans.restore(plan.id);
++      setPlan(response.plan);
++      setAction({ loading: false, message: t('plans.detail.feedback.restored'), error: '' });
++    } catch (restoreError) {
++      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(restoreError, 'Could not restore this Plan to the feed.') });
+     }
+   }
+ 
+@@ -768,7 +768,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+           </Link>
+           <div className="plan-detail-toolbar__actions">
+             <PlansInternalBadge plansVisible={plansVisible} />
+-            {plan ? (
++            {plan && !isCancelled ? (
+               <button type="button" className="plan-detail-icon-button" onClick={() => void sharePlan()} disabled={shareLoading}>
+                 <WebIcon name="share" size={17} decorative />
+                 <span>{shareLoading ? 'Sharing...' : 'Share'}</span>
+@@ -784,7 +784,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+           <>
+             <section className="plan-detail-hero-social">
+               <div className="status-row plan-detail-status-row">
+-                <span className={`semantic-badge ${detailStatusTone(plan.status)}`}>{planStatusLabel(plan.status)}</span>
++                <span className={`semantic-badge ${detailStatusTone(plan.status)}`}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status)}</span>
+                 <span className="semantic-badge trade">Plan</span>
+               </div>
+               <h1>{plan.title}</h1>
+@@ -804,7 +804,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+                 />
+               </div>
+               <div className="plan-detail-chip-row" aria-label="Plan summary">
+-                <span className={`semantic-badge ${detailStatusTone(plan.status)}`}>{planStatusLabel(plan.status)}</span>
++                <span className={`semantic-badge ${detailStatusTone(plan.status)}`}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status)}</span>
+                 <span className="semantic-badge instruction">{planJoinModeLabel(plan.joinApprovalMode)}</span>
+                 <span className="semantic-badge neutral">{placeCount} {placeCount === 1 ? 'place' : 'places'}</span>
+                 <span className="semantic-badge neutral">{planModeLabel(plan)}</span>
+@@ -816,15 +816,15 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+               <div className="plan-section-heading trade-thread-section-heading trade-thread-section-heading--clean">
+                 <div>
+                   <p className="eyebrow">Discussion</p>
+-                  <h2 id="plan-conversations-title">Public discussion</h2>
++                  <h2 id="plan-conversations-title">{isCancelled && isOwner ? 'Saved discussion' : 'Public discussion'}</h2>
+                 </div>
+               </div>
+               <div className="trade-thread-action-grid trade-thread-action-grid--simple trade-thread-action-grid--clean">
+                 <Link href={`/plans/${plan.id}/discussion`} className="trade-thread-action-card trade-thread-action-card--public" aria-label="Open public discussion">
+                   <span className="trade-thread-action-card__icon trade-thread-action-card__icon--public"><WebIcon name="activity" size={20} decorative /></span>
+                   <span className="trade-thread-action-card__body">
+-                    <strong>Public discussion</strong>
+-                    <small>{isCancelled ? 'Read earlier comments. New public replies are closed for this cancelled Plan.' : 'Ask visible questions about joining, timing, places, or plan details.'}</small>
++                    <strong>{isCancelled && isOwner ? 'Private discussion history' : 'Public discussion'}</strong>
++                    <small>{isCancelled ? 'Read the preserved comments. Other users cannot open this removed Plan or its discussion.' : 'Ask visible questions about joining, timing, places, or plan details.'}</small>
+                   </span>
+                   <span className="trade-thread-action-card__cta">Open<WebIcon name="arrow-right" size={14} decorative /></span>
+                 </Link>
+@@ -865,7 +865,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+                 <h2>Plan info</h2>
+               </div>
+               <dl className="plan-detail-list">
+-                <PlanDetailItem label="Status" value={planStatusLabel(plan.status)} />
++                <PlanDetailItem label="Status" value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status)} />
+                 <PlanDetailItem label="Visibility" value={planVisibilityLabel(plan)} />
+                 <PlanDetailItem label="Join mode" value={planJoinModeLabel(plan.joinApprovalMode)} />
+                 <PlanDetailItem label="Time" value={planMetadata(plan)} />
+@@ -895,37 +895,37 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
+             <section className="plan-social-section plan-actions-section">
+               <div className="plan-section-heading">
+                 <p className="eyebrow">Actions</p>
+-                <h2>{isCancelled ? 'This Plan was cancelled' : isOwner ? 'Manage this Plan' : canLeave ? 'You joined this Plan' : 'Join this Plan'}</h2>
+-                <p>{isCancelled ? 'It remains visible for context, but joining, participant changes, public replies, and place verification are closed.' : isOwner && plan ? 'Share, cancel, or delete this Plan. Plan content editing is locked after publishing.' : plan ? planJoinActionCopy(plan) : ''}</p>
++                <h2>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : isOwner ? 'Manage this Plan' : canLeave ? 'You joined this Plan' : 'Join this Plan'}</h2>
++                <p>{isCancelled && isOwner ? t('plans.detail.actions.cancelledLongBody') : isOwner && plan ? t('plans.detail.actions.ownerBody') : plan ? planJoinActionCopy(plan) : ''}</p>
+               </div>
+               <div className="plan-detail-actions plan-detail-actions--social">
+                 {isOwner ? (
+                   <div className="plan-action-status plan-action-status--owner">
+                     <span className="semantic-badge trade">Owner</span>
+                     <strong>Manage Plan</strong>
+-                    <p className="meta">{isCancelled ? 'You can share or delete this cancelled Plan. Editing places and times remains locked.' : 'You can share, cancel, or delete this Plan. Editing places and times is locked after publishing.'}</p>
++                    <p className="meta">{isCancelled ? t('plans.detail.actions.manageCancelledBody') : t('plans.detail.actions.manageBody')}</p>
+                   </div>
+                 ) : null}
+-                {isOwner ? (
++                {isOwner && !isCancelled ? (
+                   <button type="button" className="button secondary" onClick={() => void sharePlan()} disabled={shareLoading}>
+                     {shareLoading ? 'Sharing...' : 'Share Plan'}
+                   </button>
+                 ) : null}
+-                {canCancelPlan ? (
+-                  <button type="button" className="button danger" disabled={action.loading} onClick={() => void cancelPlan()}>
+-                    {action.loading ? 'Cancelling...' : 'Cancel Plan'}
++                {canRemovePlan ? (
++                  <button type="button" className="button danger" disabled={action.loading} onClick={() => void removePlan()}>
++                    {action.loading ? t('plans.detail.actions.removing') : t('plans.detail.actions.remove')}
+                   </button>
+                 ) : null}
+-                {canDeletePlan ? (
+-                  <button type="button" className="button danger" disabled={action.loading} onClick={() => void deletePlan()}>
+-                    {action.loading ? 'Updating...' : 'Delete Plan'}
++                {isOwner && isCancelled ? (
++                  <button type="button" className="button secondary" disabled={action.loading} onClick={() => void restorePlan()}>
++                    {action.loading ? t('plans.detail.actions.restoring') : t('plans.detail.actions.restore')}
+                   </button>
+                 ) : null}
+                 {isCancelled ? (
+                   <div className="plan-action-status plan-action-status--cancelled">
+-                    <span className="semantic-badge danger">Cancelled</span>
+-                    <strong>This Plan is cancelled</strong>
+-                    <p className="meta">It remains visible for context. Joining, leaving, participant changes, public replies, and presence verification are no longer available.</p>
++                    <span className="semantic-badge danger">{t('plans.detail.actions.cancelledTitle')}</span>
++                    <strong>{t('plans.detail.actions.cancelledTitle')}</strong>
++                    <p className="meta">{t('plans.detail.actions.cancelledLongBody')}</p>
+                   </div>
+                 ) : null}
+                 {!auth.isAuthenticated && plan.status === 'open' ? <Link className="button primary" href={`/auth?next=/plans/${plan.id}`}>Log in to join</Link> : null}
+diff --git a/apps/web/src/features/plans/PlanEditClient.tsx b/apps/web/src/features/plans/PlanEditClient.tsx
+index 2889c11..c94e2b7 100644
+--- a/apps/web/src/features/plans/PlanEditClient.tsx
++++ b/apps/web/src/features/plans/PlanEditClient.tsx
+@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
++import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
+ import { PlanPreviewDeck } from './PlanPreviewDeck';
+ import { buildPlanSchedule, toDateInputValue, toTimeInputValue } from './planSchedule';
+@@ -187,6 +188,7 @@ type PlanEditClientProps = {
+ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditClientProps) {
+   const router = useRouter();
+   const auth = useWebAuth();
++  const { t } = useWebTranslation();
+   const [plan, setPlan] = useState<PlanDto | null>(null);
+   const [loading, setLoading] = useState(true);
+   const [saving, setSaving] = useState(false);
+@@ -200,6 +202,7 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
+ 
+   const isOwner = Boolean(auth.user?.id && plan?.ownerId === auth.user.id);
+   const participantCount = plan?.participantCount ?? 0;
++  const hasAffectedParticipants = Boolean(plan?.participants?.some((participant) => participant.status === 'accepted' || participant.status === 'pending'));
+   const usablePlacesForPreview = useMemo(() => places.filter((place) => place.date.trim() && place.time.trim()), [places]);
+   const schedule = useMemo(() => buildPlanSchedule(usablePlacesForPreview), [usablePlacesForPreview]);
+   const explicitPlanEnd = useMemo(() => parseOptionalPlanEnd(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
+@@ -349,18 +352,20 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
+     }
+   }
+ 
+-  async function cancelPlan() {
+-    if (!isOwner) return;
++  async function removePlan() {
++    if (!isOwner || !plan || plan.status === 'cancelled') return;
++    const body = hasAffectedParticipants ? t('plans.detail.confirm.removeParticipantsBody') : t('plans.detail.confirm.removeBody');
++    if (!window.confirm(`${t('plans.detail.confirm.removeTitle')}\n\n${body}`)) return;
+     setSaving(true);
+     setError('');
+     setMessage('');
+     try {
+-      const response = await api.plans.update(planId, { status: 'cancelled' });
++      const response = await api.plans.remove(planId);
+       hydrateForm(response.plan);
+-      setMessage('Plan cancelled.');
++      setMessage(t('plans.detail.feedback.removed'));
+       router.refresh();
+-    } catch (cancelError) {
+-      setError(getFriendlyApiErrorMessage(cancelError, 'Could not cancel Plan.'));
++    } catch (removeError) {
++      setError(getFriendlyApiErrorMessage(removeError, 'Could not remove Plan from the feed.'));
+     } finally {
+       setSaving(false);
+     }
+@@ -517,7 +522,7 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
+             {message ? <p className="success-message">{message}</p> : null}
+             {error ? <p className="form-error">{error}</p> : null}
+             <button className="button primary full" type="submit" disabled={saving || places.some((place) => place.uploading)}>{saving ? 'Saving...' : 'Save Plan'}</button>
+-            <button className="button secondary full" type="button" disabled={saving} onClick={cancelPlan}>Cancel Plan</button>
++            {plan?.status !== 'cancelled' ? <button className="button secondary full" type="button" disabled={saving} onClick={removePlan}>{t('plans.detail.actions.remove')}</button> : null}
+           </form>
+         ) : null}
+       </main>
+diff --git a/apps/web/src/features/plans/PlanPublicDiscussionClient.tsx b/apps/web/src/features/plans/PlanPublicDiscussionClient.tsx
+index aa8cf8f..b38c7b6 100644
+--- a/apps/web/src/features/plans/PlanPublicDiscussionClient.tsx
++++ b/apps/web/src/features/plans/PlanPublicDiscussionClient.tsx
+@@ -363,7 +363,7 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
+       </section>
+ 
+       {discussionClosed ? (
+-        <p className="notice-box warning public-discussion-bottom-notice">This Plan was cancelled. Earlier comments remain visible, but new replies and comment edits are closed.</p>
++        <p className="notice-box warning public-discussion-bottom-notice">Private · Removed from feed. Earlier comments are preserved for the owner, but new replies and comment edits are closed.</p>
+       ) : canWrite ? (
+         <PublicDiscussionComposer
+           id="plan-public-discussion-message"
+diff --git a/apps/web/src/features/plans/PlansListClient.tsx b/apps/web/src/features/plans/PlansListClient.tsx
+index fc5b4f4..6ba8c07 100644
+--- a/apps/web/src/features/plans/PlansListClient.tsx
++++ b/apps/web/src/features/plans/PlansListClient.tsx
+@@ -205,6 +205,8 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   }, [activeView, auth.hydrated, activeFilters, activeSearchQuery]);
+ 
+   const sortedPlans = useMemo(() => [...plans].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime()), [plans]);
++  const activeOwnedPlans = useMemo(() => activeView === 'mine' ? sortedPlans.filter((plan) => plan.status !== 'cancelled') : sortedPlans, [activeView, sortedPlans]);
++  const removedOwnedPlans = useMemo(() => activeView === 'mine' ? sortedPlans.filter((plan) => plan.status === 'cancelled') : [], [activeView, sortedPlans]);
+   const hasActiveSearchOrFilters = activeFilterCount > 0;
+   const starterIdeaKeys = useMemo(() => selectStarterPlanIdeaKeys({
+     realPlanCount: sortedPlans.length,
+@@ -333,8 +335,19 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+             if (item.type === 'idea') return <PlanIdeaCard key={`idea-${item.ideaKey}`} ideaKey={item.ideaKey} onOpen={() => markStarterIdeaSeen(item.ideaKey)} />;
+             const plan = sortedPlans[item.planIndex];
+             return plan ? <PlanCard key={plan.id} plan={plan} /> : null;
+-          }) : sortedPlans.map((plan) => <PlanCard key={plan.id} plan={plan} />)}
++          }) : activeOwnedPlans.map((plan) => <PlanCard key={plan.id} plan={plan} />)}
+         </section>
++        {activeView === 'mine' && removedOwnedPlans.length ? (
++          <section className="mobile-list plans-feed-deck-list" aria-label="Removed Plans">
++            <div className="plan-section-heading">
++              <div>
++                <p className="eyebrow">{t('plans.detail.values.private')}</p>
++                <h2>{t('plans.list.removed')}</h2>
++              </div>
++            </div>
++            {removedOwnedPlans.map((plan) => <PlanCard key={plan.id} plan={plan} />)}
++          </section>
++        ) : null}
+       </main>
+     </PlansFeatureGate>
+   );
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 6511cd2..c063216 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -74,7 +74,7 @@ export function createApiClient(options: ApiClientOptions) {
+     saved: { list: (query?: ListSavedItemsQuery) => requestJson<SavedItemsResponse>(options, `/saved${buildQueryString(query as Record<string, unknown> | undefined)}`), create: (body: CreateSavedItemRequest) => requestJson<SavedItemResponse>(options, '/saved', { method: 'POST', body: JSON.stringify(body) }), remove: (savedItemId: string) => requestJson<void>(options, `/saved/${savedItemId}`, { method: 'DELETE' }), status: (query: SavedItemStatusQuery) => requestJson<SavedItemStatusResponse>(options, `/saved/status${buildQueryString(query as Record<string, unknown>)}`), collections: () => requestJson<SavedCollectionsResponse>(options, '/saved/collections'), createCollection: (body: CreateSavedCollectionRequest) => requestJson<SavedCollectionResponse>(options, '/saved/collections', { method: 'POST', body: JSON.stringify(body) }), updateCollection: (collectionId: string, body: UpdateSavedCollectionRequest) => requestJson<SavedCollectionResponse>(options, `/saved/collections/${collectionId}`, { method: 'PATCH', body: JSON.stringify(body) }), removeCollection: (collectionId: string) => requestJson<void>(options, `/saved/collections/${collectionId}`, { method: 'DELETE' }), addCollectionItem: (collectionId: string, body: AddSavedCollectionItemRequest) => requestJson<SavedCollectionItemResponse>(options, `/saved/collections/${collectionId}/items`, { method: 'POST', body: JSON.stringify(body) }), removeCollectionItem: (collectionId: string, savedItemId: string) => requestJson<void>(options, `/saved/collections/${collectionId}/items/${savedItemId}`, { method: 'DELETE' }) },
+     agenda: { list: (query?: ListAgendaItemsQuery) => requestJson<AgendaItemsResponse>(options, `/agenda${buildQueryString(query as Record<string, unknown> | undefined)}`), exportIcs: (query?: AgendaIcsExportQuery) => requestText(options, `/agenda/ics${buildQueryString(query as Record<string, unknown> | undefined)}`), exportItemIcs: (itemId: string) => requestText(options, `/agenda/${itemId}/ics`), create: (body: CreateAgendaItemRequest) => requestJson<AgendaItemResponse>(options, '/agenda', { method: 'POST', body: JSON.stringify(body) }), update: (itemId: string, body: UpdateAgendaItemRequest) => requestJson<AgendaItemResponse>(options, `/agenda/${itemId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (itemId: string) => requestJson<void>(options, `/agenda/${itemId}`, { method: 'DELETE' }) },
+     users: { publicProfile: (userId: string) => requestJson<PublicProfileResponse>(options, `/users/${userId}/public-profile`), publicProfileByUsername: (username: string) => requestJson<PublicProfileResponse>(options, `/users/by-username/${encodeURIComponent(username)}/public-profile`), blocked: () => requestJson<UserBlocksResponse>(options, '/users/blocked'), block: (userId: string, body?: CreateUserBlockRequest) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'POST', body: JSON.stringify(body ?? {}) }), unblock: (userId: string) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'DELETE' }) },
+-    plans: { feed: (query?: ListPlansQuery) => requestJson<PlansResponse>(options, `/plans/feed${buildQueryString(query as Record<string, unknown> | undefined)}`), mine: () => requestJson<PlansResponse>(options, '/plans/mine'), joined: () => requestJson<PlansResponse>(options, '/plans/joined'), get: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`), create: (body: CreatePlanRequest) => requestJson<PlanResponse>(options, '/plans', { method: 'POST', body: JSON.stringify(body) }), update: (planId: string, body: UpdatePlanRequest) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'PATCH', body: JSON.stringify(body) }), delete: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'DELETE' }), createPlace: (planId: string, body: CreatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places`, { method: 'POST', body: JSON.stringify(body) }), updatePlace: (planId: string, placeId: string, body: UpdatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places/${placeId}`, { method: 'PATCH', body: JSON.stringify(body) }), join: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join`, { method: 'POST', body: JSON.stringify(body ?? {}) }), leave: (planId: string) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/leave`, { method: 'POST' }), requestJoin: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests`, { method: 'POST', body: JSON.stringify(body ?? {}) }), joinRequests: (planId: string) => requestJson<PlanParticipantsResponse>(options, `/plans/${planId}/join-requests`), updateJoinRequest: (planId: string, participantId: string, body: UpdatePlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests/${participantId}`, { method: 'PATCH', body: JSON.stringify(body) }), updateMyJoinRequest: (planId: string, body: UpdateMyPlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/my-join-request`, { method: 'PATCH', body: JSON.stringify(body) }), publicMessages: (planId: string, query?: ListPlanPublicMessagesQuery) => requestJson<PlanPublicMessagesResponse>(options, `/plans/${planId}/public-messages${buildQueryString(query as Record<string, unknown> | undefined)}`), sendPublicMessage: (planId: string, body: CreatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages`, { method: 'POST', body: JSON.stringify(body) }), updatePublicMessage: (planId: string, messageId: string, body: UpdatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePublicMessage: (planId: string, messageId: string) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'DELETE' }), verifyPlacePresence: (planId: string, planPlaceId: string, body: CreatePlacePresenceVerificationRequest) => requestJson<PlacePresenceVerificationResponse>(options, `/plans/${planId}/places/${planPlaceId}/verify-presence`, { method: 'POST', body: JSON.stringify(body) }), placeVerificationSummary: () => requestJson<PlacePresenceVerificationSummaryResponse>(options, '/plans/place-verifications/summary'), placeVerificationHistory: (query?: ListMyPlacePresenceVerificationsQuery) => requestJson<PlacePresenceVerificationHistoryResponse>(options, `/plans/place-verifications/mine${buildQueryString(query as Record<string, unknown> | undefined)}`) },
++    plans: { feed: (query?: ListPlansQuery) => requestJson<PlansResponse>(options, `/plans/feed${buildQueryString(query as Record<string, unknown> | undefined)}`), mine: () => requestJson<PlansResponse>(options, '/plans/mine'), joined: () => requestJson<PlansResponse>(options, '/plans/joined'), get: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`), create: (body: CreatePlanRequest) => requestJson<PlanResponse>(options, '/plans', { method: 'POST', body: JSON.stringify(body) }), update: (planId: string, body: UpdatePlanRequest) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (planId: string) => requestJson<PlanResponse & { removed: boolean; alreadyRemoved: boolean }>(options, `/plans/${planId}/remove`, { method: 'POST' }), restore: (planId: string) => requestJson<PlanResponse & { restored: boolean; alreadyRestored: boolean }>(options, `/plans/${planId}/restore`, { method: 'POST' }), delete: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'DELETE' }), createPlace: (planId: string, body: CreatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places`, { method: 'POST', body: JSON.stringify(body) }), updatePlace: (planId: string, placeId: string, body: UpdatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places/${placeId}`, { method: 'PATCH', body: JSON.stringify(body) }), join: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join`, { method: 'POST', body: JSON.stringify(body ?? {}) }), leave: (planId: string) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/leave`, { method: 'POST' }), requestJoin: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests`, { method: 'POST', body: JSON.stringify(body ?? {}) }), joinRequests: (planId: string) => requestJson<PlanParticipantsResponse>(options, `/plans/${planId}/join-requests`), updateJoinRequest: (planId: string, participantId: string, body: UpdatePlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests/${participantId}`, { method: 'PATCH', body: JSON.stringify(body) }), updateMyJoinRequest: (planId: string, body: UpdateMyPlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/my-join-request`, { method: 'PATCH', body: JSON.stringify(body) }), publicMessages: (planId: string, query?: ListPlanPublicMessagesQuery) => requestJson<PlanPublicMessagesResponse>(options, `/plans/${planId}/public-messages${buildQueryString(query as Record<string, unknown> | undefined)}`), sendPublicMessage: (planId: string, body: CreatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages`, { method: 'POST', body: JSON.stringify(body) }), updatePublicMessage: (planId: string, messageId: string, body: UpdatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePublicMessage: (planId: string, messageId: string) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'DELETE' }), verifyPlacePresence: (planId: string, planPlaceId: string, body: CreatePlacePresenceVerificationRequest) => requestJson<PlacePresenceVerificationResponse>(options, `/plans/${planId}/places/${planPlaceId}/verify-presence`, { method: 'POST', body: JSON.stringify(body) }), placeVerificationSummary: () => requestJson<PlacePresenceVerificationSummaryResponse>(options, '/plans/place-verifications/summary'), placeVerificationHistory: (query?: ListMyPlacePresenceVerificationsQuery) => requestJson<PlacePresenceVerificationHistoryResponse>(options, `/plans/place-verifications/mine${buildQueryString(query as Record<string, unknown> | undefined)}`) },
+     reports: { create: (body: CreateReportRequest) => requestJson(options, '/reports', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/reports/mine') },
+     usage: { heartbeat: (body: UsageHeartbeatRequest) => requestJson<void>(options, '/usage/heartbeat', { method: 'POST', body: JSON.stringify(body) }) },
+ 
+diff --git a/packages/contracts/src/plans.ts b/packages/contracts/src/plans.ts
+index 74da90c..407eee4 100644
+--- a/packages/contracts/src/plans.ts
++++ b/packages/contracts/src/plans.ts
+@@ -21,7 +21,6 @@ export const planPublicStatusSchema = z.enum([
+   "open",
+   "full",
+   "started",
+-  "cancelled",
+ ]);
+ export const planJoinApprovalModeSchema = z.enum([
+   "owner_approval",
+diff --git a/packages/i18n/src/locales/en/plans.ts b/packages/i18n/src/locales/en/plans.ts
+index 0d709e7..656a62f 100644
+--- a/packages/i18n/src/locales/en/plans.ts
++++ b/packages/i18n/src/locales/en/plans.ts
+@@ -27,6 +27,7 @@ export const plans = {
+   },
+   list: {
+     loading: 'Loading Plans...',
++    removed: 'Removed · Private',
+     errors: {
+       title: 'Could not load Plans',
+       body: 'Check your connection and try again.',
+@@ -168,6 +169,7 @@ export const plans = {
+     },
+     values: {
+       public: 'Public',
++      private: 'Private',
+       hidden: 'Hidden',
+       owner: 'Owner',
+       online: 'Online',
+@@ -236,25 +238,26 @@ export const plans = {
+       open: 'Open public comments',
+       openAccessibility: 'Open Plan public discussion',
+       body: 'Ask questions, coordinate details, or reply to people interested in this Plan.',
+-      cancelledBody: 'Read earlier comments. New public replies are closed for this cancelled Plan.',
++      cancelledBody: 'Read the preserved comments. This removed Plan and its discussion are private to you.',
+     },
+     actions: {
+-      ownerBody: 'Share, cancel, or delete this Plan. Editing is locked after publishing.',
+-      cancelledBody: 'It remains visible for context, but joining, participant changes, public replies, and presence verification are closed.',
++      ownerBody: 'Share this Plan or remove it from the public feed. Editing is locked after publishing.',
++      cancelledBody: 'Private · Removed from feed. Participation and public interactions are closed.',
+       manageTitle: 'Manage Plan',
+-      manageBody: 'Share, cancel, or delete this Plan. Places and times are locked after publishing.',
+-      manageCancelledBody: 'Share or delete this cancelled Plan. Places and times remain locked.',
++      manageBody: 'Share this Plan or remove it from the feed. Places and times are locked after publishing.',
++      manageCancelledBody: 'This Plan is private in My Plans. Restore it when it is eligible to become public again.',
+       share: 'Share Plan',
+       sharing: 'Sharing…',
+-      cancel: 'Cancel Plan',
+-      cancelling: 'Cancelling…',
+-      delete: 'Delete Plan',
++      remove: 'Remove from feed',
++      removing: 'Removing…',
++      restore: 'Restore to feed',
++      restoring: 'Restoring…',
+       updating: 'Updating…',
+       join: 'Join Plan',
+       joining: 'Joining…',
+       leave: 'Leave Plan',
+-      cancelledTitle: 'This Plan is cancelled',
+-      cancelledLongBody: 'It remains visible for context. Joining, leaving, participant changes, public replies, and presence verification are no longer available.',
++      cancelledTitle: 'Private · Removed from feed',
++      cancelledLongBody: 'Only you can open this Plan. Its places, timing, participants, discussion, and verification history are preserved.',
+       joinedTitle: 'You joined this Plan',
+       joinedBody: 'You can leave if this Plan is no longer useful.',
+       freeJoinFootnote: 'Free join · leave anytime.',
+@@ -268,19 +271,18 @@ export const plans = {
+       requestJoinOpen: 'Send your interest to join this Plan.',
+     },
+     confirm: {
+-      cancelTitle: 'Cancel Plan?',
+-      cancelBody: 'The Plan will remain visible with a Cancelled status, but joining, participant changes, new public replies, and presence verification will close.',
+-      keepPlan: 'Keep Plan',
+-      cancelPlan: 'Cancel Plan',
+-      deleteTitle: 'Delete Plan?',
+-      deleteBody: 'This removes the Plan from feeds, search, and public detail pages. Admin history is kept for safety.',
+-      deletePlan: 'Delete Plan',
++      removeTitle: 'Remove from feed?',
++      removeBody: 'This Plan will no longer appear publicly. It will remain private in My Plans, and you can restore it later.',
++      removeParticipantsBody: 'This Plan will no longer appear publicly, and future participation will end. The Plan will remain private in My Plans.',
++      keepPlan: 'Keep plan',
++      removePlan: 'Remove from feed',
+     },
+     feedback: {
+       shareOpened: 'Share sheet opened.',
+       joined: 'You joined this Plan.',
+       left: 'You left this Plan.',
+-      cancelled: 'Plan cancelled. It remains visible with a Cancelled status.',
++      removed: 'Plan removed from the feed. It remains private in My Plans.',
++      restored: 'Plan restored to the feed.',
+     },
+     errors: {
+       loadTitle: 'Could not load Plan',
+@@ -353,8 +355,8 @@ export const plans = {
+       placeholder: 'Comment publicly on this Plan…',
+     },
+     cancelled: {
+-      title: 'This Plan was cancelled',
+-      body: 'Earlier comments remain visible, but new replies and comment edits are closed.',
++      title: 'Private · Removed from feed',
++      body: 'Earlier comments are preserved for you, but new replies and comment edits are closed.',
+     },
+     actions: {
+       title: 'Comment actions',
+diff --git a/packages/i18n/src/locales/fr/plans.ts b/packages/i18n/src/locales/fr/plans.ts
+index 44e4252..9c4c18c 100644
+--- a/packages/i18n/src/locales/fr/plans.ts
++++ b/packages/i18n/src/locales/fr/plans.ts
+@@ -27,6 +27,7 @@ export const plans = {
+   },
+   list: {
+     loading: 'Chargement des Plans…',
++    removed: 'Retirés · Privés',
+     errors: {
+       title: 'Impossible de charger les Plans',
+       body: 'Vérifiez votre connexion, puis réessayez.',
+@@ -168,6 +169,7 @@ export const plans = {
+     },
+     values: {
+       public: 'Public',
++      private: 'Privé',
+       hidden: 'Masqué',
+       owner: 'Organisateur',
+       online: 'En ligne',
+@@ -236,25 +238,26 @@ export const plans = {
+       open: 'Ouvrir les commentaires publics',
+       openAccessibility: 'Ouvrir la discussion publique du Plan',
+       body: 'Posez des questions, coordonnez les détails ou répondez aux personnes intéressées par ce Plan.',
+-      cancelledBody: 'Consultez les anciens commentaires. Les nouvelles réponses publiques sont fermées pour ce Plan annulé.',
++      cancelledBody: 'Consultez les commentaires conservés. Ce Plan retiré et sa discussion sont privés.',
+     },
+     actions: {
+-      ownerBody: 'Partagez, annulez ou supprimez ce Plan. La modification est verrouillée après publication.',
+-      cancelledBody: 'Il reste visible à titre de contexte, mais les participations, les changements de participants, les réponses publiques et la vérification de présence sont fermés.',
++      ownerBody: 'Partagez ce Plan ou retirez-le du fil public. La modification est verrouillée après publication.',
++      cancelledBody: 'Privé · Retiré du fil. Les participations et interactions publiques sont fermées.',
+       manageTitle: 'Gérer le Plan',
+-      manageBody: 'Partagez, annulez ou supprimez ce Plan. Les lieux et horaires sont verrouillés après publication.',
+-      manageCancelledBody: 'Partagez ou supprimez ce Plan annulé. Les lieux et horaires restent verrouillés.',
++      manageBody: 'Partagez ce Plan ou retirez-le du fil. Les lieux et horaires sont verrouillés après publication.',
++      manageCancelledBody: 'Ce Plan reste privé dans Mes Plans. Restaurez-le lorsqu’il peut redevenir public.',
+       share: 'Partager le Plan',
+       sharing: 'Partage…',
+-      cancel: 'Annuler le Plan',
+-      cancelling: 'Annulation…',
+-      delete: 'Supprimer le Plan',
++      remove: 'Retirer du fil',
++      removing: 'Retrait…',
++      restore: 'Restaurer dans le fil',
++      restoring: 'Restauration…',
+       updating: 'Mise à jour…',
+       join: 'Rejoindre le Plan',
+       joining: 'Participation…',
+       leave: 'Quitter le Plan',
+-      cancelledTitle: 'Ce Plan est annulé',
+-      cancelledLongBody: 'Il reste visible à titre de contexte. Il n’est plus possible de rejoindre ou quitter le Plan, de modifier les participants, de répondre publiquement ni de vérifier une présence.',
++      cancelledTitle: 'Privé · Retiré du fil',
++      cancelledLongBody: 'Vous seul pouvez ouvrir ce Plan. Ses lieux, horaires, participants, discussions et historiques de vérification sont conservés.',
+       joinedTitle: 'Vous avez rejoint ce Plan',
+       joinedBody: 'Vous pouvez le quitter s’il ne vous est plus utile.',
+       freeJoinFootnote: 'Participation libre · départ possible à tout moment.',
+@@ -268,19 +271,18 @@ export const plans = {
+       requestJoinOpen: 'Envoyez votre demande pour rejoindre ce Plan.',
+     },
+     confirm: {
+-      cancelTitle: 'Annuler le Plan ?',
+-      cancelBody: 'Le Plan restera visible avec le statut Annulé, mais les participations, les changements de participants, les nouvelles réponses publiques et la vérification de présence seront fermés.',
++      removeTitle: 'Retirer du fil ?',
++      removeBody: 'Ce Plan ne sera plus visible publiquement. Il restera privé dans Mes Plans et vous pourrez le restaurer plus tard.',
++      removeParticipantsBody: 'Ce Plan ne sera plus visible publiquement et les participations futures prendront fin. Il restera privé dans Mes Plans.',
+       keepPlan: 'Conserver le Plan',
+-      cancelPlan: 'Annuler le Plan',
+-      deleteTitle: 'Supprimer le Plan ?',
+-      deleteBody: 'Le Plan sera retiré des fils, de la recherche et des pages publiques. L’historique administratif est conservé pour la sécurité.',
+-      deletePlan: 'Supprimer le Plan',
++      removePlan: 'Retirer du fil',
+     },
+     feedback: {
+       shareOpened: 'La feuille de partage est ouverte.',
+       joined: 'Vous avez rejoint ce Plan.',
+       left: 'Vous avez quitté ce Plan.',
+-      cancelled: 'Plan annulé. Il reste visible avec le statut Annulé.',
++      removed: 'Plan retiré du fil. Il reste privé dans Mes Plans.',
++      restored: 'Plan restauré dans le fil.',
+     },
+     errors: {
+       loadTitle: 'Impossible de charger le Plan',
+@@ -353,8 +355,8 @@ export const plans = {
+       placeholder: 'Commenter publiquement ce Plan…',
+     },
+     cancelled: {
+-      title: 'Ce Plan a été annulé',
+-      body: 'Les anciens commentaires restent visibles, mais les nouvelles réponses et modifications sont fermées.',
++      title: 'Privé · Retiré du fil',
++      body: 'Les anciens commentaires sont conservés pour vous, mais les nouvelles réponses et modifications sont fermées.',
+     },
+     actions: {
+       title: 'Actions du commentaire',

@@ -363,7 +363,7 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
       </section>
 
       {discussionClosed ? (
-        <p className="notice-box warning public-discussion-bottom-notice">This Plan was cancelled. Earlier comments remain visible, but new replies and comment edits are closed.</p>
+        <p className="notice-box warning public-discussion-bottom-notice">Private · Removed from feed. Earlier comments are preserved for the owner, but new replies and comment edits are closed.</p>
       ) : canWrite ? (
         <PublicDiscussionComposer
           id="plan-public-discussion-message"

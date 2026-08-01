@@ -52,7 +52,7 @@ type SimpleScreenProps<RouteName extends keyof RootStackParamList> = NativeStack
 type PlanListScope = 'feed' | 'mine' | 'joined';
 type PlaceListScope = 'mine' | 'library';
 type PlanFeedListItem = ReturnType<typeof buildPlanFeedItems>[number];
-type PlanRowListItem = { type: 'plan'; key: string; plan: PlanDto };
+type PlanRowListItem = { type: 'plan'; key: string; plan: PlanDto } | { type: 'section'; key: string; label: string };
 
 function isPlanUnavailableError(error: unknown) {
   if (!error || typeof error !== 'object') return false;
@@ -1818,7 +1818,16 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
     recentIdeaIds: recentStarterIdeaIds,
   }), [anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, isDeckFeed, plans.length, recentStarterIdeaIds.join('|'), starterRefreshKey]);
   const feedItems = useMemo(() => buildPlanFeedItems(plans.length, starterIdeas), [plans.length, starterIdeas.join('|')]);
-  const rowItems = useMemo<PlanRowListItem[]>(() => plans.map((plan) => ({ type: 'plan', key: plan.id, plan })), [plans]);
+  const rowItems = useMemo<PlanRowListItem[]>(() => {
+    if (scope !== 'mine') return plans.map((plan) => ({ type: 'plan' as const, key: plan.id, plan }));
+    const activePlans = plans.filter((plan) => plan.status !== 'cancelled');
+    const removedPlans = plans.filter((plan) => plan.status === 'cancelled');
+    return [
+      ...activePlans.map((plan) => ({ type: 'plan' as const, key: plan.id, plan })),
+      ...(removedPlans.length ? [{ type: 'section' as const, key: 'removed-plans', label: t('plans.list.removed') }] : []),
+      ...removedPlans.map((plan) => ({ type: 'plan' as const, key: plan.id, plan })),
+    ];
+  }, [plans, scope, t]);
 
   const markStarterIdeaSeen = useCallback((ideaKey: StarterPlanIdeaKey) => {
     setRecentStarterIdeaIds((current) => {
@@ -1838,9 +1847,10 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
     return <PlanDeckSection plan={plan} index={index} total={feedItems.length} navigation={navigation} />;
   }, [feedItems.length, markStarterIdeaSeen, navigation, plans]);
 
-  const renderPlanRow = useCallback(({ item }: { item: PlanRowListItem }) => (
-    <PlanRow plan={item.plan} onPress={() => navigation.navigate('PlanDetail', { planId: item.plan.id, title: item.plan.title })} />
-  ), [navigation]);
+  const renderPlanRow = useCallback(({ item }: { item: PlanRowListItem }) => {
+    if (item.type === 'section') return <View style={styles.contentPad}><AppText style={styles.sectionTitle}>{item.label}</AppText></View>;
+    return <PlanRow plan={item.plan} onPress={() => navigation.navigate('PlanDetail', { planId: item.plan.id, title: item.plan.title })} />;
+  }, [navigation]);
 
   const activeCount = activePlanFilterCount(activeFilters, activeSearchQuery);
   const filterHeader = scope === 'feed' && hasActiveSearchOrFilters ? (
@@ -2534,8 +2544,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   const [publicMessageCount, setPublicMessageCount] = useState(0);
   const [verifyingPlaceId, setVerifyingPlaceId] = useState<string | null>(null);
   const [presenceNotices, setPresenceNotices] = useState<Record<string, PlanPlacePresenceNotice>>({});
-  const [cancelConfirmVisible, setCancelConfirmVisible] = useState(false);
-  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  const [removeConfirmVisible, setRemoveConfirmVisible] = useState(false);
 
   const load = useCallback(async () => {
     if (!isPlansVisible()) { setLoading(false); return; }
@@ -2619,21 +2628,21 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
     }
   }
 
-  function cancelPlan() {
-    if (!plan || !canCancelPlan || busy) return;
-    setCancelConfirmVisible(true);
+  function removePlan() {
+    if (!plan || !canRemovePlan || busy) return;
+    setRemoveConfirmVisible(true);
   }
 
-  async function confirmCancelPlan() {
-    if (!plan || !canCancelPlan || busy) return;
-    setCancelConfirmVisible(false);
+  async function confirmRemovePlan() {
+    if (!plan || !canRemovePlan || busy) return;
+    setRemoveConfirmVisible(false);
     setBusy(true);
     setError(null);
     setActionMessage(null);
     setActionError(null);
     try {
-      await api.plans.update(plan.id, { status: 'cancelled' });
-      setActionMessage(t('plans.detail.feedback.cancelled'));
+      await api.plans.remove(plan.id);
+      setActionMessage(t('plans.detail.feedback.removed'));
       await load();
     } catch (caughtError) {
       setActionError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.actionBody')));
@@ -2643,21 +2652,16 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   }
 
 
-  function deletePlan() {
-    if (!plan || !isOwner || busy) return;
-    setDeleteConfirmVisible(true);
-  }
-
-  async function confirmDeletePlan() {
-    if (!plan || !isOwner || busy) return;
-    setDeleteConfirmVisible(false);
+  async function restorePlan() {
+    if (!plan || !isOwner || plan.status !== 'cancelled' || busy) return;
     setBusy(true);
     setError(null);
     setActionMessage(null);
     setActionError(null);
     try {
-      await api.plans.delete(plan.id);
-      navigation.navigate('Plans');
+      await api.plans.restore(plan.id);
+      setActionMessage(t('plans.detail.feedback.restored'));
+      await load();
     } catch (caughtError) {
       setActionError(getFriendlyApiErrorMessage(caughtError, t('plans.detail.errors.actionBody')));
     } finally {
@@ -2736,19 +2740,20 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   const isJoined = participantStatus === 'accepted';
   const canJoin = Boolean(plan && auth.user && !isOwner && canJoinPlanFromParticipantStatus(participantStatus) && plan.status === 'open');
   const canLeave = Boolean(plan && !isCancelled && !isOwner && isJoined);
-  const canCancelPlan = Boolean(plan && isOwner && plan.status !== 'cancelled');
+  const canRemovePlan = Boolean(plan && isOwner && plan.status !== 'cancelled' && plan.status !== 'hidden');
   const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus, t) : '';
   const places = plan ? sortedPlanPlaces(plan) : [];
   const routeMaps = buildPlanRouteMapsLink(places, t);
   const acceptedParticipants = plan ? getAcceptedParticipants(plan) : [];
   const joinedCount = plan?.participantCount ?? acceptedParticipants.length;
+  const hasAffectedParticipants = Boolean(plan?.participants?.some((participant) => participant.status === 'accepted' || participant.status === 'pending'));
   const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
   const showReportActions = Boolean(auth.user && plan && !isOwner);
   const header = (
     <AppHeader
       title={t('plans.detail.headerTitle')}
       onBack={() => navigation.goBack()}
-      rightSlot={plan ? (
+      rightSlot={plan && !isCancelled ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t('plans.detail.shareAccessibility')}
@@ -2765,33 +2770,22 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   return (
     <AppFixedHeaderScreen header={header}>
       <AppConfirmSheet
-        visible={cancelConfirmVisible}
-        title={t('plans.detail.confirm.cancelTitle')}
-        body={t('plans.detail.confirm.cancelBody')}
+        visible={removeConfirmVisible}
+        title={t('plans.detail.confirm.removeTitle')}
+        body={hasAffectedParticipants ? t('plans.detail.confirm.removeParticipantsBody') : t('plans.detail.confirm.removeBody')}
         cancelLabel={t('plans.detail.confirm.keepPlan')}
-        confirmLabel={t('plans.detail.confirm.cancelPlan')}
+        confirmLabel={t('plans.detail.confirm.removePlan')}
         tone="danger"
         confirmDisabled={busy}
-        onCancel={() => setCancelConfirmVisible(false)}
-        onConfirm={() => { void confirmCancelPlan(); }}
-      />
-      <AppConfirmSheet
-        visible={deleteConfirmVisible}
-        title={t('plans.detail.confirm.deleteTitle')}
-        body={t('plans.detail.confirm.deleteBody')}
-        cancelLabel={t('plans.detail.confirm.keepPlan')}
-        confirmLabel={t('plans.detail.confirm.deletePlan')}
-        tone="danger"
-        confirmDisabled={busy}
-        onCancel={() => setDeleteConfirmVisible(false)}
-        onConfirm={() => { void confirmDeletePlan(); }}
+        onCancel={() => setRemoveConfirmVisible(false)}
+        onConfirm={() => { void confirmRemovePlan(); }}
       />
       {loading ? <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('plans.detail.loading')}</AppText></View> : null}
       {!loading && error ? <View style={styles.contentPad}><InfoNotice tone="warning" title={t('plans.detail.errors.loadTitle')} body={error} /></View> : null}
       {!loading && plan ? (
         <ScrollView contentContainerStyle={styles.planDetailContent} showsVerticalScrollIndicator={false}>
           <View style={styles.planDetailHero}>
-            <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{t('plans.detail.hero.eyebrow', { status: planStatusLabel(plan.status, t) })}</AppText>
+            <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : t('plans.detail.hero.eyebrow', { status: planStatusLabel(plan.status, t) })}</AppText>
             <AppText style={styles.planDetailTitle}>{plan.title}</AppText>
             <AppText style={[styles.planDetailStart, { color: theme.color.muted }]}>{t('plans.detail.hero.starts', { date: formatDate(plan.startsAt, language, t) })}</AppText>
             <View style={styles.planDetailOwnerLine}>
@@ -2799,7 +2793,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
               <AppText style={styles.planDetailOwnerName}>{getOwnerName(plan, t)}</AppText>
             </View>
             <View style={styles.planDetailChips}>
-              <SemanticBadge label={planStatusLabel(plan.status, t)} tone={getPlanStatusTone(plan.status)} size="sm" />
+              <SemanticBadge label={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status, t)} tone={getPlanStatusTone(plan.status)} size="sm" />
               <SemanticBadge label={getPlanJoinModeLabel(plan, t)} tone="proposal" size="sm" />
               <SemanticBadge label={t(places.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: places.length })} tone="place" size="sm" />
               <SemanticBadge label={getPlanModeLabel(plan, t)} tone="muted" size="sm" />
@@ -2850,8 +2844,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
           <View style={styles.planDetailSectionFlat}>
             <AppText style={styles.sectionTitle}>{t('plans.detail.sections.details')}</AppText>
             <View style={styles.planDetailInfoList}>
-              <PlanDetailInfoRow label={t('plans.detail.fields.status')} value={planStatusLabel(plan.status, t)} />
-              <PlanDetailInfoRow label={t('plans.detail.fields.visibility')} value={plan.status === 'hidden' ? t('plans.detail.values.hidden') : t('plans.detail.values.public')} />
+              <PlanDetailInfoRow label={t('plans.detail.fields.status')} value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status, t)} />
+              <PlanDetailInfoRow label={t('plans.detail.fields.visibility')} value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : plan.status === 'hidden' ? t('plans.detail.values.hidden') : t('plans.detail.values.public')} />
               <PlanDetailInfoRow label={t('plans.detail.fields.joinMode')} value={getPlanJoinModeLabel(plan, t)} />
               <PlanDetailInfoRow label={t('plans.detail.fields.time')} value={formatPlanDateRange(plan, language, t)} />
               <PlanDetailInfoRow label={t('plans.detail.fields.placeMode')} value={getPlanModeLabel(plan, t)} />
@@ -2888,7 +2882,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                 <AppText style={styles.sectionTitle}>{t('plans.detail.sections.discussion')}</AppText>
                 <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{t(publicMessageCount === 1 ? 'plans.detail.discussion.summaryOne' : 'plans.detail.discussion.summaryMany', { count: publicMessageCount })}</AppText>
               </View>
-              <SemanticBadge label={t('plans.detail.values.public')} tone="plan" size="sm" />
+              <SemanticBadge label={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : t('plans.detail.values.public')} tone={isCancelled ? "muted" : "plan"} size="sm" />
             </View>
             <Pressable
               accessibilityRole="button"
@@ -2932,14 +2926,14 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                   <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{sharing ? t('plans.detail.actions.sharing') : t('plans.detail.actions.share')}</AppText>
                 </Pressable>
               ) : null}
-              {canCancelPlan ? (
-                <Pressable disabled={busy} accessibilityRole="button" onPress={cancelPlan} style={({ pressed }) => [styles.dangerButton, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, busy && styles.disabled]}>
-                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? t('plans.detail.actions.cancelling') : t('plans.detail.actions.cancel')}</AppText>
+              {canRemovePlan ? (
+                <Pressable disabled={busy} accessibilityRole="button" onPress={removePlan} style={({ pressed }) => [styles.dangerButton, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, busy && styles.disabled]}>
+                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? t('plans.detail.actions.removing') : t('plans.detail.actions.remove')}</AppText>
                 </Pressable>
               ) : null}
-              {isOwner ? (
-                <Pressable disabled={busy} accessibilityRole="button" onPress={deletePlan} style={({ pressed }) => [styles.dangerButton, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, pressed && styles.pressed, busy && styles.disabled]}>
-                  <AppText style={[styles.dangerButtonText, { color: theme.semantic.danger.text }]}>{busy ? t('plans.detail.actions.updating') : t('plans.detail.actions.delete')}</AppText>
+              {isOwner && isCancelled ? (
+                <Pressable disabled={busy} accessibilityRole="button" onPress={() => { void restorePlan(); }} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, busy && styles.disabled]}>
+                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{busy ? t('plans.detail.actions.restoring') : t('plans.detail.actions.restore')}</AppText>
                 </Pressable>
               ) : null}
               {isCancelled ? (

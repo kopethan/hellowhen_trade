@@ -1,5 +1,5 @@
 export const ACTIVE_PLAN_TIME_STATUSES = ['draft', 'open', 'full', 'started'] as const;
-export const PUBLIC_PLAN_STATUSES = ['open', 'full', 'started', 'cancelled'] as const;
+export const PUBLIC_PLAN_STATUSES = ['open', 'full', 'started'] as const;
 export const PLAN_TIME_MIN_GAP_MINUTES = 60;
 export const PLAN_STOP_MIN_GAP_MINUTES = 15;
 
@@ -61,4 +61,18 @@ export function isCancelOnlyUpdate(input: Record<string, unknown>) {
 export function canReadPlan(plan: { deletedAt?: Date | string | null; status: string }, isOwner: boolean) {
   if (plan.deletedAt) return false;
   return isOwner || PUBLIC_PLAN_STATUSES.includes(plan.status as (typeof PUBLIC_PLAN_STATUSES)[number]);
+}
+
+export function restoredPlanStatus(plan: { startsAt: string | Date; endsAt?: string | Date | null; maxParticipants?: number | null; acceptedCount?: number }, now: string | Date) {
+  const startsAt = asDate(plan.startsAt);
+  const effectiveEnd = plan.endsAt ? asDate(plan.endsAt) : startsAt;
+  const current = asDate(now);
+  if (effectiveEnd.getTime() <= current.getTime()) return null;
+  if (startsAt.getTime() <= current.getTime()) return 'started' as const;
+  if (plan.maxParticipants && (plan.acceptedCount ?? 0) >= plan.maxParticipants) return 'full' as const;
+  return 'open' as const;
+}
+
+export function isRemoveIdempotent(plan: { deletedAt?: Date | string | null; status: string }) {
+  return Boolean(plan.deletedAt) || plan.status === 'cancelled';
 }

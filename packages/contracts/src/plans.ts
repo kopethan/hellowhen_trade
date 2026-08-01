@@ -21,7 +21,6 @@ export const planPublicStatusSchema = z.enum([
   "open",
   "full",
   "started",
-  "cancelled",
 ]);
 export const planJoinApprovalModeSchema = z.enum([
   "owner_approval",
