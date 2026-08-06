@@ -18,13 +18,14 @@ Run from the repository root:
 npm run mobile:launch-smoke
 npm run mobile:app-review-smoke
 npm run mobile:release-preflight
+npm run mobile:submission-preflight
 npm run store:copy-scan
 npm run mobile:store-readiness
 npm run typecheck
 npm run build
 ```
 
-Do not submit until all seven command lines pass locally. `npm run mobile:store-readiness` also runs the store-release guard, App Review static smoke, store-visible copy scan, focused UGC safety smoke, and Cash Promise store/safety checklist guard. Complete [the iPhone/iPad App Review smoke](./appstore26-ios-device-review-smoke.md) and [the mobile UGC safety review checklist](./mobile-ugc-safety-review-checklist.md) on the exact production build.
+Do not submit until all eight command lines pass locally. `npm run mobile:store-readiness` also runs the store-release guard, App Review static smoke, release/submission preflights, store-visible copy scan, focused UGC safety smoke, and Cash Promise store/safety checklist guard. Complete [the iPhone/iPad App Review smoke](./appstore26-ios-device-review-smoke.md) and [the mobile UGC safety review checklist](./mobile-ugc-safety-review-checklist.md) on the exact production build.
 
 ## App metadata
 
@@ -49,7 +50,7 @@ Create and test a reviewer account before submission:
 - Password: temporary reviewer password, changed after review.
 - User status: normal verified user, not admin.
 - Seeded state: at least one Need, one Offer, one public Trade, one public Plan with mapped offline Places, one pending proposal from another test user, one support ticket, and one unread notification.
-- Reviewer notes explain how to log in, where to find Plans / Me / Trade, and that money features are intentionally disabled.
+- Reviewer notes use the APPSTORE26-SUBMIT1 template, explain how to log in, identify the prepared Plan, and describe the exact Apple Maps verification path.
 
 Do not give reviewers an admin account unless they explicitly ask for admin review access.
 
@@ -188,25 +189,24 @@ Discover Plans and Trades → inspect an offline Place → create a Need/Offer �
 
 Avoid screenshots that show hidden wallet, payouts, Cash Promise, paid plans, ads, admin UI, debug screens, mock money, or release-state badges.
 
-## Review notes template
+## APPSTORE26-SUBMIT1 review notes
 
-Use a note like this and adapt it to the final test account:
+Do not use a generic first-launch note for this replacement submission. Follow:
 
 ```txt
-Hellowhen is an 18+ service/skill/need/offer exchange.
-Money features are intentionally disabled for the first launch: no wallet, no payouts, no paid helpers, no Stripe/Airwallex, no subscriptions, no ads, no push notifications, and no email notifications.
-
-Reviewer login:
-Email: <reviewer email>
-Password: <temporary password>
-
-Suggested review path:
-1. Open Trades and view a public Trade Detail.
-2. Open Needs and Offers to see owner-managed listings.
-3. Send or review a private proposal thread using the prepared test trade.
-4. Open Account → Legal/Safety, Support, Notifications, Settings, and Delete account.
-5. Use report buttons on non-owned Trade/Profile/Public Message examples.
+docs/launch/appstore26-app-review-resubmission.md
 ```
+
+That document contains:
+
+- the exact App Review Information notes for Guidelines 2.2 and 4;
+- the shorter reply to the unresolved App Review message;
+- reviewer-account and prepared-Plan requirements;
+- the corrected unresolved-submission steps;
+- stop-submission conditions;
+- the private evidence template workflow.
+
+Run `npm run mobile:submission-preflight` before copying the final notes into App Store Connect. Replace every angle-bracket placeholder and keep reviewer credentials out of Git.
 
 ## Manual device sign-off
 
@@ -223,6 +223,7 @@ Record before submission:
 - Theme(s): light, dark, system.
 - Result of `npm run mobile:launch-smoke`.
 - Result of `npm run mobile:app-review-smoke`.
+- Result of `npm run mobile:submission-preflight`.
 - Result of `npm run store:copy-scan`.
 - Result of `npm run mobile:store-readiness`.
 - Result of `npm run typecheck`.

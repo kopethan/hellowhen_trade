@@ -27,6 +27,7 @@ git status --short
 git rev-parse HEAD
 npm ci
 npm run mobile:release-preflight
+npm run mobile:submission-preflight
 npm run mobile:store-readiness
 npm run typecheck
 npm run build
@@ -131,20 +132,33 @@ Do not sign off from Expo Go, a development client, a preview profile, an ad hoc
 
 ## 6. App Store Connect final checks and App Review resubmission
 
+Follow the complete submission document:
+
+```txt
+docs/launch/appstore26-app-review-resubmission.md
+```
+
 Before resubmitting the version to App Review:
 
+- run `npm run mobile:submission-preflight`;
 - select marketing version `1.0.0` and the exact tested build number;
 - confirm the privacy policy URL is `https://hellowhen.com/legal/privacy`;
 - confirm screenshots and descriptions do not present the app as Beta;
-- confirm reviewer credentials still work;
-- confirm the reviewer account contains a public Plan with mapped offline Places;
-- paste the APPSTORE26 review notes from the submission checklist;
+- confirm reviewer credentials still work from a clean install;
+- confirm the reviewer account contains the prepared public Plan with mapped offline Places;
+- paste the exact APPSTORE26 App Review Information notes and rejection reply after replacing every placeholder;
+- add the corrected item back to the unresolved submission before choosing **Resubmit to App Review**;
 - verify the selected binary matches the recorded EAS build ID, commit, version, and build number.
 
 Stop submission if App Store Connect shows a different binary from the one tested.
 
 ## 7. Keep release evidence private
 
-Store the completed evidence record outside the public repository. It may contain build URLs, reviewer-account details, device identifiers, and App Store Connect notes.
+Copy the blank template to the ignored private release directory:
 
-The repository may contain blank checklists and non-secret app identifiers. It must not contain credentials or completed private evidence.
+```powershell
+New-Item -ItemType Directory -Force .release-private | Out-Null
+Copy-Item docs/launch/appstore26-submission-evidence-template.md .release-private/appstore26-submission-evidence.md
+```
+
+The completed record may contain build URLs, reviewer-account details, device identifiers, and App Store Connect notes. The repository may contain blank checklists and non-secret app identifiers, but it must not contain credentials or completed private evidence.

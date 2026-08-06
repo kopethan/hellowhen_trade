@@ -151,6 +151,11 @@ function runReviewerReadinessChecks() {
   assertContains('docs/launch/mobile-store-readiness-checklist.md', 'Data safety', 'Store checklist must include Google Play Data safety preparation.');
   assertContains('docs/launch/mobile-store-readiness-checklist.md', 'App privacy', 'Store checklist must include Apple App Privacy preparation.');
   assertContains('docs/launch/mobile-store-readiness-checklist.md', 'No wallet, payouts, Cash Promise, paid helpers, Stripe, Airwallex, ads, push, or email notifications. Plans and offline Places are included in this release.', 'Store checklist must describe the current reviewed scope and keep unrelated future surfaces hidden.');
+  assertExists('docs/launch/appstore26-app-review-resubmission.md', 'Final APPSTORE26 App Review resubmission checklist must exist.');
+  assertExists('docs/launch/appstore26-submission-evidence-template.md', 'Private submission evidence template must exist.');
+  assertContains('docs/launch/appstore26-app-review-resubmission.md', 'Guideline 2.2 — Performance — Beta Testing', 'Final review notes must address the visible release-state rejection.');
+  assertContains('docs/launch/appstore26-app-review-resubmission.md', 'Guideline 4 — Design', 'Final review notes must address Apple Maps parity.');
+  assertContains('docs/launch/appstore26-app-review-resubmission.md', 'Resubmit to App Review', 'Final checklist must cover corrected unresolved-submission resubmission.');
   console.log('Mobile reviewer readiness docs: PASS');
 }
 

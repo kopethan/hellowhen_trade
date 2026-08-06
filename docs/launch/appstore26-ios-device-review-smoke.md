@@ -251,7 +251,7 @@ Do not upload or resubmit when any of these occurs:
 
 ## Evidence record
 
-Store this record privately with the release. Do not commit credentials or reusable passwords.
+Copy `docs/launch/appstore26-submission-evidence-template.md` to `.release-private/appstore26-submission-evidence.md` and store the completed record privately with the release. Do not commit credentials or reusable passwords.
 
 | Field | Value |
 | --- | --- |
@@ -277,6 +277,7 @@ Store this record privately with the release. Do not commit credentials or reusa
 | Weak-network pass | |
 | `mobile:app-review-smoke` | |
 | `mobile:release-preflight` | |
+| `mobile:submission-preflight` | |
 | `mobile:store-readiness` | |
 | `typecheck` | |
 | `build` | |

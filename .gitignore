@@ -10,3 +10,6 @@ coverage/
 .DS_Store
 *.log
 apps/api/prisma/migrations/*/migration_lock.toml
+
+# Private release evidence and reviewer credentials
+.release-private/

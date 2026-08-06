@@ -42,6 +42,7 @@ From the repository root:
 ```powershell
 npm ci
 npm run mobile:release-preflight
+npm run mobile:submission-preflight
 npm run mobile:store-readiness
 npm run typecheck
 npm run build
@@ -51,6 +52,7 @@ Then follow:
 
 ```txt
 docs/launch/appstore26-production-release.md
+docs/launch/appstore26-app-review-resubmission.md
 ```
 
 ## Production build

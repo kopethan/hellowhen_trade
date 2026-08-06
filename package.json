@@ -26,7 +26,7 @@
     "mobile:launch-smoke": "node scripts/mobile-launch-smoke.mjs",
     "build:packages": "npm run build -w @hellowhen/contracts && npm run build -w @hellowhen/api-client && npm run build -w @hellowhen/i18n && npm run build -w @hellowhen/shared && npm run build -w @hellowhen/theme && npm run build -w @hellowhen/trade-domain && npm run build -w @hellowhen/ui",
     "build:apps": "npm run build -w @hellowhen/api && npm run build -w @hellowhen/web",
-    "mobile:store-readiness": "npm run mobile:launch-smoke && npm run mobile:store-release-smoke && npm run mobile:app-review-smoke && npm run mobile:release-preflight && npm run store:copy-scan && npm run mobile:ugc-safety-smoke && node scripts/mobile-store-readiness.mjs && npm run cash-promise:safety-smoke",
+    "mobile:store-readiness": "npm run mobile:launch-smoke && npm run mobile:store-release-smoke && npm run mobile:app-review-smoke && npm run mobile:release-preflight && npm run mobile:submission-preflight && npm run store:copy-scan && npm run mobile:ugc-safety-smoke && node scripts/mobile-store-readiness.mjs && npm run cash-promise:safety-smoke",
     "cash-promise:safety-smoke": "node scripts/cash-promise-safety-smoke.mjs",
     "starter-library:qa": "node scripts/starter-library-qa.mjs",
     "places:smoke": "node scripts/place-library-hidden-smoke.mjs",
@@ -43,7 +43,8 @@
     "mobile:app-review-smoke": "node scripts/mobile-app-review-smoke.mjs",
     "mobile:ugc-safety-smoke": "node scripts/mobile-ugc-safety-smoke.mjs",
     "store:copy-scan": "node scripts/store-visible-copy-scan.mjs",
-    "mobile:release-preflight": "node scripts/mobile-release-preflight.mjs"
+    "mobile:release-preflight": "node scripts/mobile-release-preflight.mjs",
+    "mobile:submission-preflight": "node scripts/mobile-submission-preflight.mjs"
   },
   "devDependencies": {
     "expo": "~51.0.39",

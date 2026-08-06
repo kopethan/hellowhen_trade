@@ -1,0 +1,707 @@
+diff --git a/.gitignore b/.gitignore
+index a63e3b1..79de550 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -10,3 +10,6 @@ coverage/
+ .DS_Store
+ *.log
+ apps/api/prisma/migrations/*/migration_lock.toml
++
++# Private release evidence and reviewer credentials
++.release-private/
+diff --git a/docs/launch/appstore26-app-review-resubmission.md b/docs/launch/appstore26-app-review-resubmission.md
+new file mode 100644
+index 0000000..16d21f6
+--- /dev/null
++++ b/docs/launch/appstore26-app-review-resubmission.md
+@@ -0,0 +1,246 @@
++# APPSTORE26-SUBMIT1 — App Review notes and resubmission checklist
++
++Use this checklist only after the APPSTORE26 fix chain is applied, the replacement production build is uploaded, and the exact TestFlight binary passes the device checklists.
++
++## Rejection being resolved
++
++```txt
++App: Hellowhen
++Original submission ID: 46ed2c97-069c-4c92-a903-3c82d1b690de
++Original version/build: 0.1.0 (25)
++Review date: August 5, 2026
++Review device: iPad Air 11-inch (M3)
++Replacement marketing version: 1.0.0
++Replacement iOS build: 26 or greater
++```
++
++Apple identified two unresolved items:
++
++1. **Guideline 2.2 — Performance — Beta Testing**: the production app displayed a general `BETA` badge and related release-state wording.
++2. **Guideline 4 — Design**: location actions did not offer the native Apple Maps app.
++
++This submission should answer only those findings clearly and factually. Do not argue that the earlier build should have passed, describe unfinished future work, or introduce unrelated product concepts in the review response.
++
++## 1. Required green checks before App Store Connect
++
++From the repository root:
++
++```powershell
++npm ci
++npm run mobile:submission-preflight
++npm run mobile:store-readiness
++npm run typecheck
++npm run build
++```
++
++Then complete on the exact TestFlight build:
++
++```txt
++docs/launch/appstore26-ios-device-review-smoke.md
++docs/launch/mobile-ugc-safety-review-checklist.md
++```
++
++Stop when any command fails, any manual checklist item fails, the exact tested binary cannot be identified, or the selected App Store Connect build differs from the TestFlight build that passed QA.
++
++## 2. Prepare the reviewer account privately
++
++Create or verify a normal production reviewer account. Store the credentials only in App Store Connect and the private release record—not in Git, screenshots, tickets, or shared chat.
++
++The account should:
++
++- sign in without an invitation, one-time code, or approval from another person;
++- have accepted the current Terms, Privacy Policy, and 18+ confirmation;
++- have no suspended/restricted state;
++- open **Plans**, **Me**, and **Trade** normally;
++- have access to the prepared review content below.
++
++Prepare review content owned by a second account so report/block and proposal flows remain available:
++
++- one public Trade;
++- one public Plan containing at least two mapped offline Places in order;
++- one online Place between the offline Places;
++- one public discussion message;
++- one private proposal thread available to the reviewer account.
++
++For the Apple Maps regression path, ensure the first offline Place has a stable public address or coordinates. Do not delete or rename the prepared Plan after recording the review notes.
++
++## 3. Verify the App Store version and exact build
++
++In App Store Connect:
++
++1. Open **Apps → Hellowhen**.
++2. Open the iOS app version for **1.0.0**.
++3. In **Build**, select the exact processed build that passed TestFlight QA.
++4. Confirm the displayed build number is **26 or greater**.
++5. Confirm the build upload time and version match the private release evidence.
++6. Resolve any **Missing Compliance** state before continuing.
++7. Save the version.
++
++Do not select build 25. Do not select a later build that has not completed the same device QA.
++
++## 4. App Review Information fields
++
++Complete the App Review Information section with current, reachable details:
++
++```txt
++Contact first name: <REVIEW_CONTACT_FIRST_NAME>
++Contact last name: <REVIEW_CONTACT_LAST_NAME>
++Contact phone: <REVIEW_CONTACT_PHONE>
++Contact email: <REVIEW_CONTACT_EMAIL>
++Sign-in required: Yes
++Reviewer username/email: <REVIEWER_EMAIL>
++Reviewer password: <TEMPORARY_PASSWORD>
++```
++
++Before saving:
++
++- test the credentials in a clean install of the exact build;
++- verify capitalization and spaces in the password;
++- keep the account active until review is complete;
++- do not require Apple to register a new account;
++- do not rotate the password after submission unless Apple asks.
++
++## 5. App Review Information — Notes template
++
++Replace every angle-bracket placeholder before pasting. Keep the note in English so it matches the original review message.
++
++```txt
++Hellowhen is a production app for adults to discover and create Plans and service/skill/need/offer exchanges. The submitted release does not process payments and does not include subscriptions, ads, a wallet, or payouts.
++
++This build resolves both findings from submission 46ed2c97-069c-4c92-a903-3c82d1b690de:
++
++Guideline 2.2 — Performance — Beta Testing
++- Removed the general BETA badge shown on the Me screen in the review screenshot.
++- Removed beta/demo/prototype/test-build presentation from the production native app and linked public web/legal pages.
++- The replacement is presented as the public production release.
++
++Guideline 4 — Design
++- Added Apple Maps as the first map-provider option on iOS for eligible offline Places and Plan route actions.
++- Google Maps remains an optional alternative.
++- For a Plan with multiple offline stops, Apple Maps opens directions to the first mapped offline stop; each mapped Place can also be opened individually in Apple Maps. Google Maps can open the ordered multi-stop Plan route.
++
++Reviewer account:
++Email: <REVIEWER_EMAIL>
++Password: <TEMPORARY_PASSWORD>
++
++Suggested verification path:
++1. Sign in with the reviewer account.
++2. Open Me and confirm there is no BETA badge or general beta-testing presentation.
++3. Open Plans.
++4. Open the prepared public Plan named “<REVIEW_PLAN_TITLE>”.
++5. Open an offline Place and tap its map/address action.
++6. Confirm Apple Maps is the first option, choose it, and verify Apple Maps opens the Place.
++7. Return to Hellowhen, open the Plan route action, and choose Apple Maps.
++8. Google Maps remains available as an optional second provider.
++
++Privacy Policy: https://hellowhen.com/legal/privacy
++Support: https://hellowhen.com/support
++```
++
++Do not claim that Apple Maps provides the complete multi-stop route. The reviewed implementation deliberately labels the Apple Maps action as the first-stop route and keeps the full ordered multi-stop option under Google Maps.
++
++## 6. Reply to the unresolved App Review message
++
++Use **Reply to App Review** on the unresolved submission and paste this shorter response after the replacement build has been selected:
++
++```txt
++Hello App Review,
++
++Thank you for the review. We addressed both issues in Hellowhen version 1.0.0, build <IOS_BUILD_NUMBER>.
++
++For Guideline 2.2, we removed the general BETA badge shown in the attached screenshot and removed beta/testing presentation from the production app and linked public pages.
++
++For Guideline 4, we added Apple Maps as the first option on iOS when opening eligible offline Places and Plan route actions. Google Maps remains available as an optional alternative.
++
++Verification path:
++1. Sign in with the reviewer account in App Review Information.
++2. Open Plans and select “<REVIEW_PLAN_TITLE>”.
++3. Tap an offline Place map/address action or the Plan route action.
++4. Select Apple Maps.
++
++The exact replacement build and credentials are included in App Review Information.
++
++Thank you.
++```
++
++Replace `<IOS_BUILD_NUMBER>` and `<REVIEW_PLAN_TITLE>` before sending. Do not send this response while build 25 is still selected.
++
++## 7. Store metadata final check
++
++Before adding the version for review:
++
++- version name is `1.0.0`;
++- selected build is the exact tested build `26` or greater;
++- privacy policy URL is `https://hellowhen.com/legal/privacy`;
++- support URL is reachable without authentication;
++- screenshots and descriptions contain no general Beta/demo/prototype/test-build presentation;
++- screenshots show only enabled production features;
++- App Privacy answers match the current binary and backend behavior;
++- age rating and availability are complete;
++- export-compliance questions are resolved;
++- no in-app purchase or subscription item is attached to this submission;
++- review credentials work from a clean install;
++- the prepared Plan and Places still exist.
++
++Suggested **What’s New** text for version 1.0.0:
++
++```txt
++Welcome to Hellowhen. Discover Plans and Trades, create Needs and Offers, use safer reporting and support tools, and open offline Places with your preferred maps app.
++```
++
++## 8. Add and resubmit the corrected version
++
++Because the existing submission has unresolved issues, first open **View App Review Issues & Messages**, open the submission, and choose **Resolve**.
++
++Then use the path App Store Connect allows for the replacement marketing version:
++
++### Path A — the rejected app item can be edited to version 1.0.0
++
++1. Choose **Edit** for the rejected iOS app item.
++2. Confirm version `1.0.0` and the exact tested replacement build are selected.
++3. Save all metadata and App Review Information.
++4. Choose **Add for Review** for the corrected item.
++5. Return to the submission and choose **Resubmit to App Review** when every item is ready.
++
++### Path B — the rejected item remains locked to version 0.1.0
++
++Do not try to attach a `1.0.0` build to a `0.1.0` version record.
++
++1. Remove the rejected `0.1.0` app item from the unresolved submission.
++2. Open or create the iOS version record for `1.0.0`.
++3. Select the exact tested `1.0.0` build, complete metadata and App Review Information, and save.
++4. Choose **Add for Review** for version `1.0.0`.
++5. Add it to the available draft submission or create the replacement submission offered by App Store Connect.
++6. Choose **Submit/Resubmit to App Review** only after confirming the selected build is the exact tested binary.
++
++Button labels can vary slightly with App Store Connect localization. The important rules are: version and build must match, build 25 must not be selected, and the corrected `1.0.0` item must be included in the submission sent to review.
++
++## 9. Private evidence record
++
++Copy the blank template before filling it:
++
++```powershell
++New-Item -ItemType Directory -Force .release-private | Out-Null
++Copy-Item docs/launch/appstore26-submission-evidence-template.md .release-private/appstore26-submission-evidence.md
++```
++
++`.release-private/` is ignored by Git. Record the exact EAS build ID, TestFlight build, device checks, reviewer account identifier, App Store Connect selection, reply timestamp, and final submission status there.
++
++Never add the completed private evidence file to the repository.
++
++## 10. Stop-submission conditions
++
++Do not resubmit when any of these is true:
++
++- the selected build is 25 or is not the exact build tested through TestFlight;
++- the Me screen still displays a general release-state badge;
++- a public native or linked web page still presents Hellowhen as beta/demo/prototype/test-build content;
++- Apple Maps is absent from an eligible Place or Plan route action;
++- Apple Maps is not the first provider shown on iOS;
++- reviewer credentials fail or require a one-time code;
++- the prepared Plan/Place route cannot be opened;
++- a required policy/support URL fails;
++- a store-readiness, typecheck, build, or manual-device check fails;
++- unresolved crash, blank screen, permission, navigation, or account-deletion issues remain.
++
++After resubmission, keep the reviewer account and prepared content unchanged until Apple finishes the review.
+diff --git a/docs/launch/appstore26-ios-device-review-smoke.md b/docs/launch/appstore26-ios-device-review-smoke.md
+index e3baa2f..ddc19b0 100644
+--- a/docs/launch/appstore26-ios-device-review-smoke.md
++++ b/docs/launch/appstore26-ios-device-review-smoke.md
+@@ -251,7 +251,7 @@ Do not upload or resubmit when any of these occurs:
+ 
+ ## Evidence record
+ 
+-Store this record privately with the release. Do not commit credentials or reusable passwords.
++Copy `docs/launch/appstore26-submission-evidence-template.md` to `.release-private/appstore26-submission-evidence.md` and store the completed record privately with the release. Do not commit credentials or reusable passwords.
+ 
+ | Field | Value |
+ | --- | --- |
+@@ -277,6 +277,7 @@ Store this record privately with the release. Do not commit credentials or reusa
+ | Weak-network pass | |
+ | `mobile:app-review-smoke` | |
+ | `mobile:release-preflight` | |
++| `mobile:submission-preflight` | |
+ | `mobile:store-readiness` | |
+ | `typecheck` | |
+ | `build` | |
+diff --git a/docs/launch/appstore26-production-release.md b/docs/launch/appstore26-production-release.md
+index 3c2f323..bf43000 100644
+--- a/docs/launch/appstore26-production-release.md
++++ b/docs/launch/appstore26-production-release.md
+@@ -27,6 +27,7 @@ git status --short
+ git rev-parse HEAD
+ npm ci
+ npm run mobile:release-preflight
++npm run mobile:submission-preflight
+ npm run mobile:store-readiness
+ npm run typecheck
+ npm run build
+@@ -131,20 +132,33 @@ Do not sign off from Expo Go, a development client, a preview profile, an ad hoc
+ 
+ ## 6. App Store Connect final checks and App Review resubmission
+ 
++Follow the complete submission document:
++
++```txt
++docs/launch/appstore26-app-review-resubmission.md
++```
++
+ Before resubmitting the version to App Review:
+ 
++- run `npm run mobile:submission-preflight`;
+ - select marketing version `1.0.0` and the exact tested build number;
+ - confirm the privacy policy URL is `https://hellowhen.com/legal/privacy`;
+ - confirm screenshots and descriptions do not present the app as Beta;
+-- confirm reviewer credentials still work;
+-- confirm the reviewer account contains a public Plan with mapped offline Places;
+-- paste the APPSTORE26 review notes from the submission checklist;
++- confirm reviewer credentials still work from a clean install;
++- confirm the reviewer account contains the prepared public Plan with mapped offline Places;
++- paste the exact APPSTORE26 App Review Information notes and rejection reply after replacing every placeholder;
++- add the corrected item back to the unresolved submission before choosing **Resubmit to App Review**;
+ - verify the selected binary matches the recorded EAS build ID, commit, version, and build number.
+ 
+ Stop submission if App Store Connect shows a different binary from the one tested.
+ 
+ ## 7. Keep release evidence private
+ 
+-Store the completed evidence record outside the public repository. It may contain build URLs, reviewer-account details, device identifiers, and App Store Connect notes.
++Copy the blank template to the ignored private release directory:
++
++```powershell
++New-Item -ItemType Directory -Force .release-private | Out-Null
++Copy-Item docs/launch/appstore26-submission-evidence-template.md .release-private/appstore26-submission-evidence.md
++```
+ 
+-The repository may contain blank checklists and non-secret app identifiers. It must not contain credentials or completed private evidence.
++The completed record may contain build URLs, reviewer-account details, device identifiers, and App Store Connect notes. The repository may contain blank checklists and non-secret app identifiers, but it must not contain credentials or completed private evidence.
+diff --git a/docs/launch/appstore26-submission-evidence-template.md b/docs/launch/appstore26-submission-evidence-template.md
+new file mode 100644
+index 0000000..639527f
+--- /dev/null
++++ b/docs/launch/appstore26-submission-evidence-template.md
+@@ -0,0 +1,105 @@
++# APPSTORE26 private submission evidence template
++
++> Copy this file to `.release-private/appstore26-submission-evidence.md` before filling it. Never commit the completed copy because it can contain reviewer-account identifiers, build URLs, device identifiers, and App Store Connect details.
++
++## Release identity
++
++| Field | Value |
++| --- | --- |
++| Commit SHA | |
++| EAS build ID | |
++| EAS build URL | |
++| Marketing version | 1.0.0 |
++| iOS build number | |
++| Build completed at | |
++| App Store Connect processed at | |
++| Production API URL | https://api.hellowhen.com |
++| Public web URL | https://www.hellowhen.com |
++
++## Automated checks
++
++| Check | Result | Timestamp / notes |
++| --- | --- | --- |
++| `npm run mobile:submission-preflight` | | |
++| `npm run mobile:store-readiness` | | |
++| `npm run typecheck` | | |
++| `npm run build` | | |
++
++## Exact TestFlight device checks
++
++| Device | OS | Language | Appearance | Build | Result | Notes |
++| --- | --- | --- | --- | --- | --- | --- |
++| Physical iPhone | | EN | Light | | | |
++| Physical iPhone | | FR | Dark | | | |
++| iPad Air 11-inch compatibility mode | | EN | Light | | | |
++| Small-screen iPhone/simulator | | FR | System | | | |
++
++## Rejection regression
++
++| Check | Result | Evidence / notes |
++| --- | --- | --- |
++| No general BETA badge on Me | | |
++| No production beta/demo/prototype/test-build copy | | |
++| Linked public legal/support pages use production wording | | |
++| Apple Maps is first in the provider dialog | | |
++| Individual offline Place opens in Apple Maps | | |
++| Plan route action opens in Apple Maps | | |
++| Google Maps remains optional | | |
++| Cancel returns to Hellowhen | | |
++
++## Reviewer account and prepared content
++
++Do not place the password in this file unless the private storage location is access-controlled.
++
++| Field | Value |
++| --- | --- |
++| Reviewer account email/identifier | |
++| Credential verified at | |
++| Second-member account identifier | |
++| Prepared public Trade title/ID | |
++| Prepared public Plan title/ID | |
++| First mapped offline Place | |
++| Public discussion prepared | |
++| Private proposal prepared | |
++
++## App Store Connect selection
++
++| Field | Value |
++| --- | --- |
++| App Store Connect app ID | 6781399122 |
++| Original submission ID | 46ed2c97-069c-4c92-a903-3c82d1b690de |
++| Version record selected | 1.0.0 |
++| Build selected | |
++| Build upload time shown | |
++| Privacy Policy URL verified | |
++| Support URL verified | |
++| App Privacy checked | |
++| Export compliance resolved | |
++| Review notes pasted | |
++| Reviewer credentials saved | |
++
++## Communication and resubmission
++
++| Field | Value |
++| --- | --- |
++| Reply to App Review sent at | |
++| Reply sent by | |
++| Corrected item added for review at | |
++| Resubmitted to App Review at | |
++| New/updated submission ID | |
++| App Store Connect status | |
++| Follow-up required | |
++
++## Final sign-off
++
++| Role | Name | Date/time | Result |
++| --- | --- | --- | --- |
++| Release owner | | | |
++| Device QA | | | |
++| App Store Connect submitter | | | |
++
++Known issues accepted for submission:
++
++```txt
++None / describe only non-blocking production issues here.
++```
+diff --git a/docs/launch/mobile-store-readiness-checklist.md b/docs/launch/mobile-store-readiness-checklist.md
+index 2bab5bd..685369d 100644
+--- a/docs/launch/mobile-store-readiness-checklist.md
++++ b/docs/launch/mobile-store-readiness-checklist.md
+@@ -18,13 +18,14 @@ Run from the repository root:
+ npm run mobile:launch-smoke
+ npm run mobile:app-review-smoke
+ npm run mobile:release-preflight
++npm run mobile:submission-preflight
+ npm run store:copy-scan
+ npm run mobile:store-readiness
+ npm run typecheck
+ npm run build
+ ```
+ 
+-Do not submit until all seven command lines pass locally. `npm run mobile:store-readiness` also runs the store-release guard, App Review static smoke, store-visible copy scan, focused UGC safety smoke, and Cash Promise store/safety checklist guard. Complete [the iPhone/iPad App Review smoke](./appstore26-ios-device-review-smoke.md) and [the mobile UGC safety review checklist](./mobile-ugc-safety-review-checklist.md) on the exact production build.
++Do not submit until all eight command lines pass locally. `npm run mobile:store-readiness` also runs the store-release guard, App Review static smoke, release/submission preflights, store-visible copy scan, focused UGC safety smoke, and Cash Promise store/safety checklist guard. Complete [the iPhone/iPad App Review smoke](./appstore26-ios-device-review-smoke.md) and [the mobile UGC safety review checklist](./mobile-ugc-safety-review-checklist.md) on the exact production build.
+ 
+ ## App metadata
+ 
+@@ -49,7 +50,7 @@ Create and test a reviewer account before submission:
+ - Password: temporary reviewer password, changed after review.
+ - User status: normal verified user, not admin.
+ - Seeded state: at least one Need, one Offer, one public Trade, one public Plan with mapped offline Places, one pending proposal from another test user, one support ticket, and one unread notification.
+-- Reviewer notes explain how to log in, where to find Plans / Me / Trade, and that money features are intentionally disabled.
++- Reviewer notes use the APPSTORE26-SUBMIT1 template, explain how to log in, identify the prepared Plan, and describe the exact Apple Maps verification path.
+ 
+ Do not give reviewers an admin account unless they explicitly ask for admin review access.
+ 
+@@ -188,26 +189,25 @@ Discover Plans and Trades → inspect an offline Place → create a Need/Offer 
+ 
+ Avoid screenshots that show hidden wallet, payouts, Cash Promise, paid plans, ads, admin UI, debug screens, mock money, or release-state badges.
+ 
+-## Review notes template
++## APPSTORE26-SUBMIT1 review notes
+ 
+-Use a note like this and adapt it to the final test account:
++Do not use a generic first-launch note for this replacement submission. Follow:
+ 
+ ```txt
+-Hellowhen is an 18+ service/skill/need/offer exchange.
+-Money features are intentionally disabled for the first launch: no wallet, no payouts, no paid helpers, no Stripe/Airwallex, no subscriptions, no ads, no push notifications, and no email notifications.
+-
+-Reviewer login:
+-Email: <reviewer email>
+-Password: <temporary password>
+-
+-Suggested review path:
+-1. Open Trades and view a public Trade Detail.
+-2. Open Needs and Offers to see owner-managed listings.
+-3. Send or review a private proposal thread using the prepared test trade.
+-4. Open Account → Legal/Safety, Support, Notifications, Settings, and Delete account.
+-5. Use report buttons on non-owned Trade/Profile/Public Message examples.
++docs/launch/appstore26-app-review-resubmission.md
+ ```
+ 
++That document contains:
++
++- the exact App Review Information notes for Guidelines 2.2 and 4;
++- the shorter reply to the unresolved App Review message;
++- reviewer-account and prepared-Plan requirements;
++- the corrected unresolved-submission steps;
++- stop-submission conditions;
++- the private evidence template workflow.
++
++Run `npm run mobile:submission-preflight` before copying the final notes into App Store Connect. Replace every angle-bracket placeholder and keep reviewer credentials out of Git.
++
+ ## Manual device sign-off
+ 
+ Record before submission:
+@@ -223,6 +223,7 @@ Record before submission:
+ - Theme(s): light, dark, system.
+ - Result of `npm run mobile:launch-smoke`.
+ - Result of `npm run mobile:app-review-smoke`.
++- Result of `npm run mobile:submission-preflight`.
+ - Result of `npm run store:copy-scan`.
+ - Result of `npm run mobile:store-readiness`.
+ - Result of `npm run typecheck`.
+diff --git a/docs/launch/native-app-store-release-checklist.md b/docs/launch/native-app-store-release-checklist.md
+index ac75ed9..f50da76 100644
+--- a/docs/launch/native-app-store-release-checklist.md
++++ b/docs/launch/native-app-store-release-checklist.md
+@@ -6,8 +6,10 @@
+ 
+ - Follow the [APPSTORE26 production release runbook](./appstore26-production-release.md) for version `1.0.0`, remote build-number inspection, exact-binary QA, and submission.
+ - Run `npm run mobile:release-preflight` before starting the EAS production build.
++- Run `npm run mobile:submission-preflight` before completing App Review Information or replying to the unresolved submission.
+ - Run `npm run mobile:app-review-smoke` and `npm run mobile:store-readiness` from the repository root.
+ - Complete `docs/launch/appstore26-ios-device-review-smoke.md` against the exact EAS production binary selected for App Store Connect.
++- Follow `docs/launch/appstore26-app-review-resubmission.md` for the final notes, reviewer account, corrected-item workflow, and resubmission.
+ - Replay rejected-build regressions on iPhone and iPad compatibility mode: no general Beta presentation and Apple Maps offered for eligible Place/Plan route actions.
+ - Confirm `EXPO_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `EXPO_PUBLIC_WALLET_VISIBLE=false`, `EXPO_PUBLIC_PAYOUTS_VISIBLE=false`, and `EXPO_PUBLIC_MONEY_TRADES_ENABLED=false`.
+ - Verify app icon, splash, bundle identifiers, marketing version `1.0.0`, iOS build number `26` or greater, and store screenshots.
+diff --git a/docs/mobile/ios-eas-build-requirements.md b/docs/mobile/ios-eas-build-requirements.md
+index 0085050..fc7b1fd 100644
+--- a/docs/mobile/ios-eas-build-requirements.md
++++ b/docs/mobile/ios-eas-build-requirements.md
+@@ -42,6 +42,7 @@ From the repository root:
+ ```powershell
+ npm ci
+ npm run mobile:release-preflight
++npm run mobile:submission-preflight
+ npm run mobile:store-readiness
+ npm run typecheck
+ npm run build
+@@ -51,6 +52,7 @@ Then follow:
+ 
+ ```txt
+ docs/launch/appstore26-production-release.md
++docs/launch/appstore26-app-review-resubmission.md
+ ```
+ 
+ ## Production build
+diff --git a/package.json b/package.json
+index 9da1f2b..eade152 100644
+--- a/package.json
++++ b/package.json
+@@ -26,7 +26,7 @@
+     "mobile:launch-smoke": "node scripts/mobile-launch-smoke.mjs",
+     "build:packages": "npm run build -w @hellowhen/contracts && npm run build -w @hellowhen/api-client && npm run build -w @hellowhen/i18n && npm run build -w @hellowhen/shared && npm run build -w @hellowhen/theme && npm run build -w @hellowhen/trade-domain && npm run build -w @hellowhen/ui",
+     "build:apps": "npm run build -w @hellowhen/api && npm run build -w @hellowhen/web",
+-    "mobile:store-readiness": "npm run mobile:launch-smoke && npm run mobile:store-release-smoke && npm run mobile:app-review-smoke && npm run mobile:release-preflight && npm run store:copy-scan && npm run mobile:ugc-safety-smoke && node scripts/mobile-store-readiness.mjs && npm run cash-promise:safety-smoke",
++    "mobile:store-readiness": "npm run mobile:launch-smoke && npm run mobile:store-release-smoke && npm run mobile:app-review-smoke && npm run mobile:release-preflight && npm run mobile:submission-preflight && npm run store:copy-scan && npm run mobile:ugc-safety-smoke && node scripts/mobile-store-readiness.mjs && npm run cash-promise:safety-smoke",
+     "cash-promise:safety-smoke": "node scripts/cash-promise-safety-smoke.mjs",
+     "starter-library:qa": "node scripts/starter-library-qa.mjs",
+     "places:smoke": "node scripts/place-library-hidden-smoke.mjs",
+@@ -43,7 +43,8 @@
+     "mobile:app-review-smoke": "node scripts/mobile-app-review-smoke.mjs",
+     "mobile:ugc-safety-smoke": "node scripts/mobile-ugc-safety-smoke.mjs",
+     "store:copy-scan": "node scripts/store-visible-copy-scan.mjs",
+-    "mobile:release-preflight": "node scripts/mobile-release-preflight.mjs"
++    "mobile:release-preflight": "node scripts/mobile-release-preflight.mjs",
++    "mobile:submission-preflight": "node scripts/mobile-submission-preflight.mjs"
+   },
+   "devDependencies": {
+     "expo": "~51.0.39",
+diff --git a/scripts/mobile-store-readiness.mjs b/scripts/mobile-store-readiness.mjs
+index f8c814c..4f96f84 100644
+--- a/scripts/mobile-store-readiness.mjs
++++ b/scripts/mobile-store-readiness.mjs
+@@ -151,6 +151,11 @@ function runReviewerReadinessChecks() {
+   assertContains('docs/launch/mobile-store-readiness-checklist.md', 'Data safety', 'Store checklist must include Google Play Data safety preparation.');
+   assertContains('docs/launch/mobile-store-readiness-checklist.md', 'App privacy', 'Store checklist must include Apple App Privacy preparation.');
+   assertContains('docs/launch/mobile-store-readiness-checklist.md', 'No wallet, payouts, Cash Promise, paid helpers, Stripe, Airwallex, ads, push, or email notifications. Plans and offline Places are included in this release.', 'Store checklist must describe the current reviewed scope and keep unrelated future surfaces hidden.');
++  assertExists('docs/launch/appstore26-app-review-resubmission.md', 'Final APPSTORE26 App Review resubmission checklist must exist.');
++  assertExists('docs/launch/appstore26-submission-evidence-template.md', 'Private submission evidence template must exist.');
++  assertContains('docs/launch/appstore26-app-review-resubmission.md', 'Guideline 2.2 — Performance — Beta Testing', 'Final review notes must address the visible release-state rejection.');
++  assertContains('docs/launch/appstore26-app-review-resubmission.md', 'Guideline 4 — Design', 'Final review notes must address Apple Maps parity.');
++  assertContains('docs/launch/appstore26-app-review-resubmission.md', 'Resubmit to App Review', 'Final checklist must cover corrected unresolved-submission resubmission.');
+   console.log('Mobile reviewer readiness docs: PASS');
+ }
+ 
+diff --git a/scripts/mobile-submission-preflight.mjs b/scripts/mobile-submission-preflight.mjs
+new file mode 100644
+index 0000000..6a6d0b7
+--- /dev/null
++++ b/scripts/mobile-submission-preflight.mjs
+@@ -0,0 +1,103 @@
++#!/usr/bin/env node
++
++import { existsSync, readFileSync } from 'node:fs';
++import path from 'node:path';
++
++const root = process.cwd();
++const expectedVersion = '1.0.0';
++const rejectedBuild = 25;
++const appStoreConnectAppId = '6781399122';
++const originalSubmissionId = '46ed2c97-069c-4c92-a903-3c82d1b690de';
++
++function read(relativePath) {
++  return readFileSync(path.join(root, relativePath), 'utf8');
++}
++
++function readJson(relativePath) {
++  return JSON.parse(read(relativePath));
++}
++
++function assert(condition, message) {
++  if (!condition) throw new Error(message);
++}
++
++function assertExists(relativePath, message = `${relativePath} must exist.`) {
++  assert(existsSync(path.join(root, relativePath)), message);
++}
++
++function assertContains(file, needle, message = `${file} must contain ${needle}`) {
++  assert(read(file).includes(needle), message);
++}
++
++function assertNotContains(file, needle, message = `${file} must not contain ${needle}`) {
++  assert(!read(file).includes(needle), message);
++}
++
++function runReleaseIdentityChecks() {
++  const app = readJson('apps/mobile/app.json').expo;
++  const eas = readJson('apps/mobile/eas.json');
++  const production = eas.build?.production ?? {};
++  const productionEnv = production.env ?? {};
++
++  assert(app.version === expectedVersion, `The replacement submission must use marketing version ${expectedVersion}.`);
++  assert(eas.cli?.appVersionSource === 'remote', 'EAS build numbers must remain remote-managed.');
++  assert(production.autoIncrement === true, 'The production profile must auto-increment beyond the previously issued build number.');
++  assert(eas.submit?.production?.ios?.ascAppId === appStoreConnectAppId, `The submit profile must target App Store Connect app ${appStoreConnectAppId}.`);
++  assert(productionEnv.EXPO_PUBLIC_STORE_RELEASE === 'true', 'The submitted profile must enable store-release mode.');
++  assert(productionEnv.EXPO_PUBLIC_MOBILE_FLAG_DIAGNOSTICS_VISIBLE === 'false', 'Feature diagnostics must stay hidden in the submitted build.');
++  console.log(`Submission release identity ${expectedVersion}, build > ${rejectedBuild}: PASS`);
++}
++
++function runSubmissionDocumentChecks() {
++  const checklist = 'docs/launch/appstore26-app-review-resubmission.md';
++  const evidence = 'docs/launch/appstore26-submission-evidence-template.md';
++
++  assertExists(checklist, 'The APPSTORE26 App Review resubmission checklist is missing.');
++  assertExists(evidence, 'The APPSTORE26 private evidence template is missing.');
++  assertContains(checklist, originalSubmissionId, 'The checklist must identify the rejection being resolved.');
++  assertContains(checklist, 'Guideline 2.2 — Performance — Beta Testing', 'The review response must address Guideline 2.2 explicitly.');
++  assertContains(checklist, 'Guideline 4 — Design', 'The review response must address Guideline 4 explicitly.');
++  assertContains(checklist, 'Removed the general BETA badge shown on the Me screen', 'The notes must identify the exact visible rejection fix.');
++  assertContains(checklist, 'Added Apple Maps as the first map-provider option on iOS', 'The notes must explain Apple Maps parity.');
++  assertContains(checklist, '<IOS_BUILD_NUMBER>', 'The reply template must require the exact replacement build number.');
++  assertContains(checklist, '<REVIEW_PLAN_TITLE>', 'The review path must require a stable prepared Plan title.');
++  assertContains(checklist, '<REVIEWER_EMAIL>', 'Reviewer credentials must remain placeholders in the committed template.');
++  assertContains(checklist, '<TEMPORARY_PASSWORD>', 'Reviewer password must remain a placeholder in the committed template.');
++  assertContains(checklist, 'https://hellowhen.com/legal/privacy', 'The checklist must use the production Privacy Policy URL.');
++  assertContains(checklist, 'Resubmit to App Review', 'The checklist must cover resubmitting the corrected unresolved item.');
++  assertContains(evidence, 'Exact TestFlight device checks', 'The evidence template must bind QA to the exact TestFlight binary.');
++  assertContains(evidence, 'Original submission ID', 'The evidence template must retain the rejection context.');
++  console.log('App Review response/checklist templates: PASS');
++}
++
++function runCredentialSafetyChecks() {
++  const gitignore = read('.gitignore');
++  const checklist = 'docs/launch/appstore26-app-review-resubmission.md';
++
++  assert(gitignore.split(/\r?\n/).includes('.release-private/'), '.release-private/ must be ignored before storing private submission evidence.');
++  assertNotContains(checklist, 'Password: password', 'The committed review template must not include a reusable sample password.');
++  assertNotContains(checklist, '@gmail.com', 'The committed review template must not contain a personal reviewer email.');
++  assertNotContains(checklist, '@icloud.com', 'The committed review template must not contain a personal reviewer email.');
++  assertContains(checklist, 'Never add the completed private evidence file to the repository.', 'The checklist must protect private release evidence.');
++  console.log('Reviewer credential/evidence safety: PASS');
++}
++
++function runRunbookIntegrationChecks() {
++  assertContains('package.json', '"mobile:submission-preflight": "node scripts/mobile-submission-preflight.mjs"', 'package.json must expose the submission preflight command.');
++  assertContains('package.json', 'npm run mobile:submission-preflight', 'The store-readiness chain must run the submission preflight.');
++  assertContains('docs/launch/appstore26-production-release.md', 'appstore26-app-review-resubmission.md', 'The production runbook must point to the final resubmission checklist.');
++  assertContains('docs/launch/appstore26-ios-device-review-smoke.md', 'appstore26-submission-evidence-template.md', 'The device checklist must point to the private evidence template.');
++  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'APPSTORE26-SUBMIT1', 'The store checklist must use the final APPSTORE26 review notes instead of a stale generic template.');
++  console.log('Submission workflow integration: PASS');
++}
++
++function main() {
++  runReleaseIdentityChecks();
++  runSubmissionDocumentChecks();
++  runCredentialSafetyChecks();
++  runRunbookIntegrationChecks();
++  console.log('APPSTORE26-SUBMIT1 App Review submission preflight: PASS');
++  console.log('Exact TestFlight QA, reviewer credentials, App Store Connect build selection, and final resubmission remain manual steps.');
++}
++
++main();
