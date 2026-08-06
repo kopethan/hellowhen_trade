@@ -557,7 +557,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
         setOffers(demoDataEnabled ? mockOffers : []);
         setTrades(demoDataEnabled ? mockTrades : []);
         setLoadState(demoDataEnabled ? 'demo' : 'idle');
-        setNotice(demoDataEnabled ? t('trade.create.loadingInventoryNoticeDemo') : t('trade.create.loadingInventoryNoticeLive'));
+        setNotice(demoDataEnabled ? t('trade.create.loadingInventoryNoticeStarter') : t('trade.create.loadingInventoryNoticeLive'));
       }
     }
     void loadInventory();
@@ -1069,7 +1069,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
 
         <div className="trade-create-status-row">
           <span className="semantic-badge trade">{values.postType ? postTypeLabel(values.postType, t) : t('trade.create.choosePublishType')}</span>
-          {amountPreview && (usesMoney || usesCashPromise) ? <span className="semantic-badge money">{amountPreview}</span> : <span className="semantic-badge instruction">{t('trade.create.beta')}</span>}
+          {amountPreview && (usesMoney || usesCashPromise) ? <span className="semantic-badge money">{amountPreview}</span> : <span className="semantic-badge instruction">{t('trade.create.postBadge')}</span>}
         </div>
 
         {wizardHelpOpen ? (

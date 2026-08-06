@@ -1,0 +1,349 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 6ee1935..f1a48d8 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1390,14 +1390,20 @@ type PlanPlaceLocationDetails = {
+ // Keep the free Google Maps URL conservative for mobile browsers: origin + 3 waypoints + destination.
+ const GOOGLE_MAPS_MAX_ROUTE_STOPS = 5;
+ 
+-function buildMapsSearchUrl(value: string) {
++function buildAppleMapsSearchUrl(value: string) {
++  return `https://maps.apple.com/?q=${encodeURIComponent(value)}`;
++}
++
++function buildGoogleMapsSearchUrl(value: string) {
+   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value)}`;
+ }
+ 
+ type PlanRouteMapsLink = {
+-  href: string;
++  appleHref: string;
++  googleHref: string;
+   label: string;
+   body: string;
++  providerBody: string;
+   stopCount: number;
+   totalStopCount: number;
+   skippedOnlineCount: number;
+@@ -1410,11 +1416,19 @@ function getPlanPlaceMapsQuery(place: PlanPlaceDto) {
+   return place.addressPublicText || place.sourcePlace?.addressPublicText || place.sourcePlace?.areaLabel || null;
+ }
+ 
++function buildAppleMapsDirectionsUrl(queries: string[]) {
++  const origin = queries[0];
++  if (queries.length <= 1 || !origin) return buildAppleMapsSearchUrl(origin ?? '');
++  const destination = queries[queries.length - 1];
++  if (!destination) return buildAppleMapsSearchUrl(origin);
++  return `https://maps.apple.com/?saddr=${encodeURIComponent(origin)}&daddr=${encodeURIComponent(destination)}&dirflg=d`;
++}
++
+ function buildGoogleMapsDirectionsUrl(queries: string[]) {
+   const origin = queries[0];
+-  if (queries.length <= 1 || !origin) return buildMapsSearchUrl(origin ?? '');
++  if (queries.length <= 1 || !origin) return buildGoogleMapsSearchUrl(origin ?? '');
+   const destination = queries[queries.length - 1];
+-  if (!destination) return buildMapsSearchUrl(origin);
++  if (!destination) return buildGoogleMapsSearchUrl(origin);
+   const waypoints = queries.slice(1, -1);
+   const params = [
+     'api=1',
+@@ -1438,28 +1452,74 @@ function buildPlanRouteMapsLink(places: PlanPlaceDto[], t: PlanTranslationFuncti
+     truncatedCount ? t(truncatedCount === 1 ? 'plans.detail.route.skippedLaterOne' : 'plans.detail.route.skippedLaterMany', { count: truncatedCount }) : '',
+   ].filter(Boolean);
+   return {
+-    href: buildGoogleMapsDirectionsUrl(includedQueries),
++    appleHref: buildAppleMapsDirectionsUrl(includedQueries),
++    googleHref: buildGoogleMapsDirectionsUrl(includedQueries),
+     label: routeLabel,
+     body: bodyParts.join(' · '),
++    providerBody: t(includedQueries.length === 1 ? 'plans.detail.route.mapsProviderOneBody' : 'plans.detail.route.mapsProviderManyBody', { count: includedQueries.length }),
+     stopCount: includedQueries.length,
+     totalStopCount: offlineQueries.length,
+     skippedOnlineCount,
+   };
+ }
+ 
+-async function openPlanRouteMaps(routeMaps: PlanRouteMapsLink, t: PlanTranslationFunction) {
++type MapsProviderPickerOptions = {
++  title: string;
++  body: string;
++  appleLabel: string;
++  googleLabel: string;
++  cancelLabel: string;
++  appleHref: string;
++  googleHref: string;
++  errorTitle: string;
++  errorBody: string;
++};
++
++async function openMapsHref(href: string, errorTitle: string, errorBody: string) {
+   try {
+-    await Linking.openURL(routeMaps.href);
++    await Linking.openURL(href);
+   } catch {
+-    Alert.alert(t('plans.detail.route.openErrorTitle'), t('plans.detail.route.openErrorBody'));
++    Alert.alert(errorTitle, errorBody);
+   }
+ }
+ 
+-function buildNativeMapsUrl(value: string) {
++function showIosMapsProviderPicker(options: MapsProviderPickerOptions) {
++  Alert.alert(options.title, options.body, [
++    {
++      text: options.appleLabel,
++      onPress: () => { void openMapsHref(options.appleHref, options.errorTitle, options.errorBody); },
++    },
++    {
++      text: options.googleLabel,
++      onPress: () => { void openMapsHref(options.googleHref, options.errorTitle, options.errorBody); },
++    },
++    { text: options.cancelLabel, style: 'cancel' },
++  ], { cancelable: true });
++}
++
++async function openPlanRouteMaps(routeMaps: PlanRouteMapsLink, t: PlanTranslationFunction) {
++  if (Platform.OS === 'ios') {
++    showIosMapsProviderPicker({
++      title: t('plans.detail.route.mapsProviderTitle'),
++      body: routeMaps.providerBody,
++      appleLabel: t('plans.detail.route.appleMaps'),
++      googleLabel: t('plans.detail.route.googleMaps'),
++      cancelLabel: t('plans.detail.route.cancel'),
++      appleHref: routeMaps.appleHref,
++      googleHref: routeMaps.googleHref,
++      errorTitle: t('plans.detail.route.openErrorTitle'),
++      errorBody: t('plans.detail.route.openErrorBody'),
++    });
++    return;
++  }
++  await openMapsHref(routeMaps.googleHref, t('plans.detail.route.openErrorTitle'), t('plans.detail.route.openErrorBody'));
++}
++
++function buildPlatformMapsUrl(value: string) {
+   const encodedValue = encodeURIComponent(value);
+-  if (Platform.OS === 'ios') return `maps://?q=${encodedValue}`;
++  if (Platform.OS === 'ios') return buildAppleMapsSearchUrl(value);
+   if (Platform.OS === 'android') return `geo:0,0?q=${encodedValue}`;
+-  return buildMapsSearchUrl(value);
++  return buildGoogleMapsSearchUrl(value);
+ }
+ 
+ function getPlanPlaceLocationDetails(place: PlanPlaceDto, t: PlanTranslationFunction): PlanPlaceLocationDetails | null {
+@@ -1480,7 +1540,7 @@ function getPlanPlaceLocationDetails(place: PlanPlaceDto, t: PlanTranslationFunc
+     kind: 'local',
+     label: t('plans.detail.location.offlineAddress'),
+     value,
+-    href: buildMapsSearchUrl(value),
++    href: buildGoogleMapsSearchUrl(value),
+     actionLabel: t('plans.detail.location.openMaps'),
+   };
+ }
+@@ -1497,7 +1557,22 @@ function getPlanPlaceTimeLabel(place: PlanPlaceDto, planStartsAt: string, langua
+ 
+ async function openPlanPlaceLocation(location: PlanPlaceLocationDetails, t: PlanTranslationFunction) {
+   if (!location.href) return;
+-  const preferredHref = location.kind === 'local' ? buildNativeMapsUrl(location.value) : location.href;
++  if (location.kind === 'local' && Platform.OS === 'ios') {
++    showIosMapsProviderPicker({
++      title: t('plans.detail.location.mapsProviderTitle'),
++      body: t('plans.detail.location.mapsProviderBody'),
++      appleLabel: t('plans.detail.location.appleMaps'),
++      googleLabel: t('plans.detail.location.googleMaps'),
++      cancelLabel: t('plans.detail.location.cancel'),
++      appleHref: buildAppleMapsSearchUrl(location.value),
++      googleHref: location.href,
++      errorTitle: t('plans.detail.location.openErrorTitle'),
++      errorBody: t('plans.detail.location.openErrorBody'),
++    });
++    return;
++  }
++
++  const preferredHref = location.kind === 'local' ? buildPlatformMapsUrl(location.value) : location.href;
+   try {
+     await Linking.openURL(preferredHref);
+     return;
+diff --git a/docs/launch/mobile-store-readiness-checklist.md b/docs/launch/mobile-store-readiness-checklist.md
+index 257ec41..8b60eeb 100644
+--- a/docs/launch/mobile-store-readiness-checklist.md
++++ b/docs/launch/mobile-store-readiness-checklist.md
+@@ -81,6 +81,19 @@ Before public review, final URLs must also exist on the public web app for:
+ - Account deletion request.
+ - Report content / safety contact, if separate.
+ 
++## Apple Maps and offline Places
++
++Verify on both an iPhone and an iPad review device:
++
++- Opening an individual offline Place on iOS offers **Apple Maps** and **Google Maps**.
++- Opening a Plan route on iOS offers **Apple Maps** and **Google Maps**.
++- Apple Maps is listed first and opens through an `https://maps.apple.com` link.
++- A single offline stop opens as a place search.
++- A route with multiple offline stops explains that Apple Maps opens the first-to-last route while Google Maps can include the available intermediate stops.
++- Online Places are skipped by route navigation and continue to open as normal web links.
++- Cancelling the provider dialog leaves the user inside Hellowhen.
++- Failure to open either provider shows a localized error instead of silently doing nothing.
++
+ ## User-generated content safety
+ 
+ Hellowhen includes user-generated content: profiles, Needs, Offers, Trades, public discussion messages, proposal messages, reports, support tickets, and images.
+diff --git a/packages/i18n/src/locales/en/plans.ts b/packages/i18n/src/locales/en/plans.ts
+index 656a62f..2692fe2 100644
+--- a/packages/i18n/src/locales/en/plans.ts
++++ b/packages/i18n/src/locales/en/plans.ts
+@@ -179,15 +179,21 @@ export const plans = {
+       requestToJoin: 'Request to join',
+     },
+     route: {
+-      openRoute: 'Open route in Google Maps',
+-      openSingle: 'Open in Google Maps',
++      openRoute: 'Open route',
++      openSingle: 'Open in Maps',
++      mapsProviderTitle: 'Open with',
++      mapsProviderOneBody: 'Choose Apple Maps or Google Maps for this offline stop.',
++      mapsProviderManyBody: 'Apple Maps opens directions from the first to the last offline stop. Google Maps can include up to {{count}} offline stops.',
++      appleMaps: 'Apple Maps',
++      googleMaps: 'Google Maps',
++      cancel: 'Cancel',
+       offlineStopOne: '{{count}} offline stop',
+       offlineStopMany: '{{count}} offline stops',
+       skippedOnlineOne: '{{count}} online place is skipped',
+       skippedOnlineMany: '{{count}} online places are skipped',
+       skippedLaterOne: '{{count}} later stop is skipped',
+       skippedLaterMany: '{{count}} later stops are skipped',
+-      openErrorTitle: 'Could not open Google Maps',
++      openErrorTitle: 'Could not open Maps',
+       openErrorBody: 'Try opening one address from the route instead.',
+       emptyTitle: 'No places yet',
+       emptyBody: 'This Plan does not have places attached yet.',
+@@ -196,6 +202,11 @@ export const plans = {
+       onlinePlace: 'Online place',
+       offlineAddress: 'Offline address',
+       openMaps: 'Open in Maps',
++      mapsProviderTitle: 'Open with',
++      mapsProviderBody: 'Choose Apple Maps or Google Maps for this address.',
++      appleMaps: 'Apple Maps',
++      googleMaps: 'Google Maps',
++      cancel: 'Cancel',
+       openLink: 'Open link',
+       shareAddress: 'Copy / share address',
+       shareLink: 'Copy / share link',
+diff --git a/packages/i18n/src/locales/es/plans.ts b/packages/i18n/src/locales/es/plans.ts
+index 07fe570..f6d6d21 100644
+--- a/packages/i18n/src/locales/es/plans.ts
++++ b/packages/i18n/src/locales/es/plans.ts
+@@ -177,15 +177,21 @@ export const plans = {
+       requestToJoin: 'Solicitud para unirse',
+     },
+     route: {
+-      openRoute: 'Abrir ruta en Google Maps',
+-      openSingle: 'Abrir en Google Maps',
++      openRoute: 'Abrir ruta',
++      openSingle: 'Abrir en Mapas',
++      mapsProviderTitle: 'Abrir con',
++      mapsProviderOneBody: 'Elige Mapas de Apple o Google Maps para esta parada presencial.',
++      mapsProviderManyBody: 'Mapas de Apple abre indicaciones entre la primera y la última parada presencial. Google Maps puede incluir hasta {{count}} paradas presenciales.',
++      appleMaps: 'Mapas de Apple',
++      googleMaps: 'Google Maps',
++      cancel: 'Cancelar',
+       offlineStopOne: '{{count}} parada presencial',
+       offlineStopMany: '{{count}} paradas presenciales',
+       skippedOnlineOne: 'Se omite {{count}} lugar en línea',
+       skippedOnlineMany: 'Se omiten {{count}} lugares en línea',
+       skippedLaterOne: 'Se omite {{count}} parada posterior',
+       skippedLaterMany: 'Se omiten {{count}} paradas posteriores',
+-      openErrorTitle: 'No se pudo abrir Google Maps',
++      openErrorTitle: 'No se pudo abrir Mapas',
+       openErrorBody: 'Prueba a abrir una dirección de la ruta.',
+       emptyTitle: 'Todavía no hay lugares',
+       emptyBody: 'Este Plan todavía no tiene lugares asociados.',
+@@ -194,6 +200,11 @@ export const plans = {
+       onlinePlace: 'Lugar en línea',
+       offlineAddress: 'Dirección presencial',
+       openMaps: 'Abrir en Mapas',
++      mapsProviderTitle: 'Abrir con',
++      mapsProviderBody: 'Elige Mapas de Apple o Google Maps para esta dirección.',
++      appleMaps: 'Mapas de Apple',
++      googleMaps: 'Google Maps',
++      cancel: 'Cancelar',
+       openLink: 'Abrir enlace',
+       shareAddress: 'Copiar / compartir dirección',
+       shareLink: 'Copiar / compartir enlace',
+diff --git a/packages/i18n/src/locales/fr/plans.ts b/packages/i18n/src/locales/fr/plans.ts
+index 9c4c18c..b2e316d 100644
+--- a/packages/i18n/src/locales/fr/plans.ts
++++ b/packages/i18n/src/locales/fr/plans.ts
+@@ -179,15 +179,21 @@ export const plans = {
+       requestToJoin: 'Demande de participation',
+     },
+     route: {
+-      openRoute: 'Ouvrir le parcours dans Google Maps',
+-      openSingle: 'Ouvrir dans Google Maps',
++      openRoute: 'Ouvrir l’itinéraire',
++      openSingle: 'Ouvrir dans une app de cartographie',
++      mapsProviderTitle: 'Ouvrir avec',
++      mapsProviderOneBody: 'Choisissez Plans d’Apple ou Google Maps pour cette étape sur place.',
++      mapsProviderManyBody: 'Plans d’Apple ouvre l’itinéraire entre la première et la dernière étape sur place. Google Maps peut inclure jusqu’à {{count}} étapes sur place.',
++      appleMaps: 'Plans d’Apple',
++      googleMaps: 'Google Maps',
++      cancel: 'Annuler',
+       offlineStopOne: '{{count}} étape sur place',
+       offlineStopMany: '{{count}} étapes sur place',
+       skippedOnlineOne: '{{count}} lieu en ligne ignoré',
+       skippedOnlineMany: '{{count}} lieux en ligne ignorés',
+       skippedLaterOne: '{{count}} étape suivante ignorée',
+       skippedLaterMany: '{{count}} étapes suivantes ignorées',
+-      openErrorTitle: 'Impossible d’ouvrir Google Maps',
++      openErrorTitle: 'Impossible d’ouvrir l’app de cartographie',
+       openErrorBody: 'Essayez plutôt d’ouvrir une adresse du parcours.',
+       emptyTitle: 'Aucun lieu pour le moment',
+       emptyBody: 'Aucun lieu n’est encore associé à ce Plan.',
+@@ -196,6 +202,11 @@ export const plans = {
+       onlinePlace: 'Lieu en ligne',
+       offlineAddress: 'Adresse sur place',
+       openMaps: 'Ouvrir la carte',
++      mapsProviderTitle: 'Ouvrir avec',
++      mapsProviderBody: 'Choisissez Plans d’Apple ou Google Maps pour cette adresse.',
++      appleMaps: 'Plans d’Apple',
++      googleMaps: 'Google Maps',
++      cancel: 'Annuler',
+       openLink: 'Ouvrir le lien',
+       shareAddress: 'Copier / partager l’adresse',
+       shareLink: 'Copier / partager le lien',
+diff --git a/scripts/mobile-store-release-smoke.mjs b/scripts/mobile-store-release-smoke.mjs
+index 28026ab..f85501e 100644
+--- a/scripts/mobile-store-release-smoke.mjs
++++ b/scripts/mobile-store-release-smoke.mjs
+@@ -121,6 +121,25 @@ function runRuntimeGateChecks() {
+   console.log('Client runtime release gates: PASS');
+ }
+ 
++function runAppleMapsParityChecks() {
++  const plansScreen = read('apps/mobile/src/features/plans/PlansScreens.tsx');
++  const englishPlans = read('packages/i18n/src/locales/en/plans.ts');
++  const frenchPlans = read('packages/i18n/src/locales/fr/plans.ts');
++  const spanishPlans = read('packages/i18n/src/locales/es/plans.ts');
++
++  assert(plansScreen.includes('function buildAppleMapsSearchUrl'), 'Native Plans must build Apple Maps place links.');
++  assert(plansScreen.includes('function buildAppleMapsDirectionsUrl'), 'Native Plans must build Apple Maps route links.');
++  assert(plansScreen.includes('https://maps.apple.com/?q='), 'Native Plans must use the public Apple Maps search URL.');
++  assert(plansScreen.includes('https://maps.apple.com/?saddr='), 'Native Plans must use the public Apple Maps directions URL.');
++  assert(plansScreen.includes("appleLabel: t('plans.detail.route.appleMaps')"), 'Plan routes must offer Apple Maps on iOS.');
++  assert(plansScreen.includes("appleLabel: t('plans.detail.location.appleMaps')"), 'Offline Place actions must offer Apple Maps on iOS.');
++  assert(plansScreen.includes("googleLabel: t('plans.detail.route.googleMaps')"), 'Plan routes may retain Google Maps as an optional provider.');
++  assert(!englishPlans.includes('Open route in Google Maps'), 'English Plan route actions must not be Google-only.');
++  assert(!frenchPlans.includes('Ouvrir le parcours dans Google Maps'), 'French Plan route actions must not be Google-only.');
++  assert(!spanishPlans.includes('Abrir ruta en Google Maps'), 'Spanish Plan route actions must not be Google-only.');
++  console.log('Apple Maps provider parity: PASS');
++}
++
+ function runExampleEnvChecks() {
+   assertContains('.env.example', 'NEXT_PUBLIC_STORE_RELEASE=false', 'Root env example must document the web release flag.');
+   assertContains('.env.example', 'EXPO_PUBLIC_STORE_RELEASE=false', 'Root env example must document the native release flag.');
+@@ -132,6 +151,7 @@ function runExampleEnvChecks() {
+ function main() {
+   runEasProductionProfileChecks();
+   runRuntimeGateChecks();
++  runAppleMapsParityChecks();
+   runExampleEnvChecks();
+   console.log('Mobile store-release hardening smoke: PASS');
+ }

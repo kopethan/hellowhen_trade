@@ -1,0 +1,578 @@
+diff --git a/docs/launch/appstore26-ios-device-review-smoke.md b/docs/launch/appstore26-ios-device-review-smoke.md
+new file mode 100644
+index 0000000..b28e738
+--- /dev/null
++++ b/docs/launch/appstore26-ios-device-review-smoke.md
+@@ -0,0 +1,284 @@
++# APPSTORE26-QA1 — iPhone and iPad App Review smoke
++
++Use this checklist on the exact iOS production build that will be submitted to App Store Connect. This is the manual device pass that complements the static checks in `npm run mobile:app-review-smoke`.
++
++## Non-negotiable test rule
++
++**Exact submitted binary:** sign off only from the EAS production `.ipa`/TestFlight build with the same marketing version, build number, commit, API URL, and production feature flags that will be sent to App Review.
++
++Do not sign off from:
++
++- Expo Go;
++- a development client;
++- Metro with local environment overrides;
++- a preview build with different flags;
++- an older TestFlight build;
++- a simulator-only pass.
++
++## Required device matrix
++
++Run the full rejection-regression path on both rows and the broader journey on at least one physical iPhone.
++
++| Device | Required mode | Required checks |
++| --- | --- | --- |
++| Current physical iPhone | portrait, light and dark | full reviewer journey, permissions, external Maps launch, weak network, relaunch |
++| iPad Air 11-inch (M3) or equivalent | iPhone compatibility mode, portrait | build 25 rejection regression, layout clipping, provider dialog, legal/support/account screens |
++| Small-screen iPhone or simulator | portrait | text wrapping, keyboard, bottom actions, long French labels |
++
++The rejected build was reviewed on an **iPad Air 11-inch (M3)**. Keep `supportsTablet: false` for this release unless a separate full iPad-native redesign and QA pass is completed. The expected result is a usable iPhone compatibility presentation, not an iPad-native layout.
++
++## Before installing
++
++Record the production values before testing:
++
++- commit SHA;
++- EAS production build URL or build ID;
++- marketing version;
++- iOS build number;
++- production API URL;
++- public web URL used for legal/support pages;
++- reviewer account email stored in the private release record;
++- second-member test account email stored in the private release record.
++
++Run from the repository root:
++
++```powershell
++npm run mobile:app-review-smoke
++npm run mobile:store-readiness
++npm run typecheck
++npm run build
++```
++
++All commands must pass before device sign-off. The static App Review smoke does not replace this manual test.
++
++## Clean-install baseline
++
++1. Delete Hellowhen from the device.
++2. Restart the device if an older build had permission or deep-link problems.
++3. Install the exact production build.
++4. Launch while logged out.
++5. Confirm there is no dev menu, debug overlay, flag diagnostics, mock/demo inventory, or placeholder error copy.
++6. Confirm no permission prompt appears automatically at launch.
++7. Confirm the first screen renders without clipping, blank overlays, or an infinite loading state.
++8. Background the app, return to it, then force-close and relaunch.
++9. Confirm language, appearance, and authentication state restore as expected.
++
++## Build 25 rejection regression
++
++Complete this section on both the physical iPhone and the iPad Air 11-inch (M3) compatibility presentation.
++
++### Production presentation
++
++- Open **Me** while logged out and confirm the login/register screen appears directly.
++- Log in with the reviewer account and reopen **Me**.
++- **No Beta badge** appears in the Me header or profile area.
++- No visible screen, menu, loading state, legal overview, support copy, or empty state describes the submitted app as beta, demo, prototype, test build, or unfinished.
++- Open Terms, Privacy Policy, Safety Guidelines, Refund & Dispute Policy, Support, and Delete account; confirm each uses current production wording.
++- Open the public web legal/support links from the build and confirm the public website does not present the production service as beta.
++
++### Apple Maps parity
++
++Prepare a public Plan owned by the second-member account with:
++
++- one valid offline Place;
++- at least two valid offline Places in order;
++- one online Place between offline Places;
++- one offline Place without a usable address/coordinates;
++- six or more mapped offline Places for the route-limit case.
++
++Verify:
++
++1. Open an individual offline Place.
++2. Tap its map/address action.
++3. Confirm the iOS provider dialog lists **Apple Maps first**, then Google Maps, then Cancel.
++4. Choose Apple Maps and confirm the native Apple Maps app opens to the intended Place.
++5. Return to Hellowhen and repeat with Google Maps.
++6. Reopen the dialog and tap Cancel; confirm the user stays in Hellowhen.
++7. Open the Plan route action.
++8. For one offline stop, confirm Apple Maps opens a Place search.
++9. For multiple offline stops, confirm Apple Maps is labelled as the first-stop route and opens directions to the first mapped offline stop.
++10. Confirm Google Maps is labelled as the Plan route and preserves included offline stops in Plan order.
++11. Confirm online Places are excluded from external directions.
++12. Confirm the route summary discloses skipped offline Places with no mappable location.
++13. Confirm the route summary discloses mapped stops omitted beyond the supported route limit.
++14. Confirm every eligible offline Place can still be opened individually in Apple Maps.
++15. Temporarily make a provider unavailable or use a malformed test location in a non-production test account; confirm Hellowhen shows a localized error instead of failing silently.
++
++Stop submission if Apple Maps is missing from either the individual Place action or the Plan route action.
++
++## Reviewer journey
++
++Use the same normal, non-admin reviewer account described in App Store Connect notes.
++
++### Logged out
++
++- Plans feed opens publicly.
++- Trade feed opens publicly.
++- Trade Detail opens publicly.
++- Plan Detail opens publicly.
++- Me opens authentication directly.
++- Auth-required actions explain that login is needed without exposing hidden features.
++- Terms and Privacy links open from registration.
++- No private proposal or account content can be reached by back navigation or deep links.
++
++### Logged in
++
++- Plans, Me, and Trade tabs are present in the expected order and remain tappable on iPhone and iPad compatibility mode.
++- Me header, profile summary, expandable sections, counters, and overflow menu fit without horizontal clipping.
++- Notifications opens and safe unread copy is visible.
++- Settings opens.
++- Safety Center opens.
++- Support Center opens and can create a test ticket.
++- Account deletion opens, can create a request, and can cancel the pending request before processing.
++- Legal and safety policies are reachable without a dead link.
++- Log out succeeds and returns Me to the auth screen.
++
++### Trade and proposal path
++
++- Open a public Trade Detail.
++- Confirm Need appears before Offer.
++- Confirm images, metadata, share, public discussion, and proposal entry fit on the small-screen device.
++- Send or open the prepared private proposal.
++- Confirm only the owner and applicant can see the private thread.
++- Send a private message.
++- Confirm notification previews do not reveal raw private message text.
++- Report a Trade, public message, proposal, and private message using harmless test content.
++- Confirm report success does not reveal admin notes, moderation case IDs, or internal account fields.
++
++### Plan and Place path
++
++- Open a public Plan.
++- Open Plan public discussion.
++- Open an online Place and confirm it opens as a web link rather than entering external route navigation.
++- Open an offline Place and exercise Apple Maps parity.
++- Start location verification only from the explicit **Verify I'm here** action.
++- Deny location permission and confirm the app remains usable with clear recovery copy.
++- Grant location permission and confirm no background-location permission is requested.
++
++## iPad compatibility layout pass
++
++On iPad Air 11-inch (M3) or equivalent in iPhone compatibility mode, inspect every screen below at the top, middle, and bottom of its scroll range:
++
++- logged-out Me/auth;
++- logged-in Me;
++- Plans feed and Plan Detail;
++- offline Place detail and map-provider dialog;
++- Trade feed and Trade Detail;
++- public discussion;
++- private proposal thread and keyboard composer;
++- Notifications;
++- Settings;
++- Safety Center;
++- Support Center;
++- Legal Policy;
++- Account deletion.
++
++Confirm:
++
++- no title, badge, button, dialog, or bottom action is clipped;
++- the keyboard does not cover the active input or Send/Save action;
++- bottom navigation remains above the home indicator;
++- action sheets are readable and dismissible;
++- pull-to-refresh works where provided;
++- scrolling does not freeze or close the app;
++- rotating the iPad does not expose a broken landscape layout; the app remains in its declared portrait presentation;
++- returning from Apple Maps restores the same Hellowhen screen without losing navigation state.
++
++## Language and appearance matrix
++
++Run the rejection-regression path in:
++
++- English, light;
++- English, dark;
++- French, light;
++- French, dark.
++
++On the small-screen device, also check French text wrapping for:
++
++- map-provider labels;
++- multi-stop route summary;
++- Me menu rows;
++- Safety Center actions;
++- account deletion actions;
++- authentication Terms/18+ rows.
++
++Changing language or appearance must not crash the app, reset authentication, or restore removed release-state wording.
++
++## Permissions and privacy prompts
++
++From a clean install:
++
++- no tracking prompt appears;
++- no camera prompt appears;
++- no microphone prompt appears;
++- no contacts prompt appears;
++- no push-notification prompt appears;
++- photo-library permission appears only after an explicit image-selection action;
++- location permission appears only after **Verify I'm here** on an offline Place;
++- denying either optional permission keeps the rest of the app usable;
++- permission copy matches the purpose shown to the user.
++
++## Network and interruption pass
++
++Test on Wi-Fi, cellular, and a temporarily offline state:
++
++- launch logged out and logged in;
++- load Plans and Trades;
++- open Plan/Trade Detail;
++- open Notifications;
++- submit a private message;
++- create a support ticket;
++- return from Apple Maps;
++- background and resume during a load.
++
++Confirm errors are localized, retryable, and do not expose stack traces, raw API objects, private IDs, or demo fallback content.
++
++## Stop submission
++
++Do not upload or resubmit when any of these occurs:
++
++- any visible Beta/demo/prototype/test-build presentation returns;
++- Apple Maps is absent from an eligible iOS Place or Plan route action;
++- Google Maps is the only provider shown on iOS;
++- the iPad compatibility presentation clips primary controls or blocks navigation;
++- the production build points to localhost, staging, or a non-production API/web URL;
++- hidden wallet, payout, Cash Promise, ads, subscriptions, diagnostics, or experimental tools appear;
++- a logged-out or unrelated user can see private proposal content;
++- a required legal, support, reporting, blocking, or deletion path is unavailable;
++- the app crashes or becomes unresponsive during the reviewer journey;
++- the tested build number differs from the binary selected in App Store Connect.
++
++## Evidence record
++
++Store this record privately with the release. Do not commit credentials or reusable passwords.
++
++| Field | Value |
++| --- | --- |
++| Commit SHA | |
++| EAS build ID / URL | |
++| Marketing version | |
++| iOS build number | |
++| App Store Connect submission ID | |
++| API URL | |
++| Public web URL | |
++| Physical iPhone model / iOS | |
++| iPad model / iPadOS / compatibility mode | |
++| Small-screen device / simulator | |
++| EN light result | |
++| EN dark result | |
++| FR light result | |
++| FR dark result | |
++| Build 25 rejection regression | |
++| Apple Maps individual Place | |
++| Apple Maps Plan route | |
++| UGC safety checklist | |
++| Account deletion | |
++| Weak-network pass | |
++| `mobile:app-review-smoke` | |
++| `mobile:store-readiness` | |
++| `typecheck` | |
++| `build` | |
++| Known non-blocking issues | |
++| Final tester / date | |
++
++The release owner should sign off only after every stop-submission condition is clear and the evidence references the exact binary selected for App Review.
+diff --git a/docs/launch/mobile-store-readiness-checklist.md b/docs/launch/mobile-store-readiness-checklist.md
+index a010eb0..68dd2aa 100644
+--- a/docs/launch/mobile-store-readiness-checklist.md
++++ b/docs/launch/mobile-store-readiness-checklist.md
+@@ -16,13 +16,14 @@ Run from the repository root:
+ 
+ ```powershell
+ npm run mobile:launch-smoke
++npm run mobile:app-review-smoke
+ npm run store:copy-scan
+ npm run mobile:store-readiness
+ npm run typecheck
+ npm run build
+ ```
+ 
+-Do not submit until all five pass locally. `npm run mobile:store-readiness` also runs the store-visible copy scan, focused UGC safety smoke, and Cash Promise store/safety checklist guard. Complete [the mobile UGC safety review checklist](./mobile-ugc-safety-review-checklist.md) on the production build.
++Do not submit until all six command lines pass locally. `npm run mobile:store-readiness` also runs the store-release guard, App Review static smoke, store-visible copy scan, focused UGC safety smoke, and Cash Promise store/safety checklist guard. Complete [the iPhone/iPad App Review smoke](./appstore26-ios-device-review-smoke.md) and [the mobile UGC safety review checklist](./mobile-ugc-safety-review-checklist.md) on the exact production build.
+ 
+ ## App metadata
+ 
+@@ -45,7 +46,7 @@ Create and test a reviewer account before submission:
+ - Email: use a real account you can receive emails for.
+ - Password: temporary reviewer password, changed after review.
+ - User status: normal verified user, not admin.
+-- Seeded state: at least one Need, one Offer, one public Trade, one pending proposal from another test user, one support ticket, and one unread notification.
++- Seeded state: at least one Need, one Offer, one public Trade, one public Plan with mapped offline Places, one pending proposal from another test user, one support ticket, and one unread notification.
+ - Reviewer notes explain how to log in, where to find Plans / Me / Trade, and that money features are intentionally disabled.
+ 
+ Do not give reviewers an admin account unless they explicitly ask for admin review access.
+@@ -100,6 +101,17 @@ Verify on both an iPhone and an iPad review device:
+ - Cancelling the provider dialog leaves the user inside Hellowhen.
+ - Failure to open either provider shows a localized error instead of silently doing nothing.
+ 
++## Exact iPhone/iPad App Review pass
++
++Before selecting the binary in App Store Connect:
++
++- Run `npm run mobile:app-review-smoke`.
++- Complete [APPSTORE26-QA1 — iPhone and iPad App Review smoke](./appstore26-ios-device-review-smoke.md).
++- Test the exact EAS production binary, not Expo Go, a development client, or a preview build.
++- Replay both rejected-build findings on a physical iPhone and iPad Air 11-inch compatibility presentation: no general Beta badge/copy and Apple Maps offered first alongside Google Maps.
++- Record the EAS build ID, marketing version, build number, device/OS, language, appearance, and result in the private release evidence.
++- Stop submission when the tested build differs from the binary selected in App Store Connect.
++
+ ## User-generated content safety
+ 
+ Hellowhen includes user-generated content: profiles, Needs, Offers, Trades, public discussion messages, proposal messages, reports, support tickets, and images.
+@@ -159,7 +171,7 @@ Prepare:
+ - App icon.
+ - Android adaptive icon.
+ - Feature graphic for Google Play.
+-- Screenshots showing: Trades feed, Trade Detail, Create Need, Create Offer, Proposal thread, Account/Safety.
++- Screenshots showing: Plans feed or Plan Detail, Trade feed, Trade Detail, Create Need/Offer, Proposal thread, and Me/Safety.
+ - Short description.
+ - Long description.
+ - Support email/URL.
+@@ -169,10 +181,10 @@ Prepare:
+ Screenshot story should be:
+ 
+ ```txt
+-Discover useful trades → create a Need → create an Offer → send a private proposal → manage account/support safely.
++Discover Plans and Trades → inspect an offline Place → create a Need/Offer → send a private proposal → manage safety and account settings.
+ ```
+ 
+-Avoid screenshots that show hidden wallet, payouts, Cash Promise, Pro plans, Plans, ads, admin UI, debug screens, or mock money.
++Avoid screenshots that show hidden wallet, payouts, Cash Promise, paid plans, ads, admin UI, debug screens, mock money, or release-state badges.
+ 
+ ## Review notes template
+ 
+@@ -201,12 +213,14 @@ Record before submission:
+ - Commit SHA.
+ - API environment.
+ - Web URL used for share/legal/account deletion links.
++- EAS production build ID / URL.
+ - iOS build number / Android version code.
+-- Device model(s).
++- Device model(s), including the iPad compatibility-mode device used for iOS review smoke.
+ - OS version(s).
+ - Language(s): EN and FR.
+ - Theme(s): light, dark, system.
+ - Result of `npm run mobile:launch-smoke`.
++- Result of `npm run mobile:app-review-smoke`.
+ - Result of `npm run store:copy-scan`.
+ - Result of `npm run mobile:store-readiness`.
+ - Result of `npm run typecheck`.
+diff --git a/docs/launch/native-app-store-release-checklist.md b/docs/launch/native-app-store-release-checklist.md
+index dcf2ea5..a297001 100644
+--- a/docs/launch/native-app-store-release-checklist.md
++++ b/docs/launch/native-app-store-release-checklist.md
+@@ -4,6 +4,9 @@
+ 
+ ## Before native store submission
+ 
++- Run `npm run mobile:app-review-smoke` and `npm run mobile:store-readiness` from the repository root.
++- Complete `docs/launch/appstore26-ios-device-review-smoke.md` against the exact EAS production binary selected for App Store Connect.
++- Replay rejected-build regressions on iPhone and iPad compatibility mode: no general Beta presentation and Apple Maps offered for eligible Place/Plan route actions.
+ - Confirm `EXPO_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `EXPO_PUBLIC_WALLET_VISIBLE=false`, `EXPO_PUBLIC_PAYOUTS_VISIBLE=false`, and `EXPO_PUBLIC_MONEY_TRADES_ENABLED=false`.
+ - Verify app icon, splash, bundle identifiers, version/build numbers, and store screenshots.
+ - Verify login/register/reset flows on iOS and Android devices.
+diff --git a/package.json b/package.json
+index aa49e98..ea02f8e 100644
+--- a/package.json
++++ b/package.json
+@@ -26,7 +26,7 @@
+     "mobile:launch-smoke": "node scripts/mobile-launch-smoke.mjs",
+     "build:packages": "npm run build -w @hellowhen/contracts && npm run build -w @hellowhen/api-client && npm run build -w @hellowhen/i18n && npm run build -w @hellowhen/shared && npm run build -w @hellowhen/theme && npm run build -w @hellowhen/trade-domain && npm run build -w @hellowhen/ui",
+     "build:apps": "npm run build -w @hellowhen/api && npm run build -w @hellowhen/web",
+-    "mobile:store-readiness": "npm run mobile:launch-smoke && npm run mobile:store-release-smoke && npm run store:copy-scan && npm run mobile:ugc-safety-smoke && node scripts/mobile-store-readiness.mjs && npm run cash-promise:safety-smoke",
++    "mobile:store-readiness": "npm run mobile:launch-smoke && npm run mobile:store-release-smoke && npm run mobile:app-review-smoke && npm run store:copy-scan && npm run mobile:ugc-safety-smoke && node scripts/mobile-store-readiness.mjs && npm run cash-promise:safety-smoke",
+     "cash-promise:safety-smoke": "node scripts/cash-promise-safety-smoke.mjs",
+     "starter-library:qa": "node scripts/starter-library-qa.mjs",
+     "places:smoke": "node scripts/place-library-hidden-smoke.mjs",
+@@ -40,6 +40,7 @@
+     "places:address-provider-smoke": "node scripts/place-address-provider-smoke.mjs",
+     "plans:test": "npm run test:plans -w @hellowhen/api",
+     "mobile:store-release-smoke": "node scripts/mobile-store-release-smoke.mjs",
++    "mobile:app-review-smoke": "node scripts/mobile-app-review-smoke.mjs",
+     "mobile:ugc-safety-smoke": "node scripts/mobile-ugc-safety-smoke.mjs",
+     "store:copy-scan": "node scripts/store-visible-copy-scan.mjs"
+   },
+diff --git a/scripts/mobile-app-review-smoke.mjs b/scripts/mobile-app-review-smoke.mjs
+new file mode 100644
+index 0000000..1a17b6d
+--- /dev/null
++++ b/scripts/mobile-app-review-smoke.mjs
+@@ -0,0 +1,162 @@
++#!/usr/bin/env node
++
++import { existsSync, readFileSync, statSync } from 'node:fs';
++import path from 'node:path';
++
++const root = process.cwd();
++
++function read(relativePath) {
++  return readFileSync(path.join(root, relativePath), 'utf8');
++}
++
++function readJson(relativePath) {
++  return JSON.parse(read(relativePath));
++}
++
++function assert(condition, message) {
++  if (!condition) throw new Error(message);
++}
++
++function assertContains(file, needle, message = `${file} must contain ${needle}`) {
++  assert(read(file).includes(needle), message);
++}
++
++function assertNotContains(file, needle, message = `${file} must not contain ${needle}`) {
++  assert(!read(file).includes(needle), message);
++}
++
++function assertNonEmptyFile(relativePath, message = `${relativePath} must exist and be non-empty.`) {
++  const absolutePath = path.join(root, relativePath);
++  assert(existsSync(absolutePath), message);
++  assert(statSync(absolutePath).size > 0, message);
++}
++
++function assertBefore(file, firstNeedle, secondNeedle, message) {
++  const source = read(file);
++  const firstIndex = source.indexOf(firstNeedle);
++  const secondIndex = source.indexOf(secondNeedle);
++  assert(firstIndex >= 0, `${file} must contain ${firstNeedle}`);
++  assert(secondIndex >= 0, `${file} must contain ${secondNeedle}`);
++  assert(firstIndex < secondIndex, message);
++}
++
++function assertPublicHttpsUrl(value, label) {
++  let parsed;
++  try {
++    parsed = new URL(value);
++  } catch {
++    throw new Error(`${label} must be a valid absolute URL.`);
++  }
++
++  assert(parsed.protocol === 'https:', `${label} must use https://.`);
++  assert(!['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(parsed.hostname.toLowerCase()), `${label} must not point to localhost.`);
++}
++
++function runSubmittedBinaryConfigurationChecks() {
++  const app = readJson('apps/mobile/app.json').expo;
++  const eas = readJson('apps/mobile/eas.json');
++  const production = eas.build?.production ?? {};
++  const productionEnv = production.env ?? {};
++
++  assert(app.name === 'Hellowhen', 'Submitted display name must stay Hellowhen.');
++  assert(app.orientation === 'portrait', 'The submitted iOS UI is portrait-only; the device matrix must test that exact orientation.');
++  assert(app.userInterfaceStyle === 'automatic', 'The submitted app must retain automatic light/dark appearance support.');
++  assert(app.ios?.supportsTablet === false, 'This release intentionally runs as an iPhone app in iPad compatibility mode; do not silently change tablet support without full iPad QA.');
++  assert(app.ios?.bundleIdentifier === 'com.hellowhen.app', 'The App Store build must use the production iOS bundle identifier.');
++  assert(eas.cli?.appVersionSource === 'remote', 'EAS must use the remote App Store version/build source.');
++  assert(production.autoIncrement === true, 'The EAS production profile must auto-increment the submitted build number.');
++  assert(productionEnv.EXPO_PUBLIC_STORE_RELEASE === 'true', 'The EAS production profile must enable store-release mode.');
++  assert(productionEnv.EXPO_PUBLIC_MOBILE_FLAG_DIAGNOSTICS_VISIBLE === 'false', 'Feature flag diagnostics must stay hidden in the submitted build.');
++  assertPublicHttpsUrl(productionEnv.EXPO_PUBLIC_API_URL, 'EAS production EXPO_PUBLIC_API_URL');
++  assertPublicHttpsUrl(productionEnv.EXPO_PUBLIC_WEB_URL, 'EAS production EXPO_PUBLIC_WEB_URL');
++
++  assertNonEmptyFile('apps/mobile/assets/icon.png', 'The shared app icon is missing or empty.');
++  assertNonEmptyFile('apps/mobile/assets/ios-icon.png', 'The iOS app icon is missing or empty.');
++  assertNonEmptyFile('apps/mobile/assets/splash-logo.png', 'The splash logo is missing or empty.');
++  console.log('Submitted binary configuration: PASS');
++}
++
++function runFirstRejectionRegressionChecks() {
++  const accountScreen = 'apps/mobile/src/features/account/AccountScreen.tsx';
++  const plansScreen = 'apps/mobile/src/features/plans/PlansScreens.tsx';
++
++  assertNotContains(accountScreen, "label={t('common.states.beta')}", 'The Me header must not restore the Beta badge shown in Apple review.');
++  assertNotContains(accountScreen, 'web-header-beta-badge', 'Native Me must not contain a release-state badge borrowed from the web header.');
++  assertContains(plansScreen, 'function showIosMapsProviderPicker', 'iOS must keep an explicit map-provider picker.');
++  assertContains(plansScreen, 'https://maps.apple.com/?q=', 'Individual offline Places must keep Apple Maps search links.');
++  assertContains(plansScreen, 'https://maps.apple.com/?daddr=', 'Plan route actions must keep Apple Maps directions links.');
++  assertBefore(
++    plansScreen,
++    'text: options.appleLabel',
++    'text: options.googleLabel',
++    'Apple Maps must remain the first provider shown in the iOS action sheet.',
++  );
++  assertContains(plansScreen, "text: options.cancelLabel, style: 'cancel'", 'Cancelling the provider picker must leave the reviewer inside Hellowhen.');
++  assertContains(plansScreen, "appleLabel: t('plans.detail.location.appleMaps')", 'Each eligible offline Place must offer Apple Maps.');
++  assertContains(plansScreen, 'appleLabel: routeMaps.appleLabel', 'The Plan route action must offer Apple Maps.');
++  console.log('Apple rejection regression guards: PASS');
++}
++
++function runIphoneAndIpadShellChecks() {
++  const appShell = 'apps/mobile/src/App.tsx';
++  const navigator = 'apps/mobile/src/navigation/RootNavigator.tsx';
++
++  assertContains(appShell, '<GestureHandlerRootView style={{ flex: 1 }}>', 'The native app shell must fill the compatibility-mode viewport.');
++  assertContains(appShell, '<SafeAreaProvider>', 'The native app shell must provide safe-area metrics on iPhone and iPad compatibility mode.');
++  assertContains(navigator, 'const insets = useSafeAreaInsets();', 'The bottom navigation must read device safe-area insets.');
++  assertContains(navigator, 'height: 70 + bottomInset', 'The bottom navigation must reserve the home-indicator inset.');
++  assertContains(navigator, 'paddingBottom: bottomInset || 8', 'The bottom navigation must remain usable on devices with and without a home indicator.');
++  assertContains(navigator, 'return auth.isAuthenticated ? <AccountScreen /> : <LoginScreen />;', 'The Me tab must open authentication directly for logged-out reviewers.');
++  assertContains(navigator, 'normalAppNavItems.map', 'The submitted Plans / Me / Trade navigation must stay generated from the shared production nav definition.');
++  console.log('iPhone / iPad compatibility shell: PASS');
++}
++
++function runReviewerJourneyRouteChecks() {
++  const navigator = 'apps/mobile/src/navigation/RootNavigator.tsx';
++  const requiredScreens = [
++    '<Stack.Screen name="TradeTabs" component={TradeTabs} />',
++    '<Stack.Screen name="TradeDetail" component={TradeDetailScreen} />',
++    '<Stack.Screen name="Login" component={LoginScreen} />',
++    '<Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />',
++    '<Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />',
++    '<Stack.Screen name="SupportCenter" component={ProtectedSupportCenterScreen} />',
++    '<Stack.Screen name="SafetyCenter" component={ProtectedSafetyCenterScreen} />',
++    '<Stack.Screen name="AccountDeletion" component={ProtectedAccountDeletionScreen} />',
++    '<Stack.Screen name="TradePublicDiscussion" component={ProtectedTradePublicDiscussionScreen} />',
++    '<Stack.Screen name="TradePrivateProposals" component={ProtectedTradePrivateProposalsScreen} />',
++    '<Stack.Screen name="ProposalDetail" component={ProtectedProposalDetailScreen} />',
++  ];
++
++  for (const screen of requiredScreens) {
++    assertContains(navigator, screen, `The App Review journey requires ${screen}.`);
++  }
++
++  assertContains(navigator, '{betaFeatures.plansEnabled ? <Stack.Screen name="PlanDetail" component={PlanDetailScreen} /> : null}', 'The production Plans flow must retain Plan Detail behind the reviewed Plans gate.');
++  assertContains(navigator, '{betaFeatures.plansEnabled ? <Stack.Screen name="PlanPublicDiscussion" component={ProtectedPlanPublicDiscussionScreen} /> : null}', 'The production Plans flow must retain public discussion behind the reviewed Plans gate.');
++  console.log('Reviewer journey routes: PASS');
++}
++
++function runReviewEvidenceChecklistChecks() {
++  const checklist = 'docs/launch/appstore26-ios-device-review-smoke.md';
++  assertNonEmptyFile(checklist, 'The App Store iPhone/iPad device checklist is missing.');
++  assertContains(checklist, 'iPad Air 11-inch (M3)', 'The checklist must replay the device used for the rejected build.');
++  assertContains(checklist, 'build 25 rejection regression', 'The checklist must include an explicit rejection-regression pass.');
++  assertContains(checklist, 'Apple Maps', 'The checklist must cover Apple Maps on device.');
++  assertContains(checklist, 'No Beta badge', 'The checklist must verify the removed Me badge visually.');
++  assertContains(checklist, 'Exact submitted binary', 'The checklist must forbid signing off from Expo Go or a different build.');
++  assertContains(checklist, 'Stop submission', 'The checklist must define stop-ship failures.');
++  assertContains(checklist, 'Evidence record', 'The checklist must capture device/build evidence.');
++  console.log('App Review evidence checklist: PASS');
++}
++
++function main() {
++  runSubmittedBinaryConfigurationChecks();
++  runFirstRejectionRegressionChecks();
++  runIphoneAndIpadShellChecks();
++  runReviewerJourneyRouteChecks();
++  runReviewEvidenceChecklistChecks();
++  console.log('APPSTORE26-QA1 static App Review smoke: PASS');
++  console.log('Manual iPhone and iPad checks are still required on the exact submitted binary.');
++}
++
++main();

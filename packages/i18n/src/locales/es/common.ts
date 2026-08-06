@@ -38,7 +38,6 @@ export const common = {
   },
   states: {
     ...enCommon.states,
-    beta: 'Beta',
     loading: 'Cargando',
     working: 'Trabajando...',
     saving: 'Guardando...',

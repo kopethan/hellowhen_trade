@@ -636,7 +636,7 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
 
       <section className="feed-status-row" aria-live="polite">
         <p>{activeLoading ? t('inventory.messages.loadingItems', { items: plural }) : isStarterTab ? t('inventory.messages.visibleStarterItems', { count: visibleCount, items: plural }) : t('inventory.messages.visibleItems', { count: visibleCount, items: plural })}</p>
-        {!auth.hydrated || activeLoading ? <span className="semantic-badge instruction">{t('inventory.labels.checkingSession')}</span> : isStarterTab ? <span className="semantic-badge success">{t('inventory.labels.starterLibrary')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('inventory.labels.demoInventory')}</span> : auth.isAuthenticated ? <span className="semantic-badge success">{t('inventory.labels.liveInventory')}</span> : <span className="semantic-badge instruction">{t('inventory.labels.accountNeeded')}</span>}
+        {!auth.hydrated || activeLoading ? <span className="semantic-badge instruction">{t('inventory.labels.checkingSession')}</span> : isStarterTab ? <span className="semantic-badge success">{t('inventory.labels.starterLibrary')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('inventory.labels.starterExamples')}</span> : auth.isAuthenticated ? <span className="semantic-badge success">{t('inventory.labels.liveInventory')}</span> : <span className="semantic-badge instruction">{t('inventory.labels.accountNeeded')}</span>}
       </section>
 
       {notice ? <p className="notice-box success inventory-library-notice">{notice} {createdHref ? <Link href={createdHref}>{t('inventory.messages.openIt')}</Link> : null}</p> : null}
@@ -647,7 +647,7 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
         <section className="mobile-card mobile-card--soft">
           <span className="semantic-badge instruction">{t('common.states.signedOut')}</span>
           <h3>{isStarterTab ? t('inventory.signedOut.starterTitle', { items: plural }) : t('inventory.signedOut.mineTitle', { items: plural })}</h3>
-          <p>{isStarterTab ? t('inventory.signedOut.starterBody', { items: plural }) : demoDataEnabled ? t('inventory.signedOut.mineDemoBody', { items: plural }) : t('inventory.signedOut.mineBody', { items: plural })}</p>
+          <p>{isStarterTab ? t('inventory.signedOut.starterBody', { items: plural }) : demoDataEnabled ? t('inventory.signedOut.mineStarterBody', { items: plural }) : t('inventory.signedOut.mineBody', { items: plural })}</p>
           <Link href={`/auth?next=${encodeURIComponent(`/${kind === 'need' ? 'needs' : 'offers'}`)}`} className="button">{t('auth.actions.signIn')}</Link>
         </section>
       ) : null}

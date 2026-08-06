@@ -20,7 +20,7 @@ import { DetailInfoList, DetailSection } from '../../components/detail';
 import { resolveMediaUrl } from '../trade/mediaUrls';
 
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
-type AccountRoute = 'TradeTabs' | 'CreateTrade' | 'MyNeeds' | 'MyOffers' | 'CreateNeed' | 'CreateOffer' | 'AccountProfile' | 'Notifications' | 'SavedLibrary' | 'Agenda' | 'Plans' | 'MyPlans' | 'JoinedPlans' | 'MyPlaces' | 'PlaceLibrary' | 'CreatePlan' | 'CreatePlace' | 'OnboardingGuide' | 'Membership' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
+type AccountRoute = 'TradeTabs' | 'CreateTrade' | 'MyNeeds' | 'MyOffers' | 'CreateNeed' | 'CreateOffer' | 'AccountProfile' | 'Notifications' | 'SavedLibrary' | 'Agenda' | 'Plans' | 'MyPlans' | 'JoinedPlans' | 'MyPlaces' | 'PlaceLibrary' | 'CreatePlan' | 'CreatePlace' | 'OnboardingGuide' | 'Membership' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'SafetyCenter' | 'AccountDeletion' | 'BuyCredits';
 type AccountGroupKey = 'activity' | 'plans' | 'settings' | 'future';
 type MeHubSectionKey = 'activity' | 'plans' | 'tools';
 
@@ -74,6 +74,7 @@ const accountActions: AccountAction[] = [
   ] : []),
   { titleKey: 'account.items.guide.title', descriptionKey: 'account.items.guide.bodyNative', badgeKey: 'account.items.guide.badge', tone: 'info', route: 'OnboardingGuide', icon: 'help', group: 'activity' },
   { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'success', route: 'SupportCenter', icon: 'help', group: 'activity' },
+  { titleKey: 'account.items.safety.title', descriptionKey: 'account.items.safety.bodyNative', badgeKey: 'account.items.safety.badge', tone: 'warning', route: 'SafetyCenter', icon: 'report-flag', group: 'settings' },
   { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings', group: 'settings' },
   { titleKey: 'account.items.legal.title', descriptionKey: 'account.items.legal.bodyNative', badgeKey: 'account.items.legal.badge', tone: 'warning', route: 'LegalPolicy', icon: 'warning', group: 'settings' },
   { titleKey: 'account.items.delete.title', descriptionKey: 'account.items.delete.bodyNative', badgeKey: 'account.items.delete.badge', tone: 'warning', route: 'AccountDeletion', icon: 'warning', group: 'settings' },
@@ -219,6 +220,7 @@ export function AccountScreen() {
     else if (route === 'Settings') navigation.navigate('Settings');
     else if (route === 'LegalPolicy') navigation.navigate('LegalPolicy');
     else if (route === 'SupportCenter') navigation.navigate('SupportCenter');
+    else if (route === 'SafetyCenter') navigation.navigate('SafetyCenter');
     else if (route === 'AccountDeletion') navigation.navigate('AccountDeletion');
     else navigation.navigate('BuyCredits');
   }
@@ -246,12 +248,11 @@ export function AccountScreen() {
 
   const futureActions = groupedActions.future;
   const menuActions = [...groupedActions.settings, ...futureActions, groupedActions.activity.find((action) => action.route === 'OnboardingGuide'), groupedActions.activity.find((action) => action.route === 'SupportCenter')].filter(Boolean) as AccountAction[];
-  const showFlagDiagnostics = !betaFeatures.plansVisible || process.env.EXPO_PUBLIC_MOBILE_FLAG_DIAGNOSTICS_VISIBLE?.toLowerCase() === 'true';
+  const showFlagDiagnostics = betaFeatures.mobileDiagnosticsVisible;
 
   const header = (
     <View style={styles.headerRowTop}>
       <View style={styles.headerCopy}>
-        <View style={styles.headerBadgeRow}><SemanticBadge label={t('common.states.beta')} tone="instruction" /></View>
         <AppText style={styles.title}>{t(betaFeatures.mainNavPlansMeTrade ? 'navigation.tabs.me' : 'account.title')}</AppText>
         <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.headerBody')}</AppText>
       </View>
@@ -344,12 +345,13 @@ function formatDiagnosticValue(value: boolean | string | undefined) {
 
 function MobileFlagDiagnosticsCard() {
   const rows = [
+    { label: 'STORE_RELEASE', value: mobileFeatureFlagDiagnostics.raw.EXPO_PUBLIC_STORE_RELEASE },
     { label: 'NODE_ENV', value: mobileFeatureFlagDiagnostics.nodeEnv },
     { label: 'API URL', value: mobileFeatureFlagDiagnostics.raw.EXPO_PUBLIC_API_URL },
     { label: 'resolved plansEnabled', value: mobileFeatureFlagDiagnostics.resolved.plansEnabled, tone: mobileFeatureFlagDiagnostics.resolved.plansEnabled ? 'success' as const : 'warning' as const },
     { label: 'resolved plansVisible', value: mobileFeatureFlagDiagnostics.resolved.plansVisible, tone: mobileFeatureFlagDiagnostics.resolved.plansVisible ? 'success' as const : 'warning' as const },
     { label: 'resolved main nav', value: mobileFeatureFlagDiagnostics.resolved.mainNavPlansMeTrade, tone: mobileFeatureFlagDiagnostics.resolved.mainNavPlansMeTrade ? 'success' as const : 'warning' as const },
-    { label: 'first launch guards', value: mobileFeatureFlagDiagnostics.resolved.firstLaunchGuardsEnabled },
+    { label: 'release guards', value: mobileFeatureFlagDiagnostics.resolved.firstLaunchGuardsEnabled },
     { label: 'force safe flags', value: mobileFeatureFlagDiagnostics.resolved.forceFirstLaunchSafeFlags },
     { label: 'plans guard allow', value: mobileFeatureFlagDiagnostics.resolved.plansAllowWithFirstLaunchGuards, tone: mobileFeatureFlagDiagnostics.resolved.plansAllowWithFirstLaunchGuards ? 'success' as const : 'warning' as const },
     { label: 'force Plans hidden', value: mobileFeatureFlagDiagnostics.resolved.forcePlansFirstLaunchSafeFlags, tone: mobileFeatureFlagDiagnostics.resolved.forcePlansFirstLaunchSafeFlags ? 'warning' as const : 'success' as const },
@@ -543,7 +545,6 @@ const styles = StyleSheet.create({
   menuBody: { lineHeight: 19, fontWeight: '700' },
   menuCloseButton: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   header: { gap: 8 },
-  headerBadgeRow: { flexDirection: 'row', alignItems: 'center' },
   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
   subtitle: { lineHeight: 20, fontWeight: '600' },
   profilePanel: { borderRadius: 28, borderWidth: 1, padding: 16, gap: 15 },

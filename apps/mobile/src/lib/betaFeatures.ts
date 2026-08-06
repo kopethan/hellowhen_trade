@@ -2,6 +2,7 @@ import { AI_FEATURE_DEFAULTS, PLUS_SUBSCRIPTION_FEATURE_DEFAULTS, PRO_SUBSCRIPTI
 const enabled = (value: string | undefined) => value?.toLowerCase() === 'true';
 const disabled = (value: string | undefined) => value?.toLowerCase() === 'false';
 const enabledUnlessExplicitlyFalse = (value: string | undefined) => !disabled(value);
+const storeReleaseMode = enabled(process.env.EXPO_PUBLIC_STORE_RELEASE);
 
 type MobilePublicEnvSuffix =
   | 'FIRST_LAUNCH_GUARDS_ENABLED'
@@ -30,7 +31,7 @@ function publicEnv(suffix: MobilePublicEnvSuffix) {
 }
 
 const firstLaunchGuardsEnabled = !disabled(publicEnv('FIRST_LAUNCH_GUARDS_ENABLED'));
-const forceFirstLaunchSafeFlags = process.env.NODE_ENV === 'production' && firstLaunchGuardsEnabled;
+const forceFirstLaunchSafeFlags = storeReleaseMode || (process.env.NODE_ENV === 'production' && firstLaunchGuardsEnabled);
 const plansAllowWithFirstLaunchGuards = enabled(publicEnv('PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS'));
 const forcePlansFirstLaunchSafeFlags = forceFirstLaunchSafeFlags && !plansAllowWithFirstLaunchGuards;
 
@@ -39,7 +40,7 @@ const rawAdsProviderValue = (process.env.EXPO_PUBLIC_ADS_PROVIDER ?? 'none').toL
 const rawAdsProvider = (['none', 'adsense', 'admob'].includes(rawAdsProviderValue) ? rawAdsProviderValue : 'none') as 'none' | 'adsense' | 'admob';
 const adsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_ADS_ENABLED);
 const mobileAdsEnabled = adsEnabled && enabled(process.env.EXPO_PUBLIC_MOBILE_ADS_ENABLED);
-const adsDebugPlaceholders = process.env.NODE_ENV !== 'production' && mobileAdsEnabled && enabled(process.env.EXPO_PUBLIC_ADS_DEBUG_PLACEHOLDERS);
+const adsDebugPlaceholders = !storeReleaseMode && process.env.NODE_ENV !== 'production' && mobileAdsEnabled && enabled(process.env.EXPO_PUBLIC_ADS_DEBUG_PLACEHOLDERS);
 const rawAiProvider = normalizeAiProvider(process.env.EXPO_PUBLIC_AI_PROVIDER);
 const aiEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_AI_ENABLED) && rawAiProvider !== 'none';
 const aiFeatures = {
@@ -51,7 +52,7 @@ const aiFeatures = {
   adminAssistEnabled: aiEnabled && enabled(process.env.EXPO_PUBLIC_AI_ADMIN_ASSIST_ENABLED),
   safetyClassifierEnabled: aiEnabled && enabled(process.env.EXPO_PUBLIC_AI_SAFETY_CLASSIFIER_ENABLED),
   privateContentEnabled: false,
-  debugPlaceholders: process.env.NODE_ENV !== 'production' && aiEnabled && enabled(process.env.EXPO_PUBLIC_AI_DEBUG_PLACEHOLDERS),
+  debugPlaceholders: !storeReleaseMode && process.env.NODE_ENV !== 'production' && aiEnabled && enabled(process.env.EXPO_PUBLIC_AI_DEBUG_PLACEHOLDERS),
 } as const;
 const subscriptionsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED);
 const plusEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_PLUS_ENABLED);
@@ -104,6 +105,7 @@ const plansEnabled = !forcePlansFirstLaunchSafeFlags && enabledUnlessExplicitlyF
 const plansVisible = plansEnabled && enabledUnlessExplicitlyFalse(publicEnv('PLANS_VISIBLE'));
 const mainNavPlansMeTrade = plansVisible && !disabled(publicEnv('MAIN_NAV_PLANS_ME_TRADE'));
 const mobileFeatureFlagRawEnv = {
+  EXPO_PUBLIC_STORE_RELEASE: process.env.EXPO_PUBLIC_STORE_RELEASE,
   EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL,
   EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED: process.env.EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED,
   NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED: process.env.NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED,
@@ -122,6 +124,7 @@ export const mobileFeatureFlagDiagnostics = {
   nodeEnv: process.env.NODE_ENV ?? 'undefined',
   raw: mobileFeatureFlagRawEnv,
   resolved: {
+    storeReleaseMode,
     firstLaunchGuardsEnabled,
     forceFirstLaunchSafeFlags,
     plansAllowWithFirstLaunchGuards,
@@ -137,8 +140,12 @@ const mobileMembershipVisible = !forceFirstLaunchSafeFlags && (
 );
 const iosStoreKitMembershipEnabled = mobileMembershipVisible && !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_IOS_STOREKIT_MEMBERSHIP_ENABLED);
 const androidGooglePlayMembershipEnabled = mobileMembershipVisible && !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_ANDROID_GOOGLE_PLAY_MEMBERSHIP_ENABLED);
-const iosMembershipPurchasePlaceholderVisible = mobileMembershipVisible && !iosStoreKitMembershipEnabled && enabled(process.env.EXPO_PUBLIC_IOS_MEMBERSHIP_PURCHASE_PLACEHOLDER_ENABLED);
-const androidMembershipPurchasePlaceholderVisible = mobileMembershipVisible && !androidGooglePlayMembershipEnabled && enabled(process.env.EXPO_PUBLIC_ANDROID_MEMBERSHIP_PURCHASE_PLACEHOLDER_ENABLED);
+const iosMembershipPurchasePlaceholderVisible = !storeReleaseMode && mobileMembershipVisible && !iosStoreKitMembershipEnabled && enabled(process.env.EXPO_PUBLIC_IOS_MEMBERSHIP_PURCHASE_PLACEHOLDER_ENABLED);
+const androidMembershipPurchasePlaceholderVisible = !storeReleaseMode && mobileMembershipVisible && !androidGooglePlayMembershipEnabled && enabled(process.env.EXPO_PUBLIC_ANDROID_MEMBERSHIP_PURCHASE_PLACEHOLDER_ENABLED);
+const mobileDiagnosticsVisible = !storeReleaseMode
+  && process.env.NODE_ENV !== 'production'
+  && enabled(process.env.EXPO_PUBLIC_MOBILE_FLAG_DIAGNOSTICS_VISIBLE);
+
 const nativeMembershipProductIds = {
   apple: {
     hellowhen_plus_monthly: process.env.EXPO_PUBLIC_APPLE_PLUS_MONTHLY_PRODUCT_ID ?? 'hellowhen.plus.monthly',
@@ -155,6 +162,8 @@ const nativeMembershipProductIds = {
 } as const;
 
 export const betaFeatures = {
+  storeReleaseMode,
+  mobileDiagnosticsVisible,
   moneyProvider: forceFirstLaunchSafeFlags ? 'none' : rawMoneyProvider,
   moneyFeaturesVisible,
   walletVisible: moneyFeaturesVisible && enabled(process.env.EXPO_PUBLIC_WALLET_VISIBLE),

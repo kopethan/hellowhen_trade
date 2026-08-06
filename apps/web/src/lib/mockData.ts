@@ -315,7 +315,7 @@ export const mockTrades: TradeDto[] = [
   {
     id: 'demo-trade-open-need-1',
     ownerId: 'demo-user-4',
-    title: 'Open Need: Mobile web beta test',
+    title: 'Open Need: Mobile web layout review',
     description: 'I need someone to test the mobile web flow and send clear notes. I am open to offers from testers, designers, or product people.',
     creditAmount: 0,
     amountCents: 0,
@@ -331,7 +331,7 @@ export const mockTrades: TradeDto[] = [
     need: {
       id: 'demo-open-need-1',
       ownerId: 'demo-user-4',
-      title: 'Mobile web beta test',
+      title: 'Mobile web layout review',
       description: 'I need a focused mobile web test with screenshots, bugs, and friction notes for onboarding and create trade.',
       defaultLanguage: 'en',
       previewTheme: 'default',
@@ -445,7 +445,7 @@ const stressMockFixtures: StressMockFixture[] = [
   },
   {
     ownerId: 'demo-user-1', ownerName: 'Mina', ownerHandle: 'mina',
-    needTitle: 'Need beta tester for mobile web', needDescription: 'I need someone to test mobile web layout with multiple trades, long text, and form scrolling.', needCategory: 'Testing', needTiming: 'Today', needMode: 'remote', needLocation: 'Remote', needTags: ['testing', 'mobile'], needTone: '#0284c7',
+    needTitle: 'Need a mobile web layout reviewer', needDescription: 'I need someone to test mobile web layout with multiple trades, long text, and form scrolling.', needCategory: 'Testing', needTiming: 'Today', needMode: 'remote', needLocation: 'Remote', needTags: ['testing', 'mobile'], needTone: '#0284c7',
     offerTitle: 'Profile bio rewrite', offerDescription: 'I can rewrite a short creator or freelancer profile bio with a clearer offer and tone.', offerCategory: 'Writing', offerAvailability: 'Today', offerMode: 'remote', offerLocation: 'Remote', offerIncludes: ['Bio rewrite', 'One revision'], offerTags: ['bio', 'writing'], offerTone: '#be123c',
   },
   {

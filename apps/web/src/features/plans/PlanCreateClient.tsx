@@ -1184,7 +1184,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
         {auth.hydrated && !auth.isAuthenticated ? (
           <section className="mobile-card mobile-card--soft">
             <h3>Log in required</h3>
-            <p>Use a demo or internal account to create hidden Plans.</p>
+            <p>Sign in with an account that has access to create Plans.</p>
             <button type="button" className="button primary" onClick={() => router.push('/auth?next=/plans/new')}>Log in</button>
           </section>
         ) : null}

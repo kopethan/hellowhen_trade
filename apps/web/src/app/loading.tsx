@@ -7,7 +7,7 @@ export default function AppLoading() {
         <img className="app-loading-logo" src="/favicon.svg" alt="" aria-hidden="true" />
         <span className="semantic-badge info">Loading</span>
         <h2>Loading Hellowhen...</h2>
-        <p>Please wait while we connect to the beta server.</p>
+        <p>Please wait while we connect to Hellowhen.</p>
       </section>
     </MobilePage>
   );

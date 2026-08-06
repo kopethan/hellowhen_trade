@@ -48,14 +48,14 @@ export function ProTradePackagePrototype({
   const maxItems = isOfferPackage ? flags.maxSupportingOffers : flags.maxSupportingNeeds;
   const title = isOfferPackage ? 'Pro Trade Package: offer multiple Offers' : 'Pro Trade Package: request multiple Needs';
   const body = isOfferPackage
-    ? 'Hidden prototype for one Open Need with multiple supporting Offers. The owner accepts or declines the package as one unit.'
-    : 'Hidden prototype for one Open Offer with multiple supporting Needs. The owner accepts or declines the package as one unit.';
+    ? 'Combine one Open Need with multiple supporting Offers. The owner accepts or declines the package as one unit.'
+    : 'Combine one Open Offer with multiple supporting Needs. The owner accepts or declines the package as one unit.';
 
   return (
-    <section className="pro-package-prototype" aria-label="Hidden Pro Trade Package prototype">
+    <section className="pro-package-prototype" aria-label="Pro Trade Package">
       <div className="pro-package-prototype__header">
         <div>
-          <p className="eyebrow">Hidden Pro prototype</p>
+          <p className="eyebrow">Pro package</p>
           <h3 className="icon-heading"><WebIcon name="proposal" size={18} decorative /> {title}</h3>
         </div>
         <label className="pro-package-prototype__switch">
@@ -94,7 +94,7 @@ export function ProTradePackagePrototype({
               </label>
             );
           }) : (
-            <div className="pro-package-prototype__empty">Create active saved {isOfferPackage ? 'Offers' : 'Needs'} before testing a package.</div>
+            <div className="pro-package-prototype__empty">Create active saved {isOfferPackage ? 'Offers' : 'Needs'} before building a package.</div>
           )}
         </div>
       ) : null}

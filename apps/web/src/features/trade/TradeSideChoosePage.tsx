@@ -297,7 +297,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
         if (!mounted) return;
         setItems(demoDataEnabled ? (side === 'need' ? mockNeeds : mockOffers) : []);
         setLoadState(demoDataEnabled ? 'demo' : 'idle');
-        setNotice(demoDataEnabled ? t('trade.sidePicker.usingDemoItems', { items: pluralLabel }) : getFriendlyApiErrorMessage(loadError, t('trade.sidePicker.savedItemsCouldNotLoad', { items: pluralLabel })));
+        setNotice(demoDataEnabled ? t('trade.sidePicker.usingStarterItems', { items: pluralLabel }) : getFriendlyApiErrorMessage(loadError, t('trade.sidePicker.savedItemsCouldNotLoad', { items: pluralLabel })));
       }
     }
     void loadItems();
@@ -428,7 +428,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
         <section className="mobile-card trade-side-choose-panel">
           <div className="trade-side-choose-panel__top">
             <span className={`semantic-badge ${side === 'need' ? 'need' : 'offer'}`}><WebIcon name={side === 'need' ? 'need' : 'offer'} size={14} decorative /> {t('trade.sidePicker.myItems', { items: pluralLabel })}</span>
-            <span className="semantic-badge instruction">{loadState === 'loading' ? t('common.states.loading') : loadState === 'live' ? t('inventory.labels.liveInventory') : loadState === 'demo' ? t('inventory.labels.demoInventory') : t('inventory.messages.visibleItems', { count: selectableItems.length, items: pluralLabel })}</span>
+            <span className="semantic-badge instruction">{loadState === 'loading' ? t('common.states.loading') : loadState === 'live' ? t('inventory.labels.liveInventory') : loadState === 'demo' ? t('inventory.labels.starterExamples') : t('inventory.messages.visibleItems', { count: selectableItems.length, items: pluralLabel })}</span>
           </div>
           <Link href={sourceChoiceHref} className="trade-side-source-back">{t('trade.sidePicker.changeSource')}</Link>
 

@@ -86,6 +86,7 @@ export const adminReportActionRequestSchema = z.object({
   note: z.string().trim().min(3).max(1200).optional(),
 });
 
+export const userReportsResponseSchema = z.object({ reports: z.array(reportSchema) });
 export const adminReportsResponseSchema = z.object({ reports: z.array(reportSchema) });
 export const adminReportActionResponseSchema = z.object({ report: reportSchema });
 
@@ -96,6 +97,7 @@ export type CreateReportRequest = z.infer<typeof createReportRequestSchema>;
 export type CreateDealProblemReportRequest = z.infer<typeof createDealProblemReportRequestSchema>;
 export type CreateReportResponse = z.infer<typeof createReportResponseSchema>;
 export type ReportDto = z.infer<typeof reportSchema>;
+export type UserReportsResponse = z.infer<typeof userReportsResponseSchema>;
 export type AdminReportsResponse = z.infer<typeof adminReportsResponseSchema>;
 export type AdminReportActionRequest = z.infer<typeof adminReportActionRequestSchema>;
 export type AdminReportActionResponse = z.infer<typeof adminReportActionResponseSchema>;

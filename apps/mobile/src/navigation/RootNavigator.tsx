@@ -15,6 +15,7 @@ import { AgendaScreen } from '../features/account/AgendaScreen';
 import { SavedCollectionDetailScreen, SavedLibraryScreen } from '../features/account/SavedLibraryScreen';
 import { MembershipScreen } from '../features/account/MembershipScreen';
 import { PlanSelectionScreen } from '../features/account/PlanSelectionScreen';
+import { SafetyCenterScreen } from '../features/account/SafetyCenterScreen';
 import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
 import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
 import { LoginScreen } from '../features/auth/LoginScreen';
@@ -96,6 +97,7 @@ export type RootStackParamList = {
   BusinessAccounts: undefined;
   BuyCredits: undefined;
   SupportCenter: undefined;
+  SafetyCenter: undefined;
   AccountDeletion: undefined;
   SupportTicketDetail: { ticketId: string; subject?: string };
   LegalPolicy: { policy?: LegalPolicyKey } | undefined;
@@ -186,6 +188,7 @@ const ProtectedTwoFactorSecurityScreen = withAuth(TwoFactorSecurityScreen);
 const ProtectedBusinessAccountsScreen = withAuth(BusinessAccountsScreen);
 const ProtectedBuyCreditsScreen = withAuth(BuyCreditsScreen);
 const ProtectedSupportCenterScreen = withAuth(SupportCenterScreen);
+const ProtectedSafetyCenterScreen = withAuth(SafetyCenterScreen);
 const ProtectedAccountDeletionScreen = withAuth(AccountDeletionScreen);
 const ProtectedSupportTicketDetailScreen = withAuth(SupportTicketDetailScreen);
 const ProtectedCreateNeedScreen = withAuth(CreateNeedScreen, 'navigation.authRequired.createNeed.title', 'navigation.authRequired.createNeed.body');
@@ -325,8 +328,8 @@ export function RootNavigator() {
       <Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />
       <Stack.Screen name="AccountProfile" component={ProtectedProfileScreen} />
       <Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />
-      <Stack.Screen name="SavedLibrary" component={ProtectedSavedLibraryScreen} />
-      <Stack.Screen name="Agenda" component={ProtectedAgendaScreen} />
+      {betaFeatures.savedLibraryEnabled ? <Stack.Screen name="SavedLibrary" component={ProtectedSavedLibraryScreen} /> : null}
+      {betaFeatures.agendaEnabled ? <Stack.Screen name="Agenda" component={ProtectedAgendaScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="Plans" component={PlansScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="PlanFilters" component={PlanFiltersScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="PlanDetail" component={PlanDetailScreen} /> : null}
@@ -338,7 +341,7 @@ export function RootNavigator() {
       {betaFeatures.plansEnabled ? <Stack.Screen name="PlaceLibrary" component={ProtectedPlaceLibraryScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="CreatePlan" component={ProtectedCreatePlanScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="CreatePlace" component={ProtectedCreatePlaceScreen} /> : null}
-      <Stack.Screen name="SavedLibraryCollection" component={ProtectedSavedCollectionDetailScreen} />
+      {betaFeatures.savedCollectionsEnabled ? <Stack.Screen name="SavedLibraryCollection" component={ProtectedSavedCollectionDetailScreen} /> : null}
       {betaFeatures.mobileMembershipVisible ? <Stack.Screen name="Membership" component={ProtectedMembershipScreen} /> : null}
       {betaFeatures.plusSubscriptionFeatures.plusPublic ? <Stack.Screen name="ProPlans" component={ProtectedPlanSelectionScreen} /> : null}
       {betaFeatures.walletVisible ? <Stack.Screen name="Wallet" component={ProtectedWalletScreen} /> : null}
@@ -349,6 +352,7 @@ export function RootNavigator() {
       {betaFeatures.businessAccountsVisible ? <Stack.Screen name="BusinessAccounts" component={ProtectedBusinessAccountsScreen} /> : null}
       {betaFeatures.walletVisible ? <Stack.Screen name="BuyCredits" component={ProtectedBuyCreditsScreen} /> : null}
       <Stack.Screen name="SupportCenter" component={ProtectedSupportCenterScreen} />
+      <Stack.Screen name="SafetyCenter" component={ProtectedSafetyCenterScreen} />
       <Stack.Screen name="AccountDeletion" component={ProtectedAccountDeletionScreen} />
       <Stack.Screen name="SupportTicketDetail" component={ProtectedSupportTicketDetailScreen} />
       <Stack.Screen name="CreateNeed" component={ProtectedCreateNeedScreen} />

@@ -96,7 +96,7 @@ export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientPro
         <div className="status-row">
           <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)}</span>
           <span className="semantic-badge instruction">{inventoryStatusLabel(item.status, i18n)}</span>
-          {usingFallback ? <span className="semantic-badge instruction">{t('trade.labels.demoDetail')}</span> : null}
+          {usingFallback ? <span className="semantic-badge instruction">{t('trade.labels.starterExample')}</span> : null}
         </div>
         <h2>{languageSelection.title}</h2>
         <ContentLanguageDetailControls displayLanguage={item.displayLanguage} selectedLanguage={languageSelection.selectedLanguage} onSelectLanguage={languageSelection.setSelectedLanguage} i18n={i18n} />

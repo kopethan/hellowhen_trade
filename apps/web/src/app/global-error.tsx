@@ -47,7 +47,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
           <p style={{ margin: '0 0 10px', color: '#67e8f9', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 12 }}>Temporary issue</p>
           <h1 style={{ margin: '0 0 12px', fontSize: 28, lineHeight: 1.1 }}>Hellowhen is having trouble loading</h1>
           <p style={{ margin: 0, color: '#cbd5e1', lineHeight: 1.6 }}>
-            This may happen during a short beta deploy or server restart. Please retry in a moment.
+            This may happen during a short deployment or server restart. Please retry in a moment.
           </p>
           {error.digest ? <p style={{ color: '#94a3b8', fontSize: 13 }}>Error reference: {error.digest}</p> : null}
           <button type="button" style={buttonStyle} onClick={reset}>Try again</button>

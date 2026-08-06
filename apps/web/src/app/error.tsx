@@ -15,7 +15,7 @@ export default function AppError({ error, reset }: { error: Error & { digest?: s
         <span className="semantic-badge warning">Temporary issue</span>
         <h2>Hellowhen could not load this page</h2>
         <p>
-          This can happen during a beta deploy or a short server connection issue. Try again in a moment,
+          This can happen during a short deployment or server connection issue. Try again in a moment,
           or contact support if it keeps happening.
         </p>
         {error.digest ? <p className="meta">Error reference: {error.digest}</p> : null}

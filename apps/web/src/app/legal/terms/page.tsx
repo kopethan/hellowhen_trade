@@ -3,7 +3,7 @@ import { publicPageMetadata } from '../../../lib/seo';
 
 export const metadata = publicPageMetadata({
   title: 'Terms of Service — Hellowhen Trade',
-  description: 'Read the Hellowhen Trade terms for using the first beta skill, service, Need, Offer, and Trade exchange platform.',
+  description: 'Read the Hellowhen Trade terms for using the skill, service, Need, Offer, and Trade exchange platform.',
   pathname: '/legal/terms',
 });
 

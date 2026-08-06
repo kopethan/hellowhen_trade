@@ -135,8 +135,8 @@ export const settings = {
   policies: {
     badge: 'Policies',
     title: 'Legal & safety links',
-    body: 'Open the current beta terms, privacy notes, safety guidelines, and refund/dispute process.',
-    bodyNative: 'Open the current beta terms, privacy notes, safety guidelines, and refund/dispute process.',
+    body: 'Open the current Terms, Privacy Policy, safety guidelines, and refund/dispute process.',
+    bodyNative: 'Open the current Terms, Privacy Policy, safety guidelines, and refund/dispute process.',
     open: 'Open legal & safety center',
     support: 'Contact support',
     deleteAccount: 'Delete account',

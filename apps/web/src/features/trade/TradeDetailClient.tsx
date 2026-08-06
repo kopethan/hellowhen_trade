@@ -377,7 +377,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
             <span className="semantic-badge trade"><WebIcon name="trade" size={14} decorative /> {getStatusLabel(currentTrade.status, i18n)}</span>
             <span className="semantic-badge trade">{postType === 'open_need' ? t('trade.labels.openNeed') : postType === 'open_offer' ? t('trade.labels.openOffer') : t('trade.labels.needOffer')}</span>
             <span className="semantic-badge proposal">{exchange}</span>
-            {usingFallback ? <span className="semantic-badge instruction">{t('trade.labels.demoDetail')}</span> : null}
+            {usingFallback ? <span className="semantic-badge instruction">{t('trade.labels.starterExample')}</span> : null}
           </div>
         </div>
         <h2>{headline}</h2>

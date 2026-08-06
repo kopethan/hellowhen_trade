@@ -1,8 +1,9 @@
 import { AI_FEATURE_DEFAULTS, PLUS_SUBSCRIPTION_FEATURE_DEFAULTS, PRO_SUBSCRIPTION_FEATURE_DEFAULTS, getProTradePackageEntitlements, normalizeAiProvider } from '@hellowhen/shared';
 const enabled = (value: string | undefined) => value?.toLowerCase() === 'true';
 const disabled = (value: string | undefined) => value?.toLowerCase() === 'false';
+const storeReleaseMode = enabled(process.env.NEXT_PUBLIC_STORE_RELEASE);
 const firstLaunchGuardsEnabled = !disabled(process.env.NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED);
-const forceFirstLaunchSafeFlags = process.env.NODE_ENV === 'production' && firstLaunchGuardsEnabled;
+const forceFirstLaunchSafeFlags = storeReleaseMode || (process.env.NODE_ENV === 'production' && firstLaunchGuardsEnabled);
 const plansAllowWithFirstLaunchGuards = enabled(process.env.NEXT_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS);
 const forcePlansFirstLaunchSafeFlags = forceFirstLaunchSafeFlags && !plansAllowWithFirstLaunchGuards;
 
@@ -11,7 +12,7 @@ const rawAdsProviderValue = (process.env.NEXT_PUBLIC_ADS_PROVIDER ?? 'none').toL
 const rawAdsProvider = (['none', 'adsense', 'admob'].includes(rawAdsProviderValue) ? rawAdsProviderValue : 'none') as 'none' | 'adsense' | 'admob';
 const adsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_ADS_ENABLED);
 const webAdsEnabled = adsEnabled && enabled(process.env.NEXT_PUBLIC_WEB_ADS_ENABLED);
-const adsDebugPlaceholders = process.env.NODE_ENV !== 'production' && webAdsEnabled && enabled(process.env.NEXT_PUBLIC_ADS_DEBUG_PLACEHOLDERS);
+const adsDebugPlaceholders = !storeReleaseMode && process.env.NODE_ENV !== 'production' && webAdsEnabled && enabled(process.env.NEXT_PUBLIC_ADS_DEBUG_PLACEHOLDERS);
 const rawAiProvider = normalizeAiProvider(process.env.NEXT_PUBLIC_AI_PROVIDER);
 const aiEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_AI_ENABLED) && rawAiProvider !== 'none';
 const aiFeatures = {
@@ -23,7 +24,7 @@ const aiFeatures = {
   adminAssistEnabled: aiEnabled && enabled(process.env.NEXT_PUBLIC_AI_ADMIN_ASSIST_ENABLED),
   safetyClassifierEnabled: aiEnabled && enabled(process.env.NEXT_PUBLIC_AI_SAFETY_CLASSIFIER_ENABLED),
   privateContentEnabled: false,
-  debugPlaceholders: process.env.NODE_ENV !== 'production' && aiEnabled && enabled(process.env.NEXT_PUBLIC_AI_DEBUG_PLACEHOLDERS),
+  debugPlaceholders: !storeReleaseMode && process.env.NODE_ENV !== 'production' && aiEnabled && enabled(process.env.NEXT_PUBLIC_AI_DEBUG_PLACEHOLDERS),
 } as const;
 const subscriptionsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_SUBSCRIPTIONS_ENABLED);
 const stripeMembershipCheckoutEnabled = subscriptionsEnabled && !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_STRIPE_MEMBERSHIP_CHECKOUT_ENABLED);
@@ -76,6 +77,7 @@ const plansVisible = plansEnabled && enabled(process.env.NEXT_PUBLIC_PLANS_VISIB
 const mainNavPlansMeTrade = plansVisible && !disabled(process.env.NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE);
 
 export const betaFeatures = {
+  storeReleaseMode,
   moneyProvider: forceFirstLaunchSafeFlags ? 'none' : rawMoneyProvider,
   moneyFeaturesVisible,
   walletVisible: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_WALLET_VISIBLE),
@@ -108,12 +110,12 @@ export const betaFeatures = {
   aiFeatures,
 } as const;
 
-export function MoneyOffNotice({ title = 'Need + Offer beta' }: { title?: string }) {
+export function MoneyOffNotice({ title = 'Need + Offer exchanges' }: { title?: string }) {
   return (
     <section className="mobile-card mobile-card--soft">
-      <span className="semantic-badge instruction">Beta</span>
+      <span className="semantic-badge instruction">Current release</span>
       <h3>{title}</h3>
-      <p>This beta focuses on Need + Offer exchanges for services, goods, and other everyday items.</p>
+      <p>Hellowhen currently focuses on Need + Offer exchanges for services, goods, and other everyday items.</p>
     </section>
   );
 }

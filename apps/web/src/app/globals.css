@@ -128,7 +128,6 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom: 
 .web-top-header--local-only { justify-content: flex-start; }
 .web-top-header--nested { align-items: center; padding-bottom: 12px; }
 .web-top-header--nested h1 { font-size: 22px; letter-spacing: -0.04em; }
-.web-header-beta-badge { position: absolute; top: calc(10px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; justify-content: center; min-height: 24px; padding: 0 11px; border: 1px solid var(--instruction-border); border-radius: 999px; background: color-mix(in srgb, var(--instruction-bg) 82%, var(--app-surface)); color: var(--instruction-text); font-size: 10px; font-weight: 950; letter-spacing: 0.16em; line-height: 1; box-shadow: var(--app-control-shadow); }
 .web-kicker { margin: 0 0 4px; color: var(--app-text-soft); font-size: 11px; font-weight: 900; letter-spacing: 0.12em; line-height: 1; text-transform: uppercase; }
 .web-back-button { display: inline-grid; place-items: center; flex: 0 0 auto; width: 42px; height: 42px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text); font-size: 0; font-weight: 600; line-height: 1; box-shadow: var(--app-control-shadow); }
 .web-back-button .web-icon, .plans-feed-icon-button .web-icon, .trade-detail-back-link .web-icon, .plan-detail-back-link .web-icon { color: currentColor; transform: translateX(-1px); }
@@ -2261,10 +2260,6 @@ html[data-theme="dark"] .web-bottom-tabs {
   background: color-mix(in srgb, var(--app-bg-muted) 84%, transparent);
 }
 
-html[data-theme="dark"] .web-header-beta-badge {
-  box-shadow: 0 0 0 1px rgba(199, 210, 254, 0.08), 0 10px 30px rgba(79, 70, 229, 0.18);
-}
-
 html[data-theme="dark"] .web-desktop-nav__link.is-active,
 html[data-theme="dark"] .web-tab--active {
   border-color: color-mix(in srgb, var(--app-border-strong) 78%, transparent);
@@ -2279,10 +2274,6 @@ html[data-theme="dark"] .inventory-empty-state__plus {
   :root:not([data-theme="light"]) .web-top-header,
   :root:not([data-theme="light"]) .web-bottom-tabs {
     background: color-mix(in srgb, var(--app-bg-muted) 84%, transparent);
-  }
-
-  :root:not([data-theme="light"]) .web-header-beta-badge {
-    box-shadow: 0 0 0 1px rgba(199, 210, 254, 0.08), 0 10px 30px rgba(79, 70, 229, 0.18);
   }
 
   :root:not([data-theme="light"]) .web-desktop-nav__link.is-active,

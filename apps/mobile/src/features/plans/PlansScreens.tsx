@@ -1390,17 +1390,31 @@ type PlanPlaceLocationDetails = {
 // Keep the free Google Maps URL conservative for mobile browsers: origin + 3 waypoints + destination.
 const GOOGLE_MAPS_MAX_ROUTE_STOPS = 5;
 
-function buildMapsSearchUrl(value: string) {
+function buildAppleMapsSearchUrl(value: string) {
+  return `https://maps.apple.com/?q=${encodeURIComponent(value)}`;
+}
+
+function buildGoogleMapsSearchUrl(value: string) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value)}`;
 }
 
 type PlanRouteMapsLink = {
-  href: string;
+  appleHref: string;
+  googleHref: string;
+  appleLabel: string;
+  googleLabel: string;
   label: string;
   body: string;
+  providerBody: string;
   stopCount: number;
   totalStopCount: number;
   skippedOnlineCount: number;
+  skippedMissingLocationCount: number;
+};
+
+type PlanRouteStop = {
+  place: PlanPlaceDto;
+  query: string;
 };
 
 function getPlanPlaceMapsQuery(place: PlanPlaceDto) {
@@ -1410,11 +1424,17 @@ function getPlanPlaceMapsQuery(place: PlanPlaceDto) {
   return place.addressPublicText || place.sourcePlace?.addressPublicText || place.sourcePlace?.areaLabel || null;
 }
 
+function buildAppleMapsDirectionsUrl(queries: string[]) {
+  const firstStop = queries[0];
+  if (queries.length <= 1 || !firstStop) return buildAppleMapsSearchUrl(firstStop ?? '');
+  return `https://maps.apple.com/?daddr=${encodeURIComponent(firstStop)}&dirflg=d`;
+}
+
 function buildGoogleMapsDirectionsUrl(queries: string[]) {
   const origin = queries[0];
-  if (queries.length <= 1 || !origin) return buildMapsSearchUrl(origin ?? '');
+  if (queries.length <= 1 || !origin) return buildGoogleMapsSearchUrl(origin ?? '');
   const destination = queries[queries.length - 1];
-  if (!destination) return buildMapsSearchUrl(origin);
+  if (!destination) return buildGoogleMapsSearchUrl(origin);
   const waypoints = queries.slice(1, -1);
   const params = [
     'api=1',
@@ -1426,40 +1446,102 @@ function buildGoogleMapsDirectionsUrl(queries: string[]) {
 }
 
 function buildPlanRouteMapsLink(places: PlanPlaceDto[], t: PlanTranslationFunction): PlanRouteMapsLink | null {
-  const offlineQueries = places.map(getPlanPlaceMapsQuery).filter((value): value is string => Boolean(value));
-  if (!offlineQueries.length) return null;
-  const includedQueries = offlineQueries.slice(0, GOOGLE_MAPS_MAX_ROUTE_STOPS);
+  const offlinePlaces = places.filter(isOfflinePlanPlace);
+  const routeStops = offlinePlaces
+    .map((place): PlanRouteStop | null => {
+      const query = getPlanPlaceMapsQuery(place);
+      return query ? { place, query } : null;
+    })
+    .filter((stop): stop is PlanRouteStop => Boolean(stop));
+  if (!routeStops.length) return null;
+
+  const includedStops = routeStops.slice(0, GOOGLE_MAPS_MAX_ROUTE_STOPS);
+  const includedQueries = includedStops.map((stop) => stop.query);
   const skippedOnlineCount = places.filter((place) => place.mode === 'remote').length;
-  const truncatedCount = Math.max(offlineQueries.length - includedQueries.length, 0);
-  const routeLabel = includedQueries.length > 1 ? t('plans.detail.route.openRoute') : t('plans.detail.route.openSingle');
+  const skippedMissingLocationCount = Math.max(offlinePlaces.length - routeStops.length, 0);
+  const truncatedCount = Math.max(routeStops.length - includedStops.length, 0);
+  const hasMultiStopRoute = includedStops.length > 1;
+  const routeLabel = hasMultiStopRoute ? t('plans.detail.route.openRoute') : t('plans.detail.route.openSingle');
+  const firstStopTitle = includedStops[0]?.place.title?.trim() || t('plans.detail.route.firstStopFallback');
   const bodyParts = [
-    t(includedQueries.length === 1 ? 'plans.detail.route.offlineStopOne' : 'plans.detail.route.offlineStopMany', { count: includedQueries.length }),
+    t(includedStops.length === 1 ? 'plans.detail.route.offlineStopOne' : 'plans.detail.route.offlineStopMany', { count: includedStops.length }),
     skippedOnlineCount ? t(skippedOnlineCount === 1 ? 'plans.detail.route.skippedOnlineOne' : 'plans.detail.route.skippedOnlineMany', { count: skippedOnlineCount }) : '',
+    skippedMissingLocationCount ? t(skippedMissingLocationCount === 1 ? 'plans.detail.route.skippedMissingLocationOne' : 'plans.detail.route.skippedMissingLocationMany', { count: skippedMissingLocationCount }) : '',
     truncatedCount ? t(truncatedCount === 1 ? 'plans.detail.route.skippedLaterOne' : 'plans.detail.route.skippedLaterMany', { count: truncatedCount }) : '',
   ].filter(Boolean);
+
   return {
-    href: buildGoogleMapsDirectionsUrl(includedQueries),
+    appleHref: buildAppleMapsDirectionsUrl(includedQueries),
+    googleHref: buildGoogleMapsDirectionsUrl(includedQueries),
+    appleLabel: t(hasMultiStopRoute ? 'plans.detail.route.appleMapsFirstStop' : 'plans.detail.route.appleMaps'),
+    googleLabel: t(hasMultiStopRoute ? 'plans.detail.route.googleMapsPlanRoute' : 'plans.detail.route.googleMaps'),
     label: routeLabel,
     body: bodyParts.join(' · '),
-    stopCount: includedQueries.length,
-    totalStopCount: offlineQueries.length,
+    providerBody: t(hasMultiStopRoute ? 'plans.detail.route.mapsProviderManyBody' : 'plans.detail.route.mapsProviderOneBody', { count: includedStops.length, stop: firstStopTitle }),
+    stopCount: includedStops.length,
+    totalStopCount: routeStops.length,
     skippedOnlineCount,
+    skippedMissingLocationCount,
   };
 }
 
-async function openPlanRouteMaps(routeMaps: PlanRouteMapsLink, t: PlanTranslationFunction) {
+type MapsProviderPickerOptions = {
+  title: string;
+  body: string;
+  appleLabel: string;
+  googleLabel: string;
+  cancelLabel: string;
+  appleHref: string;
+  googleHref: string;
+  errorTitle: string;
+  errorBody: string;
+};
+
+async function openMapsHref(href: string, errorTitle: string, errorBody: string) {
   try {
-    await Linking.openURL(routeMaps.href);
+    await Linking.openURL(href);
   } catch {
-    Alert.alert(t('plans.detail.route.openErrorTitle'), t('plans.detail.route.openErrorBody'));
+    Alert.alert(errorTitle, errorBody);
   }
 }
 
-function buildNativeMapsUrl(value: string) {
+function showIosMapsProviderPicker(options: MapsProviderPickerOptions) {
+  Alert.alert(options.title, options.body, [
+    {
+      text: options.appleLabel,
+      onPress: () => { void openMapsHref(options.appleHref, options.errorTitle, options.errorBody); },
+    },
+    {
+      text: options.googleLabel,
+      onPress: () => { void openMapsHref(options.googleHref, options.errorTitle, options.errorBody); },
+    },
+    { text: options.cancelLabel, style: 'cancel' },
+  ], { cancelable: true });
+}
+
+async function openPlanRouteMaps(routeMaps: PlanRouteMapsLink, t: PlanTranslationFunction) {
+  if (Platform.OS === 'ios') {
+    showIosMapsProviderPicker({
+      title: t('plans.detail.route.mapsProviderTitle'),
+      body: routeMaps.providerBody,
+      appleLabel: routeMaps.appleLabel,
+      googleLabel: routeMaps.googleLabel,
+      cancelLabel: t('plans.detail.route.cancel'),
+      appleHref: routeMaps.appleHref,
+      googleHref: routeMaps.googleHref,
+      errorTitle: t('plans.detail.route.openErrorTitle'),
+      errorBody: t('plans.detail.route.openErrorBody'),
+    });
+    return;
+  }
+  await openMapsHref(routeMaps.googleHref, t('plans.detail.route.openErrorTitle'), t('plans.detail.route.openErrorBody'));
+}
+
+function buildPlatformMapsUrl(value: string) {
   const encodedValue = encodeURIComponent(value);
-  if (Platform.OS === 'ios') return `maps://?q=${encodedValue}`;
+  if (Platform.OS === 'ios') return buildAppleMapsSearchUrl(value);
   if (Platform.OS === 'android') return `geo:0,0?q=${encodedValue}`;
-  return buildMapsSearchUrl(value);
+  return buildGoogleMapsSearchUrl(value);
 }
 
 function getPlanPlaceLocationDetails(place: PlanPlaceDto, t: PlanTranslationFunction): PlanPlaceLocationDetails | null {
@@ -1480,7 +1562,7 @@ function getPlanPlaceLocationDetails(place: PlanPlaceDto, t: PlanTranslationFunc
     kind: 'local',
     label: t('plans.detail.location.offlineAddress'),
     value,
-    href: buildMapsSearchUrl(value),
+    href: buildGoogleMapsSearchUrl(value),
     actionLabel: t('plans.detail.location.openMaps'),
   };
 }
@@ -1497,7 +1579,22 @@ function getPlanPlaceTimeLabel(place: PlanPlaceDto, planStartsAt: string, langua
 
 async function openPlanPlaceLocation(location: PlanPlaceLocationDetails, t: PlanTranslationFunction) {
   if (!location.href) return;
-  const preferredHref = location.kind === 'local' ? buildNativeMapsUrl(location.value) : location.href;
+  if (location.kind === 'local' && Platform.OS === 'ios') {
+    showIosMapsProviderPicker({
+      title: t('plans.detail.location.mapsProviderTitle'),
+      body: t('plans.detail.location.mapsProviderBody'),
+      appleLabel: t('plans.detail.location.appleMaps'),
+      googleLabel: t('plans.detail.location.googleMaps'),
+      cancelLabel: t('plans.detail.location.cancel'),
+      appleHref: buildAppleMapsSearchUrl(location.value),
+      googleHref: location.href,
+      errorTitle: t('plans.detail.location.openErrorTitle'),
+      errorBody: t('plans.detail.location.openErrorBody'),
+    });
+    return;
+  }
+
+  const preferredHref = location.kind === 'local' ? buildPlatformMapsUrl(location.value) : location.href;
   try {
     await Linking.openURL(preferredHref);
     return;
@@ -2813,6 +2910,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={routeMaps.label}
+                  accessibilityHint={Platform.OS === 'ios' ? t('plans.detail.route.openPickerHint') : t('plans.detail.route.openExternalHint')}
                   onPress={() => { void openPlanRouteMaps(routeMaps, t); }}
                   style={({ pressed }) => [styles.planRouteMapsButton, { backgroundColor: theme.semantic.place.bg, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}
                 >

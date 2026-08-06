@@ -4,7 +4,7 @@ import { publicPageMetadata } from '../../lib/seo';
 
 export const metadata = publicPageMetadata({
   title: 'Support — Hellowhen Trade',
-  description: 'Contact Hellowhen Trade support for help, safety questions, reports, and first beta feedback.',
+  description: 'Contact Hellowhen Trade support for account help, safety questions, reports, and general feedback.',
   pathname: '/support',
 });
 

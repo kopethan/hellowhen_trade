@@ -4,8 +4,13 @@
 
 ## Before native store submission
 
+- Follow the [APPSTORE26 production release runbook](./appstore26-production-release.md) for version `1.0.0`, remote build-number inspection, exact-binary QA, and submission.
+- Run `npm run mobile:release-preflight` before starting the EAS production build.
+- Run `npm run mobile:app-review-smoke` and `npm run mobile:store-readiness` from the repository root.
+- Complete `docs/launch/appstore26-ios-device-review-smoke.md` against the exact EAS production binary selected for App Store Connect.
+- Replay rejected-build regressions on iPhone and iPad compatibility mode: no general Beta presentation and Apple Maps offered for eligible Place/Plan route actions.
 - Confirm `EXPO_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `EXPO_PUBLIC_WALLET_VISIBLE=false`, `EXPO_PUBLIC_PAYOUTS_VISIBLE=false`, and `EXPO_PUBLIC_MONEY_TRADES_ENABLED=false`.
-- Verify app icon, splash, bundle identifiers, version/build numbers, and store screenshots.
+- Verify app icon, splash, bundle identifiers, marketing version `1.0.0`, iOS build number `26` or greater, and store screenshots.
 - Verify login/register/reset flows on iOS and Android devices.
 - Verify Google sign-in is disabled/hidden for first launch, with no placeholder OAuth URL scheme in native config.
 - Verify registration requires Terms/Privacy acceptance and the 18+ age confirmation checkbox.

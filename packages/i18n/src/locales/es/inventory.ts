@@ -46,7 +46,7 @@ export const inventory = {
     savedOffer: 'Oferta guardada',
     starterLibrary: 'Biblioteca inicial',
     liveInventory: 'Inventario activo',
-    demoInventory: 'Inventario demo',
+    starterExamples: 'Ejemplos iniciales',
     accountNeeded: 'Cuenta necesaria',
     checkingSession: 'Comprobando sesión',
     protected: 'Protegido',
@@ -394,7 +394,7 @@ export const inventory = {
   },
   messages: {
     ...enInventory.messages,
-    usingDemoData: 'Usando datos demo porque este elemento no se pudo cargar desde la API.',
+    usingStarterData: 'Se usan datos de ejemplo inicial porque este elemento no se pudo cargar desde la API.',
     itemCouldNotLoad: 'Este elemento no se pudo cargar desde la API.',
     imageUploaded: 'Imagen subida. Aparecerá en este elemento guardado después de guardar.',
     starterSaved: 'Ejemplo guardado',
@@ -427,7 +427,7 @@ export const inventory = {
     starterTitle: 'Inicia sesión para guardar {{items}} iniciales',
     mineTitle: 'Inicia sesión para gestionar tus {{items}} reales',
     starterBody: 'Puedes explorar {{items}} iniciales, pero necesitas iniciar sesión para guardar uno en tu cuenta.',
-    mineDemoBody: 'Las tarjetas demo muestran el diseño. Tus {{items}} guardados aparecerán aquí después de iniciar sesión.',
+    mineStarterBody: 'Las tarjetas iniciales muestran el diseño. Tus {{items}} guardados aparecerán aquí después de iniciar sesión.',
     mineBody: 'Tus {{items}} guardados aparecerán aquí después de iniciar sesión.',
   },
   errors: {

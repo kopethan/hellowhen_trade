@@ -33,7 +33,6 @@ export const common = {
     viewAll: 'View all',
   },
   states: {
-    beta: 'Beta',
     loading: 'Loading',
     working: 'Working...',
     saving: 'Saving...',

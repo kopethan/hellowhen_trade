@@ -570,7 +570,7 @@ function NativeProTradePackagePrototype({ requiredSide, enabled, needs, offers, 
     <View style={[styles.proPackageBox, { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }]}>
       <View style={styles.proPackageHeader}>
         <View style={styles.proPackageHeaderCopy}>
-          <SemanticBadge label="Hidden Pro prototype" tone="proposal" size="sm" />
+          <SemanticBadge label="Pro package" tone="proposal" size="sm" />
           <AppText style={styles.threadLabel}>{isOfferPackage ? 'Offer multiple Offers as a package' : 'Request multiple Needs as a package'}</AppText>
         </View>
         <Pressable accessibilityRole="switch" accessibilityState={{ checked: enabled }} onPress={() => onToggleEnabled(!enabled)} style={({ pressed }) => [styles.proPackageToggle, { borderColor: theme.semantic.proposal.border, backgroundColor: enabled ? theme.semantic.proposal.bg : theme.color.surface }, pressed && styles.pressed]}>

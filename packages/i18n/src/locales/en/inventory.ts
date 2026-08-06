@@ -42,7 +42,7 @@ export const inventory = {
     savedOffer: 'Saved Offer',
     starterLibrary: 'Starter library',
     liveInventory: 'Live inventory',
-    demoInventory: 'Demo inventory',
+    starterExamples: 'Starter examples',
     accountNeeded: 'Account needed',
     checkingSession: 'Checking session',
     protected: 'Protected',
@@ -377,7 +377,7 @@ export const inventory = {
     allItemsAlreadyInFolder: 'All your current {{items}} are already in this folder.',
   },
   messages: {
-    usingDemoData: 'Using demo data because this item could not be loaded from the API.',
+    usingStarterData: 'Using starter example data because this item could not be loaded from the API.',
     itemCouldNotLoad: 'This item could not be loaded from the API.',
     imageUploaded: 'Image uploaded. It will appear on this saved item after you save.',
     starterSaved: 'Starter saved',
@@ -409,7 +409,7 @@ export const inventory = {
     starterTitle: 'Sign in to save starter {{items}}',
     mineTitle: 'Sign in to manage your real {{items}}',
     starterBody: 'You can browse starter {{items}}, but saving one to your account needs login.',
-    mineDemoBody: 'The demo cards below show the layout. Your saved {{items}} appear here after login.',
+    mineStarterBody: 'The starter cards below show the layout. Your saved {{items}} appear here after login.',
     mineBody: 'Your saved {{items}} appear here after login.',
   },
   errors: {

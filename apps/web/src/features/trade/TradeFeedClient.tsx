@@ -285,7 +285,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
         <p>{loading ? t('trade.filters.loadingTrades') : filteredTrades.length === 1 ? t('trade.filters.activeTradeOne') : t('trade.filters.activeTrades', { count: filteredTrades.length })}</p>
         <div className="feed-status-actions">
           {!loading && !loadError ? <button type="button" className="semantic-badge instruction feed-refresh-button" onClick={refreshDiscoveryOrder}>{t('trade.filters.refresh')}</button> : null}
-          {loading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : loadError ? <span className="semantic-badge danger">{t('trade.filters.error')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('trade.filters.demoFeed')}</span> : <span className="semantic-badge success">{t('trade.filters.liveFeed')}</span>}
+          {loading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : loadError ? <span className="semantic-badge danger">{t('trade.filters.error')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('trade.filters.starterExamples')}</span> : <span className="semantic-badge success">{t('trade.filters.liveFeed')}</span>}
         </div>
       </section>
 

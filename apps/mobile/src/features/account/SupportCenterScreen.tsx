@@ -87,6 +87,7 @@ export function SupportCenterScreen() {
       <AppText style={styles.sectionTitle}>{t('legal.support.title')}</AppText>
       <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('legal.support.body')}</AppText>
       <View style={styles.wrap}>
+        <TouchableOpacity onPress={() => navigation.navigate('SafetyCenter')}><SemanticBadge label={t('account.safetyCenter.title')} tone="warning" /></TouchableOpacity>
         <TouchableOpacity onPress={() => navigation.navigate('LegalPolicy', { policy: 'safety' })}><SemanticBadge label={t('legal.support.viewSafety')} tone="info" /></TouchableOpacity>
         <TouchableOpacity onPress={() => navigation.navigate('LegalPolicy', { policy: 'refundDispute' })}><SemanticBadge label={t('legal.support.viewDisputes')} tone="warning" /></TouchableOpacity>
       </View>

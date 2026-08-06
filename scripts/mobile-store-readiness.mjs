@@ -78,12 +78,12 @@ function runPermissionAndSdkChecks() {
   const app = readJson('apps/mobile/app.json').expo;
   const appConfigText = read('apps/mobile/app.json');
   const androidPermissions = app.android?.permissions ?? [];
-  const blockedAndroidPermissions = ['CAMERA', 'RECORD_AUDIO', 'ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION', 'READ_CONTACTS', 'WRITE_CONTACTS'];
+  const blockedAndroidPermissions = ['CAMERA', 'RECORD_AUDIO', 'READ_CONTACTS', 'WRITE_CONTACTS'];
   for (const permission of blockedAndroidPermissions) {
     assert(!androidPermissions.includes(permission), `Android permission ${permission} must not be requested unless a reviewed store scope adds it.`);
   }
 
-  for (const blockedInfoPlistKey of ['NSCameraUsageDescription', 'NSMicrophoneUsageDescription', 'NSLocationWhenInUseUsageDescription', 'NSContactsUsageDescription', 'NSUserTrackingUsageDescription']) {
+  for (const blockedInfoPlistKey of ['NSCameraUsageDescription', 'NSMicrophoneUsageDescription', 'NSContactsUsageDescription', 'NSUserTrackingUsageDescription']) {
     assert(!appConfigText.includes(blockedInfoPlistKey), `${blockedInfoPlistKey} must not be declared before that capability/tracking scope exists.`);
   }
 
@@ -94,11 +94,12 @@ function runPermissionAndSdkChecks() {
     'react-native-google-mobile-ads',
     'expo-ads-admob',
     '@stripe/stripe-react-native',
-    'expo-location',
     'expo-camera',
     'expo-contacts',
     'expo-tracking-transparency',
   ]);
+  assert(typeof app.ios?.infoPlist?.NSLocationWhenInUseUsageDescription === 'string' && app.ios.infoPlist.NSLocationWhenInUseUsageDescription.includes("Verify I'm here"), 'iOS location permission must stay narrowly scoped to explicit offline Place presence verification.');
+  assert(appConfigText.includes('expo-location'), 'The reviewed offline Place presence flow requires the declared expo-location plugin.');
   console.log('Mobile permissions / SDK scope: PASS');
 }
 
@@ -123,7 +124,18 @@ function runUgcSafetyChecks() {
   assertContains('apps/mobile/src/components/ReportContentPanel.tsx', 'api.reports.create', 'Mobile report panel must submit reports through the reports API.');
   assertContains('apps/mobile/src/features/trade/TradeDetailScreen.tsx', '<ReportContentPanel targetType="trade"', 'Trade detail must expose report flow to non-owners.');
   assertContains('apps/mobile/src/features/users/PublicUserProfileScreen.tsx', '<ReportContentPanel targetType="profile"', 'Public profile must expose report flow.');
-  assertContains('apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx', '<ReportContentPanel targetType="public_message"', 'Public messages must expose report flow.');
+  assertContains('apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx', '<ReportContentPanel targetType="public_message"', 'Trade public messages must expose report flow.');
+  assertContains('apps/mobile/src/features/plans/PlansScreens.tsx', '<ReportContentPanel targetType="plan"', 'Plan detail must expose report flow.');
+  assertContains('apps/mobile/src/features/plans/PlansScreens.tsx', '<ReportContentPanel targetType="plan_place"', 'Plan Place detail must expose report flow.');
+  assertContains('apps/mobile/src/features/plans/PlanPublicDiscussionScreen.tsx', '<ReportContentPanel targetType={mode.targetType}', 'Plan public messages must expose report flow.');
+  assertContains('apps/mobile/src/features/trade/ProposalDetailScreen.tsx', "targetType: 'message'", 'Private proposal messages must expose report flow.');
+  assertContains('apps/mobile/src/features/trade/ProposalDetailScreen.tsx', "targetType: 'proposal'", 'Private proposal threads must expose report flow.');
+  assertContains('apps/mobile/src/features/users/PublicUserProfileScreen.tsx', 'api.users.block(profile.user.id)', 'Public profile must expose blocking.');
+  assertContains('apps/mobile/src/features/users/PublicUserProfileScreen.tsx', 'api.users.unblock(profile.user.id)', 'Public profile must expose unblocking.');
+  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', '<Stack.Screen name="SafetyCenter" component={ProtectedSafetyCenterScreen} />', 'Safety Center must be reachable for logged-in users.');
+  assertContains('apps/mobile/src/features/account/SafetyCenterScreen.tsx', 'api.reports.mine()', 'Safety Center must show the reporter private report history.');
+  assertContains('apps/mobile/src/features/account/SafetyCenterScreen.tsx', 'api.users.blocked()', 'Safety Center must show blocked members.');
+  assertContains('apps/mobile/src/features/account/SafetyCenterScreen.tsx', 'api.users.unblock(blockedUserId)', 'Safety Center must let users unblock members.');
   assertContains('apps/mobile/src/features/account/SupportCenterScreen.tsx', 'api.support.createTicket', 'Mobile support center must let users contact support.');
   assertContains('apps/mobile/src/features/account/SupportCenterScreen.tsx', "navigation.navigate('LegalPolicy', { policy: 'safety' })", 'Support center must link to safety guidelines.');
   assertContains('apps/mobile/src/features/account/SupportCenterScreen.tsx', "navigation.navigate('LegalPolicy', { policy: 'refundDispute' })", 'Support center must link to dispute policy.');
@@ -138,7 +150,7 @@ function runReviewerReadinessChecks() {
   assertContains('docs/launch/mobile-store-readiness-checklist.md', 'User-generated content', 'Store checklist must include UGC safety preparation.');
   assertContains('docs/launch/mobile-store-readiness-checklist.md', 'Data safety', 'Store checklist must include Google Play Data safety preparation.');
   assertContains('docs/launch/mobile-store-readiness-checklist.md', 'App privacy', 'Store checklist must include Apple App Privacy preparation.');
-  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'No wallet, payouts, Cash Promise, paid helpers, Stripe, Airwallex, ads, push, email notifications, or Plans', 'Store checklist must keep hidden/future features out of first-launch review notes.');
+  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'No wallet, payouts, Cash Promise, paid helpers, Stripe, Airwallex, ads, push, or email notifications. Plans and offline Places are included in this release.', 'Store checklist must describe the current reviewed scope and keep unrelated future surfaces hidden.');
   console.log('Mobile reviewer readiness docs: PASS');
 }
 

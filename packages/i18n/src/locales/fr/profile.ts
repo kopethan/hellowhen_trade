@@ -57,7 +57,7 @@ export const profile = {
     removed: 'Photo de profil supprimée.',
     updated: 'Profil mis à jour.',
     localDisplayTitle: 'Affichage local',
-    localDisplayBody: 'Le pays et la devise d’affichage aident à localiser l’affichage des échanges. Aucune adresse complète n’est collectée dans cette bêta.',
+    localDisplayBody: 'Le pays et la devise d’affichage aident à localiser les échanges. Aucune adresse complète n’est collectée.',
     photoPermission: 'Le sélecteur de photos n’a pas pu s’ouvrir. Réessayez ou vérifiez l’accès aux photos dans les réglages système.',
     photoPickerTitle: 'Choisir une photo de profil',
     photoPickerBody: 'Hellowhen ouvrira votre sélecteur de photos pour choisir une image de profil. Nous utilisons uniquement l’image que vous sélectionnez.',

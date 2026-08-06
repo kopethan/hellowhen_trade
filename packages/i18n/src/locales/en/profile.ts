@@ -57,7 +57,7 @@ export const profile = {
     removed: 'Profile photo removed.',
     updated: 'Profile updated.',
     localDisplayTitle: 'Local display',
-    localDisplayBody: 'Country and display currency help localize trade display. No full address is collected in this beta.',
+    localDisplayBody: 'Country and display currency help localize trade display. No full address is collected.',
     photoPermission: 'The photo picker could not open. Try again or check photo access in system settings.',
     photoPickerTitle: 'Choose a profile photo',
     photoPickerBody: 'Hellowhen will open your photo picker so you can choose one profile image. We only use the image you select.',

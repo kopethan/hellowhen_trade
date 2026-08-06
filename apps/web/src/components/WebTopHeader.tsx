@@ -8,13 +8,6 @@ import { useWebAuth } from '../providers/WebAuthProvider';
 import { useWebTranslation } from '../providers/WebI18nProvider';
 import { WebIcon } from './WebIcon';
 
-function WebBetaHeaderBadge() {
-  const { t } = useWebTranslation();
-  if (betaFeatures.moneyFeaturesVisible) return null;
-
-  return <span className="web-header-beta-badge">{t('common.states.beta')}</span>;
-}
-
 function WebDesktopNav({ pathname, authenticated, tabs }: { pathname: string; authenticated: boolean; tabs: WebTab[] }) {
   const { t } = useWebTranslation();
   return (
@@ -55,7 +48,6 @@ export function WebTopHeader({ hiddenOnMobile = false }: { hiddenOnMobile?: bool
   if (header.root) {
     return (
       <header className={`web-top-header web-top-header--root${headerClassName}${hiddenClassName}`}>
-        <WebBetaHeaderBadge />
         <div>
           <p className="web-kicker">{t('navigation.brand')}</p>
           <h1>{t(header.titleKey)}</h1>
@@ -67,7 +59,6 @@ export function WebTopHeader({ hiddenOnMobile = false }: { hiddenOnMobile?: bool
 
   return (
     <header className={`web-top-header web-top-header--nested${headerClassName}${hiddenClassName}`}>
-      <WebBetaHeaderBadge />
       <div className="web-nested-title-row">
         <Link href={header.backHref ?? '/trades'} className="web-back-button" aria-label={t('navigation.goBack')}>
           <WebIcon name="back" size={21} decorative />

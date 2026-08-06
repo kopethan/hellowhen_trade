@@ -42,7 +42,7 @@ export const inventory = {
     savedOffer: 'Offre enregistrée',
     starterLibrary: 'Bibliothèque de départ',
     liveInventory: 'Inventaire actif',
-    demoInventory: 'Inventaire démo',
+    starterExamples: 'Exemples de départ',
     accountNeeded: 'Compte requis',
     checkingSession: 'Vérification de la session',
     protected: 'Protégé',
@@ -377,7 +377,7 @@ export const inventory = {
     allItemsAlreadyInFolder: 'Tous vos {{items}} actuels sont déjà dans ce dossier.',
   },
   messages: {
-    usingDemoData: 'Données de démonstration utilisées, car cet élément n’a pas pu être chargé depuis l’API.',
+    usingStarterData: 'Des données d’exemple de départ sont utilisées car cet élément n’a pas pu être chargé depuis l’API.',
     itemCouldNotLoad: 'Cet élément n’a pas pu être chargé depuis l’API.',
     imageUploaded: 'Image importée. Elle apparaîtra sur cet élément enregistré après l’enregistrement.',
     starterSaved: 'Modèle enregistré',
@@ -409,7 +409,7 @@ export const inventory = {
     starterTitle: 'Connectez-vous pour enregistrer les éléments de départ {{items}}',
     mineTitle: 'Connectez-vous pour gérer vos vrais {{items}}',
     starterBody: 'Vous pouvez parcourir les éléments de départ {{items}}, mais l’enregistrement dans votre compte nécessite une connexion.',
-    mineDemoBody: 'Les cartes de démonstration ci-dessous montrent la mise en page. Vos {{items}} enregistrés apparaîtront ici après connexion.',
+    mineStarterBody: 'Les cartes de départ ci-dessous montrent la mise en page. Vos {{items}} enregistrés apparaîtront ici après connexion.',
     mineBody: 'Vos {{items}} enregistrés apparaîtront ici après connexion.',
   },
   errors: {

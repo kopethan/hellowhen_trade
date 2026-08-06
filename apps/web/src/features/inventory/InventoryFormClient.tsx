@@ -190,7 +190,7 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
         const fallback = demoDataEnabled ? (kind === 'need' ? mockNeeds : mockOffers).find((item) => item.id === requestedItemId) ?? null : null;
         setValues(inventoryToFormValues(fallback));
         setMedia(normalizeMediaOrder(fallback?.media ?? []));
-        setMessage(demoDataEnabled && fallback ? t('inventory.messages.usingDemoData') : t('inventory.messages.itemCouldNotLoad'));
+        setMessage(demoDataEnabled && fallback ? t('inventory.messages.usingStarterData') : t('inventory.messages.itemCouldNotLoad'));
       } finally {
         if (mounted) setLoading(false);
       }

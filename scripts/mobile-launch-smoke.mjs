@@ -74,8 +74,6 @@ function runFirstLaunchEnvChecks() {
     'EXPO_PUBLIC_PRO_TRIALS_ENABLED',
     'EXPO_PUBLIC_PRO_TRADE_PACKAGES_ENABLED',
     'EXPO_PUBLIC_PRO_TRADE_PACKAGES_VISIBLE',
-    'EXPO_PUBLIC_PLANS_ENABLED',
-    'EXPO_PUBLIC_PLANS_VISIBLE',
   ];
   const noneFlags = ['EXPO_PUBLIC_MONEY_PROVIDER', 'EXPO_PUBLIC_ADS_PROVIDER', 'EXPO_PUBLIC_AI_PROVIDER'];
 
@@ -86,21 +84,32 @@ function runFirstLaunchEnvChecks() {
   }
 
   assertEnvDefault('.env.example', 'EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED', 'true');
-  console.log('Mobile first-launch env flags: PASS');
+  for (const envFile of envFiles) {
+    assertEnvDefault(envFile, 'EXPO_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS', 'true');
+    assertEnvDefault(envFile, 'EXPO_PUBLIC_PLANS_ENABLED', 'true');
+    assertEnvDefault(envFile, 'EXPO_PUBLIC_PLANS_VISIBLE', 'true');
+    assertEnvDefault(envFile, 'EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE', 'true');
+    assertEnvDefault(envFile, 'EXPO_PUBLIC_MOBILE_FLAG_DIAGNOSTICS_VISIBLE', 'false');
+  }
+  console.log('Mobile public-release env flags: PASS');
 }
 
 function runNavigationChecks() {
-  const navigator = read('apps/mobile/src/navigation/RootNavigator.tsx');
-  const tabNames = [...navigator.matchAll(/<Tabs\.Screen name="([^"]+)"/g)].map((match) => match[1]);
-  assert(JSON.stringify(tabNames) === JSON.stringify(['Trades', 'Needs', 'Offers', 'Account']), `Mobile tabs must stay Trades/Needs/Offers/Account. Found: ${tabNames.join(', ') || 'none'}.`);
+  assertContains('packages/shared/src/appNavigation.ts', "normalAppNavItemIds = ['plans', 'me', 'trade']", 'Shared public navigation must stay Plans / Me / Trade.');
+  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'normalAppNavItems.map((item)', 'Native bottom tabs must be generated from the shared Plans / Me / Trade navigation.');
+  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'initialRouteName={DEFAULT_NORMAL_APP_NAV_MOBILE_TAB_NAME}', 'Native public navigation must keep the shared default tab.');
 
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'const ProtectedProposalDetailScreen = withAuth(ProposalDetailScreen);', 'Proposal thread detail must stay auth-protected.');
-  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', "withAuth(TradePrivateProposalsScreen, 'Login to view private proposals'", 'Private proposals screen must stay auth-protected.');
+  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', "withAuth(TradePrivateProposalsScreen, 'navigation.authRequired.privateProposals.title'", 'Private proposals screen must stay auth-protected.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.walletVisible ? <Stack.Screen name="Wallet"', 'Wallet route must stay hidden behind walletVisible.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.walletVisible ? <Stack.Screen name="BuyCredits"', 'Buy credits route must stay hidden behind walletVisible.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.payoutsVisible ? <Stack.Screen name="Payouts"', 'Payouts route must stay hidden behind payoutsVisible.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.plusSubscriptionFeatures.plusPublic ? <Stack.Screen name="ProPlans"', 'Plan selection route must stay hidden behind plusPublic.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.businessAccountsVisible ? <Stack.Screen name="BusinessAccounts"', 'Business route must stay hidden behind businessAccountsVisible.');
+  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.savedLibraryEnabled ? <Stack.Screen name="SavedLibrary"', 'Saved Library route must stay hidden behind savedLibraryEnabled.');
+  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.savedCollectionsEnabled ? <Stack.Screen name="SavedLibraryCollection"', 'Saved collections route must stay hidden behind savedCollectionsEnabled.');
+  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.agendaEnabled ? <Stack.Screen name="Agenda"', 'Agenda route must stay hidden behind agendaEnabled.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'const showFlagDiagnostics = betaFeatures.mobileDiagnosticsVisible;', 'Production Me screen must not auto-show feature diagnostics.');
   assertNotContains('apps/mobile/src/navigation/RootNavigator.tsx', 'wallet, support, and beta account tools', 'Logged-out Account copy must not mention wallet while first-launch money UI is hidden.');
   console.log('Mobile navigation/privacy gates: PASS');
 }
@@ -109,6 +118,7 @@ function runSharePlacementChecks() {
   const allowedShareFiles = new Set([
     'apps/mobile/src/components/MobileIcon.tsx',
     'apps/mobile/src/features/trade/TradeDetailScreen.tsx',
+    'apps/mobile/src/features/plans/PlansScreens.tsx',
   ]);
   const files = collectFiles('apps/mobile/src').filter((file) => /\.(tsx?|jsx?)$/.test(file));
   const sharePatterns = [/\bShare\.share\b/, /\bshareTrade\b/, /name="share"/, /trade\.detail\.share/];
@@ -122,6 +132,7 @@ function runSharePlacementChecks() {
 
   assertContains('apps/mobile/src/features/trade/TradeDetailScreen.tsx', 'Share.share', 'Trade Detail must keep native share behavior.');
   assertContains('apps/mobile/src/features/trade/TradeDetailScreen.tsx', 'shareTrade', 'Trade Detail must keep its share handler.');
+  assertContains('apps/mobile/src/features/plans/PlansScreens.tsx', 'Share.share', 'Plan Detail must keep native share behavior.');
   console.log('Mobile share placement: PASS');
 }
 

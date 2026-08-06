@@ -455,7 +455,7 @@ export function TradeCreateFullClient({ initialNeedId = '', initialOfferId = '',
         setOffers(demoDataEnabled ? mockOffers : []);
         setTrades(demoDataEnabled ? mockTrades : []);
         setLoadState(demoDataEnabled ? 'demo' : 'idle');
-        setNotice(demoDataEnabled ? t('trade.create.loadingInventoryNoticeDemo') : t('trade.create.loadingInventoryNoticeLive'));
+        setNotice(demoDataEnabled ? t('trade.create.loadingInventoryNoticeStarter') : t('trade.create.loadingInventoryNoticeLive'));
       }
     }
     void loadInventory();
@@ -642,7 +642,7 @@ export function TradeCreateFullClient({ initialNeedId = '', initialOfferId = '',
       <form className="trade-create-form" onSubmit={handleSubmit}>
         <div className="trade-create-status-row">
           <span className="semantic-badge trade">{showPostTypeStep ? t('trade.create.choosePublishType') : postTypeLabel(values.postType, t)}</span>
-          {amountPreview && (usesMoney || usesCashPromise) ? <span className="semantic-badge money">{amountPreview}</span> : <span className="semantic-badge instruction">{t('trade.create.beta')}</span>}
+          {amountPreview && (usesMoney || usesCashPromise) ? <span className="semantic-badge money">{amountPreview}</span> : <span className="semantic-badge instruction">{t('trade.create.postBadge')}</span>}
         </div>
 
         {showStarterFullFormPanel && routeIdeaKey && selectedFeedIdea ? (

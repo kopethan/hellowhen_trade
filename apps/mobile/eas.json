@@ -9,21 +9,20 @@
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.hellowhen.com",
-
         "EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED": "true",
         "EXPO_PUBLIC_PLANS_ENABLED": "true",
         "EXPO_PUBLIC_PLANS_VISIBLE": "true",
         "EXPO_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS": "true",
         "EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE": "true",
-
         "NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED": "true",
         "NEXT_PUBLIC_PLANS_ENABLED": "true",
         "NEXT_PUBLIC_PLANS_VISIBLE": "true",
         "NEXT_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS": "true",
         "NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE": "true",
-
         "EXPO_PUBLIC_CASH_PROMISE_ENABLED": "false",
-        "EXPO_PUBLIC_CASH_PROMISE_VISIBLE": "false"
+        "EXPO_PUBLIC_CASH_PROMISE_VISIBLE": "false",
+        "EXPO_PUBLIC_STORE_RELEASE": "false",
+        "EXPO_PUBLIC_MOBILE_FLAG_DIAGNOSTICS_VISIBLE": "false"
       },
       "ios": {
         "image": "macos-sequoia-15.6-xcode-26.0"
@@ -36,21 +35,20 @@
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.hellowhen.com",
-
         "EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED": "true",
         "EXPO_PUBLIC_PLANS_ENABLED": "true",
         "EXPO_PUBLIC_PLANS_VISIBLE": "true",
         "EXPO_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS": "true",
         "EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE": "true",
-
         "NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED": "true",
         "NEXT_PUBLIC_PLANS_ENABLED": "true",
         "NEXT_PUBLIC_PLANS_VISIBLE": "true",
         "NEXT_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS": "true",
         "NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE": "true",
-
         "EXPO_PUBLIC_CASH_PROMISE_ENABLED": "false",
-        "EXPO_PUBLIC_CASH_PROMISE_VISIBLE": "false"
+        "EXPO_PUBLIC_CASH_PROMISE_VISIBLE": "false",
+        "EXPO_PUBLIC_STORE_RELEASE": "false",
+        "EXPO_PUBLIC_MOBILE_FLAG_DIAGNOSTICS_VISIBLE": "false"
       },
       "ios": {
         "image": "macos-sequoia-15.6-xcode-26.0"
@@ -63,21 +61,63 @@
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.hellowhen.com",
-
         "EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED": "true",
         "EXPO_PUBLIC_PLANS_ENABLED": "true",
         "EXPO_PUBLIC_PLANS_VISIBLE": "true",
         "EXPO_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS": "true",
         "EXPO_PUBLIC_MAIN_NAV_PLANS_ME_TRADE": "true",
-
         "NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED": "true",
         "NEXT_PUBLIC_PLANS_ENABLED": "true",
         "NEXT_PUBLIC_PLANS_VISIBLE": "true",
         "NEXT_PUBLIC_PLANS_ALLOW_WITH_FIRST_LAUNCH_GUARDS": "true",
         "NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE": "true",
-
         "EXPO_PUBLIC_CASH_PROMISE_ENABLED": "false",
-        "EXPO_PUBLIC_CASH_PROMISE_VISIBLE": "false"
+        "EXPO_PUBLIC_CASH_PROMISE_VISIBLE": "false",
+        "EXPO_PUBLIC_STORE_RELEASE": "true",
+        "EXPO_PUBLIC_WEB_URL": "https://www.hellowhen.com",
+        "EXPO_PUBLIC_MOBILE_FLAG_DIAGNOSTICS_VISIBLE": "false",
+        "EXPO_PUBLIC_MONEY_PROVIDER": "none",
+        "EXPO_PUBLIC_MONEY_FEATURES_VISIBLE": "false",
+        "EXPO_PUBLIC_WALLET_VISIBLE": "false",
+        "EXPO_PUBLIC_PAYOUTS_VISIBLE": "false",
+        "EXPO_PUBLIC_MONEY_TRADES_ENABLED": "false",
+        "EXPO_PUBLIC_CASH_TRADES_ENABLED": "false",
+        "EXPO_PUBLIC_ADS_PROVIDER": "none",
+        "EXPO_PUBLIC_ADS_ENABLED": "false",
+        "EXPO_PUBLIC_MOBILE_ADS_ENABLED": "false",
+        "EXPO_PUBLIC_ADS_DEBUG_PLACEHOLDERS": "false",
+        "EXPO_PUBLIC_AI_PROVIDER": "none",
+        "EXPO_PUBLIC_AI_ENABLED": "false",
+        "EXPO_PUBLIC_AI_MODERATION_ENABLED": "false",
+        "EXPO_PUBLIC_AI_SUGGESTIONS_ENABLED": "false",
+        "EXPO_PUBLIC_AI_ADMIN_ASSIST_ENABLED": "false",
+        "EXPO_PUBLIC_AI_SAFETY_CLASSIFIER_ENABLED": "false",
+        "EXPO_PUBLIC_AI_DEBUG_PLACEHOLDERS": "false",
+        "EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED": "false",
+        "EXPO_PUBLIC_PLUS_ENABLED": "false",
+        "EXPO_PUBLIC_PLUS_PUBLIC": "false",
+        "EXPO_PUBLIC_AI_ASSIST_ENABLED": "false",
+        "EXPO_PUBLIC_PLUS_CUSTOMIZATION_ENABLED": "false",
+        "EXPO_PUBLIC_SAVED_LIBRARY_ENABLED": "false",
+        "EXPO_PUBLIC_SAVED_COLLECTIONS_ENABLED": "false",
+        "EXPO_PUBLIC_AGENDA_ENABLED": "false",
+        "EXPO_PUBLIC_INVENTORY_FOLDERS_ENABLED": "false",
+        "EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED": "false",
+        "EXPO_PUBLIC_PRO_ACCOUNTS_VISIBLE": "false",
+        "EXPO_PUBLIC_PRO_TRIALS_ENABLED": "false",
+        "EXPO_PUBLIC_IDENTITY_VERIFICATION_ENABLED": "false",
+        "EXPO_PUBLIC_PRO_TRADE_PACKAGES_ENABLED": "false",
+        "EXPO_PUBLIC_PRO_TRADE_PACKAGES_VISIBLE": "false",
+        "EXPO_PUBLIC_MOBILE_MEMBERSHIP_VISIBLE": "false",
+        "EXPO_PUBLIC_IOS_STOREKIT_MEMBERSHIP_ENABLED": "false",
+        "EXPO_PUBLIC_ANDROID_GOOGLE_PLAY_MEMBERSHIP_ENABLED": "false",
+        "EXPO_PUBLIC_IOS_MEMBERSHIP_PURCHASE_PLACEHOLDER_ENABLED": "false",
+        "EXPO_PUBLIC_ANDROID_MEMBERSHIP_PURCHASE_PLACEHOLDER_ENABLED": "false",
+        "EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED": "false",
+        "EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE": "false",
+        "EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED": "false",
+        "EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED": "false",
+        "EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED": "false"
       },
       "ios": {
         "image": "macos-sequoia-15.6-xcode-26.0"
@@ -85,6 +125,10 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6781399122"
+      }
+    }
   }
 }

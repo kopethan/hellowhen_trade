@@ -27,7 +27,21 @@ usersRoutes.get('/blocked', requireAuth, asyncRoute(async (req, res) => {
     orderBy: { createdAt: 'desc' },
     take: 250,
   });
-  res.json({ blocks });
+  res.json({
+    blocks: blocks.map(({ blocked, ...block }) => ({
+      ...block,
+      blocked: {
+        id: blocked.id,
+        memberSince: blocked.createdAt,
+        profile: blocked.profile,
+        badges: getUserVerificationBadges({
+          emailVerifiedAt: blocked.emailVerifiedAt,
+          trustTier: blocked.trustTier,
+          professionalStatus: blocked.professionalStatus,
+        }),
+      },
+    })),
+  });
 }));
 
 usersRoutes.post('/:userId/block', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {

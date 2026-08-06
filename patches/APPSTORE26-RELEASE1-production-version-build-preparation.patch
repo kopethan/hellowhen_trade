@@ -1,0 +1,506 @@
+diff --git a/apps/mobile/app.json b/apps/mobile/app.json
+index 5460ac0..11c3aab 100644
+--- a/apps/mobile/app.json
++++ b/apps/mobile/app.json
+@@ -2,7 +2,7 @@
+   "expo": {
+     "name": "Hellowhen",
+     "slug": "hellowhen",
+-    "version": "0.1.0",
++    "version": "1.0.0",
+     "orientation": "portrait",
+     "icon": "./assets/icon.png",
+     "userInterfaceStyle": "automatic",
+diff --git a/apps/mobile/eas.json b/apps/mobile/eas.json
+index ac083be..921f537 100644
+--- a/apps/mobile/eas.json
++++ b/apps/mobile/eas.json
+@@ -125,6 +125,10 @@
+     }
+   },
+   "submit": {
+-    "production": {}
++    "production": {
++      "ios": {
++        "ascAppId": "6781399122"
++      }
++    }
+   }
+ }
+diff --git a/apps/mobile/package.json b/apps/mobile/package.json
+index 7ceb926..93b3fa4 100644
+--- a/apps/mobile/package.json
++++ b/apps/mobile/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@hellowhen/mobile",
+-  "version": "0.1.0",
++  "version": "1.0.0",
+   "private": true,
+   "main": "index.js",
+   "scripts": {
+diff --git a/docs/launch/appstore26-ios-device-review-smoke.md b/docs/launch/appstore26-ios-device-review-smoke.md
+index b28e738..e3baa2f 100644
+--- a/docs/launch/appstore26-ios-device-review-smoke.md
++++ b/docs/launch/appstore26-ios-device-review-smoke.md
+@@ -44,6 +44,7 @@ Run from the repository root:
+ 
+ ```powershell
+ npm run mobile:app-review-smoke
++npm run mobile:release-preflight
+ npm run mobile:store-readiness
+ npm run typecheck
+ npm run build
+@@ -256,8 +257,8 @@ Store this record privately with the release. Do not commit credentials or reusa
+ | --- | --- |
+ | Commit SHA | |
+ | EAS build ID / URL | |
+-| Marketing version | |
+-| iOS build number | |
++| Marketing version | 1.0.0 |
++| iOS build number | 26 or greater |
+ | App Store Connect submission ID | |
+ | API URL | |
+ | Public web URL | |
+@@ -275,6 +276,7 @@ Store this record privately with the release. Do not commit credentials or reusa
+ | Account deletion | |
+ | Weak-network pass | |
+ | `mobile:app-review-smoke` | |
++| `mobile:release-preflight` | |
+ | `mobile:store-readiness` | |
+ | `typecheck` | |
+ | `build` | |
+diff --git a/docs/launch/appstore26-production-release.md b/docs/launch/appstore26-production-release.md
+new file mode 100644
+index 0000000..3c2f323
+--- /dev/null
++++ b/docs/launch/appstore26-production-release.md
+@@ -0,0 +1,150 @@
++# APPSTORE26-RELEASE1 — Production version and build runbook
++
++Use this runbook only after the APPSTORE26 patch chain is applied and committed.
++
++## Release identity
++
++```txt
++App: Hellowhen
++Bundle ID: com.hellowhen.app
++App Store Connect app ID: 6781399122
++Marketing version: 1.0.0
++Rejected build: 25
++Replacement iOS build: 26 or greater
++EAS profile: production
++API: https://api.hellowhen.com
++Public web: https://www.hellowhen.com
++```
++
++The marketing version is controlled by `apps/mobile/app.json`. The developer-facing iOS build number is managed remotely by EAS because `cli.appVersionSource` is `remote` and the production profile uses `autoIncrement: true`.
++
++## 1. Freeze the release commit
++
++From the repository root:
++
++```powershell
++git status --short
++git rev-parse HEAD
++npm ci
++npm run mobile:release-preflight
++npm run mobile:store-readiness
++npm run typecheck
++npm run build
++```
++
++Stop when:
++
++- the worktree contains an unexpected source change;
++- any command fails;
++- the marketing version is not `1.0.0`;
++- the production API or public web URL differs from the approved release values;
++- a hidden release flag is enabled.
++
++Record the commit SHA before starting the EAS build. Do not amend or rebuild from a different commit after device sign-off.
++
++## 2. Inspect the remote iOS build number
++
++From `apps/mobile`:
++
++```powershell
++cd apps/mobile
++eas login
++eas build:version:get --platform ios --profile production
++```
++
++Compare the remote value with App Store Connect.
++
++- If the latest issued iOS build is `25`, leave the remote value at `25`; production auto-increment should create build `26`.
++- If a build newer than `25` already exists, keep that newer value; the replacement build must increment beyond it.
++- If the remote value is missing or lower than the latest build in App Store Connect, reconcile it before building.
++
++**Do not run `eas build:version:set` blindly.** It can reset the remote source to an already-used number. Use it only after checking App Store Connect, and enter the latest developer-facing build number already issued—not the number you hope to create.
++
++When reconciliation is actually required:
++
++```powershell
++eas build:version:set --platform ios --profile production
++```
++
++Then rerun:
++
++```powershell
++eas build:version:get --platform ios --profile production
++```
++
++## 3. Create the production binary
++
++Use a clean production build for the first replacement after the rejection fixes:
++
++```powershell
++eas build --platform ios --profile production --clear-cache
++```
++
++Do not use `--auto-submit`. Record the completed build first, then upload that exact build deliberately to App Store Connect for TestFlight QA. EAS Submit uploads the binary; it does not replace the later App Store Review action.
++
++When the build completes, record:
++
++- EAS build ID and URL;
++- commit SHA;
++- marketing version shown by EAS;
++- iOS build number;
++- production API and web URLs;
++- build completion time.
++
++The iOS build number must be `26` or greater and must not already exist in App Store Connect.
++
++## 4. Upload the exact build to App Store Connect
++
++After the build completes and the static release checks remain green:
++
++```powershell
++eas submit --platform ios --profile production
++```
++
++Select the exact EAS build ID recorded in step 3. For a less ambiguous upload, use:
++
++```powershell
++eas submit --platform ios --profile production --id <EAS_BUILD_ID>
++```
++
++The production submit profile is pinned to App Store Connect app `6781399122`. This upload makes the build available for App Store Connect/TestFlight processing; do not submit the version for App Review yet.
++
++Never commit Apple credentials, app-specific passwords, API private keys, reviewer passwords, or reusable session tokens.
++
++## 5. Test the exact TestFlight binary
++
++After App Store Connect finishes processing, install the exact uploaded production build through TestFlight and complete:
++
++```txt
++docs/launch/appstore26-ios-device-review-smoke.md
++docs/launch/mobile-ugc-safety-review-checklist.md
++```
++
++Required rejection regression:
++
++- no general Beta/demo/prototype/test-build presentation;
++- Apple Maps appears first for eligible Place and Plan route actions;
++- Google Maps remains optional;
++- the iPad Air 11-inch compatibility presentation remains usable.
++
++Do not sign off from Expo Go, a development client, a preview profile, an ad hoc rebuild, or a different TestFlight build.
++
++## 6. App Store Connect final checks and App Review resubmission
++
++Before resubmitting the version to App Review:
++
++- select marketing version `1.0.0` and the exact tested build number;
++- confirm the privacy policy URL is `https://hellowhen.com/legal/privacy`;
++- confirm screenshots and descriptions do not present the app as Beta;
++- confirm reviewer credentials still work;
++- confirm the reviewer account contains a public Plan with mapped offline Places;
++- paste the APPSTORE26 review notes from the submission checklist;
++- verify the selected binary matches the recorded EAS build ID, commit, version, and build number.
++
++Stop submission if App Store Connect shows a different binary from the one tested.
++
++## 7. Keep release evidence private
++
++Store the completed evidence record outside the public repository. It may contain build URLs, reviewer-account details, device identifiers, and App Store Connect notes.
++
++The repository may contain blank checklists and non-secret app identifiers. It must not contain credentials or completed private evidence.
+diff --git a/docs/launch/mobile-store-readiness-checklist.md b/docs/launch/mobile-store-readiness-checklist.md
+index 68dd2aa..2bab5bd 100644
+--- a/docs/launch/mobile-store-readiness-checklist.md
++++ b/docs/launch/mobile-store-readiness-checklist.md
+@@ -17,24 +17,26 @@ Run from the repository root:
+ ```powershell
+ npm run mobile:launch-smoke
+ npm run mobile:app-review-smoke
++npm run mobile:release-preflight
+ npm run store:copy-scan
+ npm run mobile:store-readiness
+ npm run typecheck
+ npm run build
+ ```
+ 
+-Do not submit until all six command lines pass locally. `npm run mobile:store-readiness` also runs the store-release guard, App Review static smoke, store-visible copy scan, focused UGC safety smoke, and Cash Promise store/safety checklist guard. Complete [the iPhone/iPad App Review smoke](./appstore26-ios-device-review-smoke.md) and [the mobile UGC safety review checklist](./mobile-ugc-safety-review-checklist.md) on the exact production build.
++Do not submit until all seven command lines pass locally. `npm run mobile:store-readiness` also runs the store-release guard, App Review static smoke, store-visible copy scan, focused UGC safety smoke, and Cash Promise store/safety checklist guard. Complete [the iPhone/iPad App Review smoke](./appstore26-ios-device-review-smoke.md) and [the mobile UGC safety review checklist](./mobile-ugc-safety-review-checklist.md) on the exact production build.
+ 
+ ## App metadata
+ 
+-Prepare or verify:
++Follow [APPSTORE26-RELEASE1 — Production version and build runbook](./appstore26-production-release.md), then prepare or verify:
+ 
+ - App name: `Hellowhen`.
+ - Bundle ID: `com.hellowhen.app` or the final company-owned replacement.
+ - Android package: `com.hellowhen.app` or the final company-owned replacement.
+ - App icon and Android adaptive icon are production assets, not placeholders.
+ - Splash image is production-ready and not a dev/test logo.
+-- Version is incremented before each store upload.
++- Marketing version is `1.0.0` for this replacement submission.
++- EAS remote iOS build number is inspected before building and the resulting build is `26` or greater.
+ - Portrait-only behavior is intentional and has been tested.
+ - App category does not imply dating, payments, gambling, job placement, crypto, teen social, or financial services.
+ - Age rating is set for adults only / 18+ launch positioning.
+diff --git a/docs/launch/native-app-store-release-checklist.md b/docs/launch/native-app-store-release-checklist.md
+index a297001..ac75ed9 100644
+--- a/docs/launch/native-app-store-release-checklist.md
++++ b/docs/launch/native-app-store-release-checklist.md
+@@ -4,11 +4,13 @@
+ 
+ ## Before native store submission
+ 
++- Follow the [APPSTORE26 production release runbook](./appstore26-production-release.md) for version `1.0.0`, remote build-number inspection, exact-binary QA, and submission.
++- Run `npm run mobile:release-preflight` before starting the EAS production build.
+ - Run `npm run mobile:app-review-smoke` and `npm run mobile:store-readiness` from the repository root.
+ - Complete `docs/launch/appstore26-ios-device-review-smoke.md` against the exact EAS production binary selected for App Store Connect.
+ - Replay rejected-build regressions on iPhone and iPad compatibility mode: no general Beta presentation and Apple Maps offered for eligible Place/Plan route actions.
+ - Confirm `EXPO_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `EXPO_PUBLIC_WALLET_VISIBLE=false`, `EXPO_PUBLIC_PAYOUTS_VISIBLE=false`, and `EXPO_PUBLIC_MONEY_TRADES_ENABLED=false`.
+-- Verify app icon, splash, bundle identifiers, version/build numbers, and store screenshots.
++- Verify app icon, splash, bundle identifiers, marketing version `1.0.0`, iOS build number `26` or greater, and store screenshots.
+ - Verify login/register/reset flows on iOS and Android devices.
+ - Verify Google sign-in is disabled/hidden for first launch, with no placeholder OAuth URL scheme in native config.
+ - Verify registration requires Terms/Privacy acceptance and the 18+ age confirmation checkbox.
+diff --git a/docs/mobile/ios-eas-build-requirements.md b/docs/mobile/ios-eas-build-requirements.md
+index b20b661..0085050 100644
+--- a/docs/mobile/ios-eas-build-requirements.md
++++ b/docs/mobile/ios-eas-build-requirements.md
+@@ -1,14 +1,64 @@
+ # iOS EAS build requirements
+ 
+-Hellowhen iOS production builds must use an EAS macOS image with Xcode 26 or newer for App Store submission. The mobile `production`, `preview`, and `development` EAS profiles pin the iOS image to `macos-sequoia-15.6-xcode-26.0` so builds use Xcode 26 and Node.js 20.19.4 instead of the older Expo SDK 51 auto image.
++Hellowhen iOS production builds use marketing version `1.0.0` for the APPSTORE26 replacement submission.
+ 
+-The `expo-iap` dependency resolves the CocoaPod `openiap`, which requires a higher iOS deployment target than the Expo SDK 51 default. The mobile app config sets the iOS deployment target to `15.0` through `expo-build-properties`, which is applied during prebuild.
++The mobile `production`, `preview`, and `development` EAS profiles pin the iOS image to `macos-sequoia-15.6-xcode-26.0`. The app config sets the iOS deployment target to `15.0` through `expo-build-properties`, which is applied during prebuild.
+ 
+-Recommended command from the repo root:
++## Version management
++
++The user-facing marketing version is stored in:
++
++```txt
++apps/mobile/app.json → expo.version
++```
++
++The developer-facing iOS build number is managed remotely by EAS:
++
++```json
++{
++  "cli": {
++    "appVersionSource": "remote"
++  },
++  "build": {
++    "production": {
++      "autoIncrement": true
++    }
++  }
++}
++```
++
++Before every production build, inspect the current remote value from `apps/mobile`:
++
++```powershell
++eas build:version:get --platform ios --profile production
++```
++
++The rejected binary used build `25`. The replacement must use build `26` or greater. Do not reset the remote value without comparing it with the latest build already issued in App Store Connect.
++
++## Required preflight
++
++From the repository root:
++
++```powershell
++npm ci
++npm run mobile:release-preflight
++npm run mobile:store-readiness
++npm run typecheck
++npm run build
++```
++
++Then follow:
++
++```txt
++docs/launch/appstore26-production-release.md
++```
++
++## Production build
++
++From `apps/mobile`:
+ 
+ ```powershell
+-cd apps/mobile
+-npx eas build --platform ios --profile production --clear-cache
++eas build --platform ios --profile production --clear-cache
+ ```
+ 
+-Use `--clear-cache` for the first rebuild after changing build image or native build properties so CocoaPods is resolved from the updated configuration.
++Use `--clear-cache` for the first replacement build after native configuration and App Review fixes. Do not auto-submit: record the EAS build ID, upload that exact build deliberately with EAS Submit, then complete the iPhone/iPad checklist through TestFlight before resubmitting for App Review.
+diff --git a/package-lock.json b/package-lock.json
+index 83808aa..dab0edf 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -54,7 +54,7 @@
+     },
+     "apps/mobile": {
+       "name": "@hellowhen/mobile",
+-      "version": "0.1.0",
++      "version": "1.0.0",
+       "dependencies": {
+         "@expo/vector-icons": "^14.0.2",
+         "@hellowhen/api-client": "file:../../packages/api-client",
+diff --git a/package.json b/package.json
+index ea02f8e..9da1f2b 100644
+--- a/package.json
++++ b/package.json
+@@ -26,7 +26,7 @@
+     "mobile:launch-smoke": "node scripts/mobile-launch-smoke.mjs",
+     "build:packages": "npm run build -w @hellowhen/contracts && npm run build -w @hellowhen/api-client && npm run build -w @hellowhen/i18n && npm run build -w @hellowhen/shared && npm run build -w @hellowhen/theme && npm run build -w @hellowhen/trade-domain && npm run build -w @hellowhen/ui",
+     "build:apps": "npm run build -w @hellowhen/api && npm run build -w @hellowhen/web",
+-    "mobile:store-readiness": "npm run mobile:launch-smoke && npm run mobile:store-release-smoke && npm run mobile:app-review-smoke && npm run store:copy-scan && npm run mobile:ugc-safety-smoke && node scripts/mobile-store-readiness.mjs && npm run cash-promise:safety-smoke",
++    "mobile:store-readiness": "npm run mobile:launch-smoke && npm run mobile:store-release-smoke && npm run mobile:app-review-smoke && npm run mobile:release-preflight && npm run store:copy-scan && npm run mobile:ugc-safety-smoke && node scripts/mobile-store-readiness.mjs && npm run cash-promise:safety-smoke",
+     "cash-promise:safety-smoke": "node scripts/cash-promise-safety-smoke.mjs",
+     "starter-library:qa": "node scripts/starter-library-qa.mjs",
+     "places:smoke": "node scripts/place-library-hidden-smoke.mjs",
+@@ -42,7 +42,8 @@
+     "mobile:store-release-smoke": "node scripts/mobile-store-release-smoke.mjs",
+     "mobile:app-review-smoke": "node scripts/mobile-app-review-smoke.mjs",
+     "mobile:ugc-safety-smoke": "node scripts/mobile-ugc-safety-smoke.mjs",
+-    "store:copy-scan": "node scripts/store-visible-copy-scan.mjs"
++    "store:copy-scan": "node scripts/store-visible-copy-scan.mjs",
++    "mobile:release-preflight": "node scripts/mobile-release-preflight.mjs"
+   },
+   "devDependencies": {
+     "expo": "~51.0.39",
+diff --git a/scripts/mobile-release-preflight.mjs b/scripts/mobile-release-preflight.mjs
+new file mode 100644
+index 0000000..40c1d9d
+--- /dev/null
++++ b/scripts/mobile-release-preflight.mjs
+@@ -0,0 +1,108 @@
++#!/usr/bin/env node
++
++import { existsSync, readFileSync } from 'node:fs';
++import path from 'node:path';
++
++const root = process.cwd();
++const expectedMarketingVersion = '1.0.0';
++const rejectedIosBuildNumber = 25;
++const appStoreConnectAppId = '6781399122';
++
++function read(relativePath) {
++  return readFileSync(path.join(root, relativePath), 'utf8');
++}
++
++function readJson(relativePath) {
++  return JSON.parse(read(relativePath));
++}
++
++function assert(condition, message) {
++  if (!condition) throw new Error(message);
++}
++
++function assertContains(file, needle, message = `${file} must contain ${needle}`) {
++  assert(read(file).includes(needle), message);
++}
++
++function assertExists(relativePath, message = `${relativePath} must exist.`) {
++  assert(existsSync(path.join(root, relativePath)), message);
++}
++
++function assertPublicHttpsUrl(value, label) {
++  let parsed;
++  try {
++    parsed = new URL(value);
++  } catch {
++    throw new Error(`${label} must be a valid absolute URL.`);
++  }
++
++  assert(parsed.protocol === 'https:', `${label} must use https://.`);
++  assert(!['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(parsed.hostname.toLowerCase()), `${label} must not point to localhost.`);
++}
++
++function runMarketingVersionChecks() {
++  const app = readJson('apps/mobile/app.json').expo;
++  const mobilePackage = readJson('apps/mobile/package.json');
++  const lockfile = readJson('package-lock.json');
++
++  assert(app.version === expectedMarketingVersion, `apps/mobile/app.json must use marketing version ${expectedMarketingVersion}. Found ${app.version ?? '(unset)'}.`);
++  assert(mobilePackage.version === expectedMarketingVersion, `apps/mobile/package.json must stay aligned with marketing version ${expectedMarketingVersion}.`);
++  assert(lockfile.packages?.['apps/mobile']?.version === expectedMarketingVersion, 'package-lock.json must stay aligned with apps/mobile/package.json.');
++  assert(/^\d+\.\d+\.\d+$/.test(app.version), 'The public marketing version must use three-part semantic versioning.');
++  assert(app.version !== '0.1.0', 'The rejected public marketing version must not be restored.');
++  assert(app.ios?.buildNumber === undefined, 'ios.buildNumber must remain omitted while EAS remote versioning is the source of truth.');
++  assert(app.android?.versionCode === undefined, 'android.versionCode must remain omitted while EAS remote versioning is the source of truth.');
++  console.log(`Marketing version ${expectedMarketingVersion}: PASS`);
++}
++
++function runEasVersionAndSubmissionChecks() {
++  const app = readJson('apps/mobile/app.json').expo;
++  const eas = readJson('apps/mobile/eas.json');
++  const production = eas.build?.production ?? {};
++  const productionEnv = production.env ?? {};
++  const submitIos = eas.submit?.production?.ios ?? {};
++
++  assert(eas.cli?.appVersionSource === 'remote', 'EAS developer-facing build versions must remain remote-managed.');
++  assert(production.autoIncrement === true, 'The EAS production profile must auto-increment the iOS build number.');
++  assert(submitIos.ascAppId === appStoreConnectAppId, `The production submit profile must target App Store Connect app ${appStoreConnectAppId}.`);
++  assert(app.extra?.eas?.projectId === '382a7ae7-3e37-4200-bd40-b68d6d9e94be', 'The mobile app must stay linked to the production EAS project.');
++  assert(productionEnv.EXPO_PUBLIC_STORE_RELEASE === 'true', 'The production build must enable store-release mode.');
++  assert(productionEnv.EXPO_PUBLIC_MOBILE_FLAG_DIAGNOSTICS_VISIBLE === 'false', 'Feature diagnostics must stay hidden in the production build.');
++  assertPublicHttpsUrl(productionEnv.EXPO_PUBLIC_API_URL, 'Production API URL');
++  assertPublicHttpsUrl(productionEnv.EXPO_PUBLIC_WEB_URL, 'Production web URL');
++  console.log('EAS remote versioning and App Store submit target: PASS');
++}
++
++function runReleaseRunbookChecks() {
++  const runbook = 'docs/launch/appstore26-production-release.md';
++  assertExists(runbook, 'The APPSTORE26 production release runbook is missing.');
++  assertContains(runbook, 'npm run mobile:release-preflight', 'Release runbook must require the focused preflight command.');
++  assertContains(runbook, 'eas build:version:get --platform ios --profile production', 'Release runbook must inspect the remote iOS build number before building.');
++  assertContains(runbook, `Rejected build: ${rejectedIosBuildNumber}`, 'Release runbook must record the rejected iOS build number.');
++  assertContains(runbook, 'Do not run `eas build:version:set` blindly', 'Release runbook must protect against resetting the remote build number to a duplicate.');
++  assertContains(runbook, 'eas build --platform ios --profile production --clear-cache', 'Release runbook must use the reviewed production profile for the replacement binary.');
++  assertContains(runbook, 'eas submit --platform ios --profile production', 'Release runbook must document submission of the selected production build.');
++  assertContains(runbook, '1.0.0', 'Release runbook must identify the public marketing version.');
++  assertContains(runbook, '26 or greater', 'Release runbook must require an iOS build number newer than rejected build 25.');
++  assertContains(runbook, 'Do not use `--auto-submit`', 'Release runbook must preserve the manual QA checkpoint before upload.');
++  console.log('Production release runbook: PASS');
++}
++
++function runChecklistIntegrationChecks() {
++  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'npm run mobile:release-preflight', 'Store readiness must include the release preflight.');
++  assertContains('docs/launch/native-app-store-release-checklist.md', 'APPSTORE26 production release runbook', 'Native release checklist must link the final production runbook.');
++  assertContains('docs/launch/appstore26-ios-device-review-smoke.md', 'Marketing version | 1.0.0', 'Device evidence must pin the exact public marketing version.');
++  assertContains('docs/mobile/ios-eas-build-requirements.md', 'eas build:version:get --platform ios --profile production', 'iOS EAS requirements must require a remote build-number check.');
++  console.log('Release checklist integration: PASS');
++}
++
++function main() {
++  runMarketingVersionChecks();
++  runEasVersionAndSubmissionChecks();
++  runReleaseRunbookChecks();
++  runChecklistIntegrationChecks();
++  console.log('APPSTORE26-RELEASE1 production version/build preflight: PASS');
++  console.log('Remote EAS build-number inspection and exact-binary device QA are still manual release steps.');
++}
++
++main();

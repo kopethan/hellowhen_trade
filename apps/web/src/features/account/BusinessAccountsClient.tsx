@@ -618,7 +618,7 @@ export function BusinessAccountsClient() {
   return (
     <div className="mobile-page">
       <section className="notice-box warning">
-        Business teams are still hidden for the first launch. Use this area only for internal testing while Business flags are enabled.
+        Business teams are currently limited to approved accounts while access is being introduced gradually.
       </section>
 
       {error ? <section className="notice-box danger">{error}</section> : null}

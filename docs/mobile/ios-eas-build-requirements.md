@@ -1,14 +1,64 @@
 # iOS EAS build requirements
 
-Hellowhen iOS production builds must use an EAS macOS image with Xcode 26 or newer for App Store submission. The mobile `production`, `preview`, and `development` EAS profiles pin the iOS image to `macos-sequoia-15.6-xcode-26.0` so builds use Xcode 26 and Node.js 20.19.4 instead of the older Expo SDK 51 auto image.
+Hellowhen iOS production builds use marketing version `1.0.0` for the APPSTORE26 replacement submission.
 
-The `expo-iap` dependency resolves the CocoaPod `openiap`, which requires a higher iOS deployment target than the Expo SDK 51 default. The mobile app config sets the iOS deployment target to `15.0` through `expo-build-properties`, which is applied during prebuild.
+The mobile `production`, `preview`, and `development` EAS profiles pin the iOS image to `macos-sequoia-15.6-xcode-26.0`. The app config sets the iOS deployment target to `15.0` through `expo-build-properties`, which is applied during prebuild.
 
-Recommended command from the repo root:
+## Version management
 
-```powershell
-cd apps/mobile
-npx eas build --platform ios --profile production --clear-cache
+The user-facing marketing version is stored in:
+
+```txt
+apps/mobile/app.json → expo.version
 ```
 
-Use `--clear-cache` for the first rebuild after changing build image or native build properties so CocoaPods is resolved from the updated configuration.
+The developer-facing iOS build number is managed remotely by EAS:
+
+```json
+{
+  "cli": {
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "production": {
+      "autoIncrement": true
+    }
+  }
+}
+```
+
+Before every production build, inspect the current remote value from `apps/mobile`:
+
+```powershell
+eas build:version:get --platform ios --profile production
+```
+
+The rejected binary used build `25`. The replacement must use build `26` or greater. Do not reset the remote value without comparing it with the latest build already issued in App Store Connect.
+
+## Required preflight
+
+From the repository root:
+
+```powershell
+npm ci
+npm run mobile:release-preflight
+npm run mobile:store-readiness
+npm run typecheck
+npm run build
+```
+
+Then follow:
+
+```txt
+docs/launch/appstore26-production-release.md
+```
+
+## Production build
+
+From `apps/mobile`:
+
+```powershell
+eas build --platform ios --profile production --clear-cache
+```
+
+Use `--clear-cache` for the first replacement build after native configuration and App Review fixes. Do not auto-submit: record the EAS build ID, upload that exact build deliberately with EAS Submit, then complete the iPhone/iPad checklist through TestFlight before resubmitting for App Review.
