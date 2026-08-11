@@ -79,5 +79,6 @@ export const seoSitemapPaths = [
   '/legal/privacy',
   '/legal/terms',
   '/legal/safety',
+  '/legal/child-safety',
   '/legal/refund-dispute',
 ] as const;

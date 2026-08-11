@@ -41,6 +41,15 @@ export function LegalOverviewClient() {
             <span className="legal-link-card__action">{t('legal.overview.openPolicy')}</span>
           </Link>
         ))}
+        <Link href="/legal/child-safety" className="mobile-link-card legal-link-card">
+          <WebIcon name="warning" size={22} decorative className="mobile-link-card__icon" />
+          <span className="mobile-link-card__body">
+            <strong>{t('legal.childSafety.title')}</strong>
+            <br />
+            {t('legal.childSafety.summary')}
+          </span>
+          <span className="legal-link-card__action">{t('legal.overview.openPolicy')}</span>
+        </Link>
       </div>
     </MobilePage>
   );
