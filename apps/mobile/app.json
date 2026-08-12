@@ -2,7 +2,7 @@
   "expo": {
     "name": "Hellowhen",
     "slug": "hellowhen",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -21,6 +21,12 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
+        "CFBundleDevelopmentRegion": "fr",
+        "CFBundleLocalizations": [
+          "fr",
+          "en",
+          "es"
+        ],
         "NSPhotoLibraryUsageDescription": "Hellowhen lets you choose photos for your profile, needs, offers, trade references, reports, and support screenshots.",
         "NSLocationWhenInUseUsageDescription": "Hellowhen uses your location only when you tap Verify I'm here on an offline Plan place."
       },

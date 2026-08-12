@@ -4,9 +4,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
-const expectedMarketingVersion = '1.0.0';
-const rejectedIosBuildNumber = 25;
+const expectedMarketingVersion = '1.0.1';
+const previousPublicMarketingVersion = '1.0.0';
+const minimumIosBuildNumber = 27;
 const appStoreConnectAppId = '6781399122';
+const activeRunbook = 'docs/launch/appstore-i18n-101-production-release.md';
+const activeDeviceChecklist = 'docs/launch/appstore-i18n-101-ios-device-release-smoke.md';
 
 function read(relativePath) {
   return readFileSync(path.join(root, relativePath), 'utf8');
@@ -49,7 +52,7 @@ function runMarketingVersionChecks() {
   assert(mobilePackage.version === expectedMarketingVersion, `apps/mobile/package.json must stay aligned with marketing version ${expectedMarketingVersion}.`);
   assert(lockfile.packages?.['apps/mobile']?.version === expectedMarketingVersion, 'package-lock.json must stay aligned with apps/mobile/package.json.');
   assert(/^\d+\.\d+\.\d+$/.test(app.version), 'The public marketing version must use three-part semantic versioning.');
-  assert(app.version !== '0.1.0', 'The rejected public marketing version must not be restored.');
+  assert(app.version !== previousPublicMarketingVersion, `The active update must advance beyond public version ${previousPublicMarketingVersion}.`);
   assert(app.ios?.buildNumber === undefined, 'ios.buildNumber must remain omitted while EAS remote versioning is the source of truth.');
   assert(app.android?.versionCode === undefined, 'android.versionCode must remain omitted while EAS remote versioning is the source of truth.');
   console.log(`Marketing version ${expectedMarketingVersion}: PASS`);
@@ -74,26 +77,31 @@ function runEasVersionAndSubmissionChecks() {
 }
 
 function runReleaseRunbookChecks() {
-  const runbook = 'docs/launch/appstore26-production-release.md';
-  assertExists(runbook, 'The APPSTORE26 production release runbook is missing.');
-  assertContains(runbook, 'npm run mobile:release-preflight', 'Release runbook must require the focused preflight command.');
-  assertContains(runbook, 'eas build:version:get --platform ios --profile production', 'Release runbook must inspect the remote iOS build number before building.');
-  assertContains(runbook, `Rejected build: ${rejectedIosBuildNumber}`, 'Release runbook must record the rejected iOS build number.');
-  assertContains(runbook, 'Do not run `eas build:version:set` blindly', 'Release runbook must protect against resetting the remote build number to a duplicate.');
-  assertContains(runbook, 'eas build --platform ios --profile production --clear-cache', 'Release runbook must use the reviewed production profile for the replacement binary.');
-  assertContains(runbook, 'eas submit --platform ios --profile production', 'Release runbook must document submission of the selected production build.');
-  assertContains(runbook, '1.0.0', 'Release runbook must identify the public marketing version.');
-  assertContains(runbook, '26 or greater', 'Release runbook must require an iOS build number newer than rejected build 25.');
-  assertContains(runbook, 'Do not use `--auto-submit`', 'Release runbook must preserve the manual QA checkpoint before upload.');
-  console.log('Production release runbook: PASS');
+  assertExists(activeRunbook, 'The 1.0.1 production release runbook is missing.');
+  assertContains(activeRunbook, 'npm run mobile:release-preflight', 'Release runbook must require the focused preflight command.');
+  assertContains(activeRunbook, 'eas build:version:get --platform ios --profile production', 'Release runbook must inspect the remote iOS build number before building.');
+  assertContains(activeRunbook, `Marketing version: ${expectedMarketingVersion}`, 'Release runbook must identify the active public marketing version.');
+  assertContains(activeRunbook, `Minimum iOS build: ${minimumIosBuildNumber}`, 'Release runbook must require the next safe iOS build floor.');
+  assertContains(activeRunbook, 'Do not run `eas build:version:set` blindly', 'Release runbook must protect against resetting the remote build number to a duplicate.');
+  assertContains(activeRunbook, 'eas build --platform ios --profile production --clear-cache', 'Release runbook must use the reviewed production profile for the 1.0.1 binary.');
+  assertContains(activeRunbook, 'eas submit --platform ios --profile production', 'Release runbook must document submission of the selected production build.');
+  assertContains(activeRunbook, 'Do not use `--auto-submit`', 'Release runbook must preserve the manual QA checkpoint before upload.');
+  assertContains(activeRunbook, 'APPSTORE-I18N3', 'Release runbook must stop before final App Review submission until the English metadata/review package is complete.');
+  console.log('1.0.1 production release runbook: PASS');
 }
 
 function runChecklistIntegrationChecks() {
-  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'npm run mobile:release-preflight', 'Store readiness must include the release preflight.');
-  assertContains('docs/launch/native-app-store-release-checklist.md', 'APPSTORE26 production release runbook', 'Native release checklist must link the final production runbook.');
-  assertContains('docs/launch/appstore26-ios-device-review-smoke.md', 'Marketing version | 1.0.0', 'Device evidence must pin the exact public marketing version.');
+  assertExists(activeDeviceChecklist, 'The 1.0.1 exact-binary device checklist is missing.');
+  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'appstore-i18n-101-production-release.md', 'Store readiness must link the active 1.0.1 release runbook.');
+  assertContains('docs/launch/native-app-store-release-checklist.md', 'appstore-i18n-101-production-release.md', 'Native release checklist must link the active 1.0.1 release runbook.');
+  assertContains(activeDeviceChecklist, 'Marketing version | 1.0.1', 'Device evidence must pin the exact 1.0.1 marketing version.');
+  assertContains(activeDeviceChecklist, 'iOS build number | 27 or greater', 'Device evidence must require build 27 or greater.');
   assertContains('docs/mobile/ios-eas-build-requirements.md', 'eas build:version:get --platform ios --profile production', 'iOS EAS requirements must require a remote build-number check.');
-  console.log('Release checklist integration: PASS');
+
+  // APPSTORE26 remains historical evidence/regression context and must not be rewritten as the 1.0.1 release.
+  assertContains('docs/launch/appstore26-production-release.md', 'Marketing version: 1.0.0', 'Historical APPSTORE26 release evidence must remain pinned to 1.0.0.');
+  assertContains('docs/launch/appstore26-app-review-resubmission.md', 'Replacement marketing version: 1.0.0', 'Historical APPSTORE26 resubmission evidence must remain pinned to 1.0.0.');
+  console.log('Release checklist rollover and APPSTORE26 history preservation: PASS');
 }
 
 function main() {
@@ -101,8 +109,8 @@ function main() {
   runEasVersionAndSubmissionChecks();
   runReleaseRunbookChecks();
   runChecklistIntegrationChecks();
-  console.log('APPSTORE26-RELEASE1 production version/build preflight: PASS');
-  console.log('Remote EAS build-number inspection and exact-binary device QA are still manual release steps.');
+  console.log('APPSTORE-I18N2 1.0.1 production version/build preflight: PASS');
+  console.log(`Remote EAS build-number inspection must still confirm that the generated build is ${minimumIosBuildNumber} or greater.`);
 }
 
 main();

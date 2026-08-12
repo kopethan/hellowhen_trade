@@ -150,6 +150,39 @@ function runAppleMapsParityChecks() {
   console.log('Apple Maps provider parity: PASS');
 }
 
+function runLocalizationChecks() {
+  const mobileApp = readJson('apps/mobile/app.json');
+  const infoPlist = mobileApp.expo?.ios?.infoPlist ?? {};
+  const localizations = infoPlist.CFBundleLocalizations;
+
+  assert(infoPlist.CFBundleDevelopmentRegion === 'fr', 'iOS development region must remain French for unsupported-language fallback.');
+  assert(Array.isArray(localizations), 'iOS CFBundleLocalizations must explicitly declare supported languages.');
+  assert(JSON.stringify(localizations) === JSON.stringify(['fr', 'en', 'es']), 'iOS CFBundleLocalizations must declare fr, en, es in the release config.');
+
+  const languages = read('packages/i18n/src/languages.ts');
+  assert(languages.includes("export const supportedLanguages = ['en', 'fr', 'es'] as const;"), 'Shared runtime must continue supporting English, French, and Spanish.');
+  assert(languages.includes("export const defaultLanguage: SupportedLanguage = 'fr';"), 'Unsupported/system language fallback must remain French.');
+  assert(languages.includes("export const defaultLanguagePreference: LanguagePreference = 'system';"), 'Default preference must remain system-based.');
+  assert(languages.includes("if (normalizedPreference !== 'system') return normalizedPreference;"), 'Explicit saved language choices must continue to override device language detection.');
+  assert(languages.includes('for (const candidate of localeCandidates)'), 'System preference must continue checking device language candidates.');
+  assert(languages.includes('return defaultLanguage;'), 'Unsupported device languages must resolve through the shared French fallback.');
+
+  const mobileSettings = read('apps/mobile/src/providers/AppSettingsProvider.tsx');
+  assert(mobileSettings.includes("const SETTINGS_STORAGE_KEY = 'hellowhen_app_settings_v1';"), 'Native saved settings storage key must remain unchanged.');
+  assert(mobileSettings.includes("language: 'system',"), 'New/default settings must continue following the device language.');
+  assert(mobileSettings.includes("contentLanguageOrder: ['en'],"), 'APPSTORE-I18N1 must not change user-generated content language ordering.');
+
+  const nativeProvider = read('apps/mobile/src/providers/MobileI18nProvider.tsx');
+  assert(nativeProvider.includes('createTranslator(defaultLanguage)'), 'Native context fallback translator must use the shared default language.');
+  assert(nativeProvider.includes('resolveLanguage(settings.language, deviceLanguages)'), 'Native runtime must keep resolving saved preference against device languages.');
+
+  const webProvider = read('apps/web/src/providers/WebI18nProvider.tsx');
+  assert(webProvider.includes('createTranslator(defaultLanguage)'), 'Web context fallback translator must use the same shared default language.');
+  assert(webProvider.includes('resolveLanguage(settings.language, browserLanguages)'), 'Web runtime must keep resolving saved preference against browser languages.');
+
+  console.log('Native/App Store language declarations and fallback: PASS');
+}
+
 function runExampleEnvChecks() {
   assertContains('.env.example', 'NEXT_PUBLIC_STORE_RELEASE=false', 'Root env example must document the web release flag.');
   assertContains('.env.example', 'EXPO_PUBLIC_STORE_RELEASE=false', 'Root env example must document the native release flag.');
@@ -162,6 +195,7 @@ function main() {
   runEasProductionProfileChecks();
   runRuntimeGateChecks();
   runAppleMapsParityChecks();
+  runLocalizationChecks();
   runExampleEnvChecks();
   console.log('Mobile store-release hardening smoke: PASS');
 }

@@ -4,7 +4,7 @@ export type SupportedLanguage = typeof supportedLanguages[number];
 export const languagePreferences = ['system', ...supportedLanguages] as const;
 export type LanguagePreference = typeof languagePreferences[number];
 
-export const defaultLanguage: SupportedLanguage = 'en';
+export const defaultLanguage: SupportedLanguage = 'fr';
 export const defaultLanguagePreference: LanguagePreference = 'system';
 
 export function isSupportedLanguage(value: unknown): value is SupportedLanguage {

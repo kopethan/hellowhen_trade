@@ -25,19 +25,19 @@ npm run typecheck
 npm run build
 ```
 
-Do not submit until all eight command lines pass locally. `npm run mobile:store-readiness` also runs the store-release guard, App Review static smoke, release/submission preflights, store-visible copy scan, focused UGC safety smoke, and Cash Promise store/safety checklist guard. Complete [the iPhone/iPad App Review smoke](./appstore26-ios-device-review-smoke.md) and [the mobile UGC safety review checklist](./mobile-ugc-safety-review-checklist.md) on the exact production build.
+Do not submit until all eight command lines pass locally. `npm run mobile:store-readiness` also runs the store-release guard, App Review static smoke, release/submission preflights, store-visible copy scan, focused UGC safety smoke, and Cash Promise store/safety checklist guard. Complete [the Hellowhen 1.0.1 iPhone/iPad release smoke](./appstore-i18n-101-ios-device-release-smoke.md) and [the mobile UGC safety review checklist](./mobile-ugc-safety-review-checklist.md) on the exact production build.
 
 ## App metadata
 
-Follow [APPSTORE26-RELEASE1 — Production version and build runbook](./appstore26-production-release.md), then prepare or verify:
+Follow [APPSTORE-I18N2 — Hellowhen 1.0.1 production release runbook](./appstore-i18n-101-production-release.md), then prepare or verify:
 
 - App name: `Hellowhen`.
 - Bundle ID: `com.hellowhen.app` or the final company-owned replacement.
 - Android package: `com.hellowhen.app` or the final company-owned replacement.
 - App icon and Android adaptive icon are production assets, not placeholders.
 - Splash image is production-ready and not a dev/test logo.
-- Marketing version is `1.0.0` for this replacement submission.
-- EAS remote iOS build number is inspected before building and the resulting build is `26` or greater.
+- Marketing version is `1.0.1` for this App Store update.
+- EAS remote iOS build number is inspected before building and the resulting build is `27` or greater; never reset the remote number blindly.
 - Portrait-only behavior is intentional and has been tested.
 - App category does not imply dating, payments, gambling, job placement, crypto, teen social, or financial services.
 - Age rating is set for adults only / 18+ launch positioning.
@@ -50,7 +50,7 @@ Create and test a reviewer account before submission:
 - Password: temporary reviewer password, changed after review.
 - User status: normal verified user, not admin.
 - Seeded state: at least one Need, one Offer, one public Trade, one public Plan with mapped offline Places, one pending proposal from another test user, one support ticket, and one unread notification.
-- Reviewer notes use the APPSTORE26-SUBMIT1 template, explain how to log in, identify the prepared Plan, and describe the exact Apple Maps verification path.
+- Reviewer credentials are tested before submission. Final 1.0.1 App Review Notes and the English (U.S.) metadata package come from APPSTORE-I18N3; do not reuse the old rejection reply as the update note.
 
 Do not give reviewers an admin account unless they explicitly ask for admin review access.
 
@@ -109,9 +109,9 @@ Verify on both an iPhone and an iPad review device:
 Before selecting the binary in App Store Connect:
 
 - Run `npm run mobile:app-review-smoke`.
-- Complete [APPSTORE26-QA1 — iPhone and iPad App Review smoke](./appstore26-ios-device-review-smoke.md).
+- Complete [APPSTORE-I18N2 — Hellowhen 1.0.1 iOS exact-binary release smoke](./appstore-i18n-101-ios-device-release-smoke.md).
 - Test the exact EAS production binary, not Expo Go, a development client, or a preview build.
-- Replay both rejected-build findings on a physical iPhone and iPad Air 11-inch compatibility presentation: no general Beta badge/copy and Apple Maps offered first alongside Google Maps.
+- Replay both historical APPSTORE26 regressions on a physical iPhone and iPad compatibility presentation: no general Beta badge/copy and Apple Maps offered first alongside Google Maps.
 - Record the EAS build ID, marketing version, build number, device/OS, language, appearance, and result in the private release evidence.
 - Stop submission when the tested build differs from the binary selected in App Store Connect.
 
@@ -189,24 +189,31 @@ Discover Plans and Trades → inspect an offline Place → create a Need/Offer �
 
 Avoid screenshots that show hidden wallet, payouts, Cash Promise, paid plans, ads, admin UI, debug screens, mock money, or release-state badges.
 
-## APPSTORE26-SUBMIT1 review notes
+## 1.0.1 App Store localization/review handoff
 
-Do not use a generic first-launch note for this replacement submission. Follow:
+APPSTORE-I18N2 prepares the binary/version/build workflow but intentionally does not invent the final English store copy. Before final App Review submission, complete:
 
 ```txt
-docs/launch/appstore26-app-review-resubmission.md
+APPSTORE-I18N3 — English App Store metadata/review checklist
 ```
 
-That document contains:
+APPSTORE-I18N3 is implemented in:
 
-- the exact App Review Information notes for Guidelines 2.2 and 4;
-- the shorter reply to the unresolved App Review message;
-- reviewer-account and prepared-Plan requirements;
-- the corrected unresolved-submission steps;
-- stop-submission conditions;
-- the private evidence template workflow.
+```txt
+docs/launch/appstore-i18n-101-english-localization.md
+docs/launch/appstore-i18n-101-en-US-metadata.json
+```
 
-Run `npm run mobile:submission-preflight` before copying the final notes into App Store Connect. Replace every angle-bracket placeholder and keep reviewer credentials out of Git.
+It provides and verifies:
+
+- exact English (U.S.) App Store metadata and screenshots;
+- preservation of the existing French localization;
+- What's New for version 1.0.1;
+- App Review Notes for this normal update;
+- shared production support/privacy URLs;
+- a screenshot order that reflects capabilities present in the submitted repository.
+
+Run `npm run mobile:submission-preflight` before final submission. It verifies the 1.0.1 release identity, metadata field limits, disabled-feature exclusions, remote EAS versioning safeguards, active runbook/evidence integration, and preservation of the historical APPSTORE26 regression material.
 
 ## Manual device sign-off
 
@@ -219,7 +226,7 @@ Record before submission:
 - iOS build number / Android version code.
 - Device model(s), including the iPad compatibility-mode device used for iOS review smoke.
 - OS version(s).
-- Language(s): EN and FR.
+- Language(s): FR, EN, ES, plus one unsupported system language to verify French fallback.
 - Theme(s): light, dark, system.
 - Result of `npm run mobile:launch-smoke`.
 - Result of `npm run mobile:app-review-smoke`.

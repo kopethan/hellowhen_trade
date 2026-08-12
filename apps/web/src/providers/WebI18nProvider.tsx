@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { createTranslator, resolveLanguage, type LanguagePreference, type SupportedLanguage, type TranslationValues } from '@hellowhen/i18n';
+import { createTranslator, defaultLanguage, resolveLanguage, type LanguagePreference, type SupportedLanguage, type TranslationValues } from '@hellowhen/i18n';
 import { useWebAppSettings } from './WebAppSettingsProvider';
 
 type WebI18nContextValue = {
@@ -10,10 +10,10 @@ type WebI18nContextValue = {
   t: (key: string, values?: TranslationValues) => string;
 };
 
-const defaultTranslator = createTranslator('en');
+const defaultTranslator = createTranslator(defaultLanguage);
 
 const WebI18nContext = createContext<WebI18nContextValue>({
-  language: 'en',
+  language: defaultLanguage,
   preference: 'system',
   t: defaultTranslator,
 });

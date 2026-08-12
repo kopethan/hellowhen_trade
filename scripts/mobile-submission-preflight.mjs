@@ -4,10 +4,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
-const expectedVersion = '1.0.0';
-const rejectedBuild = 25;
+const expectedVersion = '1.0.1';
+const minimumIosBuildNumber = 27;
 const appStoreConnectAppId = '6781399122';
-const originalSubmissionId = '46ed2c97-069c-4c92-a903-3c82d1b690de';
+const activeRunbook = 'docs/launch/appstore-i18n-101-production-release.md';
+const evidenceTemplate = 'docs/launch/appstore-i18n-101-submission-evidence-template.md';
+const englishLocalizationGuide = 'docs/launch/appstore-i18n-101-english-localization.md';
+const englishMetadataSource = 'docs/launch/appstore-i18n-101-en-US-metadata.json';
 
 function read(relativePath) {
   return readFileSync(path.join(root, relativePath), 'utf8');
@@ -39,65 +42,116 @@ function runReleaseIdentityChecks() {
   const production = eas.build?.production ?? {};
   const productionEnv = production.env ?? {};
 
-  assert(app.version === expectedVersion, `The replacement submission must use marketing version ${expectedVersion}.`);
+  assert(app.version === expectedVersion, `The App Store update must use marketing version ${expectedVersion}.`);
+  assert(app.ios?.buildNumber === undefined, 'Do not hard-code ios.buildNumber while EAS remote versioning is the source of truth.');
   assert(eas.cli?.appVersionSource === 'remote', 'EAS build numbers must remain remote-managed.');
-  assert(production.autoIncrement === true, 'The production profile must auto-increment beyond the previously issued build number.');
+  assert(production.autoIncrement === true, 'The production profile must keep iOS build-number auto-increment enabled.');
   assert(eas.submit?.production?.ios?.ascAppId === appStoreConnectAppId, `The submit profile must target App Store Connect app ${appStoreConnectAppId}.`);
   assert(productionEnv.EXPO_PUBLIC_STORE_RELEASE === 'true', 'The submitted profile must enable store-release mode.');
   assert(productionEnv.EXPO_PUBLIC_MOBILE_FLAG_DIAGNOSTICS_VISIBLE === 'false', 'Feature diagnostics must stay hidden in the submitted build.');
-  console.log(`Submission release identity ${expectedVersion}, build > ${rejectedBuild}: PASS`);
+  console.log(`Submission release identity ${expectedVersion}, minimum build ${minimumIosBuildNumber}: PASS`);
 }
 
 function runSubmissionDocumentChecks() {
-  const checklist = 'docs/launch/appstore26-app-review-resubmission.md';
-  const evidence = 'docs/launch/appstore26-submission-evidence-template.md';
+  assertExists(activeRunbook, 'The 1.0.1 production release runbook is missing.');
+  assertExists(evidenceTemplate, 'The 1.0.1 private evidence template is missing.');
+  assertContains(activeRunbook, 'APPSTORE-I18N3', 'The release runbook must require the English App Store metadata/review package before final review submission.');
+  assertContains(activeRunbook, 'English (U.S.)', 'The release runbook must preserve the English (U.S.) localization handoff.');
+  assertContains(activeRunbook, 'French', 'The release runbook must preserve the existing French localization.');
+  assertContains(activeRunbook, 'https://hellowhen.com/legal/privacy', 'The release runbook must keep the production Privacy Policy URL.');
+  assertContains(evidenceTemplate, 'Exact TestFlight device checks', 'The evidence template must bind QA to the exact TestFlight binary.');
+  assertContains(evidenceTemplate, 'Marketing version | 1.0.1', 'The evidence template must pin marketing version 1.0.1.');
+  assertContains(evidenceTemplate, 'iOS build number | 27 or greater', 'The evidence template must require build 27 or greater.');
+  assertContains(evidenceTemplate, 'French system language', 'The evidence template must capture French system-language behavior.');
+  assertContains(evidenceTemplate, 'English system language', 'The evidence template must capture English system-language behavior.');
+  assertContains(evidenceTemplate, 'Spanish system language', 'The evidence template must capture Spanish system-language behavior.');
+  assertContains(evidenceTemplate, 'Unsupported system language', 'The evidence template must capture French fallback for unsupported device languages.');
+  console.log('1.0.1 update runbook/evidence templates: PASS');
+}
 
-  assertExists(checklist, 'The APPSTORE26 App Review resubmission checklist is missing.');
-  assertExists(evidence, 'The APPSTORE26 private evidence template is missing.');
-  assertContains(checklist, originalSubmissionId, 'The checklist must identify the rejection being resolved.');
-  assertContains(checklist, 'Guideline 2.2 — Performance — Beta Testing', 'The review response must address Guideline 2.2 explicitly.');
-  assertContains(checklist, 'Guideline 4 — Design', 'The review response must address Guideline 4 explicitly.');
-  assertContains(checklist, 'Removed the general BETA badge shown on the Me screen', 'The notes must identify the exact visible rejection fix.');
-  assertContains(checklist, 'Added Apple Maps as the first map-provider option on iOS', 'The notes must explain Apple Maps parity.');
-  assertContains(checklist, '<IOS_BUILD_NUMBER>', 'The reply template must require the exact replacement build number.');
-  assertContains(checklist, '<REVIEW_PLAN_TITLE>', 'The review path must require a stable prepared Plan title.');
-  assertContains(checklist, '<REVIEWER_EMAIL>', 'Reviewer credentials must remain placeholders in the committed template.');
-  assertContains(checklist, '<TEMPORARY_PASSWORD>', 'Reviewer password must remain a placeholder in the committed template.');
-  assertContains(checklist, 'https://hellowhen.com/legal/privacy', 'The checklist must use the production Privacy Policy URL.');
-  assertContains(checklist, 'Resubmit to App Review', 'The checklist must cover resubmitting the corrected unresolved item.');
-  assertContains(evidence, 'Exact TestFlight device checks', 'The evidence template must bind QA to the exact TestFlight binary.');
-  assertContains(evidence, 'Original submission ID', 'The evidence template must retain the rejection context.');
-  console.log('App Review response/checklist templates: PASS');
+function utf8Bytes(value) {
+  return Buffer.byteLength(value, 'utf8');
+}
+
+function runEnglishLocalizationPackageChecks() {
+  assertExists(englishLocalizationGuide, 'The APPSTORE-I18N3 English localization guide is missing.');
+  assertExists(englishMetadataSource, 'The APPSTORE-I18N3 English metadata source is missing.');
+
+  const metadata = readJson(englishMetadataSource);
+  const guide = read(englishLocalizationGuide);
+
+  assert(metadata.locale === 'en-US', 'The App Store metadata source must target English (U.S.) / en-US.');
+  assert(metadata.version === expectedVersion, `The App Store metadata source must target version ${expectedVersion}.`);
+  assert(metadata.name === 'Hellowhen', 'English App Store name must keep the Hellowhen brand.');
+  assert(metadata.name.length >= 2 && metadata.name.length <= 30, 'English App Store name must be 2-30 characters.');
+  assert(metadata.subtitle.length <= 30, 'English App Store subtitle must be 30 characters or fewer.');
+  assert(metadata.promotionalText.length <= 170, 'English promotional text must be 170 characters or fewer.');
+  assert(metadata.description.length <= 4000, 'English description must be 4000 characters or fewer.');
+  assert(utf8Bytes(metadata.keywords) <= 100, 'English keywords must be 100 bytes or fewer.');
+  assert(metadata.keywords.split(',').every((keyword) => keyword.trim().length > 2), 'Every English keyword must be longer than two characters.');
+  assert(!metadata.keywords.toLowerCase().includes('hellowhen'), 'Keywords must not duplicate the searchable app name.');
+  assert(metadata.whatsNew.length > 0 && metadata.whatsNew.length <= 4000, "What's New must be present for 1.0.1 and remain within 4000 characters.");
+  assert(utf8Bytes(metadata.appReviewNotes) <= 4000, 'App Review Notes must be 4000 bytes or fewer.');
+
+  assert(metadata.supportUrl === 'https://hellowhen.com/support', 'English Support URL must use the reviewed production support page.');
+  assert(metadata.marketingUrl === 'https://hellowhen.com', 'English Marketing URL must use the production Hellowhen site.');
+  assert(metadata.privacyPolicyUrl === 'https://hellowhen.com/legal/privacy', 'English Privacy Policy URL must use the reviewed production privacy page.');
+
+  for (const field of ['name', 'subtitle', 'promotionalText', 'description', 'keywords', 'whatsNew', 'appReviewNotes']) {
+    assert(guide.includes(metadata[field]), `English localization guide must contain the exact ${field} value from the metadata source.`);
+  }
+
+  const customerFacing = [metadata.subtitle, metadata.promotionalText, metadata.description, metadata.keywords, metadata.whatsNew].join(' ').toLowerCase();
+  for (const forbidden of ['cash promise', 'wallet', 'payout', 'subscription', 'membership', 'agenda', 'saved library', 'artificial intelligence', ' ai ', 'advertising', ' ads ']) {
+    assert(!customerFacing.includes(forbidden), `Customer-facing App Store copy must not advertise disabled feature: ${forbidden.trim()}.`);
+  }
+
+  assert(guide.includes('preserve the already approved French localization'), 'APPSTORE-I18N3 must preserve the existing French App Store localization.');
+  assert(guide.includes('Primary Language'), 'APPSTORE-I18N3 must include a Primary Language verification step.');
+  assert(guide.includes('Plans feed'), 'English screenshot plan must include the current Plans surface.');
+  assert(guide.includes('Trade feed'), 'English screenshot plan must include the current Trade surface.');
+  assert(guide.includes('Private proposal thread'), 'English screenshot plan must include private proposal UX.');
+  assert(guide.includes('Me / Safety'), 'English screenshot plan must include the Me/safety surface.');
+  assert(guide.includes('supportsTablet` is `false`'), 'Screenshot guidance must account for the current iPhone-only native configuration.');
+  assert(metadata.appReviewNotes.includes('normal update to the already released version 1.0.0'), 'Review notes must describe 1.0.1 as a normal update, not a rejection resubmission.');
+  assert(metadata.appReviewNotes.includes('Apple Maps is offered'), 'Review notes must preserve Apple Maps review clarity for eligible iOS map actions.');
+  assert(metadata.appReviewNotes.includes('does not expose payments'), 'Review notes must clearly describe disabled payment and future-feature surfaces.');
+
+  console.log('APPSTORE-I18N3 English metadata limits, screenshots, URLs, and review notes: PASS');
 }
 
 function runCredentialSafetyChecks() {
   const gitignore = read('.gitignore');
-  const checklist = 'docs/launch/appstore26-app-review-resubmission.md';
 
   assert(gitignore.split(/\r?\n/).includes('.release-private/'), '.release-private/ must be ignored before storing private submission evidence.');
-  assertNotContains(checklist, 'Password: password', 'The committed review template must not include a reusable sample password.');
-  assertNotContains(checklist, '@gmail.com', 'The committed review template must not contain a personal reviewer email.');
-  assertNotContains(checklist, '@icloud.com', 'The committed review template must not contain a personal reviewer email.');
-  assertContains(checklist, 'Never add the completed private evidence file to the repository.', 'The checklist must protect private release evidence.');
+  assertNotContains(evidenceTemplate, '@gmail.com', 'The committed evidence template must not contain a personal reviewer email.');
+  assertNotContains(evidenceTemplate, '@icloud.com', 'The committed evidence template must not contain a personal reviewer email.');
+  assertNotContains(evidenceTemplate, 'Password: password', 'The committed evidence template must not contain a reusable sample password.');
+  assertContains(evidenceTemplate, 'Never commit the completed copy.', 'The evidence template must protect private release evidence.');
   console.log('Reviewer credential/evidence safety: PASS');
 }
 
-function runRunbookIntegrationChecks() {
+function runWorkflowIntegrationChecks() {
   assertContains('package.json', '"mobile:submission-preflight": "node scripts/mobile-submission-preflight.mjs"', 'package.json must expose the submission preflight command.');
   assertContains('package.json', 'npm run mobile:submission-preflight', 'The store-readiness chain must run the submission preflight.');
-  assertContains('docs/launch/appstore26-production-release.md', 'appstore26-app-review-resubmission.md', 'The production runbook must point to the final resubmission checklist.');
-  assertContains('docs/launch/appstore26-ios-device-review-smoke.md', 'appstore26-submission-evidence-template.md', 'The device checklist must point to the private evidence template.');
-  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'APPSTORE26-SUBMIT1', 'The store checklist must use the final APPSTORE26 review notes instead of a stale generic template.');
-  console.log('Submission workflow integration: PASS');
+  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'appstore-i18n-101-en-US-metadata.json', 'Store readiness must point to the APPSTORE-I18N3 exact English metadata source.');
+  assertContains('docs/launch/native-app-store-release-checklist.md', 'appstore-i18n-101-ios-device-release-smoke.md', 'Native release checklist must point to the active exact-binary 1.0.1 device checklist.');
+  assertContains('docs/mobile/ios-eas-build-requirements.md', 'appstore-i18n-101-production-release.md', 'iOS EAS requirements must point to the active 1.0.1 runbook.');
+
+  // Keep the successful 1.0.0 rejection-resolution material as immutable historical guidance/regression context.
+  assertContains('docs/launch/appstore26-app-review-resubmission.md', 'Guideline 2.2 — Performance — Beta Testing', 'Historical APPSTORE26 review evidence must remain available.');
+  assertContains('docs/launch/appstore26-ios-device-review-smoke.md', 'build 25 rejection regression', 'Historical APPSTORE26 rejection regression checklist must remain available.');
+  console.log('1.0.1 submission workflow integration: PASS');
 }
 
 function main() {
   runReleaseIdentityChecks();
   runSubmissionDocumentChecks();
+  runEnglishLocalizationPackageChecks();
   runCredentialSafetyChecks();
-  runRunbookIntegrationChecks();
-  console.log('APPSTORE26-SUBMIT1 App Review submission preflight: PASS');
-  console.log('Exact TestFlight QA, reviewer credentials, App Store Connect build selection, and final resubmission remain manual steps.');
+  runWorkflowIntegrationChecks();
+  console.log('APPSTORE-I18N3 1.0.1 App Store localization/submission preflight: PASS');
+  console.log('Exact TestFlight QA, App Store Connect build selection, English screenshot capture/upload, reviewer credentials, and final App Store Connect entry remain manual release steps.');
 }
 
 main();

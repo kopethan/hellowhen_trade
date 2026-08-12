@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useMemo } from 'react';
 import { NativeModules } from 'react-native';
-import { createTranslator, resolveLanguage, type LanguagePreference, type SupportedLanguage, type TranslationValues } from '@hellowhen/i18n';
+import { createTranslator, defaultLanguage, resolveLanguage, type LanguagePreference, type SupportedLanguage, type TranslationValues } from '@hellowhen/i18n';
 import { useAppSettings } from './AppSettingsProvider';
 
 type MobileI18nContextValue = {
@@ -9,10 +9,10 @@ type MobileI18nContextValue = {
   t: (key: string, values?: TranslationValues) => string;
 };
 
-const defaultTranslator = createTranslator('en');
+const defaultTranslator = createTranslator(defaultLanguage);
 
 const MobileI18nContext = createContext<MobileI18nContextValue>({
-  language: 'en',
+  language: defaultLanguage,
   preference: 'system',
   t: defaultTranslator,
 });
@@ -32,7 +32,7 @@ function getDeviceLanguageCandidates() {
     const intlLocale = Intl.DateTimeFormat().resolvedOptions().locale;
     if (intlLocale) candidates.push(intlLocale);
   } catch {
-    // Ignore missing Intl locale support and fall back to English.
+    // Ignore missing Intl locale support and let the shared resolver use its fallback.
   }
 
   return candidates;

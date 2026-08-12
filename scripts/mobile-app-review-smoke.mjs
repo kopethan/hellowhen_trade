@@ -137,10 +137,10 @@ function runReviewerJourneyRouteChecks() {
 }
 
 function runReviewEvidenceChecklistChecks() {
-  const checklist = 'docs/launch/appstore26-ios-device-review-smoke.md';
+  const checklist = 'docs/launch/appstore-i18n-101-ios-device-release-smoke.md';
   assertNonEmptyFile(checklist, 'The App Store iPhone/iPad device checklist is missing.');
   assertContains(checklist, 'iPad Air 11-inch (M3)', 'The checklist must replay the device used for the rejected build.');
-  assertContains(checklist, 'build 25 rejection regression', 'The checklist must include an explicit rejection-regression pass.');
+  assertContains(checklist, 'APPSTORE26 rejection regressions', 'The checklist must include explicit rejection-regression coverage.');
   assertContains(checklist, 'Apple Maps', 'The checklist must cover Apple Maps on device.');
   assertContains(checklist, 'No Beta badge', 'The checklist must verify the removed Me badge visually.');
   assertContains(checklist, 'Exact submitted binary', 'The checklist must forbid signing off from Expo Go or a different build.');
@@ -155,7 +155,7 @@ function main() {
   runIphoneAndIpadShellChecks();
   runReviewerJourneyRouteChecks();
   runReviewEvidenceChecklistChecks();
-  console.log('APPSTORE26-QA1 static App Review smoke: PASS');
+  console.log('APPSTORE-I18N2 1.0.1 static App Review smoke: PASS');
   console.log('Manual iPhone and iPad checks are still required on the exact submitted binary.');
 }
 
