@@ -10,7 +10,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { AppCollapsibleHeaderScreen } from '../../components/AppCollapsibleHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { MobileIcon } from '../../components/MobileIcon';
-import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+import { InfoNotice } from '../../components/SemanticUI';
 import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
 import { InventoryCompactRow } from './components/InventoryCompactRow';
 import { InventoryFoldersPanel, type InventoryFolderSelection } from './components/InventoryFoldersPanel';
@@ -78,7 +78,27 @@ export function MyNeedsScreen() {
   const displayCreatedItem = useLocalizedInventoryItem(createdNeed);
 
   const activeLoading = sourceTab === 'starter' ? templateLoading : loading;
-  const header = <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label={t('inventory.labels.need')} tone="need" /><AppText style={styles.title}>{t('inventory.labels.needs')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('inventory.empty.needNativeBody')}</AppText></View><Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateNeed')} style={({ pressed }) => [styles.createButton, { backgroundColor: theme.semantic.need.bg }, pressed && styles.pressed]}><View style={styles.createButtonContent}><MobileIcon name="add" size={16} color={theme.color.background} /><AppText style={[styles.createButtonText, { color: theme.color.background }]}>{t('common.actions.create')}</AppText></View></Pressable></View>;
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.replace('TradeTabs');
+  }, [navigation]);
+  const header = (
+    <View style={styles.headerStack}>
+      <View style={styles.headerRow}>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.back')} onPress={handleBack} style={({ pressed }) => [styles.backButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+          <MobileIcon name="back" size={20} color={theme.color.text} />
+        </Pressable>
+        <Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateNeed')} style={({ pressed }) => [styles.createButton, { backgroundColor: theme.semantic.need.bg }, pressed && styles.pressed]}>
+          <View style={styles.createButtonContent}><MobileIcon name="add" size={16} color={theme.color.background} /><AppText style={[styles.createButtonText, { color: theme.color.background }]}>{t('common.actions.create')}</AppText></View>
+        </Pressable>
+      </View>
+      <AppText style={styles.title}>{t('inventory.labels.needs')}</AppText>
+      <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('inventory.empty.needNativeBody')}</AppText>
+    </View>
+  );
 
   const sortedItems = useMemo(() => {
     if (!folderSelection.folderId) return displayItems;
@@ -149,4 +169,4 @@ function EmptyInventoryPlaceholder({ title, body, tone, onPress }: { title: stri
   );
 }
 
-const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }, headerCopy: { flex: 1, gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 20, fontWeight: '600' }, createButton: { borderRadius: 18, paddingHorizontal: 16, paddingVertical: 12 }, createButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 7 }, createButtonText: { color: '#FFFFFF', fontWeight: '900' }, sourceTabs: { flexDirection: 'row', borderRadius: 22, borderWidth: 1, padding: 4, gap: 4 }, sourceTabButton: { flex: 1, minHeight: 44, borderRadius: 18, borderWidth: 1, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 }, sourceTabText: { fontSize: 13, fontWeight: '900' }, openCreatedButton: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, openCreatedText: { fontWeight: '900' }, emptyPlaceholder: { minHeight: 208, borderRadius: 28, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', padding: 22, gap: 10 }, emptyIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, emptyTitle: { textAlign: 'center', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 }, emptyBody: { textAlign: 'center', lineHeight: 20, fontWeight: '700' }, pressed: { opacity: 0.78 } });
+const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerStack: { gap: 8 }, headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 }, backButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 20, fontWeight: '600' }, createButton: { minHeight: 44, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 10 }, createButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 7 }, createButtonText: { color: '#FFFFFF', fontWeight: '900' }, sourceTabs: { flexDirection: 'row', borderRadius: 22, borderWidth: 1, padding: 4, gap: 4 }, sourceTabButton: { flex: 1, minHeight: 44, borderRadius: 18, borderWidth: 1, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 }, sourceTabText: { fontSize: 13, fontWeight: '900' }, openCreatedButton: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, openCreatedText: { fontWeight: '900' }, emptyPlaceholder: { minHeight: 208, borderRadius: 28, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', padding: 22, gap: 10 }, emptyIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, emptyTitle: { textAlign: 'center', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 }, emptyBody: { textAlign: 'center', lineHeight: 20, fontWeight: '700' }, pressed: { opacity: 0.78 } });

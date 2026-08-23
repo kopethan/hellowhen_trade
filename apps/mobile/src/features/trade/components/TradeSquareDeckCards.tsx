@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { MediaAssetDto, TradePostType } from '@hellowhen/contracts';
 import { formatMoney, normalizePreviewCardTheme } from '@hellowhen/shared';
 import { useTranslation } from '../../../providers/MobileI18nProvider';
@@ -25,6 +25,8 @@ type TradeSummaryCardProps = { trade: TradeDeckItem; tradeIndex: number; tradeTo
 type TradeImageCardProps = { trade: TradeDeckItem; kind: 'needImage' | 'offerImage'; media?: MediaAssetDto; hiddenImageCount?: number; onOpen: () => void; };
 type TFunction = ReturnType<typeof useTranslation>['t'];
 type CountdownState = { label: string; tone: TradePosterCardStatusTone };
+
+const NARROW_TRADE_SUMMARY_WIDTH = 360;
 
 function deckMedia(media: MediaAssetDto[] | undefined) {
   return (media ?? []).filter((asset) => asset.status === 'active');
@@ -166,38 +168,40 @@ function TradeCountdown({ expiresAt, compact = false }: { expiresAt?: string | n
 function CompleteTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSummaryCardProps) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
+  const { width } = useWindowDimensions();
+  const narrowLayout = width < NARROW_TRADE_SUMMARY_WIDTH;
   const previewTheme = previewThemeForTrade(trade);
   const themeAccent = previewTheme === 'blue' ? '#dbeafe' : previewTheme === 'green' ? '#dcfce7' : previewTheme === 'purple' ? '#ede9fe' : previewTheme === 'amber' ? '#fef3c7' : previewTheme === 'rose' ? '#ffe4e6' : null;
   const rightBadge = tradeTimingBadge(trade, t) || (trade.status === 'active' ? '' : getStatusLabel(trade.status, t));
   return (
-    <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.summaryCard, { backgroundColor: themeAccent ?? theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-      <View style={styles.summaryHeaderRow}>
-        <AppText style={[styles.summaryHeader, { color: theme.color.muted }]}>{t('trade.labels.trade').toUpperCase()} · {getTradeCounter(tradeIndex, tradeTotal)}</AppText>
-        {rightBadge ? <AppText style={[styles.summaryStatus, { color: theme.color.text }]} numberOfLines={1}>{rightBadge}</AppText> : null}
+    <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.summaryCard, narrowLayout && styles.summaryCardNarrow, { backgroundColor: themeAccent ?? theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+      <View style={[styles.summaryHeaderRow, narrowLayout && styles.summaryHeaderRowNarrow]}>
+        <AppText style={[styles.summaryHeader, narrowLayout && styles.summaryHeaderNarrow, { color: theme.color.muted }]} numberOfLines={1}>{t('trade.labels.trade').toUpperCase()} · {getTradeCounter(tradeIndex, tradeTotal)}</AppText>
+        {rightBadge ? <AppText style={[styles.summaryStatus, narrowLayout && styles.summaryStatusNarrow, { color: theme.color.text }]} numberOfLines={1}>{rightBadge}</AppText> : null}
       </View>
 
 
-      <View style={styles.summaryBody}>
-        <View style={styles.tradeSideBlock}>
-          <AppText style={[styles.sideEyebrow, { color: '#60A5FA' }]}>{t('trade.labels.iNeed')}</AppText>
-          <AppText style={[styles.sideTitle, { color: theme.color.text }]} numberOfLines={2}>{needTitle(trade, t)}</AppText>
-          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={1}>{compactJoin([languageChip(trade.need), needMeta(trade.need, trade, t)], 2)}</AppText>
+      <View style={[styles.summaryBody, narrowLayout && styles.summaryBodyNarrow]}>
+        <View style={[styles.tradeSideBlock, narrowLayout && styles.tradeSideBlockNarrow]}>
+          <AppText style={[styles.sideEyebrow, narrowLayout && styles.sideEyebrowNarrow, { color: '#60A5FA' }]}>{t('trade.labels.iNeed')}</AppText>
+          <AppText style={[styles.sideTitle, narrowLayout && styles.sideTitleNarrow, { color: theme.color.text }]} numberOfLines={2}>{needTitle(trade, t)}</AppText>
+          <AppText style={[styles.sideMeta, narrowLayout && styles.sideMetaNarrow, { color: theme.color.muted }]} numberOfLines={1}>{compactJoin([languageChip(trade.need), needMeta(trade.need, trade, t)], 2)}</AppText>
         </View>
 
-        <View style={styles.exchangeRow}>
+        <View style={[styles.exchangeRow, narrowLayout && styles.exchangeRowNarrow]}>
           <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
-          <TradeExchangeIcon color={theme.color.muted} size={16} strokeWidth={2.2} />
+          <TradeExchangeIcon color={theme.color.muted} size={narrowLayout ? 14 : 16} strokeWidth={2.2} />
           <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
         </View>
 
-        <View style={styles.tradeSideBlock}>
-          <AppText style={[styles.sideEyebrow, { color: '#34D399' }]}>{t('trade.labels.iOffer')}</AppText>
-          <AppText style={[styles.sideTitle, { color: theme.color.text }]} numberOfLines={2}>{offerTitle(trade, t)}</AppText>
-          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={1}>{compactJoin([languageChip(trade.offer), offerMeta(trade.offer, trade, t)], 2)}</AppText>
+        <View style={[styles.tradeSideBlock, narrowLayout && styles.tradeSideBlockNarrow]}>
+          <AppText style={[styles.sideEyebrow, narrowLayout && styles.sideEyebrowNarrow, { color: '#34D399' }]}>{t('trade.labels.iOffer')}</AppText>
+          <AppText style={[styles.sideTitle, narrowLayout && styles.sideTitleNarrow, { color: theme.color.text }]} numberOfLines={2}>{offerTitle(trade, t)}</AppText>
+          <AppText style={[styles.sideMeta, narrowLayout && styles.sideMetaNarrow, { color: theme.color.muted }]} numberOfLines={1}>{compactJoin([languageChip(trade.offer), offerMeta(trade.offer, trade, t)], 2)}</AppText>
         </View>
       </View>
 
-      <View style={styles.countdownSlot}><TradeCountdown expiresAt={trade.expiresAt} /></View>
+      <View style={[styles.countdownSlot, narrowLayout && styles.countdownSlotNarrow]}><TradeCountdown expiresAt={trade.expiresAt} compact={narrowLayout} /></View>
     </Pressable>
   );
 }
@@ -284,17 +288,28 @@ const styles = StyleSheet.create({
     paddingVertical: 22,
     gap: 12,
   },
+  summaryCardNarrow: { paddingHorizontal: 18, paddingVertical: 15, gap: 8 },
   summaryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
+  summaryHeaderRowNarrow: { gap: 8 },
   summaryHeader: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95 },
+  summaryHeaderNarrow: { flex: 1, minWidth: 0, fontSize: 10, lineHeight: 12, letterSpacing: 0.65 },
   summaryStatus: { maxWidth: '48%', flexShrink: 1, fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.65, textAlign: 'right' },
+  summaryStatusNarrow: { maxWidth: '42%', fontSize: 10, lineHeight: 12, letterSpacing: 0.45 },
   summaryBody: { flex: 1, justifyContent: 'center', gap: 18, minHeight: 0 },
+  summaryBodyNarrow: { gap: 8 },
   tradeSideBlock: { alignItems: 'center', gap: 5, paddingVertical: 3 },
+  tradeSideBlockNarrow: { gap: 2, paddingVertical: 0 },
   sideEyebrow: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  sideEyebrowNarrow: { fontSize: 11, lineHeight: 14 },
   sideTitle: { textAlign: 'center', fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.55, paddingBottom: 1 },
+  sideTitleNarrow: { fontSize: 17, lineHeight: 20, letterSpacing: -0.35, paddingBottom: 0 },
   sideMeta: { textAlign: 'center', fontSize: 12, lineHeight: 16, fontWeight: '800' },
+  sideMetaNarrow: { fontSize: 10.5, lineHeight: 13 },
   exchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 1 },
+  exchangeRowNarrow: { gap: 10, marginVertical: 0 },
   exchangeLine: { flex: 1, height: StyleSheet.hairlineWidth },
   countdownSlot: { minHeight: 20, alignItems: 'center', justifyContent: 'center' },
+  countdownSlotNarrow: { minHeight: 14 },
   summaryCountdownText: { fontSize: 13, lineHeight: 17, fontWeight: '900', letterSpacing: 1.2 },
   posterCountdownText: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.75 },
   imageCard: { flex: 1, overflow: 'hidden' },
