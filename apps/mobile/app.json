@@ -73,7 +73,10 @@
           "deploymentTarget": "15.1"
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      "@react-native-community/datetimepicker",
+      "expo-font",
+      "expo-secure-store"
     ]
   }
 }
