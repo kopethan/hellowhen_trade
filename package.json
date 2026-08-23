@@ -47,9 +47,9 @@
     "mobile:submission-preflight": "node scripts/mobile-submission-preflight.mjs"
   },
   "devDependencies": {
-    "@types/react": "~19.0.10",
-    "react": "19.0.0",
-    "react-native": "0.79.6",
+    "@types/react": "~19.1.10",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
     "typescript": "^5.4.5"
   },
   "engines": {
