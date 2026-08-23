@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppCard } from '../../components/AppCard';
@@ -18,6 +18,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 type AuthMode = 'login' | 'register' | 'forgot';
 type TwoFactorChallenge = { challengeToken: string; message?: string };
 
+const AUTH_COMPACT_WIDTH = 350;
 
 function authSubtitleKey(mode: AuthMode) {
   if (mode === 'register') return 'auth.subtitles.register';
@@ -30,6 +31,8 @@ export function LoginScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const theme = useThemeTokens();
   const { t } = useTranslation();
+  const { width } = useWindowDimensions();
+  const compactLayout = width < AUTH_COMPACT_WIDTH;
   const [mode, setMode] = useState<AuthMode>('login');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -129,18 +132,18 @@ export function LoginScreen() {
 
   return (
     <AppScreen>
-      <ScrollView contentContainerStyle={styles.shell} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
-        <AppCard style={styles.authCard}>
+      <ScrollView contentContainerStyle={[styles.shell, compactLayout && styles.shellCompact]} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
+        <AppCard style={[styles.authCard, compactLayout && styles.authCardCompact]}>
           <View style={styles.brandBlock}>
             <SemanticBadge label={t('auth.brandBadge')} tone="trade" />
-            <AppText style={styles.logo}>Hellowhen</AppText>
+            <AppText numberOfLines={1} style={[styles.logo, compactLayout && styles.logoCompact]}>Hellowhen</AppText>
             <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t(authSubtitleKey(mode))}</AppText>
           </View>
 
-          <View style={[styles.toggleRow, { backgroundColor: theme.color.subtleSurface }]}>
-            <ModeButton label={t('auth.modes.login')} active={mode === 'login'} onPress={() => switchMode('login')} />
-            <ModeButton label={t('auth.modes.register')} active={mode === 'register'} onPress={() => switchMode('register')} />
-            <ModeButton label={t('auth.modes.reset')} active={mode === 'forgot'} onPress={() => switchMode('forgot')} />
+          <View style={[styles.toggleRow, { backgroundColor: theme.color.subtleSurface }, compactLayout && styles.toggleRowCompact]}>
+            <ModeButton label={t('auth.modes.login')} active={mode === 'login'} compact={compactLayout} onPress={() => switchMode('login')} />
+            <ModeButton label={t('auth.modes.register')} active={mode === 'register'} compact={compactLayout} onPress={() => switchMode('register')} />
+            <ModeButton label={t('auth.modes.reset')} active={mode === 'forgot'} compact={compactLayout} onPress={() => switchMode('forgot')} />
           </View>
 
           <View style={styles.formStack}>
@@ -159,7 +162,7 @@ export function LoginScreen() {
 
             {!twoFactorChallenge && mode === 'register' ? <AuthInput value={displayName} onChangeText={setDisplayName} placeholder={t('auth.fields.fullName')} /> : null}
             {!twoFactorChallenge ? <AuthInput value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholder={t('auth.fields.email')} /> : null}
-            {!twoFactorChallenge && mode !== 'forgot' ? <PasswordInput value={password} onChangeText={setPassword} placeholder={t('auth.fields.password')} showPassword={showPassword} onToggle={() => setShowPassword((value) => !value)} /> : null}
+            {!twoFactorChallenge && mode !== 'forgot' ? <PasswordInput value={password} onChangeText={setPassword} placeholder={t('auth.fields.password')} showPassword={showPassword} compact={compactLayout} onToggle={() => setShowPassword((value) => !value)} /> : null}
             {!twoFactorChallenge && mode === 'register' ? <AuthInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder={t('auth.fields.confirmPassword')} secureTextEntry={!showPassword} /> : null}
 
             {!twoFactorChallenge && mode === 'register' ? (
@@ -209,9 +212,9 @@ export function LoginScreen() {
   );
 }
 
-function ModeButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function ModeButton({ label, active, compact, onPress }: { label: string; active: boolean; compact: boolean; onPress: () => void }) {
   const theme = useThemeTokens();
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.modeButton, active && { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.modeButtonText, { color: active ? theme.color.background : theme.color.muted }]}>{label}</AppText></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.modeButton, compact && styles.modeButtonCompact, active && { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.modeButtonText, { color: active ? theme.color.background : theme.color.muted }]}>{label}</AppText></Pressable>;
 }
 
 function AuthInput(props: React.ComponentProps<typeof TextInput>) {
@@ -219,13 +222,13 @@ function AuthInput(props: React.ComponentProps<typeof TextInput>) {
   return <TextInput accessibilityLabel={props.accessibilityLabel ?? props.placeholder} inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID} returnKeyType={props.returnKeyType ?? 'done'} blurOnSubmit={props.blurOnSubmit ?? !props.multiline} {...props} placeholderTextColor={theme.color.muted} style={[styles.input, { color: theme.color.text, backgroundColor: theme.color.surface, borderColor: theme.color.border }, props.style]} />;
 }
 
-function PasswordInput({ value, onChangeText, placeholder, showPassword, onToggle }: { value: string; onChangeText: (value: string) => void; placeholder: string; showPassword: boolean; onToggle: () => void }) {
+function PasswordInput({ value, onChangeText, placeholder, showPassword, compact, onToggle }: { value: string; onChangeText: (value: string) => void; placeholder: string; showPassword: boolean; compact: boolean; onToggle: () => void }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
   return (
-    <View style={styles.passwordRow}>
-      <AuthInput value={value} onChangeText={onChangeText} placeholder={placeholder} secureTextEntry={!showPassword} style={styles.passwordInput} />
-      <Pressable accessibilityRole="button" accessibilityLabel={showPassword ? t('auth.actions.hidePassword') : t('auth.actions.showPassword')} onPress={onToggle} style={({ pressed }) => [styles.showButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
+    <View style={[styles.passwordRow, compact && styles.passwordRowCompact]}>
+      <AuthInput value={value} onChangeText={onChangeText} placeholder={placeholder} secureTextEntry={!showPassword} style={[styles.passwordInput, compact && styles.passwordInputCompact]} />
+      <Pressable accessibilityRole="button" accessibilityLabel={showPassword ? t('auth.actions.hidePassword') : t('auth.actions.showPassword')} onPress={onToggle} style={({ pressed }) => [styles.showButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, compact && styles.showButtonCompact, pressed && styles.pressed]}>
         <AppText style={[styles.showButtonText, { color: theme.color.text }]}>{showPassword ? t('common.actions.hide') : t('common.actions.show')}</AppText>
       </Pressable>
     </View>
@@ -238,18 +241,26 @@ function AuthActionButton({ label, disabled, onPress }: { label: string; disable
 
 const styles = StyleSheet.create({
   shell: { flexGrow: 1, justifyContent: 'center', paddingVertical: 24 },
+  shellCompact: { justifyContent: 'flex-start', paddingVertical: 12 },
   authCard: { gap: 16 },
+  authCardCompact: { padding: 14, gap: 14 },
   brandBlock: { gap: 9 },
   logo: { fontSize: 38, fontWeight: '900', letterSpacing: -1 },
+  logoCompact: { fontSize: 32, letterSpacing: -0.75 },
   subtitle: { lineHeight: 20, fontWeight: '700' },
   toggleRow: { flexDirection: 'row', gap: 6, padding: 4, borderRadius: 18 },
+  toggleRowCompact: { flexDirection: 'column' },
   modeButton: { flex: 1, borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
-  modeButtonText: { fontWeight: '900' },
+  modeButtonCompact: { flex: 0, width: '100%', minHeight: 48, justifyContent: 'center', paddingHorizontal: 10 },
+  modeButtonText: { fontWeight: '900', textAlign: 'center' },
   formStack: { gap: 11 },
   input: { minHeight: 56, borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 12, fontSize: 16, fontWeight: '600' },
   passwordRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  passwordRowCompact: { flexDirection: 'column', alignItems: 'stretch' },
   passwordInput: { flex: 1 },
+  passwordInputCompact: { flex: 0, width: '100%' },
   showButton: { minHeight: 56, borderRadius: 16, borderWidth: 1, paddingHorizontal: 15, alignItems: 'center', justifyContent: 'center' },
+  showButtonCompact: { width: '100%', minHeight: 48 },
   showButtonText: { fontWeight: '900' },
   preferenceBlock: { borderRadius: 22, borderWidth: 1, padding: 12, gap: 12 },
   preferenceHeader: { gap: 4 },
