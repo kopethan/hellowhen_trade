@@ -1,5 +1,6 @@
 {
   "expo": {
+    "newArchEnabled": false,
     "name": "Hellowhen",
     "slug": "hellowhen",
     "version": "1.0.1",
@@ -62,16 +63,17 @@
             "targetSdkVersion": 35
           },
           "ios": {
-            "deploymentTarget": "15.0"
+            "deploymentTarget": "15.1"
           }
         }
       ],
       [
         "./plugins/withIosDeploymentTarget",
         {
-          "deploymentTarget": "15.0"
+          "deploymentTarget": "15.1"
         }
-      ]
+      ],
+      "expo-asset"
     ]
   }
 }

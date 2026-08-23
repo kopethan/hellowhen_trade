@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { withDangerousMod, withPodfileProperties } = require('@expo/config-plugins');
 
-const DEFAULT_IOS_DEPLOYMENT_TARGET = '15.0';
+const DEFAULT_IOS_DEPLOYMENT_TARGET = '15.1';
 const MARKER_START = '# Hellowhen: force minimum iOS deployment target for pods';
 const MARKER_END = '# /Hellowhen: force minimum iOS deployment target for pods';
 
