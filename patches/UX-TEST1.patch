@@ -1,0 +1,174 @@
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index 6534690..3632d3e 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+-import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
++import { ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+@@ -114,10 +114,16 @@ export function TradeDeckFeedScreen() {
+   const [moneyOnly, setMoneyOnly] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+   const [loading, setLoading] = useState(false);
++  const [hasLoadedFeed, setHasLoadedFeed] = useState(false);
+   const [refreshSeed, setRefreshSeed] = useState(() => createFeedRefreshSeed());
+   const [seenTradeIds, setSeenTradeIds] = useState<string[]>([]);
+   const guidePrompt = useFeatureGuidePrompt('trade');
+   const loadRequestIdRef = useRef(0);
++  const feedQueryRef = useRef<ListTradesFeedQuery | null>(null);
++  const feedQueryKeyRef = useRef('');
++  const lastRequestedFeedKeyRef = useRef<string | null>(null);
++  const feedFocusedRef = useRef(false);
++  const immediateQueryLoadRef = useRef(false);
+   const pendingSearchRecordRef = useRef<{ q: string; source: TradeSearchKeywordSource } | null>(null);
+ 
+   const feedQuery = useMemo(() => buildFeedQuery(query, modeFilter, postTypeFilter, category, imagesOnly, moneyOnly, refreshSeed, seenTradeIds, language, auth.user?.profile?.countryCode), [auth.user?.profile?.countryCode, category, imagesOnly, language, modeFilter, moneyOnly, postTypeFilter, query, refreshSeed, seenTradeIds]);
+@@ -139,18 +145,23 @@ export function TradeDeckFeedScreen() {
+     }
+   }, [auth.user?.profile?.countryCode, language]);
+ 
+-  const loadFeed = useCallback(async () => {
++  const feedQueryKey = useMemo(() => JSON.stringify(feedQuery), [feedQuery]);
++  feedQueryRef.current = feedQuery;
++  feedQueryKeyRef.current = feedQueryKey;
++
++  const loadFeed = useCallback(async (nextFeedQuery: ListTradesFeedQuery, requestKey: string) => {
+     const requestId = loadRequestIdRef.current + 1;
+     loadRequestIdRef.current = requestId;
++    lastRequestedFeedKeyRef.current = requestKey;
+     setLoading(true);
+     setError(null);
+     try {
+-      const result = await api.trades.feed(feedQuery) as FeedResponse;
++      const result = await api.trades.feed(nextFeedQuery) as FeedResponse;
+       if (requestId !== loadRequestIdRef.current) return;
+       const nextTrades = Array.isArray(result.trades) ? result.trades : [];
+       setTrades(nextTrades);
+       const pendingRecord = pendingSearchRecordRef.current;
+-      if (pendingRecord && normalizeSearchText(pendingRecord.q) === normalizeSearchText(feedQuery.q ?? '')) {
++      if (pendingRecord && normalizeSearchText(pendingRecord.q) === normalizeSearchText(nextFeedQuery.q ?? '')) {
+         pendingSearchRecordRef.current = null;
+         void recordSearchKeyword(pendingRecord, nextTrades.length);
+       }
+@@ -159,16 +170,38 @@ export function TradeDeckFeedScreen() {
+       setTrades([]);
+       setError(getFriendlyApiErrorMessage(caughtError));
+     } finally {
+-      if (requestId === loadRequestIdRef.current) setLoading(false);
++      if (requestId === loadRequestIdRef.current) {
++        setHasLoadedFeed(true);
++        setLoading(false);
++      }
+     }
+-  }, [feedQuery, recordSearchKeyword]);
++  }, [recordSearchKeyword]);
+ 
+-  useFocusEffect(useCallback(() => { void loadFeed(); }, [loadFeed]));
++  useFocusEffect(useCallback(() => {
++    feedFocusedRef.current = true;
++    immediateQueryLoadRef.current = false;
++    const currentQuery = feedQueryRef.current;
++    if (currentQuery) void loadFeed(currentQuery, feedQueryKeyRef.current);
++    return () => {
++      feedFocusedRef.current = false;
++    };
++  }, [loadFeed]));
+ 
+   useEffect(() => {
+-    const handle = setTimeout(() => { void loadFeed(); }, 275);
++    if (!feedFocusedRef.current || lastRequestedFeedKeyRef.current === feedQueryKey) return undefined;
++
++    if (immediateQueryLoadRef.current) {
++      immediateQueryLoadRef.current = false;
++      void loadFeed(feedQuery, feedQueryKey);
++      return undefined;
++    }
++
++    const handle = setTimeout(() => {
++      if (!feedFocusedRef.current || lastRequestedFeedKeyRef.current === feedQueryKey) return;
++      void loadFeed(feedQuery, feedQueryKey);
++    }, 275);
+     return () => clearTimeout(handle);
+-  }, [loadFeed]);
++  }, [feedQuery, feedQueryKey, loadFeed]);
+ 
+   useEffect(() => {
+     const draft = normalizeSearchText(draftQuery);
+@@ -217,6 +250,7 @@ export function TradeDeckFeedScreen() {
+   }, [navigation]);
+ 
+   const refreshDiscoveryOrder = useCallback(() => {
++    immediateQueryLoadRef.current = true;
+     setSeenTradeIds((current) => compactSeenTradeIds([...current, ...trades.map((trade) => trade.id)]));
+     setRefreshSeed(createFeedRefreshSeed());
+   }, [trades]);
+@@ -301,10 +335,10 @@ export function TradeDeckFeedScreen() {
+   const hasFilters = activeFilterCount > 0;
+   const randomizedFeedIdeaKeys = useMemo(() => getRandomizedFeedIdeaKeys(refreshSeed), [refreshSeed]);
+   const starterIdeaPlacement = useMemo(() => (
+-    !loading && !error && !hasFilters
++    !error && !hasFilters && hasLoadedFeed
+       ? getFeedStarterIdeaPlacement(visibleTrades.length, randomizedFeedIdeaKeys)
+       : emptyFeedStarterIdeaPlacement
+-  ), [error, hasFilters, loading, randomizedFeedIdeaKeys, visibleTrades.length]);
++  ), [error, hasFilters, hasLoadedFeed, randomizedFeedIdeaKeys, visibleTrades.length]);
+   const feedItems = useMemo<TradeFeedListItem[]>(() => {
+     const items: TradeFeedListItem[] = [];
+     visibleTrades.forEach((trade, index) => {
+@@ -343,7 +377,7 @@ export function TradeDeckFeedScreen() {
+   const header = (
+     <View style={styles.fixedHeaderStack}>
+       <View style={styles.headerRow}>
+-        <AppText style={styles.title}>{t('navigation.tabs.trades')}</AppText>
++        <AppText style={styles.title}>{t('navigation.tabs.trade')}</AppText>
+         <View style={styles.headerActions}>
+           <Pressable accessibilityRole="button" accessibilityLabel={t('trade.filters.searchAndFilters')} onPress={() => { setDraftQuery(query); setToolsModal('filters'); }} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (toolsModal === 'filters' || hasFilters) && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
+             <MobileIcon name="filter" size={18} color={(toolsModal === 'filters' || hasFilters) ? theme.semantic.info.text : theme.color.text} />
+@@ -371,9 +405,9 @@ export function TradeDeckFeedScreen() {
+             renderItem={renderFeedItem}
+             contentContainerStyle={[scrollProps.contentInsetStyle, styles.content, styles.feedList]}
+             showsVerticalScrollIndicator={false}
+-            refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshDiscoveryOrder} />}
++            refreshControl={<RefreshControl refreshing={loading && hasLoadedFeed && feedItems.length > 0} onRefresh={refreshDiscoveryOrder} />}
+             ListHeaderComponent={listHeader}
+-            ListEmptyComponent={!error ? <EmptyTradesState loading={loading} hasTrades={hasTrades} hasFilters={hasFilters} onCreate={createTrade} onRefresh={refreshDiscoveryOrder} onClear={clearFilters} /> : null}
++            ListEmptyComponent={!error ? (loading ? <TradeFeedLoadingState /> : <EmptyTradesState hasTrades={hasTrades} hasFilters={hasFilters} onCreate={createTrade} onRefresh={refreshDiscoveryOrder} onClear={clearFilters} />) : null}
+             // Deck cards intentionally travel diagonally left during swipe;
+             // clipped FlatList cells create the visible "invisible wall" on Android.
+             removeClippedSubviews={false}
+@@ -1211,10 +1245,21 @@ const TradeDeckSection = React.memo(function TradeDeckSection({ trade, index, to
+   return <TradeSquareDeck trade={trade} index={index} total={total} onOpen={handleOpen} />;
+ });
+ 
+-function EmptyTradesState({ loading, hasTrades, hasFilters, onCreate, onRefresh, onClear }: { loading: boolean; hasTrades: boolean; hasFilters: boolean; onCreate: () => void; onRefresh: () => void; onClear: () => void }) {
++function TradeFeedLoadingState() {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  return (
++    <View style={styles.feedLoadingState}>
++      <ActivityIndicator color={theme.color.text} />
++      <AppText style={[styles.feedLoadingText, { color: theme.color.muted }]}>{t('trade.filters.loadingTrades')}</AppText>
++    </View>
++  );
++}
++
++function EmptyTradesState({ hasTrades, hasFilters, onCreate, onRefresh, onClear }: { hasTrades: boolean; hasFilters: boolean; onCreate: () => void; onRefresh: () => void; onClear: () => void }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+-  const title = loading ? t('trade.filters.loadingTrades') : hasFilters ? t('trade.filters.noMatches') : t('trade.filters.noTradesYet');
++  const title = hasFilters ? t('trade.filters.noMatches') : t('trade.filters.noTradesYet');
+   const body = hasFilters ? t('trade.filters.noTradesBody') : t('trade.filters.emptyBody');
+ 
+   return (
+@@ -1258,6 +1303,8 @@ const styles = StyleSheet.create({
+   wizardTitle: { fontSize: 15, lineHeight: 19, fontWeight: '900' },
+   wizardBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
+   feedIntroStack: { gap: 10, marginBottom: 4 },
++  feedLoadingState: { minHeight: 180, alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 24 },
++  feedLoadingText: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
+   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },

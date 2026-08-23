@@ -95,9 +95,44 @@ function runFirstLaunchEnvChecks() {
 }
 
 function runNavigationChecks() {
+  const sharedNavigation = read('packages/shared/src/appNavigation.ts');
+  const nativeSourceFiles = collectFiles('apps/mobile/src').filter((file) => /\.(tsx?|jsx?)$/.test(file));
+  const bottomTabNavigatorDeclarations = [];
+
+  for (const file of nativeSourceFiles) {
+    const content = read(file);
+    const declarationPattern = /\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*createBottomTabNavigator\s*(?:<[^>]+>)?\s*\(/g;
+    for (const match of content.matchAll(declarationPattern)) {
+      bottomTabNavigatorDeclarations.push({ file: file.replaceAll('\\', '/'), variableName: match[1] });
+    }
+  }
+
+  assert(
+    bottomTabNavigatorDeclarations.length === 1
+      && bottomTabNavigatorDeclarations[0].file === 'apps/mobile/src/navigation/RootNavigator.tsx',
+    `Native mobile must keep exactly one bottom-tab navigator in RootNavigator.tsx. Found: ${bottomTabNavigatorDeclarations.map(({ file, variableName }) => `${file}:${variableName}`).join(', ') || '(none)'}.`,
+  );
+
+  const configuredMobileTabNames = [...sharedNavigation.matchAll(/mobileTabName:\s*'([^']+)'/g)].map((match) => match[1]);
+  const expectedMobileTabNames = ['PlanTab', 'MeTab', 'TradeTab'];
+  assert(
+    JSON.stringify(configuredMobileTabNames) === JSON.stringify(expectedMobileTabNames),
+    `Shared mobile primary tabs must be exactly ${expectedMobileTabNames.join(' / ')}. Found: ${configuredMobileTabNames.join(', ') || '(none)'}.`,
+  );
+
+  const forbiddenPrimaryTabNames = ['Need', 'Needs', 'Offer', 'Offers', 'Account', 'NeedTab', 'NeedsTab', 'OfferTab', 'OffersTab', 'AccountTab'];
+  const [{ file: bottomTabFile, variableName: bottomTabVariableName }] = bottomTabNavigatorDeclarations;
+  const bottomTabSource = read(bottomTabFile);
+  for (const tabName of forbiddenPrimaryTabNames) {
+    const literalPrimaryTabPattern = new RegExp(`<${bottomTabVariableName}\\.Screen\\b[^>]*\\bname\\s*=\\s*["']${tabName}["']`);
+    assert(!configuredMobileTabNames.includes(tabName) && !literalPrimaryTabPattern.test(bottomTabSource), `Legacy primary tab ${tabName} must not be registered.`);
+  }
+
   assertContains('packages/shared/src/appNavigation.ts', "normalAppNavItemIds = ['plans', 'me', 'trade']", 'Shared public navigation must stay Plans / Me / Trade.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'normalAppNavItems.map((item)', 'Native bottom tabs must be generated from the shared Plans / Me / Trade navigation.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'initialRouteName={DEFAULT_NORMAL_APP_NAV_MOBILE_TAB_NAME}', 'Native public navigation must keep the shared default tab.');
+
+  console.log('Mobile primary-navigation regression guard: PASS');
 
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'const ProtectedProposalDetailScreen = withAuth(ProposalDetailScreen);', 'Proposal thread detail must stay auth-protected.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', "withAuth(TradePrivateProposalsScreen, 'navigation.authRequired.privateProposals.title'", 'Private proposals screen must stay auth-protected.');
