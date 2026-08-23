@@ -277,17 +277,53 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   const [problemError, setProblemError] = useState<string | null>(null);
   const [actionSheet, setActionSheet] = useState<ProposalActionSheet>(null);
   const loadRequestIdRef = useRef(0);
+  const messageLoadRequestIdRef = useRef(0);
   const pollingInFlightRef = useRef(false);
   const threadFocusedRef = useRef(false);
+  const proposalRef = useRef<TradeProposalItem | null>(null);
+  const actionLoadingRef = useRef<ActionLoading>(null);
+  const chatScrollRef = useRef<ScrollView | null>(null);
+  const pendingScrollToEndRef = useRef<boolean | null>(null);
+  const userInteractedWithThreadRef = useRef(false);
+  const initialConversationPositionedRef = useRef(false);
+  const activeProposalIdRef = useRef(route.params.proposalId);
 
-  const loadMessages = useCallback(async () => {
+  if (activeProposalIdRef.current !== route.params.proposalId) {
+    activeProposalIdRef.current = route.params.proposalId;
+    initialConversationPositionedRef.current = false;
+    userInteractedWithThreadRef.current = false;
+    pendingScrollToEndRef.current = null;
+  }
+
+  proposalRef.current = proposal;
+  actionLoadingRef.current = actionLoading;
+
+  const scrollConversationToEnd = useCallback((animated: boolean) => {
+    pendingScrollToEndRef.current = animated;
+    requestAnimationFrame(() => {
+      chatScrollRef.current?.scrollToEnd({ animated });
+    });
+  }, []);
+
+  const loadMessages = useCallback(async (options?: { scrollToEnd?: boolean; animated?: boolean; onlyIfUninteracted?: boolean }) => {
+    const requestId = messageLoadRequestIdRef.current + 1;
+    messageLoadRequestIdRef.current = requestId;
     const messageResult = await api.proposals.messages(route.params.proposalId) as MessagesResponse;
+    if (requestId !== messageLoadRequestIdRef.current) return;
+    const shouldScrollToEnd = Boolean(options?.scrollToEnd && (!options.onlyIfUninteracted || !userInteractedWithThreadRef.current));
+    if (shouldScrollToEnd) pendingScrollToEndRef.current = options?.animated ?? false;
     setMessages(messageResult.messages ?? []);
+    if (shouldScrollToEnd) {
+      requestAnimationFrame(() => {
+        chatScrollRef.current?.scrollToEnd({ animated: options?.animated ?? false });
+      });
+    }
   }, [route.params.proposalId]);
 
   const loadProposal = useCallback(async () => {
     const requestId = loadRequestIdRef.current + 1;
     loadRequestIdRef.current = requestId;
+    messageLoadRequestIdRef.current += 1;
     setLoading(true);
     setError(null);
     try {
@@ -296,8 +332,13 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       setProposal(result.proposal);
       setPackageNeedId(route.params.selectedProposalNeedId ?? result.proposal.proposedNeedId ?? result.proposal.proposedNeed?.id ?? '');
       setPackageOfferId(route.params.selectedProposalOfferId ?? result.proposal.proposedOfferId ?? result.proposal.proposedOffer?.id ?? '');
+      const shouldPositionInitially = !initialConversationPositionedRef.current;
+      if (shouldPositionInitially) {
+        initialConversationPositionedRef.current = true;
+        pendingScrollToEndRef.current = false;
+      }
       setMessages(result.proposal.messages ?? []);
-      try { await loadMessages(); } catch { /* keep proposal-attached messages if the standalone list fails */ }
+      void loadMessages({ scrollToEnd: shouldPositionInitially, animated: false, onlyIfUninteracted: true }).catch(() => { /* keep proposal-attached messages if the standalone list fails */ });
     } catch (caughtError) {
       if (requestId !== loadRequestIdRef.current) return;
       setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotLoadProposal')));
@@ -388,7 +429,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   }, [loadMessages, route.params.proposalId]);
 
   const pollConversation = useCallback(async () => {
-    if (!threadFocusedRef.current || !proposal?.id || pollingInFlightRef.current || actionLoading) return;
+    if (!threadFocusedRef.current || !proposalRef.current?.id || pollingInFlightRef.current || actionLoadingRef.current) return;
     pollingInFlightRef.current = true;
     try {
       await refreshConversation();
@@ -397,7 +438,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
     } finally {
       pollingInFlightRef.current = false;
     }
-  }, [actionLoading, proposal?.id, refreshConversation]);
+  }, [refreshConversation]);
 
   useFocusEffect(useCallback(() => {
     threadFocusedRef.current = true;
@@ -427,7 +468,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       const result = await api.proposals.sendMessage(route.params.proposalId, { body: trimmed }) as MessageMutationResponse;
       if (result.proposal) setProposal(result.proposal);
       setBody('');
-      await loadMessages();
+      await loadMessages({ scrollToEnd: true, animated: true });
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotSendMessage')));
     } finally {
@@ -933,11 +974,21 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       ) : (
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.chatRoot} keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}>
           <ScrollView
+            ref={chatScrollRef}
             style={styles.chatScroll}
             contentContainerStyle={styles.chatContent}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="interactive"
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             scrollEventThrottle={16}
+            onScrollBeginDrag={() => { userInteractedWithThreadRef.current = true; }}
+            onContentSizeChange={() => {
+              const pendingScroll = pendingScrollToEndRef.current;
+              if (pendingScroll === null) return;
+              pendingScrollToEndRef.current = null;
+              requestAnimationFrame(() => {
+                chatScrollRef.current?.scrollToEnd({ animated: pendingScroll });
+              });
+            }}
             onScroll={(event) => {
               const nextCompact = event.nativeEvent.contentOffset.y > 84;
               if (nextCompact !== scrolledCompact) setScrolledCompact(nextCompact);
@@ -989,6 +1040,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
               value={body}
               onChangeText={setBody}
               onSend={() => { void sendMessage(); }}
+              onFocus={() => { scrollConversationToEnd(true); }}
               placeholder={t('trade.proposals.replyPrivately')}
               sendLabel={actionLoading === 'send' ? t('trade.proposals.sending') : t('trade.proposals.send')}
               disabled={Boolean(actionLoading)}

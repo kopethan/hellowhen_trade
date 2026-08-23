@@ -125,6 +125,7 @@ type ConversationComposerBarProps = {
   placeholder: string;
   onChangeText: (value: string) => void;
   onSend: () => void;
+  onFocus?: () => void;
   disabled?: boolean;
   sending?: boolean;
   sendLabel?: string;
@@ -386,7 +387,7 @@ export function ConversationBubble({ body, mine, authorLabel, meta, deleted, rig
   );
 }
 
-export function ConversationComposerBar({ value, placeholder, onChangeText, onSend, disabled, sending, sendLabel, style }: ConversationComposerBarProps) {
+export function ConversationComposerBar({ value, placeholder, onChangeText, onSend, onFocus, disabled, sending, sendLabel, style }: ConversationComposerBarProps) {
   const theme = useThemeTokens();
   const canSend = value.trim().length > 0 && !disabled && !sending;
   return (
@@ -396,6 +397,7 @@ export function ConversationComposerBar({ value, placeholder, onChangeText, onSe
         editable={!disabled && !sending}
         multiline
         onChangeText={onChangeText}
+        onFocus={onFocus}
         placeholder={placeholder}
         placeholderTextColor={theme.color.muted}
         style={[styles.composerInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
