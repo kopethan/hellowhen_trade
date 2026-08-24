@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { AuthUser, LedgerEntryDto, WalletDto } from '@hellowhen/contracts';
 import { formatMoney } from '@hellowhen/shared';
@@ -437,13 +438,15 @@ function MeHubWidgetRow({ widget, last, onPress }: { widget: MeHubWidget; last?:
 function AccountMenuModal({ actions, unreadCount, visible, onClose, onLogout, onNavigate }: { actions: AccountAction[]; unreadCount: number; visible: boolean; onClose: () => void; onLogout: () => void; onNavigate: (route: AccountRoute) => void }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
+  const androidBottomInset = Platform.OS === 'android' ? Math.max(0, insets.bottom) : 0;
   const settingsActions = actions.filter((action) => action.group === 'settings');
   const futureActions = actions.filter((action) => action.group === 'future');
   const helpActions = actions.filter((action) => action.route === 'OnboardingGuide' || action.route === 'SupportCenter');
 
   return (
     <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('account.menu.close')} onPress={onClose} style={styles.menuBackdrop}>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('account.menu.close')} onPress={onClose} style={[styles.menuBackdrop, androidBottomInset > 0 && { paddingBottom: 14 + androidBottomInset }]}>
         <Pressable accessibilityRole="menu" onPress={(event) => event.stopPropagation()} style={[styles.menuSheet, { backgroundColor: theme.color.elevated, borderColor: theme.color.border }]}>
           <View style={styles.menuHeader}>
             <View style={styles.menuHeaderCopy}>

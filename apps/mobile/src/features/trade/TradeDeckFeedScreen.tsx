@@ -4,6 +4,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { ListTradesFeedQuery, TradeExchangeMode, TradePostType, TradeSearchKeywordSource, TradeSearchSuggestion } from '@hellowhen/contracts';
+import { formatLocalizedShortDate, type SupportedLanguage } from '@hellowhen/i18n';
 import { getNormalWorkspaceMenuItems, getTradeOwnerVisibilityState, isTradeOwnerCloseAllowed, isTradeOwnerRenewAllowed, type NormalWorkspaceMenuItem, type NormalWorkspaceMenuTone } from '@hellowhen/shared';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
@@ -910,15 +911,10 @@ function TradeSearchSuggestionList({ query, suggestions, loading, onSelect }: { 
   );
 }
 
-function formatMineDate(value?: string | null) {
+function formatMineDate(value: string | null | undefined, language: SupportedLanguage) {
   if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  try {
-    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date);
-  } catch {
-    return value;
-  }
+  const formatted = formatLocalizedShortDate(value, language, '');
+  return formatted || null;
 }
 
 function formatTradeStatusLabel(status: string | undefined, t: ReturnType<typeof useTranslation>['t']) {
@@ -1082,9 +1078,9 @@ function MyCreatedTradesPanel({ scrollProps, onCreate, onOpenTrade, onOpenPropos
 
 function MyCreatedTradeRow({ trade, busy, onOpen, onOpenProposals, onRenew, onClose }: { trade: TradeWithCounts; busy: boolean; onOpen: () => void; onOpenProposals: () => void; onRenew: () => void; onClose: () => void }) {
   const theme = useThemeTokens();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const proposalCount = trade._count?.proposals ?? 0;
-  const expiresLabel = formatMineDate(trade.expiresAt) ?? t('trade.mine.noExpiry');
+  const expiresLabel = formatMineDate(trade.expiresAt, language) ?? t('trade.mine.noExpiry');
   const visibilityState = getTradeOwnerVisibilityState(trade);
   const canRenew = isTradeOwnerRenewAllowed(trade);
   const canClose = isTradeOwnerCloseAllowed(trade);
@@ -1200,10 +1196,12 @@ function InvolvedTradesPanel({ scrollProps, onOpenTrade, onOpenProposal }: { scr
 
 function InvolvedTradeRow({ trade, onOpen, onOpenProposal }: { trade: TradeWithViewerProposal; onOpen: () => void; onOpenProposal: () => void }) {
   const theme = useThemeTokens();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const proposal = trade.viewerProposal;
   const proposalStatus = proposal?.status ?? (trade.viewerInvolvement === 'provider' ? 'accepted' : 'pending');
-  const proposalDate = formatMineDate(proposal?.createdAt) ?? t('trade.involved.unknownDate');
+  const proposalDate = formatMineDate(proposal?.createdAt, language) ?? t('trade.involved.unknownDate');
+  const proposalStatusLabel = t(`trade.proposals.status.${proposalStatus}`);
+  const proposalStatusMetaLabel = language === 'fr' ? proposalStatusLabel.toLocaleLowerCase('fr-FR') : proposalStatusLabel;
 
   return (
     <View style={[styles.mineRow, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
@@ -1212,10 +1210,10 @@ function InvolvedTradeRow({ trade, onOpen, onOpenProposal }: { trade: TradeWithV
         <View style={styles.mineRowBadges}>
           <SemanticBadge label={getMineTradeTypeLabel(trade, t)} tone="trade" />
           <SemanticBadge label={formatTradeStatusLabel(trade.status, t)} tone="muted" />
-          <SemanticBadge label={t(`trade.proposals.status.${proposalStatus}`)} tone="info" />
+          <SemanticBadge label={proposalStatusLabel} tone="info" />
         </View>
         <AppText numberOfLines={2} style={styles.mineRowTitle}>{getMineTradeTitle(trade)}</AppText>
-        <AppText style={[styles.mineRowMeta, { color: theme.color.muted }]}>{t('trade.involved.rowMeta', { status: t(`trade.proposals.status.${proposalStatus}`), date: proposalDate })}</AppText>
+        <AppText style={[styles.mineRowMeta, { color: theme.color.muted }]}>{t('trade.involved.rowMeta', { status: proposalStatusMetaLabel, date: proposalDate })}</AppText>
         <View style={styles.mineRowActions}>
           <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.mineActionButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.mineActionButtonText, { color: theme.color.text }]}>{t('trade.mine.openDetail')}</AppText></Pressable>
           {proposal?.id ? <Pressable accessibilityRole="button" onPress={onOpenProposal} style={({ pressed }) => [styles.mineActionButton, { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}><AppText style={[styles.mineActionButtonText, { color: theme.semantic.info.text }]}>{t('trade.involved.openThread')}</AppText></Pressable> : null}
