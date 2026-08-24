@@ -4,6 +4,7 @@ import DateTimePicker, { type DateTimePickerEvent } from '@react-native-communit
 import * as Location from 'expo-location';
 import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle, type LayoutChangeEvent } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
 import { formatLocalizedDateTime, type SupportedLanguage, type TranslationValues } from '@hellowhen/i18n';
@@ -21,7 +22,7 @@ import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { buildPublicPlanUrl } from '../../lib/publicUrls';
-import type { RootStackParamList } from '../../navigation/RootNavigator';
+import type { PlanTabRouteParams, RootStackParamList } from '../../navigation/RootNavigator';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
@@ -93,7 +94,7 @@ function toggleFilterValue(values: string[], value: string) {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 }
 
-type PlanFilterRouteParams = { filters?: string[]; q?: string };
+type PlanFilterRouteParams = PlanTabRouteParams;
 
 const planFilterKeys: PlanFilterKey[] = ['status', 'mode', 'join', 'places', 'time'];
 const allowedPlanFilterValues = new Set(planFilterGroups.flatMap((group) => group.options.map((option) => option.value)));
@@ -110,6 +111,13 @@ function normalizePlanFilters(values?: string[] | null) {
 
 function normalizePlanSearchQuery(value?: string | null) {
   return (value ?? '').trim().replace(/\s+/g, ' ').slice(0, 120);
+}
+
+function navigateToPlansTab(
+  navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'>,
+  params?: PlanFilterRouteParams,
+) {
+  navigation.navigate('TradeTabs', { screen: 'PlanTab', params });
 }
 
 function activePlanFilterCount(filters: string[], query?: string | null) {
@@ -1842,7 +1850,7 @@ function PlaceRow({
   return <View style={[styles.rowCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>{content}</View>;
 }
 
-function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope: PlanListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'>; filters?: string[]; searchQuery?: string }) {
+function PlanList({ scope, navigation, filters = [], searchQuery = '', focusStarterIdeaRequestKey = 0 }: { scope: PlanListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'>; filters?: string[]; searchQuery?: string; focusStarterIdeaRequestKey?: number }) {
   const theme = useThemeTokens();
   const auth = useAuth();
   const { t } = useTranslation();
@@ -1856,6 +1864,8 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
   const [starterRefreshKey, setStarterRefreshKey] = useState(0);
   const [recentStarterIdeaIds, setRecentStarterIdeaIds] = useState<string[]>([]);
   const [anonymousStarterKey, setAnonymousStarterKey] = useState('anonymous');
+  const deckListRef = useRef<FlatList<PlanFeedListItem>>(null);
+  const handledStarterIdeaFocusKeyRef = useRef(0);
   const guidePrompt = useFeatureGuidePrompt('plans');
 
   useEffect(() => {
@@ -1915,6 +1925,17 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
     recentIdeaIds: recentStarterIdeaIds,
   }), [anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, isDeckFeed, plans.length, recentStarterIdeaIds.join('|'), starterRefreshKey]);
   const feedItems = useMemo(() => buildPlanFeedItems(plans.length, starterIdeas), [plans.length, starterIdeas.join('|')]);
+
+  useEffect(() => {
+    if (loading || !isDeckFeed || !focusStarterIdeaRequestKey || handledStarterIdeaFocusKeyRef.current === focusStarterIdeaRequestKey) return;
+    const firstIdeaIndex = feedItems.findIndex((item) => item.type === 'idea');
+    if (firstIdeaIndex < 0) return;
+    handledStarterIdeaFocusKeyRef.current = focusStarterIdeaRequestKey;
+    requestAnimationFrame(() => {
+      deckListRef.current?.scrollToIndex({ index: firstIdeaIndex, animated: true, viewPosition: 0 });
+    });
+  }, [feedItems, focusStarterIdeaRequestKey, isDeckFeed, loading]);
+
   const rowItems = useMemo<PlanRowListItem[]>(() => {
     if (scope !== 'mine') return plans.map((plan) => ({ type: 'plan' as const, key: plan.id, plan }));
     const activePlans = plans.filter((plan) => plan.status !== 'cancelled');
@@ -1995,6 +2016,7 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
 
   return isDeckFeed ? (
     <FlatList
+      ref={deckListRef}
       data={feedItems}
       keyExtractor={(item, index) => item.type === 'idea' ? `idea-${item.ideaKey}` : `plan-${plans[item.planIndex]?.id ?? item.planIndex}-${index}`}
       renderItem={renderDeckFeedItem}
@@ -2002,6 +2024,9 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '' }: { scope
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
       ListHeaderComponent={listHeader}
+      onScrollToIndexFailed={({ index, averageItemLength }) => {
+        deckListRef.current?.scrollToOffset({ offset: Math.max(0, averageItemLength * index), animated: true });
+      }}
       // Deck cards intentionally travel diagonally left during swipe;
       // clipped FlatList cells create the visible "invisible wall" on Android.
       removeClippedSubviews={false}
@@ -2219,7 +2244,10 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
       navigation.navigate('MyPlaces');
       return;
     }
-    navigation.navigate('Plans');
+    if (itemId === 'plan_ideas') {
+      navigateToPlansTab(navigation, { filters: [], q: undefined, focusIdeas: Date.now() });
+      return;
+    }
   }
 
   const header = (
@@ -2243,7 +2271,7 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
             {menuItems.map((item) => <MenuItem key={item.id} item={item} onPress={() => openWorkspaceItem(item.id)} />)}
           </View>
         ) : null}
-        <PlanList scope="feed" navigation={navigation} filters={activeFilters} searchQuery={activeSearchQuery} />
+        <PlanList scope="feed" navigation={navigation} filters={activeFilters} searchQuery={activeSearchQuery} focusStarterIdeaRequestKey={routeParams?.focusIdeas} />
       </View>
     </AppFixedHeaderScreen>
   );
@@ -2253,6 +2281,7 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
   const fallbackNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const navigation = (props.navigation ?? fallbackNavigation) as NativeStackNavigationProp<RootStackParamList>;
   const theme = useThemeTokens();
+  const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const incomingParams = props.route?.params as PlanFilterRouteParams | undefined;
   const incomingFilters = normalizePlanFilters(incomingParams?.filters);
@@ -2280,7 +2309,8 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
 
   return (
     <AppFixedHeaderScreen header={<AppHeader title={t('plans.filters.title')} onBack={() => navigation.goBack()} />}>
-      <ScrollView contentContainerStyle={styles.planFilterContent} showsVerticalScrollIndicator={false}>
+      <View style={styles.planFilterScreen}>
+        <ScrollView style={styles.planFilterScroll} contentContainerStyle={styles.planFilterContent} showsVerticalScrollIndicator={false}>
         <View style={[styles.hero, styles.planFilterHero, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
           <View style={[styles.menuIcon, { backgroundColor: theme.color.surface, borderColor: theme.semantic.plan.border }]}>
             <MobileIcon name="filter" size={18} color={theme.semantic.plan.text} />
@@ -2348,11 +2378,16 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
           </View>
         ))}
 
-        <View style={styles.planFilterFooter}>
-          <SecondaryButton label={t('plans.filters.reset')} icon="refresh" onPress={reset} disabled={activeCount === 0} />
-          <PrimaryButton label={activeCount ? t('plans.filters.showCount', { count: activeCount }) : t('plans.filters.show')} onPress={() => navigation.navigate('Plans', activeCount ? { filters: selectedFilters, q: normalizedSearchQuery || undefined } : undefined)} />
+        </ScrollView>
+        <View style={[styles.planFilterFooter, { backgroundColor: theme.color.background, borderTopColor: theme.color.border, paddingBottom: Math.max(10, insets.bottom + 8) }]}>
+          <View style={styles.planFilterFooterReset}>
+            <SecondaryButton label={t('plans.filters.reset')} icon="refresh" inlineIcon onPress={reset} disabled={activeCount === 0} />
+          </View>
+          <View style={styles.planFilterFooterApply}>
+            <PrimaryButton label={activeCount ? t('plans.filters.showCount', { count: activeCount }) : t('plans.filters.show')} onPress={() => navigateToPlansTab(navigation, activeCount ? { filters: selectedFilters, q: normalizedSearchQuery || undefined } : { filters: [], q: undefined })} />
+          </View>
         </View>
-      </ScrollView>
+      </View>
     </AppFixedHeaderScreen>
   );
 }
@@ -3733,10 +3768,10 @@ function PrimaryButton({ label, onPress, disabled }: { label: string; onPress: (
   );
 }
 
-function SecondaryButton({ label, onPress, disabled, icon }: { label: string; onPress: () => void; disabled?: boolean; icon?: MobileIconName }) {
+function SecondaryButton({ label, onPress, disabled, icon, inlineIcon = false }: { label: string; onPress: () => void; disabled?: boolean; icon?: MobileIconName; inlineIcon?: boolean }) {
   const theme = useThemeTokens();
   return (
-    <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, disabled && styles.disabled]}>
+    <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.secondaryButton, inlineIcon && styles.secondaryButtonInline, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, disabled && styles.disabled]}>
       {icon ? <MobileIcon name={icon} size={16} color={theme.color.text} /> : null}
       <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{label}</AppText>
     </Pressable>
@@ -3950,7 +3985,7 @@ export function PlanIdeaDetailScreen({ route, navigation }: PlanIdeaDetailProps)
           <AppText style={styles.sectionTitle}>{t('plans.ideaDetail.nextStep.title')}</AppText>
           <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t('plans.ideaDetail.nextStep.body')}</AppText>
           <View style={styles.actionGrid}>
-            <SecondaryButton label={t('plans.ideaDetail.actions.backToPlans')} onPress={() => navigation.navigate('Plans')} />
+            <SecondaryButton label={t('plans.ideaDetail.actions.backToPlans')} onPress={() => navigateToPlansTab(navigation)} />
             <PrimaryButton label={t('plans.ideaDetail.actions.createVersion')} onPress={createVersion} />
           </View>
         </View>
@@ -5557,6 +5592,7 @@ const styles = StyleSheet.create({
   joinedState: { minHeight: 46, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 9, paddingHorizontal: 14, paddingVertical: 10 },
   joinedStateText: { fontWeight: '900' },
   secondaryButton: { minHeight: 48, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 13, alignSelf: 'stretch' },
+  secondaryButtonInline: { flexDirection: 'row', gap: 8 },
   secondaryButtonText: { fontWeight: '900' },
   dangerButton: { minHeight: 48, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 13, alignSelf: 'stretch' },
   dangerButtonText: { fontWeight: '900' },
@@ -5664,7 +5700,9 @@ const styles = StyleSheet.create({
   previewPlaceRow: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   previewFinalNote: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 8 },
   supportSection: { marginTop: 2 },
-  planFilterContent: { gap: 14, paddingBottom: 34 },
+  planFilterScreen: { flex: 1, minHeight: 0 },
+  planFilterScroll: { flex: 1 },
+  planFilterContent: { gap: 14, paddingBottom: 18 },
   planFilterHero: { borderRadius: 24 },
   planFilterSearchCard: { borderWidth: 1, borderRadius: 22, padding: 14, gap: 8 },
   planFilterSearchInputWrap: { minHeight: 48, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -5676,7 +5714,9 @@ const styles = StyleSheet.create({
   planFilterOption: { minHeight: 58, borderRadius: 18, borderWidth: 1, padding: 11, flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   planFilterCheck: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   planFilterOptionCopy: { flex: 1, minWidth: 0, gap: 2 },
-  planFilterFooter: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, gap: 8 },
+  planFilterFooter: { flexShrink: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, flexDirection: 'row', alignItems: 'stretch', gap: 10 },
+  planFilterFooterReset: { minWidth: 104 },
+  planFilterFooterApply: { flex: 1, minWidth: 0 },
   disabled: { opacity: 0.6 },
   pressed: { opacity: 0.76, transform: [{ scale: 0.99 }] },
 });

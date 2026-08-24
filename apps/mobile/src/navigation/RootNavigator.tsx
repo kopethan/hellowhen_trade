@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, type NavigatorScreenParams } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
@@ -67,16 +67,23 @@ import type { ThemeTokens } from '@hellowhen/theme';
 type InventoryCreateReturnTarget = 'createTrade' | 'createTradeFull' | 'tradeProposal' | 'proposalDetail';
 type InventoryCreateParams = { returnTo?: InventoryCreateReturnTarget; tradeId?: string; tradeTitle?: string; proposalId?: string; proposalNeedId?: string; proposalOfferId?: string; initialTemplateKey?: string; initialIdeaKey?: FeedTradeIdeaKey | null; initialPostType?: TradePostType | null; initialNeedSelection?: TradeCreateSideSelection | null; initialOfferSelection?: TradeCreateSideSelection | null; initialExpiryDays?: number | null } | undefined;
 
+export type PlanTabRouteParams = { filters?: string[]; q?: string; focusIdeas?: number };
+export type MainTabParamList = {
+  PlanTab: PlanTabRouteParams | undefined;
+  MeTab: undefined;
+  TradeTab: undefined;
+};
+
 export type RootStackParamList = {
-  TradeTabs: undefined;
+  TradeTabs: NavigatorScreenParams<MainTabParamList> | undefined;
   MyNeeds: undefined;
   MyOffers: undefined;
   AccountProfile: undefined;
   Notifications: undefined;
   SavedLibrary: undefined;
   Agenda: undefined;
-  Plans: { filters?: string[]; q?: string } | undefined;
-  PlanFilters: { filters?: string[]; q?: string } | undefined;
+  Plans: PlanTabRouteParams | undefined;
+  PlanFilters: PlanTabRouteParams | undefined;
   PlanDetail: { planId: string; title?: string };
   PlanIdeaDetail: { ideaId: string };
   PlanPublicDiscussion: { planId: string; title?: string };
@@ -121,8 +128,6 @@ export type RootStackParamList = {
   OnboardingGuide: { replay?: boolean; guide?: OnboardingGuideType } | undefined;
   Login: undefined;
 };
-
-type MainTabParamList = Record<typeof normalAppNavItems[number]['mobileTabName'], undefined>;
 
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
