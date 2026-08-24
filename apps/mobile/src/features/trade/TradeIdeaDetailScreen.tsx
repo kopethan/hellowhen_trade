@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { AppScreen } from '../../components/AppScreen';
@@ -132,10 +133,23 @@ function MoreIdeasCard({ ideaKey, onOpenIdea }: { ideaKey: FeedTradeIdeaKey; onO
 export function TradeIdeaDetailScreen({ route, navigation }: Props) {
   const theme = useThemeTokens();
   const auth = useAuth();
+  const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const ideaKey = parseFeedTradeIdeaKey(route.params.ideaId);
   const [expiry, setExpiry] = useState<IdeaExpirySelection>('default');
+  const [actionBarHeight, setActionBarHeight] = useState(0);
   const title = useMemo(() => ideaKey ? ideaTitle(t, ideaKey) : '', [ideaKey, t]);
+  const androidBottomInset = Platform.OS === 'android' ? Math.max(0, insets.bottom) : 0;
+  const contentBottomPadding = Platform.OS === 'android'
+    ? Math.max(132, actionBarHeight + 14)
+    : 132;
+
+  function handleActionBarLayout(event: LayoutChangeEvent) {
+    if (Platform.OS !== 'android') return;
+    const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+    if (nextHeight <= 0) return;
+    setActionBarHeight((current) => current === nextHeight ? current : nextHeight);
+  }
 
   function openCreate(fullForm: boolean) {
     if (!ideaKey) return;
@@ -193,7 +207,7 @@ export function TradeIdeaDetailScreen({ route, navigation }: Props) {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: contentBottomPadding }]}
       >
         <View style={[styles.heroCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
           <SemanticBadge label={`${t(getIdeaTypeLabelKey(ideaKey))} · ${pack}`} tone="instruction" />
@@ -240,7 +254,17 @@ export function TradeIdeaDetailScreen({ route, navigation }: Props) {
         <MoreIdeasCard ideaKey={ideaKey} onOpenIdea={(nextIdeaKey) => navigation.push('TradeIdeaDetail', { ideaId: nextIdeaKey })} />
       </ScrollView>
 
-      <View style={[styles.actionBar, { backgroundColor: theme.color.background, borderTopColor: theme.color.border }]}>
+      <View
+        onLayout={handleActionBarLayout}
+        style={[
+          styles.actionBar,
+          {
+            backgroundColor: theme.color.background,
+            borderTopColor: theme.color.border,
+            paddingBottom: 16 + androidBottomInset,
+          },
+        ]}
+      >
         <Pressable accessibilityRole="button" onPress={() => navigation.navigate('TradeTabs')} style={({ pressed }) => [styles.tertiaryButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
           <AppText style={[styles.tertiaryButtonText, { color: theme.color.text }]}>{t('trade.ideaDetail.backToFeed')}</AppText>
         </Pressable>
@@ -259,7 +283,7 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 42, marginBottom: 10 },
   backButton: { width: 40, height: 40, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { flex: 1, fontSize: 16, lineHeight: 20, fontWeight: '900' },
-  content: { gap: 14, paddingBottom: 132 },
+  content: { gap: 14 },
   notFoundContent: { gap: 12, paddingTop: 8 },
   notFoundButton: { minHeight: 50, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   heroCard: { borderWidth: 1, borderRadius: 28, padding: 18, gap: 12 },
@@ -299,7 +323,7 @@ const styles = StyleSheet.create({
   moreIdeaPack: { fontSize: 10, lineHeight: 12, fontWeight: '900', letterSpacing: 0.55, textTransform: 'uppercase' },
   moreIdeaTitle: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
   moreIdeaAction: { fontSize: 11, lineHeight: 14, fontWeight: '900' },
-  actionBar: { position: 'absolute', left: -18, right: -18, bottom: 0, flexDirection: 'row', flexWrap: 'wrap', gap: 10, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 },
+  actionBar: { position: 'absolute', left: -18, right: -18, bottom: 0, flexDirection: 'row', flexWrap: 'wrap', gap: 10, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 18, paddingTop: 12 },
   tertiaryButton: { width: '100%', minHeight: 42, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   tertiaryButtonText: { textAlign: 'center', fontSize: 12, lineHeight: 15, fontWeight: '900' },
   secondaryButton: { flex: 1, minHeight: 50, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },

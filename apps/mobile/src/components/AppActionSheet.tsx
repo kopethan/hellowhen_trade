@@ -1,5 +1,6 @@
 import React from 'react';
-import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeTokens } from '../providers/ThemeProvider';
 import { AppText } from './AppText';
 import { MobileIcon, type MobileIconName } from './MobileIcon';
@@ -50,11 +51,17 @@ function getActionColors(theme: ReturnType<typeof useThemeTokens>, action: AppAc
 
 export function AppActionSheet({ visible, title, body, actions, cancelLabel, onCancel, onClose }: AppActionSheetProps) {
   const theme = useThemeTokens();
+  const insets = useSafeAreaInsets();
+  const androidBottomInset = Platform.OS === 'android' ? Math.max(0, insets.bottom) : 0;
   const close = onClose ?? onCancel ?? (() => undefined);
 
   return (
     <Modal animationType="fade" onRequestClose={close} transparent visible={visible}>
-      <Pressable accessibilityRole="button" onPress={close} style={styles.backdrop}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={close}
+        style={[styles.backdrop, androidBottomInset > 0 && { paddingBottom: 14 + androidBottomInset }]}
+      >
         <Pressable
           accessibilityRole="menu"
           onPress={(event) => event.stopPropagation()}

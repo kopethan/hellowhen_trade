@@ -395,7 +395,7 @@ export function TradeDeckFeedScreen() {
   );
 
   return (
-    <AppCollapsibleHeaderScreen header={header} resetKey="discover">
+    <AppCollapsibleHeaderScreen header={header} resetKey="discover" revealHeaderOnScrollUp>
       {(scrollProps) => (
         <>
           <FlatList

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeTokens } from '../providers/ThemeProvider';
 import { AppText } from './AppText';
 
@@ -29,13 +30,19 @@ export function AppConfirmSheet({
   onConfirm,
 }: AppConfirmSheetProps) {
   const theme = useThemeTokens();
+  const insets = useSafeAreaInsets();
+  const androidBottomInset = Platform.OS === 'android' ? Math.max(0, insets.bottom) : 0;
   const confirmColors = tone === 'danger'
     ? theme.semantic.danger
     : theme.semantic.proposal;
 
   return (
     <Modal animationType="fade" onRequestClose={onCancel} transparent visible={visible}>
-      <Pressable accessibilityRole="button" onPress={onCancel} style={styles.backdrop}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onCancel}
+        style={[styles.backdrop, androidBottomInset > 0 && { paddingBottom: 14 + androidBottomInset }]}
+      >
         <Pressable
           accessibilityRole="alert"
           onPress={(event) => event.stopPropagation()}
