@@ -115,6 +115,7 @@ export function TradeDeckFeedScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [hasLoadedFeed, setHasLoadedFeed] = useState(false);
+  const [hasSuccessfulFeed, setHasSuccessfulFeed] = useState(false);
   const [refreshSeed, setRefreshSeed] = useState(() => createFeedRefreshSeed());
   const [seenTradeIds, setSeenTradeIds] = useState<string[]>([]);
   const guidePrompt = useFeatureGuidePrompt('trade');
@@ -160,6 +161,7 @@ export function TradeDeckFeedScreen() {
       if (requestId !== loadRequestIdRef.current) return;
       const nextTrades = Array.isArray(result.trades) ? result.trades : [];
       setTrades(nextTrades);
+      setHasSuccessfulFeed(true);
       const pendingRecord = pendingSearchRecordRef.current;
       if (pendingRecord && normalizeSearchText(pendingRecord.q) === normalizeSearchText(nextFeedQuery.q ?? '')) {
         pendingSearchRecordRef.current = null;
@@ -167,7 +169,6 @@ export function TradeDeckFeedScreen() {
       }
     } catch (caughtError) {
       if (requestId !== loadRequestIdRef.current) return;
-      setTrades([]);
       setError(getFriendlyApiErrorMessage(caughtError));
     } finally {
       if (requestId === loadRequestIdRef.current) {
@@ -335,10 +336,10 @@ export function TradeDeckFeedScreen() {
   const hasFilters = activeFilterCount > 0;
   const randomizedFeedIdeaKeys = useMemo(() => getRandomizedFeedIdeaKeys(refreshSeed), [refreshSeed]);
   const starterIdeaPlacement = useMemo(() => (
-    !error && !hasFilters && hasLoadedFeed
+    (!error || hasSuccessfulFeed) && !hasFilters && hasLoadedFeed
       ? getFeedStarterIdeaPlacement(visibleTrades.length, randomizedFeedIdeaKeys)
       : emptyFeedStarterIdeaPlacement
-  ), [error, hasFilters, hasLoadedFeed, randomizedFeedIdeaKeys, visibleTrades.length]);
+  ), [error, hasFilters, hasLoadedFeed, hasSuccessfulFeed, randomizedFeedIdeaKeys, visibleTrades.length]);
   const feedItems = useMemo<TradeFeedListItem[]>(() => {
     const items: TradeFeedListItem[] = [];
     visibleTrades.forEach((trade, index) => {
@@ -400,7 +401,7 @@ export function TradeDeckFeedScreen() {
         <>
           <FlatList
             {...scrollProps.scrollViewProps}
-            data={error ? [] : feedItems}
+            data={feedItems}
             keyExtractor={(item) => item.key}
             renderItem={renderFeedItem}
             contentContainerStyle={[scrollProps.contentInsetStyle, styles.content, styles.feedList]}
@@ -965,7 +966,6 @@ function MyCreatedTradesPanel({ scrollProps, onCreate, onOpenTrade, onOpenPropos
       const result = await api.trades.mine({ scope: 'created' }) as MineResponse;
       setTrades(normalizeMineResponse(result));
     } catch (caughtError) {
-      setTrades([]);
       setError(getFriendlyApiErrorMessage(caughtError));
     } finally {
       setLoading(false);
@@ -1143,7 +1143,6 @@ function InvolvedTradesPanel({ scrollProps, onOpenTrade, onOpenProposal }: { scr
       const result = await api.trades.mine({ scope: 'involved' }) as { trades?: TradeWithViewerProposal[] };
       setTrades(Array.isArray(result.trades) ? result.trades : []);
     } catch (caughtError) {
-      setTrades([]);
       setError(getFriendlyApiErrorMessage(caughtError, t('trade.involved.loadError')));
     } finally {
       setLoading(false);

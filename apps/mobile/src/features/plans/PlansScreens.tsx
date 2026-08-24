@@ -1246,10 +1246,6 @@ function incompleteOfflinePlanPlaceIndexes(places: SelectedPlanPlaceState[]) {
   }, []);
 }
 
-function mergeUniquePlaceIds(currentIds: string[], nextIds: string[]) {
-  return Array.from(new Set([...currentIds, ...nextIds]));
-}
-
 function isReusablePlaceSelectable(place: PlaceDto) {
   if (place.status !== 'active') return false;
   if (place.mode === 'remote') return hasValidOnlineDestinationFields(place);
@@ -1861,6 +1857,7 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '', focusStar
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasSuccessfulLoad, setHasSuccessfulLoad] = useState(false);
   const [starterRefreshKey, setStarterRefreshKey] = useState(0);
   const [recentStarterIdeaIds, setRecentStarterIdeaIds] = useState<string[]>([]);
   const [anonymousStarterKey, setAnonymousStarterKey] = useState('anonymous');
@@ -1904,9 +1901,9 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '', focusStar
       const response = scope === 'mine' ? await api.plans.mine() : scope === 'joined' ? await api.plans.joined() : await api.plans.feed(buildPlanFeedQuery(activeFilters, activeSearchQuery));
       const nextPlans = response.plans ?? [];
       setPlans(scope === 'feed' ? applyPlanFilters(nextPlans, activeFilters, activeSearchQuery) : nextPlans);
+      setHasSuccessfulLoad(true);
     } catch {
       setError(t('plans.list.errors.body'));
-      setPlans([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -1925,6 +1922,7 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '', focusStar
     recentIdeaIds: recentStarterIdeaIds,
   }), [anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, isDeckFeed, plans.length, recentStarterIdeaIds.join('|'), starterRefreshKey]);
   const feedItems = useMemo(() => buildPlanFeedItems(plans.length, starterIdeas), [plans.length, starterIdeas.join('|')]);
+  const hasPreservedContent = hasSuccessfulLoad && (plans.length > 0 || starterIdeas.length > 0);
 
   useEffect(() => {
     if (loading || !isDeckFeed || !focusStarterIdeaRequestKey || handledStarterIdeaFocusKeyRef.current === focusStarterIdeaRequestKey) return;
@@ -1988,18 +1986,22 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '', focusStar
       tone="plan"
     />
   ) : null;
-  const listHeader = guidePromptHeader || filterHeader ? (
+  const preservedErrorHeader = error && hasPreservedContent ? (
+    <InfoNotice tone="warning" title={t('plans.list.errors.title')} body={error} />
+  ) : null;
+  const listHeader = guidePromptHeader || filterHeader || preservedErrorHeader ? (
     <View style={styles.feedIntroStack}>
       {guidePromptHeader}
       {filterHeader}
+      {preservedErrorHeader}
     </View>
   ) : null;
 
-  if (loading) {
+  if (loading && !hasSuccessfulLoad) {
     return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('plans.list.loading')}</AppText></View>;
   }
 
-  if (error) return <InfoNotice tone="warning" title={t('plans.list.errors.title')} body={error} />;
+  if (error && !hasPreservedContent) return <InfoNotice tone="warning" title={t('plans.list.errors.title')} body={error} />;
 
   if (plans.length === 0 && starterIdeas.length === 0) {
     const body = scope === 'mine'
@@ -2665,6 +2667,7 @@ function PlanPlaceTimelineCard({
 export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   const auth = useAuth();
   const theme = useThemeTokens();
+  const insets = useSafeAreaInsets();
   const { t, language } = useTranslation();
   const [plan, setPlan] = useState<PlanDto | null>(null);
   const [loading, setLoading] = useState(isPlansVisible());
@@ -2915,7 +2918,10 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
       {loading ? <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('plans.detail.loading')}</AppText></View> : null}
       {!loading && error ? <View style={styles.contentPad}><InfoNotice tone="warning" title={t('plans.detail.errors.loadTitle')} body={error} /></View> : null}
       {!loading && plan ? (
-        <ScrollView contentContainerStyle={styles.planDetailContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={[styles.planDetailContent, Platform.OS === 'android' ? { paddingBottom: Math.max(56, insets.bottom + 24) } : null]}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.planDetailHero}>
             <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : t('plans.detail.hero.eyebrow', { status: planStatusLabel(plan.status, t) })}</AppText>
             <AppText style={styles.planDetailTitle}>{plan.title}</AppText>
@@ -3996,6 +4002,7 @@ export function PlanIdeaDetailScreen({ route, navigation }: PlanIdeaDetailProps)
 
 export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'CreatePlan'>) {
   const theme = useThemeTokens();
+  const insets = useSafeAreaInsets();
   const { language, t } = useTranslation();
   const [places, setPlaces] = useState<SelectedPlanPlaceState[]>([]);
   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
@@ -4475,8 +4482,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     setDetailPlaceIndex(null);
     setPlaceSourceSheetOpen(false);
     setPlacePickerOpen(false);
-    setExpandedAddressPlaceIds((current) => mergeUniquePlaceIds(current, missingIds));
-    setAddressFocusPlaceId(missingIds[0] ?? null);
+    const firstMissingId = missingIds[0] ?? null;
+    setExpandedAddressPlaceIds(firstMissingId ? [firstMissingId] : []);
+    setAddressFocusPlaceId(firstMissingId);
     setAddressGuidanceNotice(t('plans.create.validation.offlineTop'));
     setError(null);
     return true;
@@ -4577,6 +4585,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
   return (
     <AppFixedHeaderScreen
+      bodyStyle={styles.planCreateBody}
       header={<AppHeader title={t('plans.create.headerTitle')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="more" label={t('plans.create.optionsAccessibility')} onPress={() => setCreatePlanMenuOpen((value) => !value)} />} />}
     >
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
@@ -4593,7 +4602,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
             </Pressable>
           </View>
         ) : null}
-        <ScrollView ref={createPlanScrollRef} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={createPlanScrollRef} contentContainerStyle={[styles.listContent, styles.planCreateScrollContent]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           <View style={styles.planCreateCompactHeader}>
             <SemanticBadge label={t('plans.create.badge')} tone="plan" />
             <AppText style={styles.heroTitle}>{t('plans.create.headerTitle')}</AppText>
@@ -4655,7 +4664,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                       >
                         <View style={styles.timelineCopy}>
                           <SemanticBadge label={t('plans.create.validation.addressNeeded')} tone="warning" size="sm" />
-                          <InfoNotice tone="warning" body={t('plans.create.validation.offlineInline')} />
+                          <AppText style={[styles.planAddressGuidanceBody, { color: theme.semantic.warning.text }]}>{t('plans.create.validation.offlineInline')}</AppText>
                         </View>
                         <GooglePlacePicker
                           label={t('plans.create.place.verifiedAddress', { index: index + 1 })}
@@ -4697,11 +4706,6 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
               {conflictWarning ? <InfoNotice tone="warning" title={t('plans.create.validation.timeConflictTitle')} body={conflictWarning} /> : null}
               {error ? <InfoNotice tone="warning" title={t('plans.create.validation.checkPlan')} body={error} /> : null}
-              {places.length > 0 ? (
-                <Pressable accessibilityRole="button" disabled={draftPlaceValidationBlocked} onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, draftPlaceValidationBlocked && styles.disabled]}>
-                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('plans.create.preview.previewPlan')}</AppText>
-                </Pressable>
-              ) : null}
             </>
           ) : (
             <>
@@ -4758,15 +4762,29 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
               {message ? <InfoNotice tone="success" title={t('plans.common.title')} body={message} /> : null}
               {error && !validationNotice ? <InfoNotice tone="warning" title={t('plans.create.validation.couldNotSave')} body={error} /> : null}
-              <View style={styles.actionGrid}>
-                <SecondaryButton label={t('plans.create.preview.back')} onPress={() => setStage('build')} />
-                <Pressable accessibilityRole="button" disabled={saving || draftPlaceValidationBlocked} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg, flex: 1 }, pressed && styles.pressed, (saving || draftPlaceValidationBlocked) && styles.disabled]}>
-                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? t('plans.create.preview.creating') : t('plans.create.preview.create')}</AppText>
-                </Pressable>
-              </View>
             </>
           )}
         </ScrollView>
+        {stage === 'build' && places.length > 0 ? (
+          <View style={[styles.planCreateStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}>
+            <Pressable accessibilityRole="button" disabled={draftPlaceValidationBlocked} onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, draftPlaceValidationBlocked && styles.disabled]}>
+              <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('plans.create.preview.previewPlan')}</AppText>
+            </Pressable>
+          </View>
+        ) : stage === 'preview' ? (
+          <View style={[styles.planCreateStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}>
+            <View style={styles.planCreateStickyActions}>
+              <View style={styles.planCreateStickySecondary}>
+                <SecondaryButton label={t('plans.create.preview.back')} onPress={() => setStage('build')} disabled={saving} />
+              </View>
+              <View style={styles.planCreateStickyPrimary}>
+                <Pressable accessibilityRole="button" disabled={saving || draftPlaceValidationBlocked} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, (saving || draftPlaceValidationBlocked) && styles.disabled]}>
+                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? t('plans.create.preview.creating') : t('plans.create.preview.create')}</AppText>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        ) : null}
         {timeSheet && timeSheetPlace ? (
           <PlanDateTimePickerSheet
             visible={Boolean(timeSheetPlace)}
@@ -4885,7 +4903,14 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
         <Modal visible={placeSourceSheetOpen} transparent animationType="slide" onRequestClose={closePlaceSourceSheet}>
           <View style={styles.sourceSheetOverlay}>
             <Pressable accessibilityRole="button" accessibilityLabel={t('plans.create.sourcePicker.closeAccessibility')} onPress={closePlaceSourceSheet} style={styles.sourceSheetScrim} />
-            <View style={[styles.sourceSheet, styles.sourceChoiceSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+            <View
+              style={[
+                styles.sourceSheet,
+                styles.sourceChoiceSheet,
+                { backgroundColor: theme.color.surface, borderColor: theme.color.border },
+                Platform.OS === 'android' ? { paddingBottom: Math.max(24, insets.bottom + 16) } : null,
+              ]}
+            >
               <View style={[styles.sourceSheetHandle, { backgroundColor: theme.color.border }]} />
               <View style={styles.sourceSheetTopbar}>
                 <View style={styles.sourceSheetTitleBlock}>
@@ -4949,6 +4974,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
 export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'CreatePlace'>) {
   const theme = useThemeTokens();
+  const insets = useSafeAreaInsets();
   const { language, t } = useTranslation();
   const editPlace = route.params?.editPlace;
   const copyFromPlace = route.params?.copyFromPlace;
@@ -5173,7 +5199,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
   return (
     <AppFixedHeaderScreen bodyStyle={styles.placeEditorBody} header={<AppHeader title={isEditing ? t('places.editor.header.edit') : t('places.editor.header.create')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label={t('places.editor.header.myPlaces')} onPress={() => navigation.navigate('MyPlaces')} />} />}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
-        <ScrollView contentContainerStyle={[styles.listContent, styles.placeEditorScrollContent]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={[styles.listContent, styles.placeEditorScrollContent]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           {!translationOnlyMode ? (
             <View style={styles.placeCreateCompactHeader}>
               <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? t('places.editor.subtitle.edit') : copyFromPlace ? t('places.editor.subtitle.copy') : t('places.editor.subtitle.create')}</AppText>
@@ -5213,9 +5239,9 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                   <TextField label={t('places.editor.fields.name')} value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder={t('places.editor.fields.namePlaceholder')} maxLength={120} />
                   {state.mode === 'remote' ? (
                     <>
-                      <TextField label={t('places.editor.fields.onlineLabel')} value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} maxLength={120} />
                       <TextField label={t('places.editor.fields.onlineUrl')} value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
-                      <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: state.onlineUrl }, t)} />
+                      <AppText style={[styles.placeDestinationHint, { color: theme.color.muted }]}>{getOnlineProviderHint({ onlineUrl: state.onlineUrl }, t)}</AppText>
+                      <TextField label={t('places.editor.fields.onlineLabel')} value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} maxLength={120} />
                     </>
                   ) : (
                     <>
@@ -5228,7 +5254,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                         helperText={t('places.editor.fields.addressHelp')}
                         languageCode={language}
                       />
-                      {!hasValidOfflineProviderAddress(state.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(state.providerAddress, t)} /> : null}
+                      {!hasValidOfflineProviderAddress(state.providerAddress) ? <AppText style={[styles.placeDestinationHint, { color: theme.semantic.warning.text }]}>{getOfflineAddressRequirementMessage(state.providerAddress, t)}</AppText> : null}
                     </>
                   )}
                   <TextField label={t('places.editor.fields.description')} value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder={t('places.editor.fields.descriptionPlaceholder')} multiline maxLength={2000} />
@@ -5355,7 +5381,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
             </View>
           )}
         </ScrollView>
-        <View style={[styles.placeEditorStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background }]}>
+        <View style={[styles.placeEditorStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}>
           <View style={styles.placeEditorStickyActions}>
             <View style={styles.placeEditorStickySecondary}>
               <SecondaryButton
@@ -5402,6 +5428,12 @@ const styles = StyleSheet.create({
   menuTitle: { fontSize: 16, fontWeight: '900' },
   menuBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
   listContent: { gap: 10, paddingBottom: 34 },
+  planCreateBody: { overflow: 'hidden' },
+  planCreateScrollContent: { paddingBottom: 18 },
+  planCreateStickyBar: { flexShrink: 0, zIndex: 5, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10 },
+  planCreateStickyActions: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
+  planCreateStickySecondary: { minWidth: 104 },
+  planCreateStickyPrimary: { flex: 1, minWidth: 0 },
   planCreateCompactHeader: { gap: 7, paddingTop: 0, paddingBottom: 0 },
   placeEditorBody: { overflow: 'hidden' },
   placeEditorScrollContent: { paddingBottom: 18 },
@@ -5423,7 +5455,8 @@ const styles = StyleSheet.create({
   planStopScheduleText: { fontSize: 13, lineHeight: 17, fontWeight: '900' },
   planStopScheduleSeparator: { fontSize: 16, lineHeight: 18, fontWeight: '900' },
   placeTimelineRowMeta: { gap: 7 },
-  planAddressGuidance: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 13, gap: 12 },
+  planAddressGuidance: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 11, gap: 10 },
+  planAddressGuidanceBody: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
   planDraftReview: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 13, paddingHorizontal: 2, gap: 12 },
   planDraftReviewHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   placeDetailSheetContent: { gap: 10, paddingBottom: 12 },
@@ -5642,10 +5675,11 @@ const styles = StyleSheet.create({
   placeTranslationAddTitle: { fontSize: 14, fontWeight: '900' },
   placeLanguageChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 7 },
   placeTranslationEmptyText: { paddingHorizontal: 2, paddingVertical: 4 },
-  placeEditorStickyBar: { flexShrink: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, paddingBottom: Platform.OS === 'ios' ? 10 : 8 },
+  placeEditorStickyBar: { flexShrink: 0, zIndex: 5, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10 },
   placeEditorStickyActions: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
   placeEditorStickySecondary: { minWidth: 104 },
   placeEditorStickyPrimary: { flex: 1, minWidth: 0 },
+  placeDestinationHint: { fontSize: 12, lineHeight: 17, fontWeight: '800', marginTop: -4, paddingHorizontal: 2 },
   formField: { gap: 7, flex: 1, minWidth: 0 },
   formLabel: { fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
   input: { minHeight: 48, borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 11, fontSize: 15, fontWeight: '700' },
