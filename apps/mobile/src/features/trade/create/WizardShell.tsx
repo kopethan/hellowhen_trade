@@ -1,6 +1,7 @@
 import React from 'react';
-import { ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Platform, ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { getWizardActiveStep, type WizardStepDefinition } from '@hellowhen/shared';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppFixedHeaderScreen } from '../../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../../components/AppHeader';
 import { AppText } from '../../../components/AppText';
@@ -37,7 +38,9 @@ export function WizardShell<TStepId extends string>({
   bodyStyle,
 }: WizardShellProps<TStepId>) {
   const theme = useThemeTokens();
+  const insets = useSafeAreaInsets();
   const activeStep = getWizardActiveStep(steps, activeStepId);
+  const footerBottomPadding = Platform.OS === 'android' ? Math.max(12, insets.bottom + 10) : 10;
 
   return (
     <AppFixedHeaderScreen
@@ -64,7 +67,7 @@ export function WizardShell<TStepId extends string>({
         ) : null}
         {children}
       </ScrollView>
-      {footer ? <View style={[styles.footer, { backgroundColor: theme.color.background }]}>{footer}</View> : null}
+      {footer ? <View style={[styles.footer, { backgroundColor: theme.color.background, paddingBottom: footerBottomPadding }]}>{footer}</View> : null}
     </AppFixedHeaderScreen>
   );
 }

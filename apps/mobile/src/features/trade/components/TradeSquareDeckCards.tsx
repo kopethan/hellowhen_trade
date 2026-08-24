@@ -201,7 +201,7 @@ function CompleteTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Tra
         </View>
       </View>
 
-      <View style={[styles.countdownSlot, narrowLayout && styles.countdownSlotNarrow]}><TradeCountdown expiresAt={trade.expiresAt} compact={narrowLayout} /></View>
+      {trade.id === 'draft-trade-preview' ? null : <View style={[styles.countdownSlot, narrowLayout && styles.countdownSlotNarrow]}><TradeCountdown expiresAt={trade.expiresAt} compact={narrowLayout} /></View>}
     </Pressable>
   );
 }
@@ -224,7 +224,7 @@ function OpenTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSu
       title={summaryTitle(trade, t)}
       subtitle={summarySubtitle}
       topMeta={topMeta}
-      status={countdown}
+      status={trade.id === 'draft-trade-preview' ? undefined : countdown}
       chips={starterChips(trade)}
       variant={postType === 'open_need' ? 'need' : 'offer'}
       onPress={onOpen}
