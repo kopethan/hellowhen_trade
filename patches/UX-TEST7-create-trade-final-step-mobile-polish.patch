@@ -1,0 +1,54 @@
+diff --git a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+index d73edd0..e8715b3 100644
+--- a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
++++ b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+@@ -33,7 +33,7 @@ function CompleteTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Tra
+         </View>
+       </View>
+ 
+-      <View style={[styles.countdownSlot, narrowLayout && styles.countdownSlotNarrow]}><TradeCountdown expiresAt={trade.expiresAt} compact={narrowLayout} /></View>
++      {trade.id === 'draft-trade-preview' ? null : <View style={[styles.countdownSlot, narrowLayout && styles.countdownSlotNarrow]}><TradeCountdown expiresAt={trade.expiresAt} compact={narrowLayout} /></View>}
+     </Pressable>
+   );
+ }
+@@ -56,7 +56,7 @@ function OpenTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSu
+       title={summaryTitle(trade, t)}
+       subtitle={summarySubtitle}
+       topMeta={topMeta}
+-      status={countdown}
++      status={trade.id === 'draft-trade-preview' ? undefined : countdown}
+       chips={starterChips(trade)}
+       variant={postType === 'open_need' ? 'need' : 'offer'}
+       onPress={onOpen}
+diff --git a/apps/mobile/src/features/trade/create/WizardShell.tsx b/apps/mobile/src/features/trade/create/WizardShell.tsx
+index 8d024e5..f752b90 100644
+--- a/apps/mobile/src/features/trade/create/WizardShell.tsx
++++ b/apps/mobile/src/features/trade/create/WizardShell.tsx
+@@ -1,6 +1,7 @@
+ import React from 'react';
+-import { ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
++import { Platform, ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+ import { getWizardActiveStep, type WizardStepDefinition } from '@hellowhen/shared';
++import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import { AppFixedHeaderScreen } from '../../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../../components/AppHeader';
+ import { AppText } from '../../../components/AppText';
+@@ -37,7 +38,9 @@ export function WizardShell<TStepId extends string>({
+   bodyStyle,
+ }: WizardShellProps<TStepId>) {
+   const theme = useThemeTokens();
++  const insets = useSafeAreaInsets();
+   const activeStep = getWizardActiveStep(steps, activeStepId);
++  const footerBottomPadding = Platform.OS === 'android' ? Math.max(12, insets.bottom + 10) : 10;
+ 
+   return (
+     <AppFixedHeaderScreen
+@@ -64,7 +67,7 @@ export function WizardShell<TStepId extends string>({
+         ) : null}
+         {children}
+       </ScrollView>
+-      {footer ? <View style={[styles.footer, { backgroundColor: theme.color.background }]}>{footer}</View> : null}
++      {footer ? <View style={[styles.footer, { backgroundColor: theme.color.background, paddingBottom: footerBottomPadding }]}>{footer}</View> : null}
+     </AppFixedHeaderScreen>
+   );
+ }

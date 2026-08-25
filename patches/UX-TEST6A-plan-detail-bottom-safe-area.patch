@@ -1,0 +1,23 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 970b40b..ebeac34 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1,6 +1,7 @@
+ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   const auth = useAuth();
+   const theme = useThemeTokens();
++  const insets = useSafeAreaInsets();
+   const { t, language } = useTranslation();
+   const [plan, setPlan] = useState<PlanDto | null>(null);
+   const [loading, setLoading] = useState(isPlansVisible());
+@@ -19,6 +20,9 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+       {loading ? <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('plans.detail.loading')}</AppText></View> : null}
+       {!loading && error ? <View style={styles.contentPad}><InfoNotice tone="warning" title={t('plans.detail.errors.loadTitle')} body={error} /></View> : null}
+       {!loading && plan ? (
+-        <ScrollView contentContainerStyle={styles.planDetailContent} showsVerticalScrollIndicator={false}>
++        <ScrollView
++          contentContainerStyle={[styles.planDetailContent, Platform.OS === 'android' ? { paddingBottom: Math.max(56, insets.bottom + 24) } : null]}
++          showsVerticalScrollIndicator={false}
++        >
+           <View style={styles.planDetailHero}>
+             <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : t('plans.detail.hero.eyebrow', { status: planStatusLabel(plan.status, t) })}</AppText>
