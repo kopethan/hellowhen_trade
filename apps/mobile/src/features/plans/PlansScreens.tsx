@@ -10,6 +10,8 @@ import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type Goog
 import { formatLocalizedDateTime, type SupportedLanguage, type TranslationValues } from '@hellowhen/i18n';
 import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, resolveInventoryOriginalCopy, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+import type { AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
+import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { AppText } from '../../components/AppText';
 import { AppConfirmSheet } from '../../components/AppConfirmSheet';
@@ -46,7 +48,7 @@ import { FeatureGuidePromptCard } from '../onboarding-guide/FeatureGuidePromptCa
 import { useFeatureGuidePrompt } from '../onboarding-guide/onboardingGuideStorage';
 import { PlanSquareDeck } from './components/PlanSquareDeck';
 
-type PlansScreenProps = NativeStackScreenProps<RootStackParamList, 'Plans'>;
+type PlansScreenProps = { navigation?: NativeStackNavigationProp<RootStackParamList>; route?: { params?: PlanTabRouteParams } };
 type PlanDetailProps = NativeStackScreenProps<RootStackParamList, 'PlanDetail'>;
 type PlanIdeaDetailProps = NativeStackScreenProps<RootStackParamList, 'PlanIdeaDetail'>;
 type SimpleScreenProps<RouteName extends keyof RootStackParamList> = NativeStackScreenProps<RootStackParamList, RouteName>;
@@ -1846,7 +1848,7 @@ function PlaceRow({
   return <View style={[styles.rowCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>{content}</View>;
 }
 
-function PlanList({ scope, navigation, filters = [], searchQuery = '', focusStarterIdeaRequestKey = 0 }: { scope: PlanListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'>; filters?: string[]; searchQuery?: string; focusStarterIdeaRequestKey?: number }) {
+function PlanList({ scope, navigation, filters = [], searchQuery = '', focusStarterIdeaRequestKey = 0, scrollProps }: { scope: PlanListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'>; filters?: string[]; searchQuery?: string; focusStarterIdeaRequestKey?: number; scrollProps?: AppCollapsibleHeaderScrollProps }) {
   const theme = useThemeTokens();
   const auth = useAuth();
   const { t } = useTranslation();
@@ -2018,11 +2020,12 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '', focusStar
 
   return isDeckFeed ? (
     <FlatList
+      {...scrollProps?.scrollViewProps}
       ref={deckListRef}
       data={feedItems}
       keyExtractor={(item, index) => item.type === 'idea' ? `idea-${item.ideaKey}` : `plan-${plans[item.planIndex]?.id ?? item.planIndex}-${index}`}
       renderItem={renderDeckFeedItem}
-      contentContainerStyle={styles.deckFeedContent}
+      contentContainerStyle={[scrollProps?.contentInsetStyle, styles.deckFeedContent]}
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
       ListHeaderComponent={listHeader}
@@ -2039,10 +2042,11 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '', focusStar
     />
   ) : (
     <FlatList
+      {...scrollProps?.scrollViewProps}
       data={rowItems}
       keyExtractor={(item) => item.key}
       renderItem={renderPlanRow}
-      contentContainerStyle={styles.listContent}
+      contentContainerStyle={[scrollProps?.contentInsetStyle, styles.listContent]}
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
       ListHeaderComponent={listHeader}
@@ -2094,7 +2098,7 @@ const PlanIdeaDeckSection = React.memo(function PlanIdeaDeckSection({ ideaKey, i
   );
 });
 
-function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'> }) {
+function PlaceList({ scope, navigation, scrollProps }: { scope: PlaceListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'>; scrollProps?: AppCollapsibleHeaderScrollProps }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
   const [places, setPlaces] = useState<PlaceDto[]>([]);
@@ -2145,19 +2149,26 @@ function PlaceList({ scope, navigation }: { scope: PlaceListScope; navigation: P
   }
 
   if (loading) {
-    return <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('places.list.loading')}</AppText></View>;
+    return <View style={[scrollProps?.contentInsetStyle, styles.inlineLoading]}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('places.list.loading')}</AppText></View>;
   }
 
-  if (error) return <InfoNotice tone="warning" title={error.title} body={error.body} />;
+  if (error) {
+    return <View style={[scrollProps?.contentInsetStyle, styles.listContent]}><InfoNotice tone="warning" title={error.title} body={error.body} /></View>;
+  }
 
   if (places.length === 0) {
-    return <EmptyBlock title={scope === 'library' ? t('places.list.empty.libraryTitle') : t('places.list.empty.mineTitle')} body={scope === 'library' ? t('places.list.empty.libraryBody') : t('places.list.empty.mineBody')} actionLabel={scope === 'mine' ? t('places.list.actions.create') : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined} />;
+    return (
+      <View style={[scrollProps?.contentInsetStyle, styles.listContent]}>
+        <EmptyBlock title={scope === 'library' ? t('places.list.empty.libraryTitle') : t('places.list.empty.mineTitle')} body={scope === 'library' ? t('places.list.empty.libraryBody') : t('places.list.empty.mineBody')} actionLabel={scope === 'mine' ? t('places.list.actions.create') : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined} />
+      </View>
+    );
   }
 
   return (
     <>
       <ScrollView
-        contentContainerStyle={styles.listContent}
+        {...scrollProps?.scrollViewProps}
+        contentContainerStyle={[scrollProps?.contentInsetStyle, styles.listContent]}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
       >
@@ -2265,17 +2276,47 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
     </View>
   );
 
+  const smartHeaderResetKey = `${activeFilters.join('|')}::${activeSearchQuery}::${routeParams?.focusIdeas ?? 0}`;
+
   return (
-    <AppFixedHeaderScreen header={header}>
-      <View style={styles.bodyWrap}>
-        {menuOpen ? (
-          <View style={[styles.menuPanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-            {menuItems.map((item) => <MenuItem key={item.id} item={item} onPress={() => openWorkspaceItem(item.id)} />)}
+    <AppSmartHeaderScreen header={header} resetKey={smartHeaderResetKey}>
+      {(scrollProps) => {
+        const planScrollProps: AppCollapsibleHeaderScrollProps = {
+          ...scrollProps,
+          scrollViewProps: {
+            ...scrollProps.scrollViewProps,
+            onScroll: (event) => {
+              if (menuOpen) setMenuOpen(false);
+              scrollProps.scrollViewProps.onScroll(event);
+            },
+          },
+        };
+
+        return (
+          <View style={styles.bodyWrap}>
+            <PlanList
+              scope="feed"
+              navigation={navigation}
+              filters={activeFilters}
+              searchQuery={activeSearchQuery}
+              focusStarterIdeaRequestKey={routeParams?.focusIdeas}
+              scrollProps={planScrollProps}
+            />
+            {menuOpen ? (
+              <View
+                style={[
+                  styles.menuPanel,
+                  styles.feedMenuOverlay,
+                  { top: scrollProps.contentTopInset, backgroundColor: theme.color.surface, borderColor: theme.color.border },
+                ]}
+              >
+                {menuItems.map((item) => <MenuItem key={item.id} item={item} onPress={() => openWorkspaceItem(item.id)} />)}
+              </View>
+            ) : null}
           </View>
-        ) : null}
-        <PlanList scope="feed" navigation={navigation} filters={activeFilters} searchQuery={activeSearchQuery} focusStarterIdeaRequestKey={routeParams?.focusIdeas} />
-      </View>
-    </AppFixedHeaderScreen>
+        );
+      }}
+    </AppSmartHeaderScreen>
   );
 }
 
@@ -3127,25 +3168,41 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
 export function MyPlansScreen({ navigation }: SimpleScreenProps<'MyPlans'>) {
   const { t } = useTranslation();
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
-  return <AppFixedHeaderScreen header={<AppHeader title={t('plans.collections.myPlans')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label={t('plans.feed.actions.create')} onPress={() => navigation.navigate('CreatePlan')} />} />}><PlanList scope="mine" navigation={navigation} /></AppFixedHeaderScreen>;
+  return (
+    <AppSmartHeaderScreen header={<AppHeader title={t('plans.collections.myPlans')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label={t('plans.feed.actions.create')} onPress={() => navigation.navigate('CreatePlan')} />} />}>
+      {(scrollProps) => <PlanList scope="mine" navigation={navigation} scrollProps={scrollProps} />}
+    </AppSmartHeaderScreen>
+  );
 }
 
 export function JoinedPlansScreen({ navigation }: SimpleScreenProps<'JoinedPlans'>) {
   const { t } = useTranslation();
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
-  return <AppFixedHeaderScreen header={<AppHeader title={t('plans.collections.joinedPlans')} onBack={() => navigation.goBack()} />}><PlanList scope="joined" navigation={navigation} /></AppFixedHeaderScreen>;
+  return (
+    <AppSmartHeaderScreen header={<AppHeader title={t('plans.collections.joinedPlans')} onBack={() => navigation.goBack()} />}>
+      {(scrollProps) => <PlanList scope="joined" navigation={navigation} scrollProps={scrollProps} />}
+    </AppSmartHeaderScreen>
+  );
 }
 
 export function MyPlacesScreen({ navigation }: SimpleScreenProps<'MyPlaces'>) {
   const { t } = useTranslation();
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
-  return <AppFixedHeaderScreen header={<AppHeader title={t('places.list.headers.myPlaces')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label={t('places.list.actions.create')} onPress={() => navigation.navigate('CreatePlace')} />} />}><PlaceList scope="mine" navigation={navigation} /></AppFixedHeaderScreen>;
+  return (
+    <AppSmartHeaderScreen header={<AppHeader title={t('places.list.headers.myPlaces')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label={t('places.list.actions.create')} onPress={() => navigation.navigate('CreatePlace')} />} />}>
+      {(scrollProps) => <PlaceList scope="mine" navigation={navigation} scrollProps={scrollProps} />}
+    </AppSmartHeaderScreen>
+  );
 }
 
 export function PlaceLibraryScreen({ navigation }: SimpleScreenProps<'PlaceLibrary'>) {
   const { t } = useTranslation();
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
-  return <AppFixedHeaderScreen header={<AppHeader title={t('places.list.headers.library')} onBack={() => navigation.goBack()} />}><PlaceList scope="library" navigation={navigation} /></AppFixedHeaderScreen>;
+  return (
+    <AppSmartHeaderScreen header={<AppHeader title={t('places.list.headers.library')} onBack={() => navigation.goBack()} />}>
+      {(scrollProps) => <PlaceList scope="library" navigation={navigation} scrollProps={scrollProps} />}
+    </AppSmartHeaderScreen>
+  );
 }
 
 function ModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (value: PlanPlaceMode) => void }) {
@@ -4826,10 +4883,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
           onConfirm={() => { void clearCurrentCreatePlanDraft(); }}
         />
         <Modal visible={Boolean(detailPlace)} transparent animationType="slide" onRequestClose={() => setDetailPlaceIndex(null)}>
-          <View style={styles.sourceSheetOverlay}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.sourceSheetOverlay}>
             <Pressable accessibilityRole="button" accessibilityLabel={t('plans.create.placeDetail.closeAccessibility')} onPress={() => setDetailPlaceIndex(null)} style={styles.sourceSheetScrim} />
             {detailPlace && detailPlaceIndex !== null ? (
-              <View style={[styles.sourceSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+              <View style={[styles.sourceSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, Platform.OS === 'android' ? { paddingBottom: Math.max(24, insets.bottom + 16) } : null]}>
                 <View style={styles.wizardStepRow}>
                   <View style={styles.timelineCopy}>
                     <AppText style={styles.sectionTitle}>{t('plans.create.place.label', { index: detailPlaceIndex + 1 })}</AppText>
@@ -4898,10 +4955,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                 </ScrollView>
               </View>
             ) : null}
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
         <Modal visible={placeSourceSheetOpen} transparent animationType="slide" onRequestClose={closePlaceSourceSheet}>
-          <View style={styles.sourceSheetOverlay}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.sourceSheetOverlay}>
             <Pressable accessibilityRole="button" accessibilityLabel={t('plans.create.sourcePicker.closeAccessibility')} onPress={closePlaceSourceSheet} style={styles.sourceSheetScrim} />
             <View
               style={[
@@ -4965,7 +5022,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                 </View>
               )}
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
       </KeyboardAvoidingView>
     </AppFixedHeaderScreen>
@@ -5421,6 +5478,7 @@ const styles = StyleSheet.create({
   filterChipText: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
   filterNotice: { borderRadius: 22, borderWidth: 1, padding: 12, flexDirection: 'row', gap: 11, alignItems: 'center' },
   menuPanel: { borderRadius: 22, borderWidth: 1, overflow: 'hidden' },
+  feedMenuOverlay: { position: 'absolute', left: 0, right: 0, zIndex: 20, elevation: 12 },
   createPlanMenuPanel: { marginBottom: 10, borderRadius: 22, borderWidth: 1, overflow: 'hidden' },
   menuItem: { minHeight: 70, borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', gap: 11 },
   menuIcon: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },

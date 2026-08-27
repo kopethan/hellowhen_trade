@@ -12,7 +12,8 @@ import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { AppCard } from '../../components/AppCard';
 import { AppConfirmSheet } from '../../components/AppConfirmSheet';
-import { AppCollapsibleHeaderScreen, type AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
+import { type AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
+import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
@@ -398,7 +399,7 @@ export function TradeDeckFeedScreen() {
   );
 
   return (
-    <AppCollapsibleHeaderScreen header={header} resetKey="discover" revealHeaderOnScrollUp>
+    <AppSmartHeaderScreen header={header} resetKey="discover">
       {(scrollProps) => (
         <>
           <FlatList
@@ -461,7 +462,7 @@ export function TradeDeckFeedScreen() {
           />
         </>
       )}
-    </AppCollapsibleHeaderScreen>
+    </AppSmartHeaderScreen>
   );
 }
 

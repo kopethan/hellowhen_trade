@@ -521,7 +521,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
             title={error ? t('account.saved.loadError') : (searchActive ? t('account.saved.search.noResultsTitle') : (selectedCollection ? t('account.saved.emptyCollectionTitle') : t('account.saved.emptyTitle')))}
             body={error ?? (searchActive ? t('account.saved.search.noResultsBody') : (selectedCollection ? t('account.saved.emptyCollectionBody') : t('account.saved.emptyBody')))}
             actionLabel={error ? t('common.actions.tryAgain') : t('account.saved.browseTrades')}
-            onAction={error ? () => { void load(); } : () => navigation.navigate('TradeTabs')}
+            onAction={error ? () => { void load(); } : () => navigation.navigate('TradeTabs', { screen: 'TradeTab' })}
           />
         ) : null}
 

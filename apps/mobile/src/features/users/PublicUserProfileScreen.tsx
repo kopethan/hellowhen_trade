@@ -312,7 +312,7 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
                 <Pressable accessibilityRole="button" onPress={() => { void loadProfile(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
                   <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('common.actions.tryAgain')}</AppText>
                 </Pressable>
-                <Pressable accessibilityRole="button" onPress={() => navigation.navigate('TradeTabs')} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                <Pressable accessibilityRole="button" onPress={() => navigation.navigate('TradeTabs', { screen: 'TradeTab' })} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
                   <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{t('trade.actions.backToTrades')}</AppText>
                 </Pressable>
               </View>

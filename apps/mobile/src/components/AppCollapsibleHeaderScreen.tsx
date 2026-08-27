@@ -21,7 +21,7 @@ export type AppCollapsibleHeaderScrollProps = {
   contentTopInset: number;
 };
 
-type AppCollapsibleHeaderScreenProps = {
+export type AppCollapsibleHeaderScreenProps = {
   header: React.ReactNode;
   children: React.ReactNode | ((scrollProps: AppCollapsibleHeaderScrollProps) => React.ReactNode);
   style?: StyleProp<ViewStyle>;

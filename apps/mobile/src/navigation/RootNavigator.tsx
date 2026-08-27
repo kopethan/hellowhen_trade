@@ -83,7 +83,6 @@ export type RootStackParamList = {
   Notifications: undefined;
   SavedLibrary: undefined;
   Agenda: undefined;
-  Plans: PlanTabRouteParams | undefined;
   PlanFilters: PlanTabRouteParams | undefined;
   PlanDetail: { planId: string; title?: string };
   PlanIdeaDetail: { ideaId: string };
@@ -324,7 +323,6 @@ export function RootNavigator() {
       <Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />
       {betaFeatures.savedLibraryEnabled ? <Stack.Screen name="SavedLibrary" component={ProtectedSavedLibraryScreen} /> : null}
       {betaFeatures.agendaEnabled ? <Stack.Screen name="Agenda" component={ProtectedAgendaScreen} /> : null}
-      {betaFeatures.plansEnabled ? <Stack.Screen name="Plans" component={PlansScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="PlanFilters" component={PlanFiltersScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="PlanDetail" component={PlanDetailScreen} /> : null}
       {betaFeatures.plansEnabled ? <Stack.Screen name="PlanIdeaDetail" component={PlanIdeaDetailScreen} /> : null}

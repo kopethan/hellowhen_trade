@@ -7,7 +7,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
-import { AppCollapsibleHeaderScreen } from '../../components/AppCollapsibleHeaderScreen';
+import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { MobileIcon } from '../../components/MobileIcon';
 import { InfoNotice } from '../../components/SemanticUI';
@@ -83,7 +83,7 @@ export function MyOffersScreen() {
       navigation.goBack();
       return;
     }
-    navigation.replace('TradeTabs');
+    navigation.replace('TradeTabs', { screen: 'MeTab' });
   }, [navigation]);
   const header = (
     <View style={styles.headerStack}>
@@ -129,7 +129,7 @@ export function MyOffersScreen() {
   }
 
   return (
-    <AppCollapsibleHeaderScreen header={header} resetKey={sourceTab}>
+    <AppSmartHeaderScreen header={header} resetKey={sourceTab}>
       {(scrollProps) => (
         <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={activeLoading} onRefresh={() => { void loadItems(); void loadTemplates(); setFolderRefreshKey((key) => key + 1); }} />}>
           <SourceTabs value={sourceTab} onChange={(nextTab) => { setSourceTab(nextTab); setNotice(null); setCreatedOffer(null); }} />
@@ -142,7 +142,7 @@ export function MyOffersScreen() {
           </>}
         </ScrollView>
       )}
-    </AppCollapsibleHeaderScreen>
+    </AppSmartHeaderScreen>
   );
 }
 

@@ -6,7 +6,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { AuthUser, LedgerEntryDto, WalletDto } from '@hellowhen/contracts';
 import { formatMoney } from '@hellowhen/shared';
 import type { SemanticColorName } from '@hellowhen/theme';
-import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
@@ -58,7 +58,7 @@ type MeHubCounts = {
 type AccountNavigation = NativeStackNavigationProp<RootStackParamList>;
 
 function navigateToAccountRoute(navigation: AccountNavigation, route: AccountRoute) {
-  if (route === 'TradeTabs') navigation.navigate('TradeTabs');
+  if (route === 'TradeTabs') navigation.navigate('TradeTabs', { screen: 'TradeTab' });
   else if (route === 'CreateTrade') navigation.navigate('CreateTrade');
   else if (route === 'MyNeeds') navigation.navigate('MyNeeds');
   else if (route === 'MyOffers') navigation.navigate('MyOffers');
@@ -68,7 +68,7 @@ function navigateToAccountRoute(navigation: AccountNavigation, route: AccountRou
   else if (route === 'Notifications') navigation.navigate('Notifications');
   else if (route === 'SavedLibrary') navigation.navigate('SavedLibrary');
   else if (route === 'Agenda') navigation.navigate('Agenda');
-  else if (route === 'Plans') navigation.navigate('Plans');
+  else if (route === 'Plans') navigation.navigate('TradeTabs', { screen: 'PlanTab' });
   else if (route === 'MyPlans') navigation.navigate('MyPlans');
   else if (route === 'JoinedPlans') navigation.navigate('JoinedPlans');
   else if (route === 'MyPlaces') navigation.navigate('MyPlaces');
@@ -258,12 +258,14 @@ export function AccountScreen() {
   );
 
   return (
-    <AppFixedHeaderScreen header={header}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { if (betaFeatures.walletVisible || betaFeatures.payoutsVisible) void loadWallet(); void loadNotificationPreview(); void loadMeHubCounts(); }} />}
-      >
+    <AppSmartHeaderScreen header={header} resetKey={auth.user?.id ?? 'me'}>
+      {(scrollProps) => (
+        <ScrollView
+          {...scrollProps.scrollViewProps}
+          contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { if (betaFeatures.walletVisible || betaFeatures.payoutsVisible) void loadWallet(); void loadNotificationPreview(); void loadMeHubCounts(); }} />}
+        >
         <View style={[styles.profilePanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
           <View style={styles.profileHero}>
             <View style={[styles.avatar, { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }]}>
@@ -326,8 +328,9 @@ export function AccountScreen() {
           </DetailSection>
         ) : null}
 
-      </ScrollView>
-    </AppFixedHeaderScreen>
+        </ScrollView>
+      )}
+    </AppSmartHeaderScreen>
   );
 }
 

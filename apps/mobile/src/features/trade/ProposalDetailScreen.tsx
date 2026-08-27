@@ -2003,11 +2003,12 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 
 function ProblemReportSheet({ visible, summary, error, loading, onChangeSummary, onCancel, onSubmit, t }: { visible: boolean; summary: string; error: string | null; loading: boolean; onChangeSummary: (text: string) => void; onCancel: () => void; onSubmit: () => void; t: TFunction }) {
   const theme = useThemeTokens();
+  const insets = useSafeAreaInsets();
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
-      <View style={styles.modalRoot}>
+      <KeyboardAvoidingView style={styles.modalRoot} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <Pressable style={styles.modalBackdrop} onPress={onCancel} />
-        <View style={[styles.problemSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+        <View style={[styles.problemSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border, paddingBottom: Math.max(24, insets.bottom + 16) }]}>
           <View style={styles.sheetHandle} />
           <View style={styles.problemSheetHeader}>
             <View style={[styles.problemSheetIcon, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }]}>
@@ -2038,7 +2039,7 @@ function ProblemReportSheet({ visible, summary, error, loading, onChangeSummary,
             <SmallActionButton label={t('common.actions.cancel')} onPress={onCancel} disabled={loading} muted />
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

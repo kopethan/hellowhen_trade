@@ -181,7 +181,7 @@ export function TradeIdeaDetailScreen({ route, navigation }: Props) {
         </View>
         <View style={styles.notFoundContent}>
           <InfoNotice tone="warning" title={t('trade.ideaDetail.notFoundTitle')} body={t('trade.ideaDetail.notFoundBody')} />
-          <Pressable accessibilityRole="button" onPress={() => navigation.navigate('TradeTabs')} style={({ pressed }) => [styles.notFoundButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+          <Pressable accessibilityRole="button" onPress={() => navigation.navigate('TradeTabs', { screen: 'TradeTab' })} style={({ pressed }) => [styles.notFoundButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
             <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('trade.ideaDetail.backToFeed')}</AppText>
           </Pressable>
           <Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateTrade')} style={({ pressed }) => [styles.notFoundButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
@@ -265,7 +265,7 @@ export function TradeIdeaDetailScreen({ route, navigation }: Props) {
           },
         ]}
       >
-        <Pressable accessibilityRole="button" onPress={() => navigation.navigate('TradeTabs')} style={({ pressed }) => [styles.tertiaryButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+        <Pressable accessibilityRole="button" onPress={() => navigation.navigate('TradeTabs', { screen: 'TradeTab' })} style={({ pressed }) => [styles.tertiaryButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
           <AppText style={[styles.tertiaryButtonText, { color: theme.color.text }]}>{t('trade.ideaDetail.backToFeed')}</AppText>
         </Pressable>
         <Pressable accessibilityRole="button" onPress={() => openCreate(true)} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>

@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, V
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InAppNotificationType, NotificationDto } from '@hellowhen/contracts';
-import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { AppText } from '../../components/AppText';
 import { DetailEmptyState } from '../../components/detail';
@@ -231,8 +231,14 @@ export function NotificationsScreen({ navigation }: Props) {
   const emptyBody = filter === 'unread' ? t('account.notifications.emptyUnreadBody') : t('account.notifications.emptyBody');
 
   return (
-    <AppFixedHeaderScreen header={<AppHeader title={t('account.notifications.title')} onBack={() => navigation.goBack()} /> }>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadNotifications(); }} />}>
+    <AppSmartHeaderScreen header={<AppHeader title={t('account.notifications.title')} onBack={() => navigation.goBack()} />} resetKey={filter}>
+      {(scrollProps) => (
+        <ScrollView
+          {...scrollProps.scrollViewProps}
+          contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadNotifications(); }} />}
+        >
         <View style={styles.header}>
           <View style={styles.badgeRow}>
             <SemanticBadge label={unreadLabel} tone={unreadCount > 0 ? 'proposal' : 'instruction'} />
@@ -284,8 +290,9 @@ export function NotificationsScreen({ navigation }: Props) {
             </View>
           </View>
         ))}
-      </ScrollView>
-    </AppFixedHeaderScreen>
+        </ScrollView>
+      )}
+    </AppSmartHeaderScreen>
   );
 }
 
