@@ -352,7 +352,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
                 style={[styles.composerInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
               />
               <Pressable accessibilityRole="button" disabled={!canSend} onPress={() => { void sendMessage(); }} style={({ pressed }) => [styles.sendButton, { backgroundColor: theme.color.text }, (!canSend) && styles.disabled, pressed && canSend && styles.pressed]}>
-                <MobileIcon name="proposal" size={18} color={theme.color.background} />
+                <MobileIcon name="send" size={18} color={theme.color.background} />
                 <AppText style={[styles.sendText, { color: theme.color.background }]}>{sending ? t('common.states.sending') : t('common.actions.send')}</AppText>
               </Pressable>
             </View>

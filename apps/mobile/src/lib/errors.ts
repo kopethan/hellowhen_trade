@@ -4,6 +4,14 @@ export const API_CONNECTION_ERROR_MESSAGE =
 export const API_TIMEOUT_ERROR_MESSAGE =
   'The request took too long. Check your connection and try again.';
 
+
+export type ErrorMessageTranslator = (key: string) => string;
+
+type LocalizedApiErrorOptions = {
+  errorKeyByCode?: Readonly<Record<string, string>>;
+  fallbackKey: string;
+};
+
 type ApiLikeError = {
   code?: string;
   status?: number;
@@ -98,4 +106,41 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
   }
 
   return fallback;
+}
+
+export function getLocalizedApiErrorMessage(
+  error: unknown,
+  t: ErrorMessageTranslator,
+  options: LocalizedApiErrorOptions,
+) {
+  const apiError = toApiLikeError(error);
+  const message = apiError.message ?? '';
+
+  if (
+    apiError.code === 'HELLOWHEN_API_TIMEOUT_ERROR' ||
+    message.includes('timed out') ||
+    message.includes('timeout')
+  ) {
+    return t('common.errors.timeout');
+  }
+
+  if (
+    apiError.code === 'HELLOWHEN_API_CONNECTION_ERROR' ||
+    message.includes('Network request failed') ||
+    message.includes('Failed to fetch') ||
+    message.includes('Could not connect')
+  ) {
+    return t('common.errors.connection');
+  }
+
+  const apiErrorCode = apiError.body?.error;
+  const localizedErrorKey = apiErrorCode ? options.errorKeyByCode?.[apiErrorCode] : undefined;
+  if (localizedErrorKey) return t(localizedErrorKey);
+
+  if (apiError.status && apiError.status >= 500) return t('common.errors.server');
+  if (apiError.status === 401) return t('common.errors.unauthorized');
+
+  // Localized call sites deliberately do not surface an unmapped API message.
+  // API messages are currently English and would otherwise leak into FR/ES UI.
+  return t(options.fallbackKey);
 }

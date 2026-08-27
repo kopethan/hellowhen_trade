@@ -10,6 +10,7 @@ import { resolveMediaVariantUrl } from '../mediaUrls';
 import type { NeedItem, OfferItem, TradeDeckItem } from '../types';
 import { TradePosterCard, type TradePosterCardStatusTone } from './TradePosterCard';
 import { durationPresetLabel } from './InventoryFormFields';
+import { shouldUseCompactTradeDeckContent } from './tradeDeckGeometry';
 
 export type TradeSquareDeckCard = {
   id: string;
@@ -25,8 +26,6 @@ type TradeSummaryCardProps = { trade: TradeDeckItem; tradeIndex: number; tradeTo
 type TradeImageCardProps = { trade: TradeDeckItem; kind: 'needImage' | 'offerImage'; media?: MediaAssetDto; hiddenImageCount?: number; onOpen: () => void; };
 type TFunction = ReturnType<typeof useTranslation>['t'];
 type CountdownState = { label: string; tone: TradePosterCardStatusTone };
-
-const NARROW_TRADE_SUMMARY_WIDTH = 360;
 
 function deckMedia(media: MediaAssetDto[] | undefined) {
   return (media ?? []).filter((asset) => asset.status === 'active');
@@ -169,7 +168,7 @@ function CompleteTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Tra
   const theme = useThemeTokens();
   const { t } = useTranslation();
   const { width } = useWindowDimensions();
-  const narrowLayout = width < NARROW_TRADE_SUMMARY_WIDTH;
+  const narrowLayout = shouldUseCompactTradeDeckContent(width);
   const previewTheme = previewThemeForTrade(trade);
   const themeAccent = previewTheme === 'blue' ? '#dbeafe' : previewTheme === 'green' ? '#dcfce7' : previewTheme === 'purple' ? '#ede9fe' : previewTheme === 'amber' ? '#fef3c7' : previewTheme === 'rose' ? '#ffe4e6' : null;
   const rightBadge = tradeTimingBadge(trade, t) || (trade.status === 'active' ? '' : getStatusLabel(trade.status, t));

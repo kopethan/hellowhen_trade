@@ -20,6 +20,9 @@ export const account = {
     editProfile: 'Edit',
     notifications: 'Inbox',
     support: 'Support',
+    tradeShort: 'Trade',
+    planShort: 'Plan',
+    placeShort: 'Place',
     createTrade: 'Create trade',
     createTradeBody: 'Post one Need + Offer exchange.',
     createPlan: 'Create plan',
@@ -31,11 +34,12 @@ export const account = {
     open: 'Open Me menu',
     close: 'Close Me menu',
     title: 'Me menu',
-    body: 'Account, settings, safety, support, and future tools live here so the Me hub stays clean.',
+    body: 'Account, settings, safety, and support are grouped here so the Me hub stays clean.',
     sections: {
       settings: 'Settings & safety',
       help: 'Help',
       future: 'Future tools',
+      account: 'Account',
     },
   },
   signedOut: {

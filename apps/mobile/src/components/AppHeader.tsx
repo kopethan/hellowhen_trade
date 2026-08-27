@@ -36,8 +36,8 @@ export function AppHeader({ title, onBack, rightSlot }: AppHeaderProps) {
 }
 
 const styles = StyleSheet.create({
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  headerRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  backButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   title: { flex: 1, fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 },
   rightSlot: { marginLeft: 'auto' },
   pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },

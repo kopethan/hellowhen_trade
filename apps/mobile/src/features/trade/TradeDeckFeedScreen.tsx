@@ -22,6 +22,7 @@ import { useTranslation } from '../../providers/MobileI18nProvider';
 import { TradeSquareDeck } from './components/TradeSquareDeck';
 import { TradeExchangeIcon } from './components/TradeExchangeIcon';
 import { TradePosterCard } from './components/TradePosterCard';
+import { getMobileTradeDeckCardSize, shouldUseCompactTradeDeckContent } from './components/tradeDeckGeometry';
 import { emptyFeedStarterIdeaPlacement, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedStarterIdeaPlacement, getFeedTradeIdeaMedia, getInlineFeedIdeaKey, getRandomizedFeedIdeaKeys, type FeedTradeIdeaKey, type FeedTradeIdeaVisualKey } from './tradeFeedIdeas';
 import { FeatureGuidePromptCard } from '../onboarding-guide/FeatureGuidePromptCard';
 import { useFeatureGuidePrompt } from '../onboarding-guide/onboardingGuideStorage';
@@ -522,6 +523,9 @@ function splitFeedIdeaChips(value: string) {
 function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: FeedTradeIdeaKey; onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void; inline?: boolean }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
+  const { width } = useWindowDimensions();
+  const cardSize = getMobileTradeDeckCardSize(width);
+  const compactLayout = shouldUseCompactTradeDeckContent(width);
   const idea = feedTradeIdeas[ideaKey];
   const pack = t(`trade.feedIdeas.items.${ideaKey}.pack`);
   const need = feedTradeIdeaHasNeed(idea) ? t(`trade.feedIdeas.items.${ideaKey}.need`) : '';
@@ -539,7 +543,7 @@ function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: F
     return (
       <View
         accessibilityLabel={`${typeLabel} · ${pack}: ${summary}. ${actionLabel}`}
-        style={[styles.feedIdeaPosterFrame, inline && styles.feedIdeaCardInline]}
+        style={[styles.feedIdeaPosterFrame, { width: cardSize, height: cardSize }, inline && styles.feedIdeaCardInline]}
       >
         <TradePosterCard
           id={`starter-${ideaKey}`}
@@ -565,33 +569,33 @@ function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: F
       accessibilityRole="button"
       accessibilityLabel={`${typeLabel} · ${pack}: ${summary}. ${actionLabel}`}
       onPress={() => onOpenIdea(ideaKey)}
-      style={({ pressed }) => [styles.feedIdeaCard, inline && styles.feedIdeaCardInline, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.feedIdeaCard, compactLayout && styles.feedIdeaCardCompact, { width: cardSize, height: cardSize, backgroundColor: theme.color.surface, borderColor: theme.color.border }, inline && styles.feedIdeaCardInline, pressed && styles.pressed]}
     >
-      <View style={styles.feedIdeaTopline}>
-        <AppText numberOfLines={1} style={[styles.feedIdeaToplineText, { color: theme.color.muted }]}>{typeLabel} · {pack}</AppText>
-        <AppText numberOfLines={1} style={[styles.feedIdeaToplineRight, { color: theme.color.text }]}>{t('trade.feedIdeas.ideaLabel')}</AppText>
+      <View style={[styles.feedIdeaTopline, compactLayout && styles.feedIdeaToplineCompact]}>
+        <AppText numberOfLines={1} style={[styles.feedIdeaToplineText, compactLayout && styles.feedIdeaToplineTextCompact, { color: theme.color.muted }]}>{typeLabel} · {pack}</AppText>
+        <AppText numberOfLines={1} style={[styles.feedIdeaToplineRight, compactLayout && styles.feedIdeaToplineRightCompact, { color: theme.color.text }]}>{t('trade.feedIdeas.ideaLabel')}</AppText>
       </View>
 
-      <View style={styles.feedIdeaSideBlock}>
-        <AppText style={[styles.feedIdeaSideEyebrow, { color: '#60A5FA' }]}>{t('trade.labels.iNeed')}</AppText>
-        <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, { color: theme.color.text }]}>{need}</AppText>
-        <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.needMeta`)}</AppText>
+      <View style={[styles.feedIdeaSideBlock, compactLayout && styles.feedIdeaSideBlockCompact]}>
+        <AppText style={[styles.feedIdeaSideEyebrow, compactLayout && styles.feedIdeaSideEyebrowCompact, { color: '#60A5FA' }]}>{t('trade.labels.iNeed')}</AppText>
+        <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, compactLayout && styles.feedIdeaSideTitleCompact, { color: theme.color.text }]}>{need}</AppText>
+        <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, compactLayout && styles.feedIdeaSideMetaCompact, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.needMeta`)}</AppText>
       </View>
 
-      <View style={styles.feedIdeaExchangeRow} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
+      <View style={[styles.feedIdeaExchangeRow, compactLayout && styles.feedIdeaExchangeRowCompact]} accessibilityLabel={t('trade.feedIdeas.sidesLabel')}>
         <View style={[styles.feedIdeaExchangeLine, { backgroundColor: theme.color.border }]} />
-        <TradeExchangeIcon color={theme.color.muted} size={16} strokeWidth={2.2} />
+        <TradeExchangeIcon color={theme.color.muted} size={compactLayout ? 14 : 16} strokeWidth={2.2} />
         <View style={[styles.feedIdeaExchangeLine, { backgroundColor: theme.color.border }]} />
       </View>
 
-      <View style={styles.feedIdeaSideBlock}>
-        <AppText style={[styles.feedIdeaSideEyebrow, { color: '#34D399' }]}>{t('trade.labels.iOffer')}</AppText>
-        <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, { color: theme.color.text }]}>{offer}</AppText>
-        <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.offerMeta`)}</AppText>
+      <View style={[styles.feedIdeaSideBlock, compactLayout && styles.feedIdeaSideBlockCompact]}>
+        <AppText style={[styles.feedIdeaSideEyebrow, compactLayout && styles.feedIdeaSideEyebrowCompact, { color: '#34D399' }]}>{t('trade.labels.iOffer')}</AppText>
+        <AppText numberOfLines={2} style={[styles.feedIdeaSideTitle, compactLayout && styles.feedIdeaSideTitleCompact, { color: theme.color.text }]}>{offer}</AppText>
+        <AppText numberOfLines={1} style={[styles.feedIdeaSideMeta, compactLayout && styles.feedIdeaSideMetaCompact, { color: theme.color.muted }]}>{t(`trade.feedIdeas.items.${ideaKey}.offerMeta`)}</AppText>
       </View>
 
-      <View style={styles.feedIdeaFooter}>
-        <AppText numberOfLines={1} style={[styles.feedIdeaActionText, { color: theme.color.text }]}>{actionLabel}</AppText>
+      <View style={[styles.feedIdeaFooter, compactLayout && styles.feedIdeaFooterCompact]}>
+        <AppText numberOfLines={1} style={[styles.feedIdeaActionText, compactLayout && styles.feedIdeaActionTextCompact, { color: theme.color.text }]}>{actionLabel}</AppText>
       </View>
     </Pressable>
   );
@@ -1305,7 +1309,7 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  iconButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+  iconButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1, overflow: 'hidden' },
   iconButtonText: { fontSize: 16, fontWeight: '900', lineHeight: 20 },
   createIconButtonText: { fontSize: 22, lineHeight: 24 },
   filterDot: { position: 'absolute', right: -3, top: -3, minWidth: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111827', paddingHorizontal: 4 },
@@ -1336,8 +1340,6 @@ const styles = StyleSheet.create({
   feedIdeasBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
   feedIdeasList: { alignItems: 'center', gap: 16, paddingBottom: 6 },
   feedIdeaCard: {
-    width: 318,
-    aspectRatio: 1,
     borderRadius: 28,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 24,
@@ -1349,10 +1351,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     elevation: 4,
   },
-  feedIdeaCardInline: { width: '100%', maxWidth: 348, alignSelf: 'center' },
+  feedIdeaCardCompact: { paddingHorizontal: 18, paddingVertical: 15 },
+  feedIdeaCardInline: { alignSelf: 'center' },
   feedIdeaPosterFrame: {
-    width: 318,
-    aspectRatio: 1,
     borderRadius: 28,
     overflow: 'hidden',
     shadowColor: '#000000',
@@ -1362,16 +1363,26 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   feedIdeaTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  feedIdeaToplineCompact: { gap: 8 },
   feedIdeaToplineText: { flex: 1, minWidth: 0, fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95, textTransform: 'uppercase' },
+  feedIdeaToplineTextCompact: { fontSize: 10, lineHeight: 12, letterSpacing: 0.65 },
   feedIdeaToplineRight: { maxWidth: '34%', flexShrink: 0, fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.65, textAlign: 'right', textTransform: 'uppercase' },
+  feedIdeaToplineRightCompact: { maxWidth: '32%', fontSize: 10, lineHeight: 12, letterSpacing: 0.45 },
   feedIdeaSideBlock: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 3, minHeight: 0 },
+  feedIdeaSideBlockCompact: { gap: 2, paddingVertical: 0 },
   feedIdeaSideEyebrow: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  feedIdeaSideEyebrowCompact: { fontSize: 11, lineHeight: 14 },
   feedIdeaSideTitle: { textAlign: 'center', fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.55, paddingBottom: 1 },
+  feedIdeaSideTitleCompact: { fontSize: 17, lineHeight: 20, letterSpacing: -0.35, paddingBottom: 0 },
   feedIdeaSideMeta: { textAlign: 'center', fontSize: 12, lineHeight: 16, fontWeight: '800' },
+  feedIdeaSideMetaCompact: { fontSize: 10.5, lineHeight: 13 },
   feedIdeaExchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 1 },
+  feedIdeaExchangeRowCompact: { gap: 10, marginVertical: 0 },
   feedIdeaExchangeLine: { flex: 1, height: StyleSheet.hairlineWidth },
   feedIdeaFooter: { minHeight: 20, alignItems: 'center', justifyContent: 'center' },
+  feedIdeaFooterCompact: { minHeight: 14 },
   feedIdeaActionText: { fontSize: 13, lineHeight: 17, fontWeight: '900', letterSpacing: 0.2 },
+  feedIdeaActionTextCompact: { fontSize: 11, lineHeight: 14 },
   mineHeaderCard: { gap: 14 },
   mineHeaderCopy: { gap: 8 },
   mineTitle: { fontSize: 28, fontWeight: '900', letterSpacing: -0.7 },

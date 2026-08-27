@@ -1012,7 +1012,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
               <ProposalNoteChatBubble proposal={proposal} mine={isApplicant} canEdit={canEditProposalContent} canReport={canReportProposalNote} editing={editingProposalNote} draft={proposalNoteDraft} error={proposalNoteError} onOptions={openProposalNoteOptions} onChangeDraft={(text) => { setProposalNoteDraft(text); if (proposalNoteError) setProposalNoteError(null); }} onSave={() => { void saveProposalNote(); }} onCancel={() => { setEditingProposalNote(false); setProposalNoteDraft(''); setProposalNoteError(null); }} actionLoading={actionLoading} language={language} t={t} />
 
               <View style={styles.timelineMessages}>
-                {visibleMessages.length === 0 ? <DetailEmptyState icon="proposal" title={t('trade.proposals.conversationEmptyTitle')} body={t('trade.proposals.conversationEmptyBody')} style={styles.inlineEmptyState} /> : visibleMessages.map((message) => (
+                {visibleMessages.length === 0 ? <DetailEmptyState icon="discussion" title={t('trade.proposals.conversationEmptyTitle')} body={t('trade.proposals.conversationEmptyBody')} style={styles.inlineEmptyState} /> : visibleMessages.map((message) => (
                   <PrivateMessageBubble
                     key={message.id}
                     message={message}

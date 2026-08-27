@@ -9,7 +9,8 @@ import { buildGeneratedTradeDisplay, formatMoney, type GeneratedTradeDisplayLabe
 import type { ThemeTokens } from '@hellowhen/theme';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
-import { getFriendlyApiErrorMessage } from '../../lib/errors';
+import { getLocalizedApiErrorMessage } from '../../lib/errors';
+import { getTradeCreateApiErrorMessage } from './tradeCreateErrors';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { AppCard } from '../../components/AppCard';
@@ -210,11 +211,11 @@ export function CreateTradeFullScreen({ route, navigation }: Props) {
     } catch (caughtError) {
       setNeeds([]);
       setOffers([]);
-      setError(getFriendlyApiErrorMessage(caughtError));
+      setError(getLocalizedApiErrorMessage(caughtError, t, { fallbackKey: 'trade.create.loadingInventoryNoticeLive' }));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useFocusEffect(useCallback(() => { void loadResources(); }, [loadResources]));
 
@@ -280,7 +281,7 @@ export function CreateTradeFullScreen({ route, navigation }: Props) {
       }) as CreateTradeResponse;
       navigation.replace('TradeDetail', { tradeId: result.trade.id, title: result.trade.title, description: result.trade.description, amountCents: result.trade.amountCents ?? 0, currency: result.trade.currency ?? 'eur', creditAmount: result.trade.creditAmount ?? 0, status: result.trade.status, expiresAt: result.trade.expiresAt ?? null });
     } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError));
+      setError(getTradeCreateApiErrorMessage(caughtError, t));
     } finally {
       setSubmitting(false);
     }

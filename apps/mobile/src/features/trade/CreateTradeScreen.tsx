@@ -9,7 +9,8 @@ import { buildGeneratedTradeDisplay, formatMoney, getNextWizardStepId, getPrevio
 import type { ThemeTokens } from '@hellowhen/theme';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
-import { getFriendlyApiErrorMessage } from '../../lib/errors';
+import { getLocalizedApiErrorMessage } from '../../lib/errors';
+import { getTradeCreateApiErrorMessage } from './tradeCreateErrors';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { AppActionSheet, type AppActionSheetAction } from '../../components/AppActionSheet';
@@ -342,12 +343,12 @@ export function CreateTradeScreen({ route, navigation }: Props) {
     } catch (caughtError) {
       setNeeds([]);
       setOffers([]);
-      setError(getFriendlyApiErrorMessage(caughtError));
+      setError(getLocalizedApiErrorMessage(caughtError, t, { fallbackKey: 'trade.create.loadingInventoryNoticeLive' }));
     } finally {
       setResourcesLoaded(true);
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useFocusEffect(useCallback(() => { void loadResources(); }, [loadResources]));
 
@@ -441,7 +442,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
       setActiveStepId('review');
       setAppliedIdeaKey(ideaKey);
     } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError));
+      setError(getLocalizedApiErrorMessage(caughtError, t, { fallbackKey: 'trade.feedIdeas.applyError' }));
     } finally {
       setApplyingIdea(null);
     }
@@ -575,7 +576,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
       setActiveStepId('type');
       navigation.replace('TradeDetail', { tradeId: result.trade.id, title: result.trade.title, description: result.trade.description, amountCents: result.trade.amountCents ?? 0, currency: result.trade.currency ?? 'eur', creditAmount: result.trade.creditAmount ?? 0, status: result.trade.status, expiresAt: result.trade.expiresAt ?? null });
     } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError));
+      setError(getTradeCreateApiErrorMessage(caughtError, t));
     } finally {
       setSubmitting(false);
     }

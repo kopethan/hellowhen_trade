@@ -20,6 +20,9 @@ export const account = {
     editProfile: 'Modifier',
     notifications: 'Boîte',
     support: 'Assistance',
+    tradeShort: 'Échange',
+    planShort: 'Plan',
+    placeShort: 'Lieu',
     createTrade: 'Créer un échange',
     createTradeBody: 'Publier un échange Besoin + Offre.',
     createPlan: 'Créer un plan',
@@ -31,11 +34,12 @@ export const account = {
     open: 'Ouvrir le menu Me',
     close: 'Fermer le menu Me',
     title: 'Menu Me',
-    body: 'Compte, paramètres, sécurité, assistance et outils futurs sont ici pour garder le hub Me plus clair.',
+    body: 'Compte, paramètres, sécurité et assistance sont regroupés ici pour garder le hub Me plus clair.',
     sections: {
       settings: 'Réglages et sécurité',
       help: 'Aide',
       future: 'Outils futurs',
+      account: 'Compte',
     },
   },
   signedOut: {

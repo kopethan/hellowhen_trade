@@ -15,6 +15,7 @@ export type MobileIconName =
   | 'chevron-down'
   | 'chevron-up'
   | 'close'
+  | 'discussion'
   | 'dispute'
   | 'edit'
   | 'filter'
@@ -79,6 +80,8 @@ function IconPaths({ name, color }: { name: MobileIconName; color: string }) {
       return <Path d="M5 15L12 8L19 15" strokeWidth={2} {...strokeProps} />;
     case 'close':
       return <><Path d="M6 6L18 18" strokeWidth={2} {...strokeProps} /><Path d="M18 6L6 18" strokeWidth={2} {...strokeProps} /></>;
+    case 'discussion':
+      return <><Path d="M5.5 4.5H18.5C19.33 4.5 20 5.17 20 6V14C20 14.83 19.33 15.5 18.5 15.5H11L6.2 19.1C5.71 19.47 5 19.12 5 18.5V15.42C4.42 15.21 4 14.65 4 14V6C4 5.17 4.67 4.5 5.5 4.5Z" strokeWidth={1.8} {...strokeProps} /><Path d="M8 9H16" strokeWidth={1.8} {...strokeProps} /><Path d="M8 12H13" strokeWidth={1.8} {...strokeProps} /></>;
     case 'dispute':
       return <><Path d="M3.5 5.75C3.5 5.06 4.06 4.5 4.75 4.5H14.25C14.94 4.5 15.5 5.06 15.5 5.75V12.25C15.5 12.94 14.94 13.5 14.25 13.5H8.65L6.65 15.25C6.22 15.63 5.55 15.32 5.55 14.75V13.5H4.75C4.06 13.5 3.5 12.94 3.5 12.25V5.75Z" strokeWidth={1.35} {...strokeProps} /><Path d="M9.5 11.75V11.25C9.5 10.56 10.06 10 10.75 10H19.25C19.94 10 20.5 10.56 20.5 11.25V17.75C20.5 18.44 19.94 19 19.25 19H18.45V20.25C18.45 20.82 17.78 21.13 17.35 20.75L15.35 19H10.75C10.06 19 9.5 18.44 9.5 17.75V16.1" strokeWidth={1.35} {...strokeProps} /><Path d="M6.5 7.5H12.5" strokeWidth={1.35} {...strokeProps} /><Path d="M6.5 10.5H11" strokeWidth={1.35} {...strokeProps} /><Path d="M15 12.5V15" strokeWidth={1.5} {...strokeProps} /><Path d="M15 17H15.01" strokeWidth={1.8} {...strokeProps} /></>;
     case 'edit':
@@ -104,7 +107,7 @@ function IconPaths({ name, color }: { name: MobileIconName; color: string }) {
     case 'profile':
       return <><Path d="M12 12.5C15.7089 12.5 18.5 14.8442 18.5 17.5C18.5 20.1558 15.7089 22.5 12 22.5C8.2911 22.5 5.5 20.1558 5.5 17.5C5.5 14.8442 8.2911 12.5 12 12.5Z" stroke={color} strokeWidth={1.2} fill="none" /><Path d="M12 6.5C13.3807 6.5 14.5 7.61929 14.5 9C14.5 10.3807 13.3807 11.5 12 11.5C10.6193 11.5 9.5 10.3807 9.5 9C9.5 7.61929 10.6193 6.5 12 6.5Z" stroke={color} strokeWidth={1.2} fill="none" /></>;
     case 'proposal':
-      return <><Path d="M3.25 13.4L5.45 12.5L8 18.8L5.8 19.7L3.25 13.4Z" strokeWidth={1.3} {...strokeProps} /><Path d="M6.1 17.8C7.15 17 8.1 16.6 9 16.72C10.05 16.85 11.35 18.12 12.55 17.88C14.8 17.42 18.55 15.65 20.85 14.55C21.65 14.17 22.05 13.48 21.76 12.74C21.47 11.98 20.58 11.78 19.74 12.05L14.95 13.58" strokeWidth={1.35} {...strokeProps} /><Path d="M9.5 14.1C10.9 14.85 12.55 15.45 13.62 15.05C14.55 14.7 14.95 13.58 14.95 13.58C14.2 13.22 13.02 13.15 11.95 12.55C10.2 11.58 9.45 10.92 8.1 11.35C7.42 11.57 6.4 12.12 5.2 12.88" strokeWidth={1.35} {...strokeProps} /><Path d="M15.5 3.25L19 6.75L15.5 10.25L12 6.75L15.5 3.25Z" strokeWidth={1.35} {...strokeProps} /><Path d="M12 6.75H19" strokeWidth={1.35} {...strokeProps} /></>;
+      return <><Path d="M6 3.5H14.5L18.5 7.5V20.5H6V3.5Z" strokeWidth={1.7} {...strokeProps} /><Path d="M14.5 3.5V7.5H18.5" strokeWidth={1.7} {...strokeProps} /><Path d="M9 11H15.5" strokeWidth={1.7} {...strokeProps} /><Path d="M9 14.5H15.5" strokeWidth={1.7} {...strokeProps} /><Path d="M9 18H13" strokeWidth={1.7} {...strokeProps} /></>;
     case 'proposal-accepted':
       return <><Path d="M3.25 13.4L5.45 12.5L8 18.8L5.8 19.7L3.25 13.4Z" strokeWidth={1.3} {...strokeProps} /><Path d="M6.1 17.8C7.15 17 8.1 16.6 9 16.72C10.05 16.85 11.35 18.12 12.55 17.88C14.8 17.42 18.55 15.65 20.85 14.55C21.65 14.17 22.05 13.48 21.76 12.74C21.47 11.98 20.58 11.78 19.74 12.05L14.95 13.58" strokeWidth={1.35} {...strokeProps} /><Path d="M9.5 14.1C10.9 14.85 12.55 15.45 13.62 15.05C14.55 14.7 14.95 13.58 14.95 13.58C14.2 13.22 13.02 13.15 11.95 12.55C10.2 11.58 9.45 10.92 8.1 11.35C7.42 11.57 6.4 12.12 5.2 12.88" strokeWidth={1.35} {...strokeProps} /><Path d="M15.5 3.25L19 6.75L15.5 10.25L12 6.75L15.5 3.25Z" strokeWidth={1.35} {...strokeProps} /><Path d="M13.9 6.8L15.05 7.95L17.25 5.75" strokeWidth={1.35} {...strokeProps} /></>;
     case 'proposal-declined':
@@ -120,7 +123,7 @@ function IconPaths({ name, color }: { name: MobileIconName; color: string }) {
     case 'send':
       return <><Path d="M4 11.5L20 4L16 20L12 13L4 11.5Z" strokeWidth={1.8} {...strokeProps} /><Path d="M12 13L20 4" strokeWidth={1.8} {...strokeProps} /></>;
     case 'share':
-      return <><Rect x={5} y={9} width={14} height={11} rx={1} stroke={color} strokeWidth={2} fill="none" /><Rect x={10} y={8} width={4} height={2} fill="none" /><Path d="M12 3V15" strokeWidth={1.5} {...strokeProps} /><Path d="M12 3L15 6" strokeWidth={1.5} {...strokeProps} /><Path d="M9 6L12 3" strokeWidth={1.5} {...strokeProps} /></>;
+      return <><Circle cx={18} cy={5} r={2.5} stroke={color} strokeWidth={1.8} fill="none" /><Circle cx={6} cy={12} r={2.5} stroke={color} strokeWidth={1.8} fill="none" /><Circle cx={18} cy={19} r={2.5} stroke={color} strokeWidth={1.8} fill="none" /><Path d="M8.2 10.75L15.75 6.25" strokeWidth={1.8} {...strokeProps} /><Path d="M8.2 13.25L15.75 17.75" strokeWidth={1.8} {...strokeProps} /></>;
     case 'settings':
       return <><Path d="M4.01074 12.75C3.74279 12.2859 3.74279 11.7141 4.01074 11.25L7.35547 5.45605C7.62335 4.99207 8.11855 4.7062 8.6543 4.70605L15.3457 4.70605C15.8814 4.7062 16.3766 4.99207 16.6445 5.45605L19.9893 11.25C20.2237 11.6561 20.253 12.1446 20.0771 12.5713L19.9893 12.75L16.6445 18.5439C16.3766 19.0079 15.8814 19.2938 15.3457 19.2939L8.6543 19.2939C8.11855 19.2938 7.62335 19.0079 7.35547 18.5439L4.01074 12.75Z" stroke={color} strokeWidth={1.3} fill="none" /><Circle cx={12} cy={12} r={2.5} stroke={color} strokeWidth={1.3} fill="none" /></>;
     case 'trade':

@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -7,6 +7,8 @@ import type { AuthUser, LedgerEntryDto, WalletDto } from '@hellowhen/contracts';
 import { formatMoney } from '@hellowhen/shared';
 import type { SemanticColorName } from '@hellowhen/theme';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+import { AppHeader } from '../../components/AppHeader';
+import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
@@ -53,6 +55,40 @@ type MeHubCounts = {
   places?: number;
 };
 
+type AccountNavigation = NativeStackNavigationProp<RootStackParamList>;
+
+function navigateToAccountRoute(navigation: AccountNavigation, route: AccountRoute) {
+  if (route === 'TradeTabs') navigation.navigate('TradeTabs');
+  else if (route === 'CreateTrade') navigation.navigate('CreateTrade');
+  else if (route === 'MyNeeds') navigation.navigate('MyNeeds');
+  else if (route === 'MyOffers') navigation.navigate('MyOffers');
+  else if (route === 'CreateNeed') navigation.navigate('CreateNeed');
+  else if (route === 'CreateOffer') navigation.navigate('CreateOffer');
+  else if (route === 'AccountProfile') navigation.navigate('AccountProfile');
+  else if (route === 'Notifications') navigation.navigate('Notifications');
+  else if (route === 'SavedLibrary') navigation.navigate('SavedLibrary');
+  else if (route === 'Agenda') navigation.navigate('Agenda');
+  else if (route === 'Plans') navigation.navigate('Plans');
+  else if (route === 'MyPlans') navigation.navigate('MyPlans');
+  else if (route === 'JoinedPlans') navigation.navigate('JoinedPlans');
+  else if (route === 'MyPlaces') navigation.navigate('MyPlaces');
+  else if (route === 'PlaceLibrary') navigation.navigate('PlaceLibrary');
+  else if (route === 'CreatePlan') navigation.navigate('CreatePlan');
+  else if (route === 'CreatePlace') navigation.navigate('CreatePlace');
+  else if (route === 'OnboardingGuide') navigation.navigate('GuideHub');
+  else if (route === 'Membership') navigation.navigate('Membership');
+  else if (route === 'ProPlans') navigation.navigate('ProPlans');
+  else if (route === 'BusinessAccounts') navigation.navigate('BusinessAccounts');
+  else if (route === 'Wallet') navigation.navigate('Wallet');
+  else if (route === 'Payouts') navigation.navigate('Payouts');
+  else if (route === 'Settings') navigation.navigate('Settings');
+  else if (route === 'LegalPolicy') navigation.navigate('LegalPolicy');
+  else if (route === 'SupportCenter') navigation.navigate('SupportCenter');
+  else if (route === 'SafetyCenter') navigation.navigate('SafetyCenter');
+  else if (route === 'AccountDeletion') navigation.navigate('AccountDeletion');
+  else navigation.navigate('BuyCredits');
+}
+
 function countCollection(response: unknown, key: string) {
   if (!response || typeof response !== 'object') return undefined;
   const value = (response as Record<string, unknown>)[key];
@@ -78,7 +114,7 @@ const accountActions: AccountAction[] = [
   { titleKey: 'account.items.safety.title', descriptionKey: 'account.items.safety.bodyNative', badgeKey: 'account.items.safety.badge', tone: 'warning', route: 'SafetyCenter', icon: 'report-flag', group: 'settings' },
   { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings', group: 'settings' },
   { titleKey: 'account.items.legal.title', descriptionKey: 'account.items.legal.bodyNative', badgeKey: 'account.items.legal.badge', tone: 'warning', route: 'LegalPolicy', icon: 'warning', group: 'settings' },
-  { titleKey: 'account.items.delete.title', descriptionKey: 'account.items.delete.bodyNative', badgeKey: 'account.items.delete.badge', tone: 'warning', route: 'AccountDeletion', icon: 'warning', group: 'settings' },
+  { titleKey: 'account.items.delete.title', descriptionKey: 'account.items.delete.bodyNative', badgeKey: 'account.items.delete.badge', tone: 'danger', route: 'AccountDeletion', icon: 'warning', group: 'settings' },
   ...(betaFeatures.mobileMembershipVisible ? [{ titleKey: 'account.items.membership.title', descriptionKey: 'account.items.membership.bodyNative', badgeKey: 'account.items.membership.badge', tone: 'success' as SemanticColorName, route: 'Membership' as AccountRoute, icon: 'profile' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
   ...(betaFeatures.businessAccountsVisible ? [{ titleKey: 'account.items.business.title', descriptionKey: 'account.items.business.bodyNative', badgeKey: 'account.items.business.badge', tone: 'instruction' as SemanticColorName, route: 'BusinessAccounts' as AccountRoute, icon: 'business' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
   ...(betaFeatures.walletVisible ? [{ titleKey: 'account.items.wallet.title', descriptionKey: 'account.items.wallet.bodyNative', badgeKey: 'account.items.wallet.badge', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute, icon: 'wallet' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
@@ -116,15 +152,6 @@ function getAvatarUri(user: AuthUser | null) {
   return url ? resolveMediaUrl(url) : null;
 }
 
-function groupActions(actions: AccountAction[]) {
-  return {
-    activity: actions.filter((action) => action.group === 'activity'),
-    plans: actions.filter((action) => action.group === 'plans'),
-    settings: actions.filter((action) => action.group === 'settings'),
-    future: actions.filter((action) => action.group === 'future'),
-  };
-}
-
 export function AccountScreen() {
   const theme = useThemeTokens();
   const auth = useAuth();
@@ -135,7 +162,6 @@ export function AccountScreen() {
   const [loadingWallet, setLoadingWallet] = useState(false);
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
   const [meHubCounts, setMeHubCounts] = useState<MeHubCounts>({});
-  const [menuOpen, setMenuOpen] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Record<MeHubSectionKey, boolean>>({ activity: false, plans: false, tools: false });
 
   const loadWallet = useCallback(async () => {
@@ -187,43 +213,13 @@ export function AccountScreen() {
   const avatarUri = getAvatarUri(auth.user);
   const currency = wallet?.currency ?? 'eur';
   const recentEntries = wallet?.entries?.filter((entry) => entry.amountCents !== 0 && entry.type !== 'starting_demo_credits').slice(0, 3) ?? [];
-  const groupedActions = useMemo(() => groupActions(accountActions), []);
 
   function toggleMeSection(section: MeHubSectionKey) {
     setCollapsedSections((current) => ({ ...current, [section]: !current[section] }));
   }
 
   function navigate(route: AccountRoute) {
-    setMenuOpen(false);
-    if (route === 'TradeTabs') navigation.navigate('TradeTabs');
-    else if (route === 'CreateTrade') navigation.navigate('CreateTrade');
-    else if (route === 'MyNeeds') navigation.navigate('MyNeeds');
-    else if (route === 'MyOffers') navigation.navigate('MyOffers');
-    else if (route === 'CreateNeed') navigation.navigate('CreateNeed');
-    else if (route === 'CreateOffer') navigation.navigate('CreateOffer');
-    else if (route === 'AccountProfile') navigation.navigate('AccountProfile');
-    else if (route === 'Notifications') navigation.navigate('Notifications');
-    else if (route === 'SavedLibrary') navigation.navigate('SavedLibrary');
-    else if (route === 'Agenda') navigation.navigate('Agenda');
-    else if (route === 'Plans') navigation.navigate('Plans');
-    else if (route === 'MyPlans') navigation.navigate('MyPlans');
-    else if (route === 'JoinedPlans') navigation.navigate('JoinedPlans');
-    else if (route === 'MyPlaces') navigation.navigate('MyPlaces');
-    else if (route === 'PlaceLibrary') navigation.navigate('PlaceLibrary');
-    else if (route === 'CreatePlan') navigation.navigate('CreatePlan');
-    else if (route === 'CreatePlace') navigation.navigate('CreatePlace');
-    else if (route === 'OnboardingGuide') navigation.navigate('GuideHub');
-    else if (route === 'Membership') navigation.navigate('Membership');
-    else if (route === 'ProPlans') navigation.navigate('ProPlans');
-    else if (route === 'BusinessAccounts') navigation.navigate('BusinessAccounts');
-    else if (route === 'Wallet') navigation.navigate('Wallet');
-    else if (route === 'Payouts') navigation.navigate('Payouts');
-    else if (route === 'Settings') navigation.navigate('Settings');
-    else if (route === 'LegalPolicy') navigation.navigate('LegalPolicy');
-    else if (route === 'SupportCenter') navigation.navigate('SupportCenter');
-    else if (route === 'SafetyCenter') navigation.navigate('SafetyCenter');
-    else if (route === 'AccountDeletion') navigation.navigate('AccountDeletion');
-    else navigation.navigate('BuyCredits');
+    navigateToAccountRoute(navigation, route);
   }
 
   const activityWidgets = useMemo<MeHubWidget[]>(() => [
@@ -247,8 +243,6 @@ export function AccountScreen() {
     { title: t('account.items.support.title'), body: t('account.items.support.bodyNative'), route: 'SupportCenter', icon: 'help', tone: 'success' },
   ], [notificationUnreadCount, t]);
 
-  const futureActions = groupedActions.future;
-  const menuActions = [...groupedActions.settings, ...futureActions, groupedActions.activity.find((action) => action.route === 'OnboardingGuide'), groupedActions.activity.find((action) => action.route === 'SupportCenter')].filter(Boolean) as AccountAction[];
   const showFlagDiagnostics = betaFeatures.mobileDiagnosticsVisible;
 
   const header = (
@@ -257,7 +251,7 @@ export function AccountScreen() {
         <AppText style={styles.title}>{t(betaFeatures.mainNavPlansMeTrade ? 'navigation.tabs.me' : 'account.title')}</AppText>
         <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.headerBody')}</AppText>
       </View>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('account.menu.open')} onPress={() => setMenuOpen(true)} style={({ pressed }) => [styles.headerMenuButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('account.menu.open')} onPress={() => navigation.navigate('MeMenu')} style={({ pressed }) => [styles.headerMenuButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
         <MobileIcon name="more" size={21} color={theme.color.text} />
       </Pressable>
     </View>
@@ -286,9 +280,9 @@ export function AccountScreen() {
             </View>
           </View>
           <View style={styles.quickActions}>
-            <AccountQuickAction icon="trade" label={t('account.quickActions.createTrade')} onPress={() => navigate('CreateTrade')} tone="trade" />
-            {betaFeatures.plansVisible ? <AccountQuickAction icon="calendar" label={t('account.quickActions.createPlan')} onPress={() => navigate('CreatePlan')} tone="instruction" /> : <AccountQuickAction icon="bell" label={t('account.quickActions.notifications')} count={notificationUnreadCount} onPress={() => navigate('Notifications')} tone="proposal" />}
-            {betaFeatures.plansVisible ? <AccountQuickAction icon="location-on" label={t('account.quickActions.addPlace')} onPress={() => navigate('CreatePlace')} tone="proposal" /> : <AccountQuickAction icon="help" label={t('account.quickActions.support')} onPress={() => navigate('SupportCenter')} tone="success" />}
+            <AccountQuickAction icon="trade" label={t('account.quickActions.tradeShort')} accessibilityLabel={t('account.quickActions.createTrade')} onPress={() => navigate('CreateTrade')} tone="trade" />
+            {betaFeatures.plansVisible ? <AccountQuickAction icon="plan" label={t('account.quickActions.planShort')} accessibilityLabel={t('account.quickActions.createPlan')} onPress={() => navigate('CreatePlan')} tone="instruction" /> : <AccountQuickAction icon="bell" label={t('account.quickActions.notifications')} count={notificationUnreadCount} onPress={() => navigate('Notifications')} tone="proposal" />}
+            {betaFeatures.plansVisible ? <AccountQuickAction icon="location-on" label={t('account.quickActions.placeShort')} accessibilityLabel={t('account.quickActions.addPlace')} onPress={() => navigate('CreatePlace')} tone="proposal" /> : <AccountQuickAction icon="help" label={t('account.quickActions.support')} onPress={() => navigate('SupportCenter')} tone="success" />}
           </View>
         </View>
 
@@ -332,7 +326,6 @@ export function AccountScreen() {
           </DetailSection>
         ) : null}
 
-        <AccountMenuModal visible={menuOpen} actions={menuActions} unreadCount={notificationUnreadCount} onClose={() => setMenuOpen(false)} onLogout={() => { setMenuOpen(false); void auth.logout(); }} onNavigate={navigate} />
       </ScrollView>
     </AppFixedHeaderScreen>
   );
@@ -376,11 +369,11 @@ function MobileFlagDiagnosticsCard() {
   );
 }
 
-function AccountQuickAction({ icon, label, count, onPress, tone }: { icon: MobileIconName; label: string; count?: number; onPress: () => void; tone: SemanticColorName }) {
+function AccountQuickAction({ icon, label, accessibilityLabel, count, onPress, tone }: { icon: MobileIconName; label: string; accessibilityLabel?: string; count?: number; onPress: () => void; tone: SemanticColorName }) {
   const theme = useThemeTokens();
   const semantic = theme.semantic[tone];
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={count && count > 0 ? `${label} · ${count}` : label} onPress={onPress} style={({ pressed }) => [styles.quickAction, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={count && count > 0 ? `${accessibilityLabel ?? label} · ${count}` : accessibilityLabel ?? label} onPress={onPress} style={({ pressed }) => [styles.quickAction, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
       <View style={[styles.quickIcon, { backgroundColor: semantic.softBg, borderColor: semantic.border }]}>
         <MobileIcon name={icon} size={17} color={semantic.text} />
         {count && count > 0 ? <View style={[styles.quickDot, { backgroundColor: theme.semantic.proposal.bg }]}><AppText style={styles.quickDotText}>{Math.min(count, 99)}</AppText></View> : null}
@@ -435,63 +428,48 @@ function MeHubWidgetRow({ widget, last, onPress }: { widget: MeHubWidget; last?:
   );
 }
 
-function AccountMenuModal({ actions, unreadCount, visible, onClose, onLogout, onNavigate }: { actions: AccountAction[]; unreadCount: number; visible: boolean; onClose: () => void; onLogout: () => void; onNavigate: (route: AccountRoute) => void }) {
+export function AccountMenuScreen() {
   const theme = useThemeTokens();
+  const auth = useAuth();
   const { t } = useTranslation();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const androidBottomInset = Platform.OS === 'android' ? Math.max(0, insets.bottom) : 0;
-  const settingsActions = actions.filter((action) => action.group === 'settings');
-  const futureActions = actions.filter((action) => action.group === 'future');
-  const helpActions = actions.filter((action) => action.route === 'OnboardingGuide' || action.route === 'SupportCenter');
+  const settingsActions = accountActions.filter((action) => action.group === 'settings' && action.route !== 'AccountDeletion');
+  const accountActionsOnly = accountActions.filter((action) => action.route === 'AccountDeletion');
+  const futureActions = accountActions.filter((action) => action.group === 'future');
+  const helpActions = accountActions.filter((action) => action.route === 'OnboardingGuide' || action.route === 'SupportCenter');
+
+  function navigate(route: AccountRoute) {
+    navigateToAccountRoute(navigation, route);
+  }
 
   return (
-    <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('account.menu.close')} onPress={onClose} style={[styles.menuBackdrop, androidBottomInset > 0 && { paddingBottom: 14 + androidBottomInset }]}>
-        <Pressable accessibilityRole="menu" onPress={(event) => event.stopPropagation()} style={[styles.menuSheet, { backgroundColor: theme.color.elevated, borderColor: theme.color.border }]}>
-          <View style={styles.menuHeader}>
-            <View style={styles.menuHeaderCopy}>
-              <AppText style={styles.menuTitle}>{t('account.menu.title')}</AppText>
-              <AppText style={[styles.menuBody, { color: theme.color.muted }]}>{t('account.menu.body')}</AppText>
-            </View>
-            <Pressable accessibilityRole="button" accessibilityLabel={t('account.menu.close')} onPress={onClose} style={({ pressed }) => [styles.menuCloseButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-              <MobileIcon name="close" size={19} color={theme.color.text} />
-            </Pressable>
-          </View>
-          <ScrollView contentContainerStyle={styles.menuScrollContent} showsVerticalScrollIndicator={false}>
-            <AccountMenuSection title={t('account.menu.sections.settings')} actions={settingsActions} unreadCount={unreadCount} onNavigate={onNavigate} />
-            <AccountMenuSection title={t('account.menu.sections.help')} actions={helpActions} unreadCount={unreadCount} onNavigate={onNavigate} />
-            <AccountMenuSection title={t('account.menu.sections.future')} actions={futureActions} unreadCount={unreadCount} onNavigate={onNavigate} />
-            <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.logout')} onPress={onLogout} style={({ pressed }) => [styles.logoutButton, { borderColor: theme.semantic.danger.border, backgroundColor: theme.semantic.danger.softBg }, pressed && styles.pressed]}>
-              <AppText style={[styles.logoutButtonText, { color: theme.semantic.danger.text }]}>{t('common.actions.logout')}</AppText>
-            </Pressable>
-          </ScrollView>
+    <AppScreen>
+      <ScrollView contentContainerStyle={[styles.menuPageContent, { paddingBottom: 34 + Math.max(insets.bottom, 0) }]} showsVerticalScrollIndicator={false}>
+        <AppHeader title={t('account.menu.title')} onBack={() => navigation.goBack()} />
+        <AppText style={[styles.menuPageBody, { color: theme.color.muted }]}>{t('account.menu.body')}</AppText>
+        <AccountMenuSection title={t('account.menu.sections.settings')} actions={settingsActions} onNavigate={navigate} />
+        <AccountMenuSection title={t('account.menu.sections.help')} actions={helpActions} onNavigate={navigate} />
+        <AccountMenuSection title={t('account.menu.sections.future')} actions={futureActions} onNavigate={navigate} />
+        <AccountMenuSection title={t('account.menu.sections.account')} actions={accountActionsOnly} onNavigate={navigate} />
+        <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.logout')} onPress={() => { void auth.logout().finally(() => navigation.navigate('TradeTabs', { screen: 'MeTab' })); }} style={({ pressed }) => [styles.logoutButton, { borderColor: theme.semantic.danger.border, backgroundColor: theme.semantic.danger.softBg }, pressed && styles.pressed]}>
+          <AppText style={[styles.logoutButtonText, { color: theme.semantic.danger.text }]}>{t('common.actions.logout')}</AppText>
         </Pressable>
-      </Pressable>
-    </Modal>
+      </ScrollView>
+    </AppScreen>
   );
 }
 
-function AccountMenuSection({ title, actions, unreadCount, onNavigate }: { title: string; actions: AccountAction[]; unreadCount: number; onNavigate: (route: AccountRoute) => void }) {
+function AccountMenuSection({ title, actions, onNavigate }: { title: string; actions: AccountAction[]; onNavigate: (route: AccountRoute) => void }) {
   const theme = useThemeTokens();
   if (actions.length === 0) return null;
   return (
     <View style={styles.menuSection}>
       <AppText style={[styles.menuSectionTitle, { color: theme.color.muted }]}>{title}</AppText>
       <View style={[styles.menuList, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-        {actions.map((action, index) => <AccountActionRow key={`${action.route}-${index}`} action={action} unreadCount={action.route === 'Notifications' ? unreadCount : 0} last={index === actions.length - 1} onPress={() => onNavigate(action.route)} />)}
+        {actions.map((action, index) => <AccountActionRow key={`${action.route}-${index}`} action={action} last={index === actions.length - 1} onPress={() => onNavigate(action.route)} />)}
       </View>
     </View>
-  );
-}
-
-function AccountActionGroup({ title, actions, unreadCount, onNavigate }: { title: string; actions: AccountAction[]; unreadCount: number; onNavigate: (route: AccountRoute) => void }) {
-  if (actions.length === 0) return null;
-  return (
-    <DetailSection title={title} compact>
-      <View style={styles.menuList}>
-        {actions.map((action, index) => <AccountActionRow key={action.route} action={action} unreadCount={action.route === 'Notifications' ? unreadCount : 0} last={index === actions.length - 1} onPress={() => onNavigate(action.route)} />)}
-      </View>
-    </DetailSection>
   );
 }
 
@@ -540,13 +518,6 @@ const styles = StyleSheet.create({
   widgetSectionHeader: { minHeight: 34, paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   widgetSectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   widgetSectionTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9, textTransform: 'uppercase' },
-  menuBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(2, 10, 24, 0.42)', paddingHorizontal: 14, paddingBottom: 14 },
-  menuSheet: { width: '100%', maxHeight: '86%', borderRadius: 28, borderWidth: 1, padding: 16, gap: 14 },
-  menuHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  menuHeaderCopy: { flex: 1, minWidth: 0, gap: 5 },
-  menuTitle: { fontSize: 25, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 },
-  menuBody: { lineHeight: 19, fontWeight: '700' },
-  menuCloseButton: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   header: { gap: 8 },
   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
   subtitle: { lineHeight: 20, fontWeight: '600' },
@@ -571,7 +542,8 @@ const styles = StyleSheet.create({
   inlinePrimaryText: { fontWeight: '900' },
   inlineSecondary: { flex: 1, minWidth: 96, borderRadius: 16, borderWidth: 1, paddingVertical: 13, alignItems: 'center' },
   inlineSecondaryText: { fontWeight: '900' },
-  menuScrollContent: { gap: 12, paddingBottom: 2 },
+  menuPageContent: { paddingBottom: 34, gap: 16 },
+  menuPageBody: { lineHeight: 21, fontWeight: '700', paddingHorizontal: 2 },
   menuSection: { gap: 8 },
   menuSectionTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9, textTransform: 'uppercase', paddingHorizontal: 4 },
   menuList: { borderRadius: 20, borderWidth: 1, overflow: 'hidden' },

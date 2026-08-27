@@ -3,9 +3,7 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { ContinuousSquareStackDeck } from '../deck';
 import type { TradeDeckItem } from '../types';
 import { buildTradeSquareDeckCards, renderTradeSquareDeckCard, type TradeSquareDeckCard } from './TradeSquareDeckCards';
-
-const MOBILE_TRADE_DECK_AVAILABLE_HEIGHT = 404;
-const MOBILE_TRADE_DECK_MAX_CARD_SIZE = 348;
+import { MOBILE_TRADE_DECK_AVAILABLE_HEIGHT, MOBILE_TRADE_DECK_MAX_CARD_SIZE } from './tradeDeckGeometry';
 
 type TradeSquareDeckProps = {
   trade: TradeDeckItem;

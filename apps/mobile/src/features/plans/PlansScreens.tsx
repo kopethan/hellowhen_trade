@@ -3030,7 +3030,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
               style={({ pressed }) => [styles.planDiscussionRow, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}
             >
               <View style={[styles.planDiscussionIcon, { backgroundColor: theme.semantic.plan.softBg, borderColor: theme.semantic.plan.border }]}>
-                <MobileIcon name="proposal" size={18} color={theme.semantic.plan.text} />
+                <MobileIcon name="discussion" size={18} color={theme.semantic.plan.text} />
               </View>
               <View style={styles.feedTitleWrap}>
                 <AppText style={styles.planDiscussionTitle}>{t('plans.detail.discussion.open')}</AppText>
@@ -5413,7 +5413,7 @@ const styles = StyleSheet.create({
   feedTitleWrap: { flex: 1, gap: 6 },
   feedTitle: { fontSize: 35, lineHeight: 40, fontWeight: '900', letterSpacing: -1 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  headerAction: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  headerAction: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' },
   headerActionBadge: { position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 9, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   headerActionBadgeText: { fontSize: 10, fontWeight: '900', lineHeight: 12 },
   filterRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
@@ -5504,7 +5504,7 @@ const styles = StyleSheet.create({
   deckSectionMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
   inlineLoading: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
   loadingText: { fontWeight: '800' },
-  planHeaderShareButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  planHeaderShareButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   planDetailContent: { gap: 18, paddingBottom: 44 },
   planDetailHero: { gap: 10, paddingTop: 4 },
   planDetailEyebrow: { fontSize: 13, lineHeight: 18, fontWeight: '900', letterSpacing: 0.65, textTransform: 'uppercase' },

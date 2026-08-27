@@ -71,6 +71,12 @@ export const common = {
     selectCountry: 'Choisir un pays',
     selectCurrency: 'Choisir une devise',
   },
+  errors: {
+    connection: 'Impossible de se connecter à Hellowhen. Vérifiez votre connexion et réessayez.',
+    timeout: 'La requête a pris trop de temps. Vérifiez votre connexion et réessayez.',
+    server: 'Hellowhen rencontre un problème pour le moment. Réessayez dans un instant.',
+    unauthorized: 'Reconnectez-vous pour continuer.',
+  },
   messages: {
     settingsUpdated: 'Vos paramètres ont été mis à jour.',
     chooseOneOption: 'Choisissez une option',

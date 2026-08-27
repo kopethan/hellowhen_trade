@@ -6,7 +6,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { PlaceDto, TradePostType } from '@hellowhen/contracts';
-import { AccountScreen } from '../features/account/AccountScreen';
+import { AccountMenuScreen, AccountScreen } from '../features/account/AccountScreen';
 import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen';
 import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
 import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
@@ -79,6 +79,7 @@ export type RootStackParamList = {
   MyNeeds: undefined;
   MyOffers: undefined;
   AccountProfile: undefined;
+  MeMenu: undefined;
   Notifications: undefined;
   SavedLibrary: undefined;
   Agenda: undefined;
@@ -171,6 +172,7 @@ function withAuth<P extends object>(Component: React.ComponentType<P>, titleKey?
 const ProtectedMyNeedsScreen = withAuth(MyNeedsScreen, 'navigation.authRequired.manageNeeds.title', 'navigation.authRequired.manageNeeds.body');
 const ProtectedMyOffersScreen = withAuth(MyOffersScreen, 'navigation.authRequired.manageOffers.title', 'navigation.authRequired.manageOffers.body');
 const ProtectedAccountScreen = withAuth(AccountScreen, 'navigation.authRequired.account.title', 'navigation.authRequired.account.body');
+const ProtectedAccountMenuScreen = withAuth(AccountMenuScreen, 'navigation.authRequired.account.title', 'navigation.authRequired.account.body');
 const ProtectedProfileScreen = withAuth(ProfileScreen);
 const ProtectedNotificationsScreen = withAuth(NotificationsScreen);
 const ProtectedSavedLibraryScreen = withAuth(SavedLibraryScreen);
@@ -223,19 +225,8 @@ function getTabBadge(count: number) {
   return count > 0 ? Math.min(count, 99) : undefined;
 }
 
-function getNormalTabActiveTintColor(routeName: keyof MainTabParamList, theme: ThemeTokens) {
-  const normalNavItem = getNormalAppNavItemByMobileTabName(routeName);
-  if (normalNavItem?.id === 'plans') return theme.semantic.plan.bg;
-  if (normalNavItem?.id === 'trade') return theme.semantic.trade.bg;
+function getNormalTabActiveTintColor(_routeName: keyof MainTabParamList, theme: ThemeTokens) {
   return theme.color.text;
-}
-
-function getNormalTabPillBackgroundColor(routeName: keyof MainTabParamList, theme: ThemeTokens) {
-  const normalNavItem = getNormalAppNavItemByMobileTabName(routeName);
-  if (normalNavItem?.id === 'plans') return theme.semantic.plan.softBg;
-  if (normalNavItem?.id === 'trade') return theme.semantic.trade.softBg;
-  if (normalNavItem?.id === 'me') return theme.color.subtleSurface;
-  return 'transparent';
 }
 
 const normalMobileTabScreenById: Record<NormalAppNavItemId, React.ComponentType<any>> = {
@@ -270,14 +261,11 @@ function TradeTabs() {
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: true,
-        tabBarIcon: ({ color, size, focused }) => {
-          const icon = <MobileIcon name={getTabIconName(route.name)} size={Math.max(size, 21)} color={color} />;
-          return (
-            <View style={[styles.normalTabIconPill, focused && { backgroundColor: getNormalTabPillBackgroundColor(route.name, theme) }]}>
-              {icon}
-            </View>
-          );
-        },
+        tabBarIcon: ({ color, size }) => (
+          <View style={styles.normalTabIconSlot}>
+            <MobileIcon name={getTabIconName(route.name)} size={Math.max(size, 21)} color={color} />
+          </View>
+        ),
         tabBarIconStyle: styles.normalTabIcon,
         tabBarLabelStyle: styles.normalTabLabel,
         tabBarItemStyle: styles.normalTabItem,
@@ -332,6 +320,7 @@ export function RootNavigator() {
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />
       <Stack.Screen name="AccountProfile" component={ProtectedProfileScreen} />
+      <Stack.Screen name="MeMenu" component={ProtectedAccountMenuScreen} />
       <Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />
       {betaFeatures.savedLibraryEnabled ? <Stack.Screen name="SavedLibrary" component={ProtectedSavedLibraryScreen} /> : null}
       {betaFeatures.agendaEnabled ? <Stack.Screen name="Agenda" component={ProtectedAgendaScreen} /> : null}
@@ -393,10 +382,9 @@ const styles = StyleSheet.create({
   normalTabIcon: {
     marginTop: 1,
   },
-  normalTabIconPill: {
+  normalTabIconSlot: {
     minWidth: 42,
     minHeight: 28,
-    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
   },
