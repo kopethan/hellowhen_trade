@@ -89,7 +89,7 @@ export const plans = {
     reviewBeforePublishing: 'Review before publishing',
   },
   filters: {
-    title: 'Plan filters',
+    title: 'Filters',
     heroTitle: 'Find the right Plan',
     heroBody: 'Search words and filter choices stay attached to the feed so we can learn what people look for later.',
     searchLabel: 'Search',
@@ -648,6 +648,7 @@ export const plans = {
     },
   },
   workspace: {
+    menu: { title: 'Plans menu', body: 'Everything related to your Plans, Places, and starter ideas.', group: 'Plans workspace' },
     myPlans: { title: 'My plans', body: 'Plans you created.' },
     joinedPlans: { title: 'Joined plans', body: 'Plans you joined freely.' },
     myPlaces: { title: 'My places', body: 'Reusable offline or online Places.' },

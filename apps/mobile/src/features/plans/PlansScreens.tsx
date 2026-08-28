@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import * as Location from 'expo-location';
-import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle, type LayoutChangeEvent } from 'react-native';
+import { ActivityIndicator, Alert, findNodeHandle, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle, type LayoutChangeEvent } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -2227,7 +2227,6 @@ function SkeletonNotice({ title, body }: { title: string; body: string }) {
 export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
   const fallbackNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const navigation = (props.navigation ?? fallbackNavigation) as NativeStackNavigationProp<RootStackParamList>;
-  const theme = useThemeTokens();
   const { t } = useTranslation();
   const routeParams = props.route?.params as PlanFilterRouteParams | undefined;
   const activeFilters = normalizePlanFilters(routeParams?.filters);
@@ -2270,7 +2269,7 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
       </View>
       <View style={styles.headerActions}>
         <HeaderAction icon="filter" label={activeFilterCount ? t('plans.feed.actions.filterActive', { count: activeFilterCount }) : t('plans.feed.actions.filter')} badgeCount={activeFilterCount} onPress={() => { setMenuOpen(false); navigation.navigate('PlanFilters', { filters: activeFilters, q: activeSearchQuery || undefined }); }} />
-        <HeaderAction icon="activity" label={t('plans.feed.actions.menu')} onPress={() => setMenuOpen((value) => !value)} />
+        <HeaderAction icon="activity" label={t('plans.feed.actions.menu')} onPress={() => setMenuOpen(true)} />
         <HeaderAction icon="add" label={t('plans.feed.actions.create')} onPress={() => navigation.navigate('CreatePlan')} />
       </View>
     </View>
@@ -2279,20 +2278,9 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
   const smartHeaderResetKey = `${activeFilters.join('|')}::${activeSearchQuery}::${routeParams?.focusIdeas ?? 0}`;
 
   return (
-    <AppSmartHeaderScreen header={header} resetKey={smartHeaderResetKey}>
-      {(scrollProps) => {
-        const planScrollProps: AppCollapsibleHeaderScrollProps = {
-          ...scrollProps,
-          scrollViewProps: {
-            ...scrollProps.scrollViewProps,
-            onScroll: (event) => {
-              if (menuOpen) setMenuOpen(false);
-              scrollProps.scrollViewProps.onScroll(event);
-            },
-          },
-        };
-
-        return (
+    <>
+      <AppSmartHeaderScreen header={header} resetKey={smartHeaderResetKey}>
+        {(scrollProps) => (
           <View style={styles.bodyWrap}>
             <PlanList
               scope="feed"
@@ -2300,23 +2288,48 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
               filters={activeFilters}
               searchQuery={activeSearchQuery}
               focusStarterIdeaRequestKey={routeParams?.focusIdeas}
-              scrollProps={planScrollProps}
+              scrollProps={scrollProps}
             />
-            {menuOpen ? (
-              <View
-                style={[
-                  styles.menuPanel,
-                  styles.feedMenuOverlay,
-                  { top: scrollProps.contentTopInset, backgroundColor: theme.color.surface, borderColor: theme.color.border },
-                ]}
-              >
-                {menuItems.map((item) => <MenuItem key={item.id} item={item} onPress={() => openWorkspaceItem(item.id)} />)}
-              </View>
-            ) : null}
           </View>
-        );
-      }}
-    </AppSmartHeaderScreen>
+        )}
+      </AppSmartHeaderScreen>
+      <PlanWorkspaceMenuModal
+        visible={menuOpen}
+        items={menuItems}
+        onClose={() => setMenuOpen(false)}
+        onSelect={(item) => openWorkspaceItem(item.id)}
+      />
+    </>
+  );
+}
+
+function PlanWorkspaceMenuModal({ visible, items, onClose, onSelect }: { visible: boolean; items: readonly NormalWorkspaceMenuItem[]; onClose: () => void; onSelect: (item: NormalWorkspaceMenuItem) => void }) {
+  const theme = useThemeTokens();
+  const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+      <View style={[styles.planWorkspaceMenuScreen, { backgroundColor: theme.color.background, paddingTop: insets.top + 18, paddingBottom: Math.max(insets.bottom, 10) }]}>
+        <View style={styles.planWorkspaceMenuHeaderRow}>
+          <View style={styles.planWorkspaceMenuHeaderCopy}>
+            <AppText style={styles.planWorkspaceMenuTitle}>{t('plans.workspace.menu.title')}</AppText>
+            <AppText style={[styles.planWorkspaceMenuBody, { color: theme.color.muted }]}>{t('plans.workspace.menu.body')}</AppText>
+          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.close')} onPress={onClose} style={({ pressed }) => [styles.planWorkspaceMenuClose, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+            <MobileIcon name="close" size={18} color={theme.color.text} />
+          </Pressable>
+        </View>
+        <ScrollView contentContainerStyle={styles.planWorkspaceMenuContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.planWorkspaceMenuGroup}>
+            <AppText style={[styles.planWorkspaceMenuGroupTitle, { color: theme.color.muted }]}>{t('plans.workspace.menu.group')}</AppText>
+            <View style={styles.planWorkspaceMenuItems}>
+              {items.map((item) => <MenuItem key={item.id} item={item} onPress={() => onSelect(item)} />)}
+            </View>
+          </View>
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 
@@ -2358,8 +2371,8 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
           <View style={[styles.menuIcon, { backgroundColor: theme.color.surface, borderColor: theme.semantic.plan.border }]}>
             <MobileIcon name="filter" size={18} color={theme.semantic.plan.text} />
           </View>
-          <AppText style={styles.heroTitle}>{t('plans.filters.heroTitle')}</AppText>
-          <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t('plans.filters.heroBody')}</AppText>
+          <AppText style={styles.planFilterHeroTitle}>{t('plans.filters.heroTitle')}</AppText>
+          <AppText style={[styles.planFilterHeroBody, { color: theme.color.muted }]}>{t('plans.filters.heroBody')}</AppText>
         </View>
 
         <View style={[styles.planFilterSearchCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
@@ -2388,8 +2401,8 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
         {planFilterGroups.map((group) => (
           <View key={group.id} style={[styles.planFilterGroup, { borderColor: theme.color.border }]}>
             <View style={styles.placeCreateSectionHeader}>
-              <AppText style={styles.sectionTitle}>{t(group.titleKey)}</AppText>
-              <AppText style={[styles.heroBody, { color: theme.color.muted }]}>{t(group.bodyKey)}</AppText>
+              <AppText style={styles.planFilterGroupTitle}>{t(group.titleKey)}</AppText>
+              <AppText style={[styles.planFilterGroupBody, { color: theme.color.muted }]}>{t(group.bodyKey)}</AppText>
             </View>
             <View style={styles.planFilterOptionGrid}>
               {group.options.map((option) => {
@@ -2439,7 +2452,7 @@ function MenuItem({ item, onPress }: { item: NormalWorkspaceMenuItem; onPress: (
   const theme = useThemeTokens();
   const { t } = useTranslation();
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.menuItem, { borderBottomColor: theme.color.border }, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.menuItem, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
       <View style={[styles.menuIcon, { backgroundColor: theme.semantic[item.tone].softBg, borderColor: theme.semantic[item.tone].border }]}><MobileIcon name={item.icon} size={17} color={theme.semantic[item.tone].text} /></View>
       <View style={styles.menuCopy}>
         <AppText style={styles.menuTitle}>{item.titleKey ? t(item.titleKey) : item.title}</AppText>
@@ -3231,6 +3244,20 @@ function FormLabel({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
+function scrollFocusedInputIntoView(scrollView: ScrollView | null, input: TextInput | null, additionalOffset = 28) {
+  if (Platform.OS !== 'android' || !scrollView || !input) return;
+  const nodeHandle = findNodeHandle(input);
+  if (!nodeHandle) return;
+
+  // Let the Android keyboard finish resizing the window before calculating the
+  // focused field position. This keeps lower fields above the IME instead of
+  // leaving them hidden behind it on narrow devices, while preserving iOS's
+  // existing KeyboardAvoidingView behavior.
+  setTimeout(() => {
+    scrollView.scrollResponderScrollNativeHandleToKeyboard(nodeHandle, additionalOffset, true);
+  }, 220);
+}
+
 function TextField({
   label,
   value,
@@ -3240,6 +3267,8 @@ function TextField({
   keyboardType,
   maxLength,
   compactMultiline,
+  keyboardScrollRef,
+  keyboardScrollOffset,
 }: {
   label: string;
   value: string;
@@ -3249,11 +3278,15 @@ function TextField({
   keyboardType?: 'default' | 'numbers-and-punctuation' | 'url';
   maxLength?: number;
   compactMultiline?: boolean;
+  keyboardScrollRef?: React.RefObject<ScrollView | null>;
+  keyboardScrollOffset?: number;
 }) {
   const theme = useThemeTokens();
+  const inputRef = useRef<TextInput>(null);
   return (
     <FormLabel label={label}>
       <TextInput
+        ref={inputRef}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -3265,6 +3298,7 @@ function TextField({
         inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
         returnKeyType={multiline ? 'default' : 'done'}
         blurOnSubmit={!multiline}
+        onFocus={() => scrollFocusedInputIntoView(keyboardScrollRef?.current ?? null, inputRef.current, keyboardScrollOffset)}
         style={[styles.input, multiline && styles.textArea, multiline && compactMultiline && styles.compactTextArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
       />
     </FormLabel>
@@ -3633,6 +3667,8 @@ function GooglePlacePicker({
   languageCode,
   country,
   maxLength = 240,
+  keyboardScrollRef,
+  keyboardScrollOffset,
 }: {
   value: string;
   onChangeText: (value: string) => void;
@@ -3645,6 +3681,8 @@ function GooglePlacePicker({
   languageCode?: string;
   country?: string;
   maxLength?: number;
+  keyboardScrollRef?: React.RefObject<ScrollView | null>;
+  keyboardScrollOffset?: number;
 }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
@@ -3658,6 +3696,7 @@ function GooglePlacePicker({
   const [resolvingPlaceId, setResolvingPlaceId] = useState('');
   const [notice, setNotice] = useState('');
   const sessionTokenRef = useRef(makeGooglePlaceSessionToken());
+  const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     setQuery(value);
@@ -3755,6 +3794,7 @@ function GooglePlacePicker({
     <View style={styles.googlePlacePicker}>
       <FormLabel label={resolvedLabel}>
         <TextInput
+          ref={inputRef}
           value={query}
           onChangeText={handleInputChange}
           placeholder={resolvedPlaceholder}
@@ -3764,6 +3804,7 @@ function GooglePlacePicker({
           maxLength={maxLength}
           inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
           returnKeyType="search"
+          onFocus={() => scrollFocusedInputIntoView(keyboardScrollRef?.current ?? null, inputRef.current, keyboardScrollOffset)}
           style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
         />
       </FormLabel>
@@ -5051,6 +5092,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
   const [message, setMessage] = useState<string | null>(null);
   const postSaveNavigationRef = useRef<(() => void) | null>(null);
   const [postSaveNavigationVersion, setPostSaveNavigationVersion] = useState(0);
+  const placeEditorScrollRef = useRef<ScrollView>(null);
 
   const translationsChanged = placeTranslationDraftFingerprint(state) !== placeTranslationDraftFingerprint(initialFormRef.current);
   const baseDetailsChanged = placeBaseDetailsFingerprint(state) !== placeBaseDetailsFingerprint(initialFormRef.current);
@@ -5256,7 +5298,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
   return (
     <AppFixedHeaderScreen bodyStyle={styles.placeEditorBody} header={<AppHeader title={isEditing ? t('places.editor.header.edit') : t('places.editor.header.create')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label={t('places.editor.header.myPlaces')} onPress={() => navigation.navigate('MyPlaces')} />} />}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
-        <ScrollView contentContainerStyle={[styles.listContent, styles.placeEditorScrollContent]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+        <ScrollView ref={placeEditorScrollRef} contentContainerStyle={[styles.listContent, styles.placeEditorScrollContent]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           {!translationOnlyMode ? (
             <View style={styles.placeCreateCompactHeader}>
               <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? t('places.editor.subtitle.edit') : copyFromPlace ? t('places.editor.subtitle.copy') : t('places.editor.subtitle.create')}</AppText>
@@ -5293,12 +5335,12 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                       }))}
                     />
                   </View>
-                  <TextField label={t('places.editor.fields.name')} value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder={t('places.editor.fields.namePlaceholder')} maxLength={120} />
+                  <TextField label={t('places.editor.fields.name')} value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder={t('places.editor.fields.namePlaceholder')} maxLength={120} keyboardScrollRef={placeEditorScrollRef} />
                   {state.mode === 'remote' ? (
                     <>
-                      <TextField label={t('places.editor.fields.onlineUrl')} value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
+                      <TextField label={t('places.editor.fields.onlineUrl')} value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} keyboardScrollRef={placeEditorScrollRef} />
                       <AppText style={[styles.placeDestinationHint, { color: theme.color.muted }]}>{getOnlineProviderHint({ onlineUrl: state.onlineUrl }, t)}</AppText>
-                      <TextField label={t('places.editor.fields.onlineLabel')} value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} maxLength={120} />
+                      <TextField label={t('places.editor.fields.onlineLabel')} value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} maxLength={120} keyboardScrollRef={placeEditorScrollRef} />
                     </>
                   ) : (
                     <>
@@ -5310,11 +5352,13 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                         placeholder={t('places.editor.fields.addressPlaceholder')}
                         helperText={t('places.editor.fields.addressHelp')}
                         languageCode={language}
+                        keyboardScrollRef={placeEditorScrollRef}
+                        keyboardScrollOffset={36}
                       />
                       {!hasValidOfflineProviderAddress(state.providerAddress) ? <AppText style={[styles.placeDestinationHint, { color: theme.semantic.warning.text }]}>{getOfflineAddressRequirementMessage(state.providerAddress, t)}</AppText> : null}
                     </>
                   )}
-                  <TextField label={t('places.editor.fields.description')} value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder={t('places.editor.fields.descriptionPlaceholder')} multiline maxLength={2000} />
+                  <TextField label={t('places.editor.fields.description')} value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder={t('places.editor.fields.descriptionPlaceholder')} multiline maxLength={2000} keyboardScrollRef={placeEditorScrollRef} keyboardScrollOffset={40} />
                 </>
               )}
               <View style={styles.placeTranslationBlock}>
@@ -5368,8 +5412,8 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                             <AppText style={[styles.placeTranslationRemoveText, { color: theme.semantic.danger.text }]}>{t('places.editor.language.remove')}</AppText>
                           </Pressable>
                         </View>
-                        <TextField label={t('places.editor.language.translatedName')} value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder={t('places.editor.language.translatedNamePlaceholder')} maxLength={120} />
-                        <TextField label={t('places.editor.language.translatedDescription')} value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder={t('places.editor.language.translatedDescriptionPlaceholder')} multiline compactMultiline maxLength={2000} />
+                        <TextField label={t('places.editor.language.translatedName')} value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder={t('places.editor.language.translatedNamePlaceholder')} maxLength={120} keyboardScrollRef={placeEditorScrollRef} />
+                        <TextField label={t('places.editor.language.translatedDescription')} value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder={t('places.editor.language.translatedDescriptionPlaceholder')} multiline compactMultiline maxLength={2000} keyboardScrollRef={placeEditorScrollRef} keyboardScrollOffset={40} />
                       </View>
                     ))}
 
@@ -5477,14 +5521,22 @@ const styles = StyleSheet.create({
   filterChip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
   filterChipText: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
   filterNotice: { borderRadius: 22, borderWidth: 1, padding: 12, flexDirection: 'row', gap: 11, alignItems: 'center' },
-  menuPanel: { borderRadius: 22, borderWidth: 1, overflow: 'hidden' },
-  feedMenuOverlay: { position: 'absolute', left: 0, right: 0, zIndex: 20, elevation: 12 },
+  planWorkspaceMenuScreen: { flex: 1, paddingHorizontal: 18 },
+  planWorkspaceMenuHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, paddingBottom: 12 },
+  planWorkspaceMenuHeaderCopy: { flex: 1, minWidth: 0, gap: 4 },
+  planWorkspaceMenuTitle: { fontSize: 28, fontWeight: '900', letterSpacing: -0.7 },
+  planWorkspaceMenuBody: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  planWorkspaceMenuClose: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  planWorkspaceMenuContent: { gap: 18, paddingBottom: 24 },
+  planWorkspaceMenuGroup: { gap: 9 },
+  planWorkspaceMenuGroupTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9, textTransform: 'uppercase', paddingHorizontal: 4 },
+  planWorkspaceMenuItems: { gap: 8 },
   createPlanMenuPanel: { marginBottom: 10, borderRadius: 22, borderWidth: 1, overflow: 'hidden' },
-  menuItem: { minHeight: 70, borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', gap: 11 },
-  menuIcon: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  menuCopy: { flex: 1, minWidth: 0, gap: 2 },
-  menuTitle: { fontSize: 16, fontWeight: '900' },
-  menuBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  menuItem: { minHeight: 72, borderRadius: 22, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  menuIcon: { width: 40, height: 40, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  menuCopy: { flex: 1, minWidth: 0, gap: 3 },
+  menuTitle: { fontSize: 15, lineHeight: 19, fontWeight: '900' },
+  menuBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
   listContent: { gap: 10, paddingBottom: 34 },
   planCreateBody: { overflow: 'hidden' },
   planCreateScrollContent: { paddingBottom: 18 },
@@ -5794,14 +5846,18 @@ const styles = StyleSheet.create({
   supportSection: { marginTop: 2 },
   planFilterScreen: { flex: 1, minHeight: 0 },
   planFilterScroll: { flex: 1 },
-  planFilterContent: { gap: 14, paddingBottom: 18 },
-  planFilterHero: { borderRadius: 24 },
+  planFilterContent: { gap: 14, paddingTop: 2, paddingBottom: 18 },
+  planFilterHero: { borderRadius: 22, padding: 14, gap: 8 },
+  planFilterHeroTitle: { fontSize: 21, lineHeight: 26, fontWeight: '900', letterSpacing: -0.35 },
+  planFilterHeroBody: { fontSize: 13, lineHeight: 18, fontWeight: '700' },
   planFilterSearchCard: { borderWidth: 1, borderRadius: 22, padding: 14, gap: 8 },
   planFilterSearchInputWrap: { minHeight: 48, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8 },
   planFilterSearchInput: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: '800', paddingVertical: Platform.OS === 'ios' ? 12 : 8 },
   planFilterSearchClear: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 },
   planFilterSearchClearText: { fontSize: 12, fontWeight: '900' },
-  planFilterGroup: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 14, gap: 12 },
+  planFilterGroup: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 14, gap: 11 },
+  planFilterGroupTitle: { fontSize: 19, lineHeight: 24, fontWeight: '900', letterSpacing: -0.25 },
+  planFilterGroupBody: { fontSize: 13, lineHeight: 18, fontWeight: '700' },
   planFilterOptionGrid: { gap: 8 },
   planFilterOption: { minHeight: 58, borderRadius: 18, borderWidth: 1, padding: 11, flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   planFilterCheck: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 1 },

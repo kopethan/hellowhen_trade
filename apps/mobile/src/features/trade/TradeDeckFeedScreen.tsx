@@ -1,16 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { ListTradesFeedQuery, TradeExchangeMode, TradePostType, TradeSearchKeywordSource, TradeSearchSuggestion } from '@hellowhen/contracts';
 import { formatLocalizedShortDate, type SupportedLanguage } from '@hellowhen/i18n';
 import { getNormalWorkspaceMenuItems, getTradeOwnerVisibilityState, isTradeOwnerCloseAllowed, isTradeOwnerRenewAllowed, type NormalWorkspaceMenuItem, type NormalWorkspaceMenuTone } from '@hellowhen/shared';
-import type { RootStackParamList } from '../../navigation/RootNavigator';
+import type { RootStackParamList, TradeFilterRouteParams } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { AppCard } from '../../components/AppCard';
+import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+import { AppHeader } from '../../components/AppHeader';
 import { AppConfirmSheet } from '../../components/AppConfirmSheet';
 import { type AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
 import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
@@ -105,11 +107,8 @@ export function TradeDeckFeedScreen() {
   const [activityModalVisible, setActivityModalVisible] = useState(false);
   const [wizardModalVisible, setWizardModalVisible] = useState(false);
   const [trades, setTrades] = useState<TradeDeckItem[]>([]);
+  const route = useRoute<RouteProp<{ TradeTab: TradeFilterRouteParams | undefined }, 'TradeTab'>>();
   const [query, setQuery] = useState('');
-  const [draftQuery, setDraftQuery] = useState('');
-  const [searchSuggestions, setSearchSuggestions] = useState<TradeSearchSuggestion[]>([]);
-  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const [toolsModal, setToolsModal] = useState<'filters' | null>(null);
   const [modeFilter, setModeFilter] = useState<ModeFilter>('all');
   const [postTypeFilter, setPostTypeFilter] = useState<PostTypeFilter>('all');
   const [category, setCategory] = useState('');
@@ -129,6 +128,7 @@ export function TradeDeckFeedScreen() {
   const feedFocusedRef = useRef(false);
   const immediateQueryLoadRef = useRef(false);
   const pendingSearchRecordRef = useRef<{ q: string; source: TradeSearchKeywordSource } | null>(null);
+  const appliedFilterRouteKeyRef = useRef<number | null>(null);
 
   const feedQuery = useMemo(() => buildFeedQuery(query, modeFilter, postTypeFilter, category, imagesOnly, moneyOnly, refreshSeed, seenTradeIds, language, auth.user?.profile?.countryCode), [auth.user?.profile?.countryCode, category, imagesOnly, language, modeFilter, moneyOnly, postTypeFilter, query, refreshSeed, seenTradeIds]);
   const activeFilterCount = useMemo(() => [feedQuery.q, feedQuery.mode, feedQuery.postType, feedQuery.category, feedQuery.hasImages, betaFeatures.moneyTradesEnabled ? feedQuery.hasMoney : undefined].filter(Boolean).length, [feedQuery]);
@@ -138,6 +138,25 @@ export function TradeDeckFeedScreen() {
     if (!canUseSearchSuggestions(normalized)) return;
     pendingSearchRecordRef.current = { q: normalized, source };
   }, []);
+
+  useEffect(() => {
+    const params = route.params;
+    if (!params?.applyKey || appliedFilterRouteKeyRef.current === params.applyKey) return;
+    appliedFilterRouteKeyRef.current = params.applyKey;
+
+    const nextQuery = normalizeSearchText(params.q ?? '');
+    if (params.searchSource) queueSearchKeywordRecord(nextQuery, params.searchSource);
+    else pendingSearchRecordRef.current = null;
+
+    setQuery(nextQuery);
+    setModeFilter(params.mode ?? 'all');
+    setPostTypeFilter(params.postType ?? 'all');
+    setCategory(params.category ?? '');
+    setImagesOnly(Boolean(params.hasImages));
+    setMoneyOnly(betaFeatures.moneyTradesEnabled && Boolean(params.hasMoney));
+    setSeenTradeIds([]);
+    setRefreshSeed(createFeedRefreshSeed());
+  }, [queueSearchKeywordRecord, route.params?.applyKey, route.params?.category, route.params?.hasImages, route.params?.hasMoney, route.params?.mode, route.params?.postType, route.params?.q, route.params?.searchSource]);
 
   const recordSearchKeyword = useCallback(async (pending: { q: string; source: TradeSearchKeywordSource }, resultCount: number) => {
     const normalized = normalizeSearchText(pending.q);
@@ -207,33 +226,6 @@ export function TradeDeckFeedScreen() {
     return () => clearTimeout(handle);
   }, [feedQuery, feedQueryKey, loadFeed]);
 
-  useEffect(() => {
-    const draft = normalizeSearchText(draftQuery);
-    if (toolsModal === null || !canUseSearchSuggestions(draft)) {
-      setSearchSuggestions([]);
-      setSuggestionsLoading(false);
-      return undefined;
-    }
-
-    let cancelled = false;
-    const handle = setTimeout(async () => {
-      setSuggestionsLoading(true);
-      try {
-        const response = await api.tradeSearch.suggestions({ q: draft, language, countryCode: auth.user?.profile?.countryCode ?? undefined, take: 8 }) as { suggestions?: TradeSearchSuggestion[] };
-        if (!cancelled) setSearchSuggestions(response.suggestions ?? []);
-      } catch {
-        if (!cancelled) setSearchSuggestions([]);
-      } finally {
-        if (!cancelled) setSuggestionsLoading(false);
-      }
-    }, 220);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(handle);
-    };
-  }, [auth.user?.profile?.countryCode, draftQuery, language, toolsModal]);
-
   const visibleTrades = useMemo(() => trades.filter((trade) => {
     if (imagesOnly && !hasApprovedImages(trade)) return false;
     if (betaFeatures.moneyTradesEnabled && moneyOnly && !hasWalletAmount(trade)) return false;
@@ -302,10 +294,8 @@ export function TradeDeckFeedScreen() {
     navigation.navigate('TradeIdeaDetail', { ideaId: ideaKey });
   }, [navigation]);
   const clearFilters = useCallback(() => {
-    setQuery('');
-    setDraftQuery('');
-    setSearchSuggestions([]);
     pendingSearchRecordRef.current = null;
+    setQuery('');
     setModeFilter('all');
     setPostTypeFilter('all');
     setCategory('');
@@ -313,27 +303,8 @@ export function TradeDeckFeedScreen() {
     setMoneyOnly(false);
     setSeenTradeIds([]);
     setRefreshSeed(createFeedRefreshSeed());
-  }, []);
-
-  const applyDiscoveryTools = useCallback((source?: TradeSearchKeywordSource) => {
-    const normalized = normalizeSearchText(draftQuery);
-    if (source) queueSearchKeywordRecord(normalized, source);
-    setQuery(normalized);
-    setDraftQuery(normalized);
-    setSeenTradeIds([]);
-    setRefreshSeed(createFeedRefreshSeed());
-    setToolsModal(null);
-  }, [draftQuery, queueSearchKeywordRecord]);
-
-  const applySuggestionSearch = useCallback((suggestionQuery: string) => {
-    const normalized = normalizeSearchText(suggestionQuery);
-    setDraftQuery(normalized);
-    queueSearchKeywordRecord(normalized, 'suggestion_clicked');
-    setQuery(normalized);
-    setSeenTradeIds([]);
-    setRefreshSeed(createFeedRefreshSeed());
-    setToolsModal(null);
-  }, [queueSearchKeywordRecord]);
+    navigation.navigate('TradeTabs', { screen: 'TradeTab', params: { applyKey: Date.now() } });
+  }, [navigation]);
 
   const hasTrades = trades.length > 0;
   const hasFilters = activeFilterCount > 0;
@@ -383,8 +354,8 @@ export function TradeDeckFeedScreen() {
       <View style={styles.headerRow}>
         <AppText style={styles.title}>{t('navigation.tabs.trade')}</AppText>
         <View style={styles.headerActions}>
-          <Pressable accessibilityRole="button" accessibilityLabel={t('trade.filters.searchAndFilters')} onPress={() => { setDraftQuery(query); setToolsModal('filters'); }} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (toolsModal === 'filters' || hasFilters) && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
-            <MobileIcon name="filter" size={18} color={(toolsModal === 'filters' || hasFilters) ? theme.semantic.info.text : theme.color.text} />
+          <Pressable accessibilityRole="button" accessibilityLabel={t('trade.filters.searchAndFilters')} onPress={() => navigation.navigate('TradeFilters', { q: query || undefined, mode: modeFilter === 'all' ? undefined : modeFilter, postType: postTypeFilter === 'all' ? undefined : postTypeFilter, category: category.trim() || undefined, hasImages: imagesOnly || undefined, hasMoney: betaFeatures.moneyTradesEnabled ? (moneyOnly || undefined) : undefined })} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, hasFilters && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
+            <MobileIcon name="filter" size={18} color={hasFilters ? theme.semantic.info.text : theme.color.text} />
             {hasFilters ? <View style={styles.filterDot}><AppText style={styles.filterDotText}>{activeFilterCount}</AppText></View> : null}
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel={t('trade.wizard.open')} onPress={() => setWizardModalVisible(true)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, wizardModalVisible && { backgroundColor: theme.semantic.instruction.softBg, borderColor: theme.semantic.instruction.border }, pressed && styles.pressed]}>
@@ -434,31 +405,6 @@ export function TradeDeckFeedScreen() {
             onOpenTrade={(trade) => { setActivityModalVisible(false); openTrade(trade); }}
             onOpenProposals={(trade) => { setActivityModalVisible(false); navigation.navigate('TradePrivateProposals', { tradeId: trade.id, title: getMineTradeTitle(trade), status: trade.status }); }}
             onOpenProposal={(proposalId) => { setActivityModalVisible(false); navigation.navigate('ProposalDetail', { proposalId }); }}
-          />
-          <TradeDiscoveryToolsModal
-            visible={toolsModal !== null}
-            initialFocus={toolsModal ?? 'filters'}
-            query={draftQuery}
-            modeFilter={modeFilter}
-            postTypeFilter={postTypeFilter}
-            category={category}
-            imagesOnly={imagesOnly}
-            moneyOnly={moneyOnly}
-            hasFilters={hasFilters}
-            activeFilterCount={activeFilterCount}
-            suggestions={searchSuggestions}
-            suggestionsLoading={suggestionsLoading}
-            onChangeQuery={setDraftQuery}
-            onSelectSuggestion={applySuggestionSearch}
-            onChangeMode={setModeFilter}
-            onChangePostType={setPostTypeFilter}
-            onChangeCategory={setCategory}
-            onToggleImagesOnly={() => setImagesOnly((current) => !current)}
-            onToggleMoneyOnly={() => setMoneyOnly((current) => !current)}
-            onClear={clearFilters}
-            onApply={() => applyDiscoveryTools('submitted')}
-            onSubmitSearch={() => applyDiscoveryTools('submitted')}
-            onClose={() => setToolsModal(null)}
           />
         </>
       )}
@@ -743,149 +689,187 @@ function TradeActivityModal({ activeTab, visible, onChangeTab, onClose, onCreate
 }
 
 
-type TradeDiscoveryToolsModalProps = {
-  visible: boolean;
-  initialFocus: 'search' | 'filters';
-  query: string;
-  modeFilter: ModeFilter;
-  postTypeFilter: PostTypeFilter;
-  category: string;
-  imagesOnly: boolean;
-  moneyOnly: boolean;
-  hasFilters: boolean;
-  activeFilterCount: number;
-  suggestions: TradeSearchSuggestion[];
-  suggestionsLoading: boolean;
-  onChangeQuery: (value: string) => void;
-  onSelectSuggestion: (value: string) => void;
-  onChangeMode: (value: ModeFilter) => void;
-  onChangePostType: (value: PostTypeFilter) => void;
-  onChangeCategory: (value: string) => void;
-  onToggleImagesOnly: () => void;
-  onToggleMoneyOnly: () => void;
-  onClear: () => void;
-  onApply: () => void;
-  onSubmitSearch: () => void;
-  onClose: () => void;
-};
-
-function TradeDiscoveryToolsModal({ visible, initialFocus, query, modeFilter, postTypeFilter, category, imagesOnly, moneyOnly, hasFilters, activeFilterCount, suggestions, suggestionsLoading, onChangeQuery, onSelectSuggestion, onChangeMode, onChangePostType, onChangeCategory, onToggleImagesOnly, onToggleMoneyOnly, onClear, onApply, onSubmitSearch, onClose }: TradeDiscoveryToolsModalProps) {
+export function TradeFiltersScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'TradeFilters'>>();
+  const auth = useAuth();
   const theme = useThemeTokens();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const isWideLayout = width >= 720;
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const incoming = route.params;
+  const [query, setQuery] = useState(() => normalizeSearchText(incoming?.q ?? ''));
+  const [modeFilter, setModeFilter] = useState<ModeFilter>(incoming?.mode ?? 'all');
+  const [postTypeFilter, setPostTypeFilter] = useState<PostTypeFilter>(incoming?.postType ?? 'all');
+  const [category, setCategory] = useState(incoming?.category ?? '');
+  const [imagesOnly, setImagesOnly] = useState(Boolean(incoming?.hasImages));
+  const [moneyOnly, setMoneyOnly] = useState(betaFeatures.moneyTradesEnabled && Boolean(incoming?.hasMoney));
+  const [suggestions, setSuggestions] = useState<TradeSearchSuggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+
+  const normalizedQuery = normalizeSearchText(query);
+  const activeFilterCount = [
+    normalizedQuery || undefined,
+    modeFilter === 'all' ? undefined : modeFilter,
+    postTypeFilter === 'all' ? undefined : postTypeFilter,
+    category.trim() || undefined,
+    imagesOnly || undefined,
+    betaFeatures.moneyTradesEnabled ? (moneyOnly || undefined) : undefined,
+  ].filter(Boolean).length;
+
+  useEffect(() => {
+    if (!canUseSearchSuggestions(normalizedQuery)) {
+      setSuggestions([]);
+      setSuggestionsLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const handle = setTimeout(async () => {
+      setSuggestionsLoading(true);
+      try {
+        const response = await api.tradeSearch.suggestions({ q: normalizedQuery, language, countryCode: auth.user?.profile?.countryCode ?? undefined, take: 8 }) as { suggestions?: TradeSearchSuggestion[] };
+        if (!cancelled) setSuggestions(response.suggestions ?? []);
+      } catch {
+        if (!cancelled) setSuggestions([]);
+      } finally {
+        if (!cancelled) setSuggestionsLoading(false);
+      }
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [auth.user?.profile?.countryCode, language, normalizedQuery]);
+
+  function reset() {
+    setQuery('');
+    setModeFilter('all');
+    setPostTypeFilter('all');
+    setCategory('');
+    setImagesOnly(false);
+    setMoneyOnly(false);
+    setSuggestions([]);
+  }
+
+  function apply(source: TradeSearchKeywordSource = 'submitted', queryOverride?: string) {
+    const nextQuery = normalizeSearchText(queryOverride ?? query);
+    navigation.navigate('TradeTabs', {
+      screen: 'TradeTab',
+      params: {
+        q: nextQuery || undefined,
+        mode: modeFilter === 'all' ? undefined : modeFilter,
+        postType: postTypeFilter === 'all' ? undefined : postTypeFilter,
+        category: category.trim() || undefined,
+        hasImages: imagesOnly || undefined,
+        hasMoney: betaFeatures.moneyTradesEnabled ? (moneyOnly || undefined) : undefined,
+        applyKey: Date.now(),
+        searchSource: canUseSearchSuggestions(nextQuery) ? source : undefined,
+      },
+    });
+  }
+
+  function selectSuggestion(value: string) {
+    const normalized = normalizeSearchText(value);
+    setQuery(normalized);
+    apply('suggestion_clicked', normalized);
+  }
 
   return (
-    <Modal visible={visible} animationType={isWideLayout ? "fade" : "slide"} onRequestClose={onClose} presentationStyle={isWideLayout ? "overFullScreen" : "fullScreen"} transparent={isWideLayout}>
-      <KeyboardAvoidingView style={[styles.toolsKeyboardRoot, { backgroundColor: isWideLayout ? 'transparent' : theme.color.background }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={isWideLayout ? styles.modalDesktopBackdrop : styles.modalPlainRoot}>
-          <View style={[styles.toolsModalScreen, { backgroundColor: theme.color.background, paddingTop: isWideLayout ? 18 : insets.top + 18, paddingBottom: isWideLayout ? 18 : Math.max(insets.bottom, 10) }, isWideLayout && [styles.toolsModalSheet, { borderColor: theme.color.border }]]}>
-            <View style={styles.toolsHeaderRow}>
-            <View style={styles.toolsTitleWrap}>
-              <AppText style={styles.toolsTitle}>{t('trade.filters.controls')}</AppText>
-              <AppText style={[styles.toolsSubtitle, { color: theme.color.muted }]}>{hasFilters ? `${activeFilterCount} · ${t('trade.filters.filters')}` : t('trade.filters.searchTrades')}</AppText>
+    <AppFixedHeaderScreen header={<AppHeader title={t('trade.filters.filters')} onBack={() => navigation.goBack()} />}>
+      <KeyboardAvoidingView style={styles.tradeFilterScreen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView contentContainerStyle={styles.tradeFilterPageContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <View style={[styles.toolsSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }] }>
+            <View style={styles.toolsSectionHeader}>
+              <MobileIcon name="search" size={18} color={theme.color.text} />
+              <AppText style={styles.filterTitle}>{t('trade.filters.searchTrades')}</AppText>
             </View>
-            <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.close')} onPress={onClose} style={({ pressed }) => [styles.toolsCloseButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-              <MobileIcon name="close" size={18} color={theme.color.text} />
-            </Pressable>
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder={t('trade.filters.searchPlaceholder')}
+              placeholderTextColor={theme.color.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+              onSubmitEditing={() => apply('submitted')}
+              style={[styles.searchInput, { backgroundColor: theme.color.background, borderColor: theme.color.border, color: theme.color.text }]}
+            />
+            <TradeSearchSuggestionList query={query} suggestions={suggestions} loading={suggestionsLoading} onSelect={selectSuggestion} />
           </View>
 
-          <ScrollView contentContainerStyle={styles.toolsContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            <View style={[styles.toolsSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }] }>
-              <View style={styles.toolsSectionHeader}>
-                <MobileIcon name="search" size={18} color={theme.color.text} />
-                <AppText style={styles.filterTitle}>{t('trade.filters.searchTrades')}</AppText>
-              </View>
-              <TextInput
-                value={query}
-                onChangeText={onChangeQuery}
-                placeholder={t('trade.filters.searchPlaceholder')}
-                placeholderTextColor={theme.color.muted}
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoFocus={initialFocus === 'search'}
-                returnKeyType="search"
-                onSubmitEditing={onSubmitSearch}
-                style={[styles.searchInput, { backgroundColor: theme.color.background, borderColor: theme.color.border, color: theme.color.text }]}
-              />
-              <TradeSearchSuggestionList query={query} suggestions={suggestions} loading={suggestionsLoading} onSelect={onSelectSuggestion} />
+          <View style={[styles.toolsSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }] }>
+            <View style={styles.toolsSectionHeader}>
+              <MobileIcon name="filter" size={18} color={theme.color.text} />
+              <AppText style={styles.filterTitle}>{t('trade.filters.filters')}</AppText>
             </View>
 
-            <View style={[styles.toolsSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }] }>
-              <View style={styles.toolsSectionHeader}>
-                <MobileIcon name="filter" size={18} color={theme.color.text} />
-                <AppText style={styles.filterTitle}>{t('trade.filters.filters')}</AppText>
-              </View>
-
-              <View style={styles.filterPanel}>
-                <View style={styles.filterGroup}>
-                  <AppText style={[styles.filterLabel, { color: theme.color.muted }]}>{t('trade.filters.mode')}</AppText>
-                  <View style={styles.chipRow}>
-                    {modeOptions.map((option) => {
-                      const selected = modeFilter === option.value;
-                      return (
-                        <Pressable key={option.value} onPress={() => onChangeMode(option.value)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
-                          <AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{t(option.labelKey)}</AppText>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                <View style={styles.filterGroup}>
-                  <AppText style={[styles.filterLabel, { color: theme.color.muted }]}>{t('trade.filters.postType')}</AppText>
-                  <View style={styles.chipRow}>
-                    {postTypeOptions.map((option) => {
-                      const selected = postTypeFilter === option.value;
-                      return (
-                        <Pressable key={option.value} onPress={() => onChangePostType(option.value)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
-                          <AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{t(option.labelKey)}</AppText>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                <View style={styles.filterGroup}>
-                  <AppText style={[styles.filterLabel, { color: theme.color.muted }]}>{t('trade.filters.category')}</AppText>
-                  <TextInput
-                    value={category}
-                    onChangeText={onChangeCategory}
-                    placeholder={t('inventory.form.categoryNeedPlaceholder')}
-                    placeholderTextColor={theme.color.muted}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={[styles.categoryInput, { backgroundColor: theme.color.background, borderColor: theme.color.border, color: theme.color.text }]}
-                  />
-                </View>
-
+            <View style={styles.filterPanel}>
+              <View style={styles.filterGroup}>
+                <AppText style={[styles.filterLabel, { color: theme.color.muted }]}>{t('trade.filters.mode')}</AppText>
                 <View style={styles.chipRow}>
-                  <Pressable onPress={onToggleImagesOnly} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, imagesOnly && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
-                    <AppText style={[styles.filterChipText, { color: imagesOnly ? theme.color.background : theme.color.muted }]}>{t('trade.filters.hasImages')}</AppText>
-                  </Pressable>
-                  {betaFeatures.moneyTradesEnabled ? (
-                    <Pressable onPress={onToggleMoneyOnly} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, moneyOnly && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
-                      <AppText style={[styles.filterChipText, { color: moneyOnly ? theme.color.background : theme.color.muted }]}>{t('trade.filters.walletAmount')}</AppText>
-                    </Pressable>
-                  ) : null}
+                  {modeOptions.map((option) => {
+                    const selected = modeFilter === option.value;
+                    return (
+                      <Pressable key={option.value} onPress={() => setModeFilter(option.value)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
+                        <AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{t(option.labelKey)}</AppText>
+                      </Pressable>
+                    );
+                  })}
                 </View>
               </View>
-            </View>
-          </ScrollView>
 
-            <View style={[styles.toolsBottomBar, { borderTopColor: theme.color.border }] }>
-              <Pressable accessibilityRole="button" onPress={onClear} style={({ pressed }) => [styles.toolsSecondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-                <AppText style={[styles.toolsSecondaryButtonText, { color: theme.color.text }]}>{hasFilters ? t('trade.filters.clearFilters') : t('trade.filters.reset')}</AppText>
-              </Pressable>
-              <Pressable accessibilityRole="button" onPress={onApply} style={({ pressed }) => [styles.toolsPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
-                <AppText style={[styles.toolsPrimaryButtonText, { color: theme.color.background }]}>{t('trade.filters.apply')}</AppText>
-              </Pressable>
+              <View style={styles.filterGroup}>
+                <AppText style={[styles.filterLabel, { color: theme.color.muted }]}>{t('trade.filters.postType')}</AppText>
+                <View style={styles.chipRow}>
+                  {postTypeOptions.map((option) => {
+                    const selected = postTypeFilter === option.value;
+                    return (
+                      <Pressable key={option.value} onPress={() => setPostTypeFilter(option.value)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
+                        <AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{t(option.labelKey)}</AppText>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <View style={styles.filterGroup}>
+                <AppText style={[styles.filterLabel, { color: theme.color.muted }]}>{t('trade.filters.category')}</AppText>
+                <TextInput
+                  value={category}
+                  onChangeText={setCategory}
+                  placeholder={t('inventory.form.categoryNeedPlaceholder')}
+                  placeholderTextColor={theme.color.muted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={[styles.categoryInput, { backgroundColor: theme.color.background, borderColor: theme.color.border, color: theme.color.text }]}
+                />
+              </View>
+
+              <View style={styles.chipRow}>
+                <Pressable onPress={() => setImagesOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, imagesOnly && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
+                  <AppText style={[styles.filterChipText, { color: imagesOnly ? theme.color.background : theme.color.muted }]}>{t('trade.filters.hasImages')}</AppText>
+                </Pressable>
+                {betaFeatures.moneyTradesEnabled ? (
+                  <Pressable onPress={() => setMoneyOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, moneyOnly && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
+                    <AppText style={[styles.filterChipText, { color: moneyOnly ? theme.color.background : theme.color.muted }]}>{t('trade.filters.walletAmount')}</AppText>
+                  </Pressable>
+                ) : null}
+              </View>
             </View>
           </View>
+        </ScrollView>
+
+        <View style={[styles.toolsBottomBar, { backgroundColor: theme.color.background, borderTopColor: theme.color.border, paddingBottom: Math.max(10, insets.bottom + 8) }] }>
+          <Pressable accessibilityRole="button" disabled={activeFilterCount === 0} onPress={reset} style={({ pressed }) => [styles.toolsSecondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border, opacity: activeFilterCount === 0 ? 0.5 : 1 }, pressed && activeFilterCount > 0 && styles.pressed]}>
+            <AppText style={[styles.toolsSecondaryButtonText, { color: theme.color.text }]}>{t('trade.filters.reset')}</AppText>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => apply('submitted')} style={({ pressed }) => [styles.toolsPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+            <AppText style={[styles.toolsPrimaryButtonText, { color: theme.color.background }]}>{t('trade.filters.apply')}</AppText>
+          </Pressable>
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+    </AppFixedHeaderScreen>
   );
 }
 
@@ -1413,6 +1397,8 @@ const styles = StyleSheet.create({
   emptySecondaryButton: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12 },
   emptySecondaryButtonText: { fontWeight: '900' },
   toolsKeyboardRoot: { flex: 1 },
+  tradeFilterScreen: { flex: 1 },
+  tradeFilterPageContent: { gap: 14, paddingTop: 14, paddingBottom: 24 },
   toolsModalScreen: { flex: 1, paddingHorizontal: 18 },
   toolsModalSheet: { width: '100%', maxWidth: 560, maxHeight: '88%', borderRadius: 32, borderWidth: 1, paddingHorizontal: 18 },
   toolsHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14, paddingBottom: 16 },
@@ -1421,12 +1407,12 @@ const styles = StyleSheet.create({
   toolsSubtitle: { fontSize: 13, fontWeight: '800' },
   toolsCloseButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   toolsContent: { gap: 14, paddingBottom: 18 },
-  toolsSection: { borderRadius: 24, borderWidth: 1, padding: 14, gap: 12 },
+  toolsSection: { borderRadius: 22, borderWidth: 1, padding: 14, gap: 11 },
   toolsSectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  toolsBottomBar: { borderTopWidth: 1, flexDirection: 'row', gap: 10, paddingTop: 12 },
+  toolsBottomBar: { borderTopWidth: 1, flexDirection: 'row', alignItems: 'stretch', gap: 10, paddingTop: 10 },
   toolsPrimaryButton: { flex: 1, minHeight: 50, borderRadius: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 13 },
   toolsPrimaryButtonText: { fontSize: 15, fontWeight: '900' },
-  toolsSecondaryButton: { flex: 1, minHeight: 50, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 13 },
+  toolsSecondaryButton: { minWidth: 104, minHeight: 50, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 13 },
   toolsSecondaryButtonText: { fontSize: 15, fontWeight: '900' },
   pressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
 });

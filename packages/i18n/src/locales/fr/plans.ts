@@ -89,7 +89,7 @@ export const plans = {
     reviewBeforePublishing: 'À vérifier avant publication',
   },
   filters: {
-    title: 'Filtres des Plans',
+    title: 'Filtres',
     heroTitle: 'Trouvez le bon Plan',
     heroBody: 'Les mots recherchés et les filtres restent associés au fil afin de mieux comprendre ensuite ce que les personnes recherchent.',
     searchLabel: 'Rechercher',
@@ -648,6 +648,7 @@ export const plans = {
     },
   },
   workspace: {
+    menu: { title: 'Menu Plans', body: 'Retrouvez vos Plans, vos lieux et vos idées de départ au même endroit.', group: 'Espace Plans' },
     myPlans: { title: 'Mes Plans', body: 'Les Plans que vous avez créés.' },
     joinedPlans: { title: 'Plans rejoints', body: 'Les Plans que vous avez rejoints librement.' },
     myPlaces: { title: 'Mes lieux', body: 'Vos lieux réutilisables sur place ou en ligne.' },

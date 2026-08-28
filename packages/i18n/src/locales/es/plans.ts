@@ -88,7 +88,7 @@ export const plans = {
     reviewBeforePublishing: 'Revisar antes de publicar',
   },
   filters: {
-    title: 'Filtros de Planes',
+    title: 'Filtros',
     heroTitle: 'Encuentra el Plan adecuado',
     heroBody: 'Las palabras de búsqueda y los filtros permanecen vinculados al feed para aprender después qué busca la gente.',
     searchLabel: 'Buscar',
@@ -646,6 +646,7 @@ export const plans = {
     },
   },
   workspace: {
+    menu: { title: 'Menú de Planes', body: 'Todo lo relacionado con tus Planes, lugares e ideas iniciales.', group: 'Espacio de Planes' },
     myPlans: { title: 'Mis Planes', body: 'Los Planes que has creado.' },
     joinedPlans: { title: 'Planes unidos', body: 'Los Planes a los que te has unido libremente.' },
     myPlaces: { title: 'Mis lugares', body: 'Lugares reutilizables presenciales o en línea.' },

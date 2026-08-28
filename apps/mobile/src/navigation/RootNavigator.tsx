@@ -5,7 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { PlaceDto, TradePostType } from '@hellowhen/contracts';
+import type { PlaceDto, TradeExchangeMode, TradePostType, TradeSearchKeywordSource } from '@hellowhen/contracts';
 import { AccountMenuScreen, AccountScreen } from '../features/account/AccountScreen';
 import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen';
 import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
@@ -44,7 +44,7 @@ import { OfferDetailScreen } from '../features/trade/OfferDetailScreen';
 import { ProposalDetailScreen } from '../features/trade/ProposalDetailScreen';
 import { TradePrivateProposalsScreen } from '../features/trade/TradePrivateProposalsScreen';
 import { TradePublicDiscussionScreen } from '../features/trade/TradePublicDiscussionScreen';
-import { TradeDeckFeedScreen } from '../features/trade/TradeDeckFeedScreen';
+import { TradeDeckFeedScreen, TradeFiltersScreen } from '../features/trade/TradeDeckFeedScreen';
 import { TradeDetailScreen } from '../features/trade/TradeDetailScreen';
 import { TradeIdeaDetailScreen } from '../features/trade/TradeIdeaDetailScreen';
 import { CreatePlaceScreen, CreatePlanScreen, JoinedPlansScreen, MyPlacesScreen, MyPlansScreen, PlaceLibraryScreen, PlanDetailScreen, PlanFiltersScreen, PlanIdeaDetailScreen, PlansScreen } from '../features/plans/PlansScreens';
@@ -68,10 +68,20 @@ type InventoryCreateReturnTarget = 'createTrade' | 'createTradeFull' | 'tradePro
 type InventoryCreateParams = { returnTo?: InventoryCreateReturnTarget; tradeId?: string; tradeTitle?: string; proposalId?: string; proposalNeedId?: string; proposalOfferId?: string; initialTemplateKey?: string; initialIdeaKey?: FeedTradeIdeaKey | null; initialPostType?: TradePostType | null; initialNeedSelection?: TradeCreateSideSelection | null; initialOfferSelection?: TradeCreateSideSelection | null; initialExpiryDays?: number | null } | undefined;
 
 export type PlanTabRouteParams = { filters?: string[]; q?: string; focusIdeas?: number };
+export type TradeFilterRouteParams = {
+  q?: string;
+  mode?: TradeExchangeMode;
+  postType?: TradePostType;
+  category?: string;
+  hasImages?: boolean;
+  hasMoney?: boolean;
+  applyKey?: number;
+  searchSource?: TradeSearchKeywordSource;
+};
 export type MainTabParamList = {
   PlanTab: PlanTabRouteParams | undefined;
   MeTab: undefined;
-  TradeTab: undefined;
+  TradeTab: TradeFilterRouteParams | undefined;
 };
 
 export type RootStackParamList = {
@@ -84,6 +94,7 @@ export type RootStackParamList = {
   SavedLibrary: undefined;
   Agenda: undefined;
   PlanFilters: PlanTabRouteParams | undefined;
+  TradeFilters: TradeFilterRouteParams | undefined;
   PlanDetail: { planId: string; title?: string };
   PlanIdeaDetail: { ideaId: string };
   PlanPublicDiscussion: { planId: string; title?: string };
@@ -310,6 +321,7 @@ export function RootNavigator() {
     <Stack.Navigator initialRouteName="TradeTabs" screenOptions={{ headerShown: false }}>
       <Stack.Screen name="TradeTabs" component={TradeTabs} />
       <Stack.Screen name="TradeDetail" component={TradeDetailScreen} />
+      <Stack.Screen name="TradeFilters" component={TradeFiltersScreen} />
       <Stack.Screen name="MyNeeds" component={ProtectedMyNeedsScreen} />
       <Stack.Screen name="MyOffers" component={ProtectedMyOffersScreen} />
       <Stack.Screen name="TradeIdeaDetail" component={TradeIdeaDetailScreen} />
