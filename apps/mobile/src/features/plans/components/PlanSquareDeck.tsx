@@ -14,7 +14,6 @@ import { resolveMediaVariantUrl } from '../../trade/mediaUrls';
 
 const MOBILE_PLAN_DECK_AVAILABLE_HEIGHT = 404;
 const MOBILE_PLAN_DECK_MAX_CARD_SIZE = 348;
-const FALLBACK_ACCENTS = ['#7C3AED', '#A855F7', '#C084FC', '#F97316'];
 type PlanPlaceDeckCard = SquareStackDeckCard & {
   kind: 'place' | 'emptyPlace';
   plan: PlanDto;
@@ -73,11 +72,10 @@ function hashString(value: string) {
 
 function fallbackModel(id: string) {
   const hash = hashString(id);
-  const accent = FALLBACK_ACCENTS[hash % FALLBACK_ACCENTS.length] ?? '#7C3AED';
   const lineOffset = hash % 37;
   const dotOffsetX = ((hash % 29) - 14) * 0.5;
   const dotOffsetY = (((hash >> 4) % 23) - 11) * 0.5;
-  return { accent, lineOffset, dotOffsetX, dotOffsetY };
+  return { lineOffset, dotOffsetX, dotOffsetY };
 }
 
 function buildPlanPlaceDeckCards(plan: PlanDto): PlanPlaceDeckCard[] {
@@ -122,7 +120,7 @@ function getPlanParticipantCount(plan: PlanDto) {
   return plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
 }
 
-function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'instruction', showModeBadge = true }: { card: PlanPlaceDeckCard; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
+function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'place', showModeBadge = true }: { card: PlanPlaceDeckCard; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
   const theme = useThemeTokens();
   const { language, t } = useTranslation();
   const isDark = theme.mode === 'dark';
@@ -145,11 +143,11 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
   const posterTextShadow = hasPosterImage ? 'rgba(0,0,0,0.34)' : isDark ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.48)';
   const posterTitleColor = hasPosterImage ? '#FFFFFF' : theme.color.text;
   const posterMutedColor = hasPosterImage ? 'rgba(255,255,255,0.86)' : theme.color.muted;
-  const posterSubtleColor = hasPosterImage ? 'rgba(255,255,255,0.74)' : theme.color.muted;
+  const posterPlanColor = hasPosterImage ? 'rgba(255,255,255,0.74)' : theme.semantic.plan.text;
   const posterPillBg = hasPosterImage ? 'rgba(10,15,22,0.24)' : undefined;
   const posterPillBorder = hasPosterImage ? 'rgba(255,255,255,0.08)' : undefined;
   const posterPillText = hasPosterImage ? 'rgba(255,255,255,0.9)' : undefined;
-  const fallbackSurface = isDark ? '#241833' : '#F2E9FF';
+  const fallbackSurface = theme.semantic.place.softBg;
 
   return (
     <Pressable
@@ -176,18 +174,19 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
                 {
                   top: 24 + index * 31,
                   left: `${8 + ((fallback.lineOffset + index * 13) % 40)}%`,
-                  backgroundColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.055)' : 'rgba(92,33,182,0.055)',
+                  backgroundColor: theme.semantic.place.border,
+                  opacity: isDark ? 0.18 : 0.22,
                 },
               ]}
             />
           ))}
-          <View style={[styles.fallbackRouteLine, { backgroundColor: theme.mode === 'dark' ? 'rgba(251,146,60,0.16)' : 'rgba(249,115,22,0.12)' }]} />
+          <View style={[styles.fallbackRouteLine, { backgroundColor: theme.semantic.plan.border, opacity: isDark ? 0.34 : 0.28 }]} />
           <View
             style={[
               styles.fallbackDot,
               {
-                backgroundColor: fallback.accent,
-                borderColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.5)',
+                backgroundColor: theme.semantic.place.bg,
+                borderColor: theme.semantic.place.onBg,
                 transform: [{ translateX: fallback.dotOffsetX }, { translateY: fallback.dotOffsetY }],
               },
             ]}
@@ -219,7 +218,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
         surfaceStyle={styles.posterCardFooterSurface}
         contentStyle={styles.posterCardFooterContent}
       >
-        <AppText style={[styles.planTitle, { color: posterSubtleColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{card.plan.title}</AppText>
+        <AppText style={[styles.planTitle, { color: posterPlanColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{card.plan.title}</AppText>
         <AppText style={[styles.placeTitle, { color: posterTitleColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{placeTitle}</AppText>
         {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{t('plans.deck.addFirstStop')}</AppText> : null}
         {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{locationLabel}</AppText> : null}

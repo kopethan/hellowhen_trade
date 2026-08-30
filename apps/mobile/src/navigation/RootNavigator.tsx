@@ -235,7 +235,9 @@ function getTabBadge(count: number) {
   return count > 0 ? Math.min(count, 99) : undefined;
 }
 
-function getNormalTabActiveTintColor(_routeName: keyof MainTabParamList, theme: ThemeTokens) {
+function getNormalTabActiveTintColor(routeName: keyof MainTabParamList, theme: ThemeTokens) {
+  if (routeName === 'PlanTab') return theme.semantic.plan.bg;
+  if (routeName === 'TradeTab') return theme.semantic.trade.bg;
   return theme.color.text;
 }
 

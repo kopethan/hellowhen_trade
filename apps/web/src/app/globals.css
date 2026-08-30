@@ -3085,7 +3085,10 @@ html[data-theme="dark"] .inventory-empty-state__plus {
 .plans-workspace-menu__icon--trade { background: var(--trade-bg); border-color: var(--trade-border); color: var(--trade-text); }
 .plans-workspace-menu__icon--need { background: var(--need-bg); border-color: var(--need-border); color: var(--need-text); }
 .plans-workspace-menu__icon--offer { background: var(--offer-bg); border-color: var(--offer-border); color: var(--offer-text); }
+.plans-workspace-menu__icon--place { background: var(--place-bg); border-color: var(--place-border); color: var(--place-text); }
+.plans-workspace-menu__icon--proposal { background: var(--proposal-bg); border-color: var(--proposal-border); color: var(--proposal-text); }
 .plans-workspace-menu__icon--info { background: var(--info-bg); border-color: var(--info-border); color: var(--info-text); }
+.plans-workspace-menu__icon--muted { background: var(--app-surface-soft); border-color: var(--app-border); color: var(--app-text-muted); }
 .normal-workspace-menu { width: min(var(--web-app-page-toolbar-max, 880px), 100%); margin-right: auto; margin-left: auto; }
 .normal-workspace-menu .plans-workspace-menu__item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; min-height: 66px; border: 0; border-radius: 16px; background: transparent; color: var(--app-text-muted); font: inherit; text-align: left; text-decoration: none; padding: 10px; cursor: pointer; }
 .normal-workspace-menu .plans-workspace-menu__item > span:not(.plans-workspace-menu__icon) { display: grid; gap: 2px; min-width: 0; }

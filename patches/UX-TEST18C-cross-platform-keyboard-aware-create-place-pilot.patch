@@ -1,0 +1,202 @@
+diff --git a/apps/mobile/package.json b/apps/mobile/package.json
+index 77de042..8a2ab84 100644
+--- a/apps/mobile/package.json
++++ b/apps/mobile/package.json
+@@ -40,6 +40,7 @@
+     "react": "19.1.0",
+     "react-native": "0.81.5",
+     "react-native-gesture-handler": "~2.28.0",
++    "react-native-keyboard-controller": "1.18.5",
+     "react-native-reanimated": "~3.19.2",
+     "react-native-safe-area-context": "~5.6.0",
+     "react-native-screens": "~4.16.0",
+diff --git a/apps/mobile/src/App.tsx b/apps/mobile/src/App.tsx
+index edf656f..afcaa34 100644
+--- a/apps/mobile/src/App.tsx
++++ b/apps/mobile/src/App.tsx
+@@ -2,6 +2,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
+ import { SafeAreaProvider } from 'react-native-safe-area-context';
+ import { NavigationContainer } from '@react-navigation/native';
+ import { StatusBar } from 'expo-status-bar';
++import { KeyboardProvider } from 'react-native-keyboard-controller';
+ import { AppSettingsProvider } from './providers/AppSettingsProvider';
+ import { AuthProvider } from './providers/AuthProvider';
+ import { ThemeProvider } from './providers/ThemeProvider';
+@@ -12,18 +13,20 @@ export default function App() {
+   return (
+     <GestureHandlerRootView style={{ flex: 1 }}>
+       <SafeAreaProvider>
+-        <AppSettingsProvider>
+-          <MobileI18nProvider>
+-            <ThemeProvider>
+-              <AuthProvider>
+-                <NavigationContainer>
+-                  <StatusBar style="auto" />
+-                  <RootNavigator />
+-                </NavigationContainer>
+-              </AuthProvider>
+-            </ThemeProvider>
+-          </MobileI18nProvider>
+-        </AppSettingsProvider>
++        <KeyboardProvider statusBarTranslucent navigationBarTranslucent preserveEdgeToEdge preload={false}>
++          <AppSettingsProvider>
++            <MobileI18nProvider>
++              <ThemeProvider>
++                <AuthProvider>
++                  <NavigationContainer>
++                    <StatusBar style="auto" />
++                    <RootNavigator />
++                  </NavigationContainer>
++                </AuthProvider>
++              </ThemeProvider>
++            </MobileI18nProvider>
++          </AppSettingsProvider>
++        </KeyboardProvider>
+       </SafeAreaProvider>
+     </GestureHandlerRootView>
+   );
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index e7572e5..c7462b4 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -4,6 +4,7 @@ import DateTimePicker, { type DateTimePickerEvent } from '@react-native-communit
+ import * as Location from 'expo-location';
+ import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle, type LayoutChangeEvent } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
++import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+ import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
+@@ -5114,13 +5115,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+   const [message, setMessage] = useState<string | null>(null);
+   const postSaveNavigationRef = useRef<(() => void) | null>(null);
+   const [postSaveNavigationVersion, setPostSaveNavigationVersion] = useState(0);
+-  const placeEditorScrollRef = useRef<ScrollView>(null);
+   const [placeEditorBottomClearance, setPlaceEditorBottomClearance] = useState(0);
+-  const placeKeyboardVisibility = useAndroidFocusedInputVisibility({
+-    scrollViewRef: placeEditorScrollRef,
+-    safeGap: 14,
+-    bottomClearance: placeEditorBottomClearance,
+-  });
+ 
+   const translationsChanged = placeTranslationDraftFingerprint(state) !== placeTranslationDraftFingerprint(initialFormRef.current);
+   const baseDetailsChanged = placeBaseDetailsFingerprint(state) !== placeBaseDetailsFingerprint(initialFormRef.current);
+@@ -5325,8 +5320,15 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+ 
+   return (
+     <AppFixedHeaderScreen bodyStyle={styles.placeEditorBody} header={<AppHeader title={isEditing ? t('places.editor.header.edit') : t('places.editor.header.create')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label={t('places.editor.header.myPlaces')} onPress={() => navigation.navigate('MyPlaces')} />} />}>
+-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
+-        <ScrollView ref={placeEditorScrollRef} contentContainerStyle={[styles.listContent, styles.placeEditorScrollContent]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
++      <View style={styles.keyboardWrap}>
++        <KeyboardAwareScrollView
++          style={styles.keyboardAwareScroll}
++          contentContainerStyle={[styles.listContent, styles.placeEditorScrollContent]}
++          showsVerticalScrollIndicator={false}
++          keyboardShouldPersistTaps="handled"
++          keyboardDismissMode="on-drag"
++          bottomOffset={placeEditorBottomClearance + 14}
++        >
+           {!translationOnlyMode ? (
+             <View style={styles.placeCreateCompactHeader}>
+               <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? t('places.editor.subtitle.edit') : copyFromPlace ? t('places.editor.subtitle.copy') : t('places.editor.subtitle.create')}</AppText>
+@@ -5363,12 +5365,12 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+                       }))}
+                     />
+                   </View>
+-                  <TextField label={t('places.editor.fields.name')} value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder={t('places.editor.fields.namePlaceholder')} maxLength={120} onKeyboardInputFocus={placeKeyboardVisibility.onInputFocus} onKeyboardInputBlur={placeKeyboardVisibility.onInputBlur} />
++                  <TextField label={t('places.editor.fields.name')} value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder={t('places.editor.fields.namePlaceholder')} maxLength={120} />
+                   {state.mode === 'remote' ? (
+                     <>
+-                      <TextField label={t('places.editor.fields.onlineUrl')} value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} onKeyboardInputFocus={placeKeyboardVisibility.onInputFocus} onKeyboardInputBlur={placeKeyboardVisibility.onInputBlur} />
++                      <TextField label={t('places.editor.fields.onlineUrl')} value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
+                       <AppText style={[styles.placeDestinationHint, { color: theme.color.muted }]}>{getOnlineProviderHint({ onlineUrl: state.onlineUrl }, t)}</AppText>
+-                      <TextField label={t('places.editor.fields.onlineLabel')} value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} maxLength={120} onKeyboardInputFocus={placeKeyboardVisibility.onInputFocus} onKeyboardInputBlur={placeKeyboardVisibility.onInputBlur} />
++                      <TextField label={t('places.editor.fields.onlineLabel')} value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} maxLength={120} />
+                     </>
+                   ) : (
+                     <>
+@@ -5380,13 +5382,11 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+                         placeholder={t('places.editor.fields.addressPlaceholder')}
+                         helperText={t('places.editor.fields.addressHelp')}
+                         languageCode={language}
+-                        onKeyboardInputFocus={placeKeyboardVisibility.onInputFocus} onKeyboardInputBlur={placeKeyboardVisibility.onInputBlur}
+-                        keyboardScrollOffset={8}
+                       />
+                       {!hasValidOfflineProviderAddress(state.providerAddress) ? <AppText style={[styles.placeDestinationHint, { color: theme.semantic.warning.text }]}>{getOfflineAddressRequirementMessage(state.providerAddress, t)}</AppText> : null}
+                     </>
+                   )}
+-                  <TextField label={t('places.editor.fields.description')} value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder={t('places.editor.fields.descriptionPlaceholder')} multiline maxLength={2000} onKeyboardInputFocus={placeKeyboardVisibility.onInputFocus} onKeyboardInputBlur={placeKeyboardVisibility.onInputBlur} keyboardScrollOffset={8} />
++                  <TextField label={t('places.editor.fields.description')} value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder={t('places.editor.fields.descriptionPlaceholder')} multiline maxLength={2000} />
+                 </>
+               )}
+               <View style={styles.placeTranslationBlock}>
+@@ -5440,8 +5440,8 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+                             <AppText style={[styles.placeTranslationRemoveText, { color: theme.semantic.danger.text }]}>{t('places.editor.language.remove')}</AppText>
+                           </Pressable>
+                         </View>
+-                        <TextField label={t('places.editor.language.translatedName')} value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder={t('places.editor.language.translatedNamePlaceholder')} maxLength={120} onKeyboardInputFocus={placeKeyboardVisibility.onInputFocus} onKeyboardInputBlur={placeKeyboardVisibility.onInputBlur} />
+-                        <TextField label={t('places.editor.language.translatedDescription')} value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder={t('places.editor.language.translatedDescriptionPlaceholder')} multiline compactMultiline maxLength={2000} onKeyboardInputFocus={placeKeyboardVisibility.onInputFocus} onKeyboardInputBlur={placeKeyboardVisibility.onInputBlur} keyboardScrollOffset={8} />
++                        <TextField label={t('places.editor.language.translatedName')} value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder={t('places.editor.language.translatedNamePlaceholder')} maxLength={120} />
++                        <TextField label={t('places.editor.language.translatedDescription')} value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder={t('places.editor.language.translatedDescriptionPlaceholder')} multiline compactMultiline maxLength={2000} />
+                       </View>
+                     ))}
+ 
+@@ -5509,7 +5509,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+               {error ? <InfoNotice tone="danger" body={error} /> : null}
+             </View>
+           )}
+-        </ScrollView>
++        </KeyboardAwareScrollView>
+         <View
+           onLayout={(event) => setPlaceEditorBottomClearance(event.nativeEvent.layout.height)}
+           style={[styles.placeEditorStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}
+@@ -5528,7 +5528,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+           </View>
+         </View>
+         <AppConfirmSheet {...unsavedChangesConfirm} />
+-      </KeyboardAvoidingView>
++      </View>
+     </AppFixedHeaderScreen>
+   );
+ }
+@@ -5578,6 +5578,7 @@ const styles = StyleSheet.create({
+   planCreateStickyPrimary: { flex: 1, minWidth: 0 },
+   planCreateCompactHeader: { gap: 7, paddingTop: 0, paddingBottom: 0 },
+   placeEditorBody: { overflow: 'hidden' },
++  keyboardAwareScroll: { flex: 1 },
+   placeEditorScrollContent: { paddingBottom: 18 },
+   placeCreateCompactHeader: { paddingTop: 0, paddingBottom: 1 },
+   placeCreateSubtitle: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+diff --git a/package-lock.json b/package-lock.json
+index 0f04fb2..77e53d1 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -85,6 +85,7 @@
+         "react": "19.1.0",
+         "react-native": "0.81.5",
+         "react-native-gesture-handler": "~2.28.0",
++        "react-native-keyboard-controller": "1.18.5",
+         "react-native-reanimated": "~3.19.2",
+         "react-native-safe-area-context": "~5.6.0",
+         "react-native-screens": "~4.16.0",
+@@ -10155,6 +10156,20 @@
+         "react-native": "*"
+       }
+     },
++    "node_modules/react-native-keyboard-controller": {
++      "version": "1.18.5",
++      "resolved": "https://registry.npmjs.org/react-native-keyboard-controller/-/react-native-keyboard-controller-1.18.5.tgz",
++      "integrity": "sha512-wbYN6Tcu3G5a05dhRYBgjgd74KqoYWuUmroLpigRg9cXy5uYo7prTMIvMgvLtARQtUF7BOtFggUnzgoBOgk0TQ==",
++      "license": "MIT",
++      "dependencies": {
++        "react-native-is-edge-to-edge": "^1.2.1"
++      },
++      "peerDependencies": {
++        "react": "*",
++        "react-native": "*",
++        "react-native-reanimated": ">=3.0.0"
++      }
++    },
+     "node_modules/react-native-reanimated": {
+       "version": "3.19.5",
+       "resolved": "https://registry.npmjs.org/react-native-reanimated/-/react-native-reanimated-3.19.5.tgz",

@@ -17,6 +17,7 @@ export const auth = {
   },
   subtitles: {
     login: 'Sign in to create needs, offers, trades, and proposals.',
+    loginNative: 'Sign in to create your Plans, places, and trades.',
     register: 'Create your account and set your local display preferences.',
     forgot: 'Request a reset link for your Hellowhen account.',
     forgotNative: 'Reset your password using your account email.',

@@ -354,15 +354,15 @@ export function TradeDeckFeedScreen() {
       <View style={styles.headerRow}>
         <AppText style={styles.title}>{t('navigation.tabs.trade')}</AppText>
         <View style={styles.headerActions}>
-          <Pressable accessibilityRole="button" accessibilityLabel={t('trade.filters.searchAndFilters')} onPress={() => navigation.navigate('TradeFilters', { q: query || undefined, mode: modeFilter === 'all' ? undefined : modeFilter, postType: postTypeFilter === 'all' ? undefined : postTypeFilter, category: category.trim() || undefined, hasImages: imagesOnly || undefined, hasMoney: betaFeatures.moneyTradesEnabled ? (moneyOnly || undefined) : undefined })} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, hasFilters && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
-            <MobileIcon name="filter" size={18} color={hasFilters ? theme.semantic.info.text : theme.color.text} />
-            {hasFilters ? <View style={styles.filterDot}><AppText style={styles.filterDotText}>{activeFilterCount}</AppText></View> : null}
+          <Pressable accessibilityRole="button" accessibilityLabel={t('trade.filters.searchAndFilters')} onPress={() => navigation.navigate('TradeFilters', { q: query || undefined, mode: modeFilter === 'all' ? undefined : modeFilter, postType: postTypeFilter === 'all' ? undefined : postTypeFilter, category: category.trim() || undefined, hasImages: imagesOnly || undefined, hasMoney: betaFeatures.moneyTradesEnabled ? (moneyOnly || undefined) : undefined })} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, hasFilters && { backgroundColor: theme.semantic.trade.softBg, borderColor: theme.semantic.trade.border }, pressed && styles.pressed]}>
+            <MobileIcon name="filter" size={18} color={hasFilters ? theme.semantic.trade.text : theme.color.text} />
+            {hasFilters ? <View style={[styles.filterDot, { backgroundColor: theme.semantic.trade.bg }]}><AppText style={[styles.filterDotText, { color: theme.semantic.trade.onBg }]}>{activeFilterCount}</AppText></View> : null}
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel={t('trade.wizard.open')} onPress={() => setWizardModalVisible(true)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, wizardModalVisible && { backgroundColor: theme.semantic.instruction.softBg, borderColor: theme.semantic.instruction.border }, pressed && styles.pressed]}>
             <MobileIcon name="activity" size={19} color={wizardModalVisible ? theme.semantic.instruction.text : theme.color.text} />
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={t('trade.create.title')} onPress={() => createTrade()} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
-            <MobileIcon name="add" size={23} color={theme.color.background} />
+          <Pressable accessibilityRole="button" accessibilityLabel={t('trade.create.title')} onPress={() => createTrade()} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.semantic.trade.bg, borderColor: theme.semantic.trade.bg }, pressed && styles.pressed]}>
+            <MobileIcon name="add" size={23} color={theme.semantic.trade.onBg} />
           </Pressable>
         </View>
       </View>
@@ -583,7 +583,10 @@ function TradeWizardMenuModal({ visible, onClose, onSelect }: TradeWizardMenuMod
     if (tone === 'need') return theme.semantic.need;
     if (tone === 'offer') return theme.semantic.offer;
     if (tone === 'info') return theme.semantic.info;
+    if (tone === 'muted') return theme.semantic.muted;
     if (tone === 'plan') return theme.semantic.plan;
+    if (tone === 'place') return theme.semantic.place;
+    if (tone === 'proposal') return theme.semantic.proposal;
     return theme.semantic.trade;
   }
 
@@ -669,8 +672,8 @@ function TradeActivityModal({ activeTab, visible, onChangeTab, onClose, onCreate
           {(['mine', 'involved'] as const).map((tab) => {
             const selected = activeTab === tab;
             return (
-              <Pressable key={tab} accessibilityRole="button" onPress={() => onChangeTab(tab)} style={({ pressed }) => [styles.activityTab, selected && { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
-                <AppText style={[styles.activityTabText, { color: selected ? theme.color.background : theme.color.muted }]}>{tab === 'mine' ? t('trade.mine.myTradesTab') : t('trade.involved.tab')}</AppText>
+              <Pressable key={tab} accessibilityRole="button" onPress={() => onChangeTab(tab)} style={({ pressed }) => [styles.activityTab, selected && { backgroundColor: theme.semantic.trade.bg }, pressed && styles.pressed]}>
+                <AppText style={[styles.activityTabText, { color: selected ? theme.semantic.trade.onBg : theme.color.muted }]}>{tab === 'mine' ? t('trade.mine.myTradesTab') : t('trade.involved.tab')}</AppText>
               </Pressable>
             );
           })}
@@ -811,8 +814,8 @@ export function TradeFiltersScreen() {
                   {modeOptions.map((option) => {
                     const selected = modeFilter === option.value;
                     return (
-                      <Pressable key={option.value} onPress={() => setModeFilter(option.value)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
-                        <AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{t(option.labelKey)}</AppText>
+                      <Pressable key={option.value} onPress={() => setModeFilter(option.value)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.trade.bg, borderColor: theme.semantic.trade.bg }, pressed && styles.pressed]}>
+                        <AppText style={[styles.filterChipText, { color: selected ? theme.semantic.trade.onBg : theme.color.muted }]}>{t(option.labelKey)}</AppText>
                       </Pressable>
                     );
                   })}
@@ -825,8 +828,8 @@ export function TradeFiltersScreen() {
                   {postTypeOptions.map((option) => {
                     const selected = postTypeFilter === option.value;
                     return (
-                      <Pressable key={option.value} onPress={() => setPostTypeFilter(option.value)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
-                        <AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{t(option.labelKey)}</AppText>
+                      <Pressable key={option.value} onPress={() => setPostTypeFilter(option.value)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.trade.bg, borderColor: theme.semantic.trade.bg }, pressed && styles.pressed]}>
+                        <AppText style={[styles.filterChipText, { color: selected ? theme.semantic.trade.onBg : theme.color.muted }]}>{t(option.labelKey)}</AppText>
                       </Pressable>
                     );
                   })}
@@ -847,12 +850,12 @@ export function TradeFiltersScreen() {
               </View>
 
               <View style={styles.chipRow}>
-                <Pressable onPress={() => setImagesOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, imagesOnly && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
-                  <AppText style={[styles.filterChipText, { color: imagesOnly ? theme.color.background : theme.color.muted }]}>{t('trade.filters.hasImages')}</AppText>
+                <Pressable onPress={() => setImagesOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, imagesOnly && { backgroundColor: theme.semantic.trade.bg, borderColor: theme.semantic.trade.bg }, pressed && styles.pressed]}>
+                  <AppText style={[styles.filterChipText, { color: imagesOnly ? theme.semantic.trade.onBg : theme.color.muted }]}>{t('trade.filters.hasImages')}</AppText>
                 </Pressable>
                 {betaFeatures.moneyTradesEnabled ? (
-                  <Pressable onPress={() => setMoneyOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, moneyOnly && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
-                    <AppText style={[styles.filterChipText, { color: moneyOnly ? theme.color.background : theme.color.muted }]}>{t('trade.filters.walletAmount')}</AppText>
+                  <Pressable onPress={() => setMoneyOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.background, borderColor: theme.color.border }, moneyOnly && { backgroundColor: theme.semantic.trade.bg, borderColor: theme.semantic.trade.bg }, pressed && styles.pressed]}>
+                    <AppText style={[styles.filterChipText, { color: moneyOnly ? theme.semantic.trade.onBg : theme.color.muted }]}>{t('trade.filters.walletAmount')}</AppText>
                   </Pressable>
                 ) : null}
               </View>
@@ -864,8 +867,8 @@ export function TradeFiltersScreen() {
           <Pressable accessibilityRole="button" disabled={activeFilterCount === 0} onPress={reset} style={({ pressed }) => [styles.toolsSecondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border, opacity: activeFilterCount === 0 ? 0.5 : 1 }, pressed && activeFilterCount > 0 && styles.pressed]}>
             <AppText style={[styles.toolsSecondaryButtonText, { color: theme.color.text }]}>{t('trade.filters.reset')}</AppText>
           </Pressable>
-          <Pressable accessibilityRole="button" onPress={() => apply('submitted')} style={({ pressed }) => [styles.toolsPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
-            <AppText style={[styles.toolsPrimaryButtonText, { color: theme.color.background }]}>{t('trade.filters.apply')}</AppText>
+          <Pressable accessibilityRole="button" onPress={() => apply('submitted')} style={({ pressed }) => [styles.toolsPrimaryButton, { backgroundColor: theme.semantic.trade.bg }, pressed && styles.pressed]}>
+            <AppText style={[styles.toolsPrimaryButtonText, { color: theme.semantic.trade.onBg }]}>{t('trade.filters.apply')}</AppText>
           </Pressable>
         </View>
       </KeyboardAvoidingView>
@@ -1027,9 +1030,9 @@ function MyCreatedTradesPanel({ scrollProps, onCreate, onOpenTrade, onOpenPropos
             <AppText style={styles.mineTitle}>{t('trade.mine.title')}</AppText>
             <AppText style={[styles.mineBody, { color: theme.color.muted }]}>{t('trade.mine.body')}</AppText>
           </View>
-          <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.mineCreateButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
-            <MobileIcon name="add" size={18} color={theme.color.background} />
-            <AppText style={[styles.mineCreateButtonText, { color: theme.color.background }]}>{t('trade.create.title')}</AppText>
+          <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.mineCreateButton, { backgroundColor: theme.semantic.trade.bg }, pressed && styles.pressed]}>
+            <MobileIcon name="add" size={18} color={theme.semantic.trade.onBg} />
+            <AppText style={[styles.mineCreateButtonText, { color: theme.semantic.trade.onBg }]}>{t('trade.create.title')}</AppText>
           </Pressable>
         </AppCard>
 
@@ -1038,8 +1041,8 @@ function MyCreatedTradesPanel({ scrollProps, onCreate, onOpenTrade, onOpenPropos
             const selected = statusFilter === status;
             const label = status === 'all' ? t('trade.mine.filterAll') : status === 'with_proposals' ? t('trade.mine.filterWithProposals') : t(`trade.statuses.${status}`);
             return (
-              <Pressable key={status} accessibilityRole="button" onPress={() => setStatusFilter(status)} style={({ pressed }) => [styles.mineFilterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
-                <AppText style={[styles.mineFilterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{label}</AppText>
+              <Pressable key={status} accessibilityRole="button" onPress={() => setStatusFilter(status)} style={({ pressed }) => [styles.mineFilterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.trade.bg, borderColor: theme.semantic.trade.bg }, pressed && styles.pressed]}>
+                <AppText style={[styles.mineFilterChipText, { color: selected ? theme.semantic.trade.onBg : theme.color.muted }]}>{label}</AppText>
               </Pressable>
             );
           })}
@@ -1088,7 +1091,7 @@ function MyCreatedTradeRow({ trade, busy, onOpen, onOpenProposals, onRenew, onCl
         <View style={styles.mineRowActions}>
           <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.mineActionButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.mineActionButtonText, { color: theme.color.text }]}>{t('trade.mine.openDetail')}</AppText></Pressable>
           {proposalCount > 0 ? <Pressable accessibilityRole="button" onPress={onOpenProposals} style={({ pressed }) => [styles.mineActionButton, { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}><AppText style={[styles.mineActionButtonText, { color: theme.semantic.info.text }]}>{t('trade.mine.openProposals')}</AppText></Pressable> : null}
-          {canRenew ? <Pressable accessibilityRole="button" disabled={busy} onPress={onRenew} style={({ pressed }) => [styles.mineActionButton, { backgroundColor: theme.color.text, borderColor: theme.color.text }, (pressed || busy) && styles.pressed]}><AppText style={[styles.mineActionButtonText, { color: theme.color.background }]}>{busy ? t('common.states.saving') : t('trade.mine.renew')}</AppText></Pressable> : null}
+          {canRenew ? <Pressable accessibilityRole="button" disabled={busy} onPress={onRenew} style={({ pressed }) => [styles.mineActionButton, { backgroundColor: theme.semantic.trade.bg, borderColor: theme.semantic.trade.bg }, (pressed || busy) && styles.pressed]}><AppText style={[styles.mineActionButtonText, { color: theme.semantic.trade.onBg }]}>{busy ? t('common.states.saving') : t('trade.mine.renew')}</AppText></Pressable> : null}
           {canClose ? <Pressable accessibilityRole="button" disabled={busy} onPress={onClose} style={({ pressed }) => [styles.mineActionButton, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }, (pressed || busy) && styles.pressed]}><AppText style={[styles.mineActionButtonText, { color: theme.semantic.danger.text }]}>{busy ? t('common.states.saving') : t('trade.mine.close')}</AppText></Pressable> : null}
         </View>
       </View>
@@ -1105,7 +1108,7 @@ function MyCreatedTradesEmpty({ hasFilter, onCreate }: { hasFilter: boolean; onC
         <SemanticBadge label={t('trade.mine.myTradesTab')} tone="trade" />
         <AppText style={styles.emptyTitle}>{hasFilter ? t('trade.mine.emptyFilteredTitle') : t('trade.mine.emptyTitle')}</AppText>
         <AppText style={[styles.emptyText, { color: theme.color.muted }]}>{hasFilter ? t('trade.mine.emptyFilteredBody') : t('trade.mine.emptyBody')}</AppText>
-        <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>{t('trade.create.title')}</AppText></Pressable>
+        <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.semantic.trade.bg }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.semantic.trade.onBg }]}>{t('trade.create.title')}</AppText></Pressable>
       </View>
     </AppCard>
   );
@@ -1169,8 +1172,8 @@ function InvolvedTradesPanel({ scrollProps, onOpenTrade, onOpenProposal }: { scr
           const selected = statusFilter === status;
           const label = status === 'all' ? t('trade.mine.filterAll') : ['pending', 'accepted', 'declined', 'withdrawn'].includes(status) ? t(`trade.proposals.status.${status}`) : t(`trade.statuses.${status}`);
           return (
-            <Pressable key={status} accessibilityRole="button" onPress={() => setStatusFilter(status)} style={({ pressed }) => [styles.mineFilterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
-              <AppText style={[styles.mineFilterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{label}</AppText>
+            <Pressable key={status} accessibilityRole="button" onPress={() => setStatusFilter(status)} style={({ pressed }) => [styles.mineFilterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.trade.bg, borderColor: theme.semantic.trade.bg }, pressed && styles.pressed]}>
+              <AppText style={[styles.mineFilterChipText, { color: selected ? theme.semantic.trade.onBg : theme.color.muted }]}>{label}</AppText>
             </Pressable>
           );
         })}
@@ -1255,7 +1258,7 @@ function EmptyTradesState({ hasTrades, hasFilters, onCreate, onRefresh, onClear 
         <AppText style={styles.emptyTitle}>{title}</AppText>
         <AppText style={[styles.emptyText, { color: theme.color.muted }]}>{body}</AppText>
         <View style={styles.emptyActions}>
-          {hasFilters ? <Pressable accessibilityRole="button" onPress={onClear} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>{t('trade.filters.clearFilters')}</AppText></Pressable> : <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>{t('trade.create.title')}</AppText></Pressable>}
+          {hasFilters ? <Pressable accessibilityRole="button" onPress={onClear} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.semantic.trade.bg }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.semantic.trade.onBg }]}>{t('trade.filters.clearFilters')}</AppText></Pressable> : <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.semantic.trade.bg }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.semantic.trade.onBg }]}>{t('trade.create.title')}</AppText></Pressable>}
           <Pressable accessibilityRole="button" onPress={onRefresh} style={({ pressed }) => [styles.emptySecondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.emptySecondaryButtonText, { color: theme.color.text }]}>{t('trade.filters.refresh')}</AppText></Pressable>
         </View>
       </View>
@@ -1297,8 +1300,8 @@ const styles = StyleSheet.create({
   iconButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1, overflow: 'hidden' },
   iconButtonText: { fontSize: 16, fontWeight: '900', lineHeight: 20 },
   createIconButtonText: { fontSize: 22, lineHeight: 24 },
-  filterDot: { position: 'absolute', right: -3, top: -3, minWidth: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111827', paddingHorizontal: 4 },
-  filterDotText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
+  filterDot: { position: 'absolute', right: -3, top: -3, minWidth: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  filterDotText: { fontSize: 10, fontWeight: '900' },
   searchInput: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, fontWeight: '700' },
   filterPanel: { gap: 14 },
   filterHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },

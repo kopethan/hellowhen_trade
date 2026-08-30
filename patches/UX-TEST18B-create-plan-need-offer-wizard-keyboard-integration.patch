@@ -1,0 +1,463 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 1b8a376..e7572e5 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -4140,6 +4140,17 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   const [expandedAddressPlaceIds, setExpandedAddressPlaceIds] = useState<string[]>([]);
+   const [addressFocusPlaceId, setAddressFocusPlaceId] = useState<string | null>(null);
+   const createPlanScrollRef = useRef<ScrollView | null>(null);
++  const detailPlaceScrollRef = useRef<ScrollView | null>(null);
++  const [createPlanBottomClearance, setCreatePlanBottomClearance] = useState(0);
++  const createPlanKeyboardVisibility = useAndroidFocusedInputVisibility({
++    scrollViewRef: createPlanScrollRef,
++    safeGap: 14,
++    bottomClearance: createPlanBottomClearance,
++  });
++  const detailPlaceKeyboardVisibility = useAndroidFocusedInputVisibility({
++    scrollViewRef: detailPlaceScrollRef,
++    safeGap: 14,
++  });
+   const addressGuidanceOffsetsRef = useRef<Record<string, number>>({});
+ 
+   const filteredMyPlaces = useMemo(() => filterPlaces(myPlaces, placeQuery), [myPlaces, placeQuery]);
+@@ -4778,6 +4789,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                           helperText={t('plans.create.place.starterAddressHelp')}
+                           languageCode={language}
+                           autoFocus={addressFocusPlaceId === place.id}
++                          onKeyboardInputFocus={createPlanKeyboardVisibility.onInputFocus}
++                          onKeyboardInputBlur={createPlanKeyboardVisibility.onInputBlur}
++                          keyboardScrollOffset={8}
+                         />
+                         <View style={styles.actionGrid}>
+                           <SecondaryButton label={t('plans.create.place.deleteThis')} icon="close" onPress={() => removeSelectedPlace(index)} />
+@@ -4869,13 +4883,13 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+           )}
+         </ScrollView>
+         {stage === 'build' && places.length > 0 ? (
+-          <View style={[styles.planCreateStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}>
++          <View onLayout={(event) => setCreatePlanBottomClearance(event.nativeEvent.layout.height)} style={[styles.planCreateStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}>
+             <Pressable accessibilityRole="button" disabled={draftPlaceValidationBlocked} onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, draftPlaceValidationBlocked && styles.disabled]}>
+               <AppText style={[styles.primaryButtonText, { color: theme.semantic.plan.onBg }]}>{t('plans.create.preview.previewPlan')}</AppText>
+             </Pressable>
+           </View>
+         ) : stage === 'preview' ? (
+-          <View style={[styles.planCreateStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}>
++          <View onLayout={(event) => setCreatePlanBottomClearance(event.nativeEvent.layout.height)} style={[styles.planCreateStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}>
+             <View style={styles.planCreateStickyActions}>
+               <View style={styles.planCreateStickySecondary}>
+                 <SecondaryButton label={t('plans.create.preview.back')} onPress={() => setStage('build')} disabled={saving} />
+@@ -4941,7 +4955,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                     <MobileIcon name="close" color={theme.color.text} size={18} />
+                   </Pressable>
+                 </View>
+-                <ScrollView keyboardShouldPersistTaps="handled" style={styles.sourceListScroll} contentContainerStyle={styles.placeDetailSheetContent}>
++                <ScrollView ref={detailPlaceScrollRef} keyboardShouldPersistTaps="handled" style={styles.sourceListScroll} contentContainerStyle={styles.placeDetailSheetContent}>
+                   <View style={styles.rowTop}>
+                     {detailPlace.sourcePlaceId ? <SemanticBadge label={detailPlace.sourcePlaceSource === 'hellowhen_library' ? t('plans.create.placeDetail.sourceLibrary') : t('plans.create.placeDetail.sourceMine')} tone="place" size="sm" /> : <SemanticBadge label={t('plans.create.placeDetail.sourceCustom')} tone="place" size="sm" />}
+                   </View>
+@@ -4966,11 +4980,11 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                           onlineUrl: mode === 'remote' ? detailPlace.onlineUrl : '',
+                         })}
+                       />
+-                      <TextField label={t('plans.create.place.name')} value={detailPlace.title} onChangeText={(title) => updateSelectedPlace(detailPlaceIndex, { title })} placeholder={detailPlace.mode === 'remote' ? t('plans.create.place.nameOnlinePlaceholder') : t('plans.create.place.nameOfflinePlaceholder')} maxLength={120} />
++                      <TextField label={t('plans.create.place.name')} value={detailPlace.title} onChangeText={(title) => updateSelectedPlace(detailPlaceIndex, { title })} placeholder={detailPlace.mode === 'remote' ? t('plans.create.place.nameOnlinePlaceholder') : t('plans.create.place.nameOfflinePlaceholder')} maxLength={120} onKeyboardInputFocus={detailPlaceKeyboardVisibility.onInputFocus} onKeyboardInputBlur={detailPlaceKeyboardVisibility.onInputBlur} />
+                       {detailPlace.mode === 'remote' ? (
+                         <>
+-                          <TextField label={t('plans.create.place.onlineLabel')} value={detailPlace.onlineLabel} onChangeText={(onlineLabel) => updateSelectedPlace(detailPlaceIndex, { onlineLabel })} placeholder={t('plans.create.place.onlineLabelPlaceholder')} maxLength={120} />
+-                          <TextField label={t('plans.create.place.onlineUrl')} value={detailPlace.onlineUrl} onChangeText={(onlineUrl) => updateSelectedPlace(detailPlaceIndex, { onlineUrl })} placeholder="https://..." keyboardType="url" maxLength={500} />
++                          <TextField label={t('plans.create.place.onlineLabel')} value={detailPlace.onlineLabel} onChangeText={(onlineLabel) => updateSelectedPlace(detailPlaceIndex, { onlineLabel })} placeholder={t('plans.create.place.onlineLabelPlaceholder')} maxLength={120} onKeyboardInputFocus={detailPlaceKeyboardVisibility.onInputFocus} onKeyboardInputBlur={detailPlaceKeyboardVisibility.onInputBlur} />
++                          <TextField label={t('plans.create.place.onlineUrl')} value={detailPlace.onlineUrl} onChangeText={(onlineUrl) => updateSelectedPlace(detailPlaceIndex, { onlineUrl })} placeholder="https://..." keyboardType="url" maxLength={500} onKeyboardInputFocus={detailPlaceKeyboardVisibility.onInputFocus} onKeyboardInputBlur={detailPlaceKeyboardVisibility.onInputBlur} keyboardScrollOffset={8} />
+                           <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: detailPlace.onlineUrl }, t)} />
+                         </>
+                       ) : (
+@@ -4983,6 +4997,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                             placeholder={t('plans.create.place.addressPlaceholder')}
+                             helperText={t('plans.create.place.addressHelp')}
+                             languageCode={language}
++                            onKeyboardInputFocus={detailPlaceKeyboardVisibility.onInputFocus}
++                            onKeyboardInputBlur={detailPlaceKeyboardVisibility.onInputBlur}
++                            keyboardScrollOffset={8}
+                           />
+                           {!hasValidOfflineProviderAddress(detailPlace.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(detailPlace.providerAddress, t)} /> : null}
+                         </>
+diff --git a/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx b/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
+index 8b13897..46fc5e9 100644
+--- a/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
+@@ -13,6 +13,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { betaFeatures } from '../../lib/betaFeatures';
+ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
++import type { AndroidFocusedInputVisibilityHandlers } from '../../hooks/useAndroidFocusedInputVisibility';
+ import { AppActionSheet, type AppActionSheetAction } from '../../components/AppActionSheet';
+ import { AppCard } from '../../components/AppCard';
+ import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+@@ -486,7 +487,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+     }
+   }
+ 
+-  function renderStep() {
++  function renderStep(keyboardVisibility: AndroidFocusedInputVisibilityHandlers) {
+     const durationLabel = durationPresetLabel(durationPreset, t);
+     const previewMeta = [categoryLabel(category, t), durationLabel, modeLabel(mode, t), locationLabel.trim()].filter(Boolean).join(' · ');
+     const tagList = parseInventoryList(tags);
+@@ -503,6 +504,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+               maxLength={INVENTORY_TITLE_MAX_LENGTH}
+               disabled={submitting}
+               error={titleError}
++              keyboardVisibility={keyboardVisibility}
+             />
+             <InventoryTextField
+               label={t('inventory.labels.description')}
+@@ -513,6 +515,8 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+               multiline
+               disabled={submitting}
+               error={descriptionError}
++              keyboardVisibility={keyboardVisibility}
++              keyboardScrollOffset={8}
+             />
+           </AppCard>
+           <InventoryLanguagePanel
+@@ -525,6 +529,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+             titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
+             descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
+             disabled={submitting}
++            keyboardVisibility={keyboardVisibility}
+           />
+           {betaFeatures.plusSubscriptionFeatures.aiAssistEnabled ? (
+             <>
+@@ -581,7 +586,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+           {optionalDetailsExpanded ? (
+             <>
+               <AppCard style={styles.compactCard}>
+-                <InventoryTextField label={t('inventory.labels.tags')} hint={t('inventory.form.separateWithCommas')} value={tags} onChangeText={setTags} placeholder={isNeed ? t('inventory.form.tagsNeedPlaceholder') : t('inventory.form.tagsOfferPlaceholder')} disabled={submitting} />
++                <InventoryTextField label={t('inventory.labels.tags')} hint={t('inventory.form.separateWithCommas')} value={tags} onChangeText={setTags} placeholder={isNeed ? t('inventory.form.tagsNeedPlaceholder') : t('inventory.form.tagsOfferPlaceholder')} disabled={submitting} keyboardVisibility={keyboardVisibility} />
+                 <InventoryTextField
+                   label={t('inventory.labels.location')}
+                   hint={t('inventory.labels.optional')}
+@@ -589,6 +594,8 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+                   onChangeText={setLocationLabel}
+                   placeholder={isNeed ? t('inventory.form.locationNeedPlaceholder') : t('inventory.form.locationOfferPlaceholder')}
+                   disabled={submitting}
++                  keyboardVisibility={keyboardVisibility}
++                  keyboardScrollOffset={8}
+                 />
+               </AppCard>
+               {betaFeatures.plusSubscriptionFeatures.customizationEnabled ? (
+@@ -742,11 +749,16 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+             onSecondary={onSecondary}
+           />
+         )}
++        androidFocusedInputVisibility
+       >
+-        {inventoryWizardDraft.restored ? <InfoNotice tone="info" title={t('inventory.wizard.draftRestoredTitle')} body={t('inventory.wizard.draftRestoredBody')} /> : null}
+-        {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotSave')} body={error} /> : null}
+-        {submitting && uploadProgressBody ? <InfoNotice tone="info" title={t('inventory.form.uploadProgressTitle')} body={uploadProgressBody} /> : null}
+-        {renderStep()}
++        {(keyboardVisibility) => (
++          <>
++            {inventoryWizardDraft.restored ? <InfoNotice tone="info" title={t('inventory.wizard.draftRestoredTitle')} body={t('inventory.wizard.draftRestoredBody')} /> : null}
++            {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotSave')} body={error} /> : null}
++            {submitting && uploadProgressBody ? <InfoNotice tone="info" title={t('inventory.form.uploadProgressTitle')} body={uploadProgressBody} /> : null}
++            {renderStep(keyboardVisibility)}
++          </>
++        )}
+       </WizardShell>
+       <AppConfirmSheet {...unsavedChangesConfirm} />
+       <AppActionSheet
+diff --git a/apps/mobile/src/features/trade/components/InventoryFormFields.tsx b/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
+index 5094119..820f3b1 100644
+--- a/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
++++ b/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
+@@ -1,4 +1,4 @@
+-import React from 'react';
++import React, { useRef } from 'react';
+ import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+ import type { DiscoveryLanguage, InventoryAvailabilityPreset, InventoryDurationPreset, InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
+ import { findInventoryCategoryOption, inventoryCategoryOptions } from '@hellowhen/shared';
+@@ -7,6 +7,7 @@ import { MobileIcon } from '../../../components/MobileIcon';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+ import { useTranslation } from '../../../providers/MobileI18nProvider';
+ import { KEYBOARD_DONE_ACCESSORY_ID } from '../../../components/KeyboardDoneAccessory';
++import type { AndroidFocusedInputVisibilityHandlers } from '../../../hooks/useAndroidFocusedInputVisibility';
+ import { addInventoryTranslationDraft, getAvailableInventoryTranslationLanguages, removeInventoryTranslationDraft, updateInventoryTranslationDraft, type InventoryTranslationDraft } from '../inventoryTranslations';
+ 
+ export const inventoryItemTypes: InventoryItemType[] = ['service', 'goods', 'other'];
+@@ -112,6 +113,8 @@ export function InventoryTextField({
+   disabled,
+   maxLength,
+   error,
++  keyboardVisibility,
++  keyboardScrollOffset,
+ }: {
+   label: string;
+   hint?: string;
+@@ -122,9 +125,12 @@ export function InventoryTextField({
+   disabled?: boolean;
+   maxLength?: number;
+   error?: string | null;
++  keyboardVisibility?: AndroidFocusedInputVisibilityHandlers;
++  keyboardScrollOffset?: number;
+ }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
++  const inputRef = useRef<TextInput>(null);
+   return (
+     <View style={styles.field}>
+       <View style={styles.labelRow}>
+@@ -135,6 +141,7 @@ export function InventoryTextField({
+         {hint ? <AppText style={[styles.hint, { color: theme.color.muted }]}>{hint}</AppText> : null}
+       </View>
+       <TextInput
++        ref={inputRef}
+         value={value}
+         onChangeText={onChangeText}
+         placeholder={placeholder}
+@@ -144,6 +151,8 @@ export function InventoryTextField({
+         maxLength={maxLength}
+         textAlignVertical={multiline ? 'top' : 'center'}
+         inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
++        onFocus={() => keyboardVisibility?.onInputFocus(inputRef.current, keyboardScrollOffset)}
++        onBlur={() => keyboardVisibility?.onInputBlur(inputRef.current)}
+                       returnKeyType={multiline ? 'default' : 'done'}
+                       blurOnSubmit={!multiline}
+                       style={[styles.input, { backgroundColor: theme.color.surface, borderColor: error ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }, multiline && styles.textarea]}
+@@ -241,6 +250,7 @@ export function ManualTranslationFields({
+   disabled,
+   titleMaxLength,
+   descriptionMaxLength,
++  keyboardVisibility,
+ }: {
+   languageCode: DiscoveryLanguage;
+   title: string;
+@@ -251,6 +261,7 @@ export function ManualTranslationFields({
+   disabled?: boolean;
+   titleMaxLength?: number;
+   descriptionMaxLength?: number;
++  keyboardVisibility?: AndroidFocusedInputVisibilityHandlers;
+ }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+@@ -274,6 +285,7 @@ export function ManualTranslationFields({
+         placeholder={t('inventory.form.translationTitlePlaceholder')}
+         maxLength={titleMaxLength}
+         disabled={disabled}
++        keyboardVisibility={keyboardVisibility}
+       />
+       <InventoryTextField
+         label={t('inventory.form.translationDescriptionLabel', { language: inventoryLanguageLabel(languageCode, t) })}
+@@ -283,6 +295,8 @@ export function ManualTranslationFields({
+         maxLength={descriptionMaxLength}
+         multiline
+         disabled={disabled}
++        keyboardVisibility={keyboardVisibility}
++        keyboardScrollOffset={8}
+       />
+     </View>
+   );
+@@ -295,6 +309,7 @@ export function InventoryTranslationsEditor({
+   disabled,
+   titleMaxLength,
+   descriptionMaxLength,
++  keyboardVisibility,
+ }: {
+   defaultLanguage: DiscoveryLanguage;
+   translations: InventoryTranslationDraft[];
+@@ -302,6 +317,7 @@ export function InventoryTranslationsEditor({
+   disabled?: boolean;
+   titleMaxLength?: number;
+   descriptionMaxLength?: number;
++  keyboardVisibility?: AndroidFocusedInputVisibilityHandlers;
+ }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+@@ -321,6 +337,7 @@ export function InventoryTranslationsEditor({
+           titleMaxLength={titleMaxLength}
+           descriptionMaxLength={descriptionMaxLength}
+           disabled={disabled}
++          keyboardVisibility={keyboardVisibility}
+         />
+       ))}
+ 
+@@ -367,6 +384,7 @@ export function InventoryLanguagePanel({
+   disabled,
+   titleMaxLength,
+   descriptionMaxLength,
++  keyboardVisibility,
+ }: {
+   defaultLanguage: DiscoveryLanguage;
+   translations: InventoryTranslationDraft[];
+@@ -377,6 +395,7 @@ export function InventoryLanguagePanel({
+   disabled?: boolean;
+   titleMaxLength?: number;
+   descriptionMaxLength?: number;
++  keyboardVisibility?: AndroidFocusedInputVisibilityHandlers;
+ }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+@@ -421,6 +440,7 @@ export function InventoryLanguagePanel({
+             titleMaxLength={titleMaxLength}
+             descriptionMaxLength={descriptionMaxLength}
+             disabled={disabled}
++            keyboardVisibility={keyboardVisibility}
+           />
+         </View>
+       ) : null}
+diff --git a/apps/mobile/src/features/trade/create/WizardShell.tsx b/apps/mobile/src/features/trade/create/WizardShell.tsx
+index f752b90..bb9eca2 100644
+--- a/apps/mobile/src/features/trade/create/WizardShell.tsx
++++ b/apps/mobile/src/features/trade/create/WizardShell.tsx
+@@ -1,4 +1,4 @@
+-import React from 'react';
++import React, { useRef, useState } from 'react';
+ import { Platform, ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+ import { getWizardActiveStep, type WizardStepDefinition } from '@hellowhen/shared';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+@@ -6,6 +6,7 @@ import { AppFixedHeaderScreen } from '../../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../../components/AppHeader';
+ import { AppText } from '../../../components/AppText';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
++import { useAndroidFocusedInputVisibility, type AndroidFocusedInputVisibilityHandlers } from '../../../hooks/useAndroidFocusedInputVisibility';
+ import { WizardProgress } from './WizardProgress';
+ 
+ type WizardShellProps<TStepId extends string> = {
+@@ -15,12 +16,13 @@ type WizardShellProps<TStepId extends string> = {
+   rightSlot?: React.ReactNode;
+   steps: readonly WizardStepDefinition<TStepId>[];
+   activeStepId: TStepId;
+-  children: React.ReactNode;
++  children: React.ReactNode | ((keyboardVisibility: AndroidFocusedInputVisibilityHandlers) => React.ReactNode);
+   footer?: React.ReactNode;
+   stepLabel?: string;
+   ofLabel?: string;
+   contentContainerStyle?: StyleProp<ViewStyle>;
+   bodyStyle?: StyleProp<ViewStyle>;
++  androidFocusedInputVisibility?: boolean;
+ };
+ 
+ export function WizardShell<TStepId extends string>({
+@@ -36,10 +38,20 @@ export function WizardShell<TStepId extends string>({
+   ofLabel,
+   contentContainerStyle,
+   bodyStyle,
++  androidFocusedInputVisibility = false,
+ }: WizardShellProps<TStepId>) {
+   const theme = useThemeTokens();
+   const insets = useSafeAreaInsets();
+   const activeStep = getWizardActiveStep(steps, activeStepId);
++  const scrollViewRef = useRef<ScrollView | null>(null);
++  const [footerHeight, setFooterHeight] = useState(0);
++  const keyboardVisibility = useAndroidFocusedInputVisibility({
++    scrollViewRef,
++    safeGap: 14,
++    bottomClearance: footer ? footerHeight : 0,
++    enabled: androidFocusedInputVisibility,
++  });
++  const renderedChildren = typeof children === 'function' ? children(keyboardVisibility) : children;
+   const footerBottomPadding = Platform.OS === 'android' ? Math.max(12, insets.bottom + 10) : 10;
+ 
+   return (
+@@ -54,6 +66,7 @@ export function WizardShell<TStepId extends string>({
+       bodyStyle={[styles.body, bodyStyle]}
+     >
+       <ScrollView
++        ref={scrollViewRef}
+         keyboardShouldPersistTaps="handled"
+         keyboardDismissMode="interactive"
+         showsVerticalScrollIndicator={false}
+@@ -65,9 +78,16 @@ export function WizardShell<TStepId extends string>({
+             {activeStep.description ? <AppText style={[styles.stepDescription, { color: theme.color.muted }]}>{activeStep.description}</AppText> : null}
+           </View>
+         ) : null}
+-        {children}
++        {renderedChildren}
+       </ScrollView>
+-      {footer ? <View style={[styles.footer, { backgroundColor: theme.color.background, paddingBottom: footerBottomPadding }]}>{footer}</View> : null}
++      {footer ? (
++        <View
++          onLayout={androidFocusedInputVisibility ? (event) => setFooterHeight(event.nativeEvent.layout.height) : undefined}
++          style={[styles.footer, { backgroundColor: theme.color.background, paddingBottom: footerBottomPadding }]}
++        >
++          {footer}
++        </View>
++      ) : null}
+     </AppFixedHeaderScreen>
+   );
+ }
+diff --git a/apps/mobile/src/hooks/useAndroidFocusedInputVisibility.ts b/apps/mobile/src/hooks/useAndroidFocusedInputVisibility.ts
+index bc9904b..e9c2328 100644
+--- a/apps/mobile/src/hooks/useAndroidFocusedInputVisibility.ts
++++ b/apps/mobile/src/hooks/useAndroidFocusedInputVisibility.ts
+@@ -5,6 +5,7 @@ type AndroidFocusedInputVisibilityOptions = {
+   scrollViewRef: RefObject<ScrollView | null>;
+   safeGap?: number;
+   bottomClearance?: number;
++  enabled?: boolean;
+ };
+ 
+ type FocusedInputTarget = {
+@@ -12,6 +13,12 @@ type FocusedInputTarget = {
+   additionalOffset: number;
+ };
+ 
++export type AndroidFocusedInputVisibilityHandlers = {
++  onInputFocus: (input: TextInput | null, additionalOffset?: number) => void;
++  onInputBlur: (input: TextInput | null) => void;
++  revealFocusedInput: (animated?: boolean) => void;
++};
++
+ /**
+  * Keeps the focused field visible above the Android IME without changing the
+  * existing iOS KeyboardAvoidingView behavior.
+@@ -24,7 +31,8 @@ export function useAndroidFocusedInputVisibility({
+   scrollViewRef,
+   safeGap = 16,
+   bottomClearance = 0,
+-}: AndroidFocusedInputVisibilityOptions) {
++  enabled = true,
++}: AndroidFocusedInputVisibilityOptions): AndroidFocusedInputVisibilityHandlers {
+   const focusedTargetRef = useRef<FocusedInputTarget | null>(null);
+   const bottomClearanceRef = useRef(bottomClearance);
+ 
+@@ -33,7 +41,7 @@ export function useAndroidFocusedInputVisibility({
+   }, [bottomClearance]);
+ 
+   const revealFocusedInput = useCallback((animated = true) => {
+-    if (Platform.OS !== 'android') return;
++    if (!enabled || Platform.OS !== 'android') return;
+     const target = focusedTargetRef.current;
+     const scrollView = scrollViewRef.current;
+     if (!target || !scrollView || !target.input.isFocused()) return;
+@@ -48,26 +56,26 @@ export function useAndroidFocusedInputVisibility({
+         animated,
+       );
+     });
+-  }, [safeGap, scrollViewRef]);
++  }, [enabled, safeGap, scrollViewRef]);
+ 
+   useEffect(() => {
+-    if (Platform.OS !== 'android') return undefined;
++    if (!enabled || Platform.OS !== 'android') return undefined;
+     const keyboardDidShow = Keyboard.addListener('keyboardDidShow', () => {
+       revealFocusedInput(true);
+     });
+     return () => keyboardDidShow.remove();
+-  }, [revealFocusedInput]);
++  }, [enabled, revealFocusedInput]);
+ 
+   const onInputFocus = useCallback((input: TextInput | null, additionalOffset = 0) => {
+-    if (Platform.OS !== 'android' || !input) return;
++    if (!enabled || Platform.OS !== 'android' || !input) return;
+     focusedTargetRef.current = { input, additionalOffset };
+     revealFocusedInput(true);
+   }, [revealFocusedInput]);
+ 
+   const onInputBlur = useCallback((input: TextInput | null) => {
+-    if (Platform.OS !== 'android' || !input) return;
++    if (!enabled || Platform.OS !== 'android' || !input) return;
+     if (focusedTargetRef.current?.input === input) focusedTargetRef.current = null;
+-  }, []);
++  }, [enabled]);
+ 
+   return { onInputFocus, onInputBlur, revealFocusedInput };
+ }

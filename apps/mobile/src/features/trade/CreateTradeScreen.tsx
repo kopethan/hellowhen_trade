@@ -692,6 +692,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
           onSecondary={isFirstStep ? undefined : handlePrevious}
           secondaryDisabled={submitting}
           helperText={footerHelperText}
+          primaryTone="trade"
         />
       )}
     >
@@ -718,7 +719,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
             ) : null}
           </View>
           <Pressable accessibilityRole="button" disabled={Boolean(applyingIdea)} onPress={() => void applyFeedIdeaToDraft(routeIdeaKey)} style={({ pressed }) => [styles.feedIdeaPrefillAction, { backgroundColor: theme.semantic.trade.bg }, pressed && styles.pressed, applyingIdea && styles.disabled]}>
-            <AppText style={[styles.feedIdeaPrefillActionText, { color: theme.color.inverseText }]}>{applyingIdea === routeIdeaKey ? t('trade.feedIdeas.applySaving') : t('trade.feedIdeas.applyAction')}</AppText>
+            <AppText style={[styles.feedIdeaPrefillActionText, { color: theme.semantic.trade.onBg }]}>{applyingIdea === routeIdeaKey ? t('trade.feedIdeas.applySaving') : t('trade.feedIdeas.applyAction')}</AppText>
           </Pressable>
         </AppCard>
       ) : null}
@@ -936,12 +937,12 @@ function DetailsStep({ theme, expiryDays, onExpiryChange }: { theme: ThemeTokens
               }}
               style={({ pressed }) => [
                 styles.expiryOptionRow,
-                { backgroundColor: selected ? theme.semantic.proposal.softBg : theme.color.surface, borderColor: selected ? theme.semantic.proposal.border : theme.color.border },
+                { backgroundColor: selected ? theme.semantic.trade.softBg : theme.color.surface, borderColor: selected ? theme.semantic.trade.border : theme.color.border },
                 pressed && styles.pressed,
               ]}
             >
-              <AppText style={[styles.expiryOptionText, { color: selected ? theme.semantic.proposal.text : theme.color.text }]}>{t(option.labelKey)}</AppText>
-              {selected ? <MobileIcon name="proposal-accepted" size={17} color={theme.semantic.proposal.text} /> : null}
+              <AppText style={[styles.expiryOptionText, { color: selected ? theme.semantic.trade.text : theme.color.text }]}>{t(option.labelKey)}</AppText>
+              {selected ? <MobileIcon name="proposal-accepted" size={17} color={theme.semantic.trade.text} /> : null}
             </Pressable>
           );
         })}</View>

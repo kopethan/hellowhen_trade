@@ -1,0 +1,327 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 712a59f..e6abef3 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1739,8 +1739,8 @@ function HeaderAction({ icon, label, onPress, badgeCount = 0 }: { icon: MobileIc
+     >
+       <MobileIcon name={icon} size={20} color={theme.color.text} />
+       {badgeCount > 0 ? (
+-        <View style={[styles.headerActionBadge, { backgroundColor: theme.semantic.plan.text, borderColor: theme.color.surface }]}>
+-          <AppText style={[styles.headerActionBadgeText, { color: theme.color.background }]}>{badgeCount}</AppText>
++        <View style={[styles.headerActionBadge, { backgroundColor: theme.semantic.plan.bg, borderColor: theme.color.surface }]}>
++          <AppText style={[styles.headerActionBadgeText, { color: theme.semantic.plan.onBg }]}>{badgeCount}</AppText>
+         </View>
+       ) : null}
+     </Pressable>
+@@ -1771,7 +1771,7 @@ function PlanRow({ plan, onPress }: { plan: PlanDto; onPress: () => void }) {
+         <MobileIcon name="activity" size={15} color={theme.color.muted} />
+         <AppText style={[styles.metaText, { color: theme.color.muted }]}>{getPlanMeta(plan, t)}</AppText>
+       </View>
+-      {firstPlace ? <AppText style={[styles.placePreview, { color: theme.semantic.plan.text }]}>{t('plans.row.startsWith', { place: firstPlace.title })}</AppText> : null}
++      {firstPlace ? <AppText style={[styles.placePreview, { color: theme.semantic.place.text }]}>{t('plans.row.startsWith', { place: firstPlace.title })}</AppText> : null}
+     </Pressable>
+   );
+ }
+@@ -2159,7 +2159,7 @@ function PlaceList({ scope, navigation, scrollProps }: { scope: PlaceListScope;
+   if (places.length === 0) {
+     return (
+       <View style={[scrollProps?.contentInsetStyle, styles.listContent]}>
+-        <EmptyBlock title={scope === 'library' ? t('places.list.empty.libraryTitle') : t('places.list.empty.mineTitle')} body={scope === 'library' ? t('places.list.empty.libraryBody') : t('places.list.empty.mineBody')} actionLabel={scope === 'mine' ? t('places.list.actions.create') : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined} />
++        <EmptyBlock title={scope === 'library' ? t('places.list.empty.libraryTitle') : t('places.list.empty.mineTitle')} body={scope === 'library' ? t('places.list.empty.libraryBody') : t('places.list.empty.mineBody')} actionLabel={scope === 'mine' ? t('places.list.actions.create') : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined} tone="place" />
+       </View>
+     );
+   }
+@@ -2199,16 +2199,17 @@ function PlaceList({ scope, navigation, scrollProps }: { scope: PlaceListScope;
+   );
+ }
+ 
+-function EmptyBlock({ title, body, actionLabel, onAction }: { title: string; body: string; actionLabel?: string; onAction?: () => void }) {
++function EmptyBlock({ title, body, actionLabel, onAction, tone = 'plan' }: { title: string; body: string; actionLabel?: string; onAction?: () => void; tone?: 'plan' | 'place' }) {
+   const theme = useThemeTokens();
++  const colors = theme.semantic[tone];
+   return (
+     <View style={[styles.emptyBlock, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-      <MobileIcon name="plan" size={28} color={theme.color.muted} />
++      <MobileIcon name={tone === 'place' ? 'location-on' : 'plan'} size={28} color={colors.text} />
+       <AppText style={styles.emptyTitle}>{title}</AppText>
+       <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{body}</AppText>
+       {actionLabel && onAction ? (
+-        <Pressable accessibilityRole="button" onPress={onAction} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+-          <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{actionLabel}</AppText>
++        <Pressable accessibilityRole="button" onPress={onAction} style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.bg }, pressed && styles.pressed]}>
++          <AppText style={[styles.primaryButtonText, { color: colors.onBg }]}>{actionLabel}</AppText>
+         </Pressable>
+       ) : null}
+     </View>
+@@ -2420,8 +2421,8 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
+                       pressed && styles.pressed,
+                     ]}
+                   >
+-                    <View style={[styles.planFilterCheck, { borderColor: selected ? theme.semantic.plan.border : theme.color.border, backgroundColor: selected ? theme.semantic.plan.text : 'transparent' }]}>
+-                      {selected ? <MobileIcon name="close" size={11} color={theme.color.background} /> : null}
++                    <View style={[styles.planFilterCheck, { borderColor: selected ? theme.semantic.plan.border : theme.color.border, backgroundColor: selected ? theme.semantic.plan.bg : 'transparent' }]}>
++                      {selected ? <MobileIcon name="close" size={11} color={theme.semantic.plan.onBg} /> : null}
+                     </View>
+                     <View style={styles.planFilterOptionCopy}>
+                       <AppText style={[styles.choiceTitle, selected && { color: theme.semantic.plan.text }]}>{t(option.labelKey)}</AppText>
+@@ -2525,8 +2526,8 @@ function PlanPlaceLocationSheet({ location, visible, onClose }: { location: Plan
+         <Pressable accessibilityRole="button" accessibilityLabel={t('plans.detail.location.closeActions')} style={styles.locationSheetBackdrop} onPress={onClose} />
+         <View style={[styles.locationSheet, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
+           <View style={styles.locationSheetHeader}>
+-            <View style={[styles.locationSheetIcon, { backgroundColor: isLocal ? theme.semantic.place.softBg : theme.semantic.plan.softBg, borderColor: isLocal ? theme.semantic.place.border : theme.semantic.plan.border }]}>
+-              <MobileIcon name={isLocal ? 'location-on' : 'plan'} size={18} color={isLocal ? theme.semantic.place.text : theme.semantic.plan.text} />
++            <View style={[styles.locationSheetIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
++              <MobileIcon name={isLocal ? 'location-on' : 'plan'} size={18} color={theme.semantic.place.text} />
+             </View>
+             <View style={styles.locationSheetHeaderCopy}>
+               <AppText style={styles.locationSheetTitle}>{location.label}</AppText>
+@@ -2550,10 +2551,10 @@ function PlanPlaceLocationSheet({ location, visible, onClose }: { location: Plan
+                   onClose();
+                   void openPlanPlaceLocation(location, t);
+                 }}
+-                style={({ pressed }) => [styles.locationSheetAction, { backgroundColor: isLocal ? theme.semantic.place.bg : theme.semantic.plan.bg, borderColor: isLocal ? theme.semantic.place.border : theme.semantic.plan.border }, pressed && styles.pressed]}
++                style={({ pressed }) => [styles.locationSheetAction, { backgroundColor: theme.semantic.place.bg, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}
+               >
+-                <MobileIcon name={isLocal ? 'location-on' : 'plan'} size={17} color={theme.color.background} />
+-                <AppText style={[styles.locationSheetActionText, { color: theme.color.background }]}>{openLabel}</AppText>
++                <MobileIcon name={isLocal ? 'location-on' : 'plan'} size={17} color={theme.semantic.place.onBg} />
++                <AppText style={[styles.locationSheetActionText, { color: theme.semantic.place.onBg }]}>{openLabel}</AppText>
+               </Pressable>
+             ) : null}
+             <Pressable
+@@ -2648,9 +2649,9 @@ function PlanPlaceTimelineCard({
+               onPress={() => setLocationSheetVisible(true)}
+               style={({ pressed }) => [styles.planRouteLocationRow, pressed && styles.pressed]}
+             >
+-              <MobileIcon name={locationDetails.kind === 'local' ? 'location-on' : 'plan'} color={locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text} size={16} />
++              <MobileIcon name={locationDetails.kind === 'local' ? 'location-on' : 'plan'} color={theme.semantic.place.text} size={16} />
+               <View style={styles.planRouteLocationCopy}>
+-                <AppText style={[styles.planRouteLocationLabel, { color: locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text }]}>{locationDetails.label}</AppText>
++                <AppText style={[styles.planRouteLocationLabel, { color: theme.semantic.place.text }]}>{locationDetails.label}</AppText>
+                 <AppText style={[styles.planRouteLocationValue, { color: theme.color.text }]} numberOfLines={2}>{locationDetails.value}</AppText>
+               </View>
+               <MobileIcon name="chevron-right" color={theme.color.muted} size={16} />
+@@ -2701,8 +2702,8 @@ function PlanPlaceTimelineCard({
+                     verificationDisabled && styles.disabled,
+                   ]}
+                 >
+-                  {isVerifyingPresence ? <ActivityIndicator size="small" color={canVerifyPresence ? theme.color.background : theme.color.muted} /> : <MobileIcon name="location-on" size={15} color={canVerifyPresence ? theme.color.background : theme.color.muted} />}
+-                  <AppText style={[styles.planPresenceButtonText, { color: canVerifyPresence ? theme.color.background : theme.color.muted }]}>{isVerifyingPresence ? t('plans.detail.presence.checking') : t('plans.detail.presence.verify')}</AppText>
++                  {isVerifyingPresence ? <ActivityIndicator size="small" color={canVerifyPresence ? theme.semantic.place.onBg : theme.color.muted} /> : <MobileIcon name="location-on" size={15} color={canVerifyPresence ? theme.semantic.place.onBg : theme.color.muted} />}
++                  <AppText style={[styles.planPresenceButtonText, { color: canVerifyPresence ? theme.semantic.place.onBg : theme.color.muted }]}>{isVerifyingPresence ? t('plans.detail.presence.checking') : t('plans.detail.presence.verify')}</AppText>
+                 </Pressable>
+               ) : null}
+             </View>
+@@ -3009,13 +3010,13 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+                   onPress={() => { void openPlanRouteMaps(routeMaps, t); }}
+                   style={({ pressed }) => [styles.planRouteMapsButton, { backgroundColor: theme.semantic.place.bg, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}
+                 >
+-                  <MobileIcon name="location-on" size={15} color={theme.color.background} />
+-                  <AppText style={[styles.planRouteMapsButtonText, { color: theme.color.background }]}>{routeMaps.label}</AppText>
++                  <MobileIcon name="location-on" size={15} color={theme.semantic.place.onBg} />
++                  <AppText style={[styles.planRouteMapsButtonText, { color: theme.semantic.place.onBg }]}>{routeMaps.label}</AppText>
+                 </Pressable>
+               ) : null}
+             </View>
+             {routeMaps ? <AppText style={[styles.planRouteMapsHint, { color: theme.color.muted }]}>{routeMaps.body}</AppText> : null}
+-            {places.length === 0 ? <EmptyBlock title={t('plans.detail.route.emptyTitle')} body={t('plans.detail.route.emptyBody')} /> : null}
++            {places.length === 0 ? <EmptyBlock title={t('plans.detail.route.emptyTitle')} body={t('plans.detail.route.emptyBody')} tone="place" /> : null}
+             {places.map((place, index) => (
+               <PlanPlaceTimelineCard
+                 key={place.id}
+@@ -3140,8 +3141,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+               ) : null}
+               {canJoin ? (
+                 <View style={styles.planPrimaryActionBlock}>
+-                  <Pressable disabled={busy} accessibilityRole="button" onPress={joinPlan} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed, busy && styles.disabled]}>
+-                    <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{busy ? t('plans.detail.actions.joining') : t('plans.detail.actions.join')}</AppText>
++                  <Pressable disabled={busy} accessibilityRole="button" onPress={joinPlan} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, busy && styles.disabled]}>
++                    <AppText style={[styles.primaryButtonText, { color: theme.semantic.plan.onBg }]}>{busy ? t('plans.detail.actions.joining') : t('plans.detail.actions.join')}</AppText>
+                   </Pressable>
+                   <AppText style={[styles.metaText, styles.planActionFootnote, { color: theme.color.muted }]}>{plan.joinApprovalMode === 'automatic' ? t('plans.detail.actions.freeJoinFootnote') : t('plans.detail.actions.requestJoinFootnote')}</AppText>
+                 </View>
+@@ -3227,7 +3228,7 @@ function ModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (val
+         const active = value === mode;
+         return (
+           <Pressable key={mode} accessibilityRole="button" onPress={() => onChange(mode)} style={({ pressed }) => [styles.modeSegmentButton, { backgroundColor: active ? theme.semantic.place.bg : 'transparent' }, pressed && styles.pressed]}>
+-            <AppText style={[styles.modeSegmentText, { color: active ? theme.color.background : theme.color.text }]}>{mode === 'remote' ? t('places.editor.mode.online') : t('places.editor.mode.offline')}</AppText>
++            <AppText style={[styles.modeSegmentText, { color: active ? theme.semantic.place.onBg : theme.color.text }]}>{mode === 'remote' ? t('places.editor.mode.online') : t('places.editor.mode.offline')}</AppText>
+           </Pressable>
+         );
+       })}
+@@ -3863,11 +3864,12 @@ function PillButton({ label, onPress, active, disabled }: { label: string; onPre
+   );
+ }
+ 
+-function PrimaryButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
++function PrimaryButton({ label, onPress, disabled, tone = 'plan' }: { label: string; onPress: () => void; disabled?: boolean; tone?: 'plan' | 'place' }) {
+   const theme = useThemeTokens();
++  const colors = theme.semantic[tone];
+   return (
+-    <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.place.bg }, pressed && styles.pressed, disabled && styles.disabled]}>
+-      <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{label}</AppText>
++    <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.bg }, pressed && styles.pressed, disabled && styles.disabled]}>
++      <AppText style={[styles.primaryButtonText, { color: colors.onBg }]}>{label}</AppText>
+     </Pressable>
+   );
+ }
+@@ -3905,7 +3907,7 @@ function PlaceChoiceCard({ place, onPress }: { place: PlaceDto; onPress: () => v
+         <AppText style={[styles.choiceMeta, { color: needsFix ? theme.semantic.warning.text : theme.color.muted }]} numberOfLines={2}>{disabledReason || meta || t('plans.create.place.reusable')}</AppText>
+       </View>
+       <View style={[styles.addMini, { backgroundColor: needsFix ? theme.semantic.warning.softBg : theme.semantic.place.bg, borderColor: needsFix ? theme.semantic.warning.border : 'transparent' }]}>
+-        {needsFix ? <AppText style={[styles.addMiniText, { color: theme.semantic.warning.text }]}>{t('plans.create.place.fix')}</AppText> : <MobileIcon name="add" size={16} color={theme.color.background} />}
++        {needsFix ? <AppText style={[styles.addMiniText, { color: theme.semantic.warning.text }]}>{t('plans.create.place.fix')}</AppText> : <MobileIcon name="add" size={16} color={theme.semantic.place.onBg} />}
+       </View>
+     </Pressable>
+   );
+@@ -4866,7 +4868,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+         {stage === 'build' && places.length > 0 ? (
+           <View style={[styles.planCreateStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}>
+             <Pressable accessibilityRole="button" disabled={draftPlaceValidationBlocked} onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, draftPlaceValidationBlocked && styles.disabled]}>
+-              <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('plans.create.preview.previewPlan')}</AppText>
++              <AppText style={[styles.primaryButtonText, { color: theme.semantic.plan.onBg }]}>{t('plans.create.preview.previewPlan')}</AppText>
+             </Pressable>
+           </View>
+         ) : stage === 'preview' ? (
+@@ -4877,7 +4879,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+               </View>
+               <View style={styles.planCreateStickyPrimary}>
+                 <Pressable accessibilityRole="button" disabled={saving || draftPlaceValidationBlocked} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, (saving || draftPlaceValidationBlocked) && styles.disabled]}>
+-                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? t('plans.create.preview.creating') : t('plans.create.preview.create')}</AppText>
++                  <AppText style={[styles.primaryButtonText, { color: theme.semantic.plan.onBg }]}>{saving ? t('plans.create.preview.creating') : t('plans.create.preview.create')}</AppText>
+                 </Pressable>
+               </View>
+             </View>
+@@ -5053,7 +5055,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                   </View>
+                   <TextField label={t('plans.create.sourcePicker.searchLabel')} value={placeQuery} onChangeText={setPlaceQuery} placeholder={t('plans.create.sourcePicker.searchPlaceholder')} />
+                   {loadingPlaces ? <View style={styles.inlineSmallLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('plans.create.sourcePicker.loading')}</AppText></View> : null}
+-                  {!loadingPlaces && activeList.length === 0 ? <EmptyBlock title={t(pickerTab === 'mine' ? 'plans.create.sourcePicker.noMineTitle' : 'plans.create.sourcePicker.noLibraryTitle')} body={t(pickerTab === 'mine' ? 'plans.create.sourcePicker.noMineBody' : 'plans.create.sourcePicker.noLibraryBody')} /> : null}
++                  {!loadingPlaces && activeList.length === 0 ? <EmptyBlock title={t(pickerTab === 'mine' ? 'plans.create.sourcePicker.noMineTitle' : 'plans.create.sourcePicker.noLibraryTitle')} body={t(pickerTab === 'mine' ? 'plans.create.sourcePicker.noMineBody' : 'plans.create.sourcePicker.noLibraryBody')} tone="place" /> : null}
+                   <ScrollView style={styles.sourceListScroll} keyboardShouldPersistTaps="handled">
+                     {activeList.map((place) => <PlaceChoiceCard key={place.id} place={place} onPress={() => chooseReusablePlace(place)} />)}
+                   </ScrollView>
+@@ -5492,7 +5494,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+               />
+             </View>
+             <View style={styles.placeEditorStickyPrimary}>
+-              <PrimaryButton label={editorPrimaryLabel} onPress={handleEditorPrimaryAction} disabled={editorPrimaryDisabled} />
++              <PrimaryButton label={editorPrimaryLabel} onPress={handleEditorPrimaryAction} disabled={editorPrimaryDisabled} tone="place" />
+             </View>
+           </View>
+         </View>
+diff --git a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+index a16d94b..f0357a5 100644
+--- a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
++++ b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+@@ -14,7 +14,6 @@ import { resolveMediaVariantUrl } from '../../trade/mediaUrls';
+ 
+ const MOBILE_PLAN_DECK_AVAILABLE_HEIGHT = 404;
+ const MOBILE_PLAN_DECK_MAX_CARD_SIZE = 348;
+-const FALLBACK_ACCENTS = ['#7C3AED', '#A855F7', '#C084FC', '#F97316'];
+ type PlanPlaceDeckCard = SquareStackDeckCard & {
+   kind: 'place' | 'emptyPlace';
+   plan: PlanDto;
+@@ -73,11 +72,10 @@ function hashString(value: string) {
+ 
+ function fallbackModel(id: string) {
+   const hash = hashString(id);
+-  const accent = FALLBACK_ACCENTS[hash % FALLBACK_ACCENTS.length] ?? '#7C3AED';
+   const lineOffset = hash % 37;
+   const dotOffsetX = ((hash % 29) - 14) * 0.5;
+   const dotOffsetY = (((hash >> 4) % 23) - 11) * 0.5;
+-  return { accent, lineOffset, dotOffsetX, dotOffsetY };
++  return { lineOffset, dotOffsetX, dotOffsetY };
+ }
+ 
+ function buildPlanPlaceDeckCards(plan: PlanDto): PlanPlaceDeckCard[] {
+@@ -122,7 +120,7 @@ function getPlanParticipantCount(plan: PlanDto) {
+   return plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
+ }
+ 
+-function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'instruction', showModeBadge = true }: { card: PlanPlaceDeckCard; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
++function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'place', showModeBadge = true }: { card: PlanPlaceDeckCard; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
+   const theme = useThemeTokens();
+   const { language, t } = useTranslation();
+   const isDark = theme.mode === 'dark';
+@@ -145,11 +143,11 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+   const posterTextShadow = hasPosterImage ? 'rgba(0,0,0,0.34)' : isDark ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.48)';
+   const posterTitleColor = hasPosterImage ? '#FFFFFF' : theme.color.text;
+   const posterMutedColor = hasPosterImage ? 'rgba(255,255,255,0.86)' : theme.color.muted;
+-  const posterSubtleColor = hasPosterImage ? 'rgba(255,255,255,0.74)' : theme.color.muted;
++  const posterPlanColor = hasPosterImage ? 'rgba(255,255,255,0.74)' : theme.semantic.plan.text;
+   const posterPillBg = hasPosterImage ? 'rgba(10,15,22,0.24)' : undefined;
+   const posterPillBorder = hasPosterImage ? 'rgba(255,255,255,0.08)' : undefined;
+   const posterPillText = hasPosterImage ? 'rgba(255,255,255,0.9)' : undefined;
+-  const fallbackSurface = isDark ? '#241833' : '#F2E9FF';
++  const fallbackSurface = theme.semantic.place.softBg;
+ 
+   return (
+     <Pressable
+@@ -176,18 +174,19 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+                 {
+                   top: 24 + index * 31,
+                   left: `${8 + ((fallback.lineOffset + index * 13) % 40)}%`,
+-                  backgroundColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.055)' : 'rgba(92,33,182,0.055)',
++                  backgroundColor: theme.semantic.place.border,
++                  opacity: isDark ? 0.18 : 0.22,
+                 },
+               ]}
+             />
+           ))}
+-          <View style={[styles.fallbackRouteLine, { backgroundColor: theme.mode === 'dark' ? 'rgba(251,146,60,0.16)' : 'rgba(249,115,22,0.12)' }]} />
++          <View style={[styles.fallbackRouteLine, { backgroundColor: theme.semantic.plan.border, opacity: isDark ? 0.34 : 0.28 }]} />
+           <View
+             style={[
+               styles.fallbackDot,
+               {
+-                backgroundColor: fallback.accent,
+-                borderColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.5)',
++                backgroundColor: theme.semantic.place.bg,
++                borderColor: theme.semantic.place.onBg,
+                 transform: [{ translateX: fallback.dotOffsetX }, { translateY: fallback.dotOffsetY }],
+               },
+             ]}
+@@ -219,7 +218,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'in
+         surfaceStyle={styles.posterCardFooterSurface}
+         contentStyle={styles.posterCardFooterContent}
+       >
+-        <AppText style={[styles.planTitle, { color: posterSubtleColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{card.plan.title}</AppText>
++        <AppText style={[styles.planTitle, { color: posterPlanColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{card.plan.title}</AppText>
+         <AppText style={[styles.placeTitle, { color: posterTitleColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{placeTitle}</AppText>
+         {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{t('plans.deck.addFirstStop')}</AppText> : null}
+         {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{locationLabel}</AppText> : null}
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index 266fb06..ded3099 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -584,6 +584,7 @@ function TradeWizardMenuModal({ visible, onClose, onSelect }: TradeWizardMenuMod
+     if (tone === 'offer') return theme.semantic.offer;
+     if (tone === 'info') return theme.semantic.info;
+     if (tone === 'plan') return theme.semantic.plan;
++    if (tone === 'place') return theme.semantic.place;
+     return theme.semantic.trade;
+   }
+ 
+diff --git a/packages/shared/src/appNavigation.ts b/packages/shared/src/appNavigation.ts
+index 3f080e7..5e76a54 100644
+--- a/packages/shared/src/appNavigation.ts
++++ b/packages/shared/src/appNavigation.ts
+@@ -58,7 +58,7 @@ export function getNormalAppNavItemByMobileTabName(tabName: string | null | unde
+ 
+ export type NormalWorkspaceMenuId = 'plans' | 'trade';
+ export type NormalWorkspaceMenuIcon = 'activity' | 'help' | 'location-on' | 'need' | 'offer' | 'plan' | 'proposal-accepted' | 'save' | 'search' | 'trade';
+-export type NormalWorkspaceMenuTone = 'info' | 'need' | 'offer' | 'plan' | 'trade';
++export type NormalWorkspaceMenuTone = 'info' | 'need' | 'offer' | 'plan' | 'place' | 'trade';
+ 
+ export type NormalWorkspaceMenuItem = {
+   id: string;
+@@ -75,7 +75,7 @@ export const normalWorkspaceMenus = {
+     { id: 'plan_guide', title: 'Plan Guide', body: 'Learn how Plans, Places, joining, creating, and safety work.', titleKey: 'navigation.workspace.plans.planGuide.title', bodyKey: 'navigation.workspace.plans.planGuide.body', icon: 'help', tone: 'info' },
+     { id: 'my_plans', title: 'My plans', body: 'Plans you created.', titleKey: 'plans.workspace.myPlans.title', bodyKey: 'plans.workspace.myPlans.body', icon: 'plan', tone: 'plan' },
+     { id: 'joined_plans', title: 'Joined plans', body: 'Plans you joined freely.', titleKey: 'plans.workspace.joinedPlans.title', bodyKey: 'plans.workspace.joinedPlans.body', icon: 'activity', tone: 'info' },
+-    { id: 'my_places', title: 'My places', body: 'Reusable offline or online places.', titleKey: 'plans.workspace.myPlaces.title', bodyKey: 'plans.workspace.myPlaces.body', icon: 'location-on', tone: 'plan' },
++    { id: 'my_places', title: 'My places', body: 'Reusable offline or online places.', titleKey: 'plans.workspace.myPlaces.title', bodyKey: 'plans.workspace.myPlaces.body', icon: 'location-on', tone: 'place' },
+     { id: 'plan_ideas', title: 'Plan ideas', body: 'Starter Plan ideas you can review and customize.', titleKey: 'plans.workspace.planIdeas.title', bodyKey: 'plans.workspace.planIdeas.body', icon: 'search', tone: 'info' },
+   ],
+   trade: [

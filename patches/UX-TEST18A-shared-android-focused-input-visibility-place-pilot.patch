@@ -1,0 +1,250 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index fa9ae96..1b8a376 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+ import AsyncStorage from '@react-native-async-storage/async-storage';
+ import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
+ import * as Location from 'expo-location';
+-import { ActivityIndicator, Alert, findNodeHandle, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle, type LayoutChangeEvent } from 'react-native';
++import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle, type LayoutChangeEvent } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+@@ -29,6 +29,7 @@ import { useAuth } from '../../providers/AuthProvider';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
++import { useAndroidFocusedInputVisibility } from '../../hooks/useAndroidFocusedInputVisibility';
+ import { resolveMediaVariantUrl } from '../trade/mediaUrls';
+ import { ImagePickerField } from '../trade/components/ImagePickerField';
+ import type { SelectedLocalImage, SelectedImageUploadProgress } from '../trade/mediaUpload';
+@@ -3255,20 +3256,6 @@ function FormLabel({ label, children }: { label: string; children: React.ReactNo
+   );
+ }
+ 
+-function scrollFocusedInputIntoView(scrollView: ScrollView | null, input: TextInput | null, additionalOffset = 28) {
+-  if (Platform.OS !== 'android' || !scrollView || !input) return;
+-  const nodeHandle = findNodeHandle(input);
+-  if (!nodeHandle) return;
+-
+-  // Let the Android keyboard finish resizing the window before calculating the
+-  // focused field position. This keeps lower fields above the IME instead of
+-  // leaving them hidden behind it on narrow devices, while preserving iOS's
+-  // existing KeyboardAvoidingView behavior.
+-  setTimeout(() => {
+-    scrollView.scrollResponderScrollNativeHandleToKeyboard(nodeHandle, additionalOffset, true);
+-  }, 220);
+-}
+-
+ function TextField({
+   label,
+   value,
+@@ -3278,7 +3265,8 @@ function TextField({
+   keyboardType,
+   maxLength,
+   compactMultiline,
+-  keyboardScrollRef,
++  onKeyboardInputFocus,
++  onKeyboardInputBlur,
+   keyboardScrollOffset,
+ }: {
+   label: string;
+@@ -3289,7 +3277,8 @@ function TextField({
+   keyboardType?: 'default' | 'numbers-and-punctuation' | 'url';
+   maxLength?: number;
+   compactMultiline?: boolean;
+-  keyboardScrollRef?: React.RefObject<ScrollView | null>;
++  onKeyboardInputFocus?: (input: TextInput | null, additionalOffset?: number) => void;
++  onKeyboardInputBlur?: (input: TextInput | null) => void;
+   keyboardScrollOffset?: number;
+ }) {
+   const theme = useThemeTokens();
+@@ -3309,7 +3298,8 @@ function TextField({
+         inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
+         returnKeyType={multiline ? 'default' : 'done'}
+         blurOnSubmit={!multiline}
+-        onFocus={() => scrollFocusedInputIntoView(keyboardScrollRef?.current ?? null, inputRef.current, keyboardScrollOffset)}
++        onFocus={() => onKeyboardInputFocus?.(inputRef.current, keyboardScrollOffset)}
++        onBlur={() => onKeyboardInputBlur?.(inputRef.current)}
+         style={[styles.input, multiline && styles.textArea, multiline && compactMultiline && styles.compactTextArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
+       />
+     </FormLabel>
+@@ -3678,7 +3668,8 @@ function GooglePlacePicker({
+   languageCode,
+   country,
+   maxLength = 240,
+-  keyboardScrollRef,
++  onKeyboardInputFocus,
++  onKeyboardInputBlur,
+   keyboardScrollOffset,
+ }: {
+   value: string;
+@@ -3692,7 +3683,8 @@ function GooglePlacePicker({
+   languageCode?: string;
+   country?: string;
+   maxLength?: number;
+-  keyboardScrollRef?: React.RefObject<ScrollView | null>;
++  onKeyboardInputFocus?: (input: TextInput | null, additionalOffset?: number) => void;
++  onKeyboardInputBlur?: (input: TextInput | null) => void;
+   keyboardScrollOffset?: number;
+ }) {
+   const theme = useThemeTokens();
+@@ -3815,7 +3807,8 @@ function GooglePlacePicker({
+           maxLength={maxLength}
+           inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
+           returnKeyType="search"
+-          onFocus={() => scrollFocusedInputIntoView(keyboardScrollRef?.current ?? null, inputRef.current, keyboardScrollOffset)}
++          onFocus={() => onKeyboardInputFocus?.(inputRef.current, keyboardScrollOffset)}
++          onBlur={() => onKeyboardInputBlur?.(inputRef.current)}
+           style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
+         />
+       </FormLabel>
+@@ -5105,6 +5098,12 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+   const postSaveNavigationRef = useRef<(() => void) | null>(null);
+   const [postSaveNavigationVersion, setPostSaveNavigationVersion] = useState(0);
+   const placeEditorScrollRef = useRef<ScrollView>(null);
++  const [placeEditorBottomClearance, setPlaceEditorBottomClearance] = useState(0);
++  const placeKeyboardVisibility = useAndroidFocusedInputVisibility({
++    scrollViewRef: placeEditorScrollRef,
++    safeGap: 14,
++    bottomClearance: placeEditorBottomClearance,
++  });
+ 
+   const translationsChanged = placeTranslationDraftFingerprint(state) !== placeTranslationDraftFingerprint(initialFormRef.current);
+   const baseDetailsChanged = placeBaseDetailsFingerprint(state) !== placeBaseDetailsFingerprint(initialFormRef.current);
+@@ -5347,12 +5346,12 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+                       }))}
+                     />
+                   </View>
+-                  <TextField label={t('places.editor.fields.name')} value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder={t('places.editor.fields.namePlaceholder')} maxLength={120} keyboardScrollRef={placeEditorScrollRef} />
++                  <TextField label={t('places.editor.fields.name')} value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder={t('places.editor.fields.namePlaceholder')} maxLength={120} onKeyboardInputFocus={placeKeyboardVisibility.onInputFocus} onKeyboardInputBlur={placeKeyboardVisibility.onInputBlur} />
+                   {state.mode === 'remote' ? (
+                     <>
+-                      <TextField label={t('places.editor.fields.onlineUrl')} value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} keyboardScrollRef={placeEditorScrollRef} />
++                      <TextField label={t('places.editor.fields.onlineUrl')} value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} onKeyboardInputFocus={placeKeyboardVisibility.onInputFocus} onKeyboardInputBlur={placeKeyboardVisibility.onInputBlur} />
+                       <AppText style={[styles.placeDestinationHint, { color: theme.color.muted }]}>{getOnlineProviderHint({ onlineUrl: state.onlineUrl }, t)}</AppText>
+-                      <TextField label={t('places.editor.fields.onlineLabel')} value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} maxLength={120} keyboardScrollRef={placeEditorScrollRef} />
++                      <TextField label={t('places.editor.fields.onlineLabel')} value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} maxLength={120} onKeyboardInputFocus={placeKeyboardVisibility.onInputFocus} onKeyboardInputBlur={placeKeyboardVisibility.onInputBlur} />
+                     </>
+                   ) : (
+                     <>
+@@ -5364,13 +5363,13 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+                         placeholder={t('places.editor.fields.addressPlaceholder')}
+                         helperText={t('places.editor.fields.addressHelp')}
+                         languageCode={language}
+-                        keyboardScrollRef={placeEditorScrollRef}
+-                        keyboardScrollOffset={36}
++                        onKeyboardInputFocus={placeKeyboardVisibility.onInputFocus} onKeyboardInputBlur={placeKeyboardVisibility.onInputBlur}
++                        keyboardScrollOffset={8}
+                       />
+                       {!hasValidOfflineProviderAddress(state.providerAddress) ? <AppText style={[styles.placeDestinationHint, { color: theme.semantic.warning.text }]}>{getOfflineAddressRequirementMessage(state.providerAddress, t)}</AppText> : null}
+                     </>
+                   )}
+-                  <TextField label={t('places.editor.fields.description')} value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder={t('places.editor.fields.descriptionPlaceholder')} multiline maxLength={2000} keyboardScrollRef={placeEditorScrollRef} keyboardScrollOffset={40} />
++                  <TextField label={t('places.editor.fields.description')} value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder={t('places.editor.fields.descriptionPlaceholder')} multiline maxLength={2000} onKeyboardInputFocus={placeKeyboardVisibility.onInputFocus} onKeyboardInputBlur={placeKeyboardVisibility.onInputBlur} keyboardScrollOffset={8} />
+                 </>
+               )}
+               <View style={styles.placeTranslationBlock}>
+@@ -5424,8 +5423,8 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+                             <AppText style={[styles.placeTranslationRemoveText, { color: theme.semantic.danger.text }]}>{t('places.editor.language.remove')}</AppText>
+                           </Pressable>
+                         </View>
+-                        <TextField label={t('places.editor.language.translatedName')} value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder={t('places.editor.language.translatedNamePlaceholder')} maxLength={120} keyboardScrollRef={placeEditorScrollRef} />
+-                        <TextField label={t('places.editor.language.translatedDescription')} value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder={t('places.editor.language.translatedDescriptionPlaceholder')} multiline compactMultiline maxLength={2000} keyboardScrollRef={placeEditorScrollRef} keyboardScrollOffset={40} />
++                        <TextField label={t('places.editor.language.translatedName')} value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder={t('places.editor.language.translatedNamePlaceholder')} maxLength={120} onKeyboardInputFocus={placeKeyboardVisibility.onInputFocus} onKeyboardInputBlur={placeKeyboardVisibility.onInputBlur} />
++                        <TextField label={t('places.editor.language.translatedDescription')} value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder={t('places.editor.language.translatedDescriptionPlaceholder')} multiline compactMultiline maxLength={2000} onKeyboardInputFocus={placeKeyboardVisibility.onInputFocus} onKeyboardInputBlur={placeKeyboardVisibility.onInputBlur} keyboardScrollOffset={8} />
+                       </View>
+                     ))}
+ 
+@@ -5494,7 +5493,10 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+             </View>
+           )}
+         </ScrollView>
+-        <View style={[styles.placeEditorStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}>
++        <View
++          onLayout={(event) => setPlaceEditorBottomClearance(event.nativeEvent.layout.height)}
++          style={[styles.placeEditorStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}
++        >
+           <View style={styles.placeEditorStickyActions}>
+             <View style={styles.placeEditorStickySecondary}>
+               <SecondaryButton
+diff --git a/apps/mobile/src/hooks/useAndroidFocusedInputVisibility.ts b/apps/mobile/src/hooks/useAndroidFocusedInputVisibility.ts
+new file mode 100644
+index 0000000..bc9904b
+--- /dev/null
++++ b/apps/mobile/src/hooks/useAndroidFocusedInputVisibility.ts
+@@ -0,0 +1,73 @@
++import { useCallback, useEffect, useRef, type RefObject } from 'react';
++import { findNodeHandle, Keyboard, Platform, ScrollView, TextInput } from 'react-native';
++
++type AndroidFocusedInputVisibilityOptions = {
++  scrollViewRef: RefObject<ScrollView | null>;
++  safeGap?: number;
++  bottomClearance?: number;
++};
++
++type FocusedInputTarget = {
++  input: TextInput;
++  additionalOffset: number;
++};
++
++/**
++ * Keeps the focused field visible above the Android IME without changing the
++ * existing iOS KeyboardAvoidingView behavior.
++ *
++ * The first correction handles focus changes while the keyboard is already
++ * open. A second correction runs after keyboardDidShow so the final position
++ * uses Android's resized viewport instead of a fixed animation delay.
++ */
++export function useAndroidFocusedInputVisibility({
++  scrollViewRef,
++  safeGap = 16,
++  bottomClearance = 0,
++}: AndroidFocusedInputVisibilityOptions) {
++  const focusedTargetRef = useRef<FocusedInputTarget | null>(null);
++  const bottomClearanceRef = useRef(bottomClearance);
++
++  useEffect(() => {
++    bottomClearanceRef.current = bottomClearance;
++  }, [bottomClearance]);
++
++  const revealFocusedInput = useCallback((animated = true) => {
++    if (Platform.OS !== 'android') return;
++    const target = focusedTargetRef.current;
++    const scrollView = scrollViewRef.current;
++    if (!target || !scrollView || !target.input.isFocused()) return;
++
++    const nodeHandle = findNodeHandle(target.input);
++    if (!nodeHandle) return;
++
++    requestAnimationFrame(() => {
++      scrollView.scrollResponderScrollNativeHandleToKeyboard(
++        nodeHandle,
++        safeGap + bottomClearanceRef.current + target.additionalOffset,
++        animated,
++      );
++    });
++  }, [safeGap, scrollViewRef]);
++
++  useEffect(() => {
++    if (Platform.OS !== 'android') return undefined;
++    const keyboardDidShow = Keyboard.addListener('keyboardDidShow', () => {
++      revealFocusedInput(true);
++    });
++    return () => keyboardDidShow.remove();
++  }, [revealFocusedInput]);
++
++  const onInputFocus = useCallback((input: TextInput | null, additionalOffset = 0) => {
++    if (Platform.OS !== 'android' || !input) return;
++    focusedTargetRef.current = { input, additionalOffset };
++    revealFocusedInput(true);
++  }, [revealFocusedInput]);
++
++  const onInputBlur = useCallback((input: TextInput | null) => {
++    if (Platform.OS !== 'android' || !input) return;
++    if (focusedTargetRef.current?.input === input) focusedTargetRef.current = null;
++  }, []);
++
++  return { onInputFocus, onInputBlur, revealFocusedInput };
++}

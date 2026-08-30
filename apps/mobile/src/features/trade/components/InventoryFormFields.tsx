@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import type { DiscoveryLanguage, InventoryAvailabilityPreset, InventoryDurationPreset, InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
 import { findInventoryCategoryOption, inventoryCategoryOptions } from '@hellowhen/shared';
@@ -7,6 +7,7 @@ import { MobileIcon } from '../../../components/MobileIcon';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { useTranslation } from '../../../providers/MobileI18nProvider';
 import { KEYBOARD_DONE_ACCESSORY_ID } from '../../../components/KeyboardDoneAccessory';
+import type { AndroidFocusedInputVisibilityHandlers } from '../../../hooks/useAndroidFocusedInputVisibility';
 import { addInventoryTranslationDraft, getAvailableInventoryTranslationLanguages, removeInventoryTranslationDraft, updateInventoryTranslationDraft, type InventoryTranslationDraft } from '../inventoryTranslations';
 
 export const inventoryItemTypes: InventoryItemType[] = ['service', 'goods', 'other'];
@@ -112,6 +113,8 @@ export function InventoryTextField({
   disabled,
   maxLength,
   error,
+  keyboardVisibility,
+  keyboardScrollOffset,
 }: {
   label: string;
   hint?: string;
@@ -122,9 +125,12 @@ export function InventoryTextField({
   disabled?: boolean;
   maxLength?: number;
   error?: string | null;
+  keyboardVisibility?: AndroidFocusedInputVisibilityHandlers;
+  keyboardScrollOffset?: number;
 }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
+  const inputRef = useRef<TextInput>(null);
   return (
     <View style={styles.field}>
       <View style={styles.labelRow}>
@@ -135,6 +141,7 @@ export function InventoryTextField({
         {hint ? <AppText style={[styles.hint, { color: theme.color.muted }]}>{hint}</AppText> : null}
       </View>
       <TextInput
+        ref={inputRef}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -144,6 +151,8 @@ export function InventoryTextField({
         maxLength={maxLength}
         textAlignVertical={multiline ? 'top' : 'center'}
         inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
+        onFocus={() => keyboardVisibility?.onInputFocus(inputRef.current, keyboardScrollOffset)}
+        onBlur={() => keyboardVisibility?.onInputBlur(inputRef.current)}
                       returnKeyType={multiline ? 'default' : 'done'}
                       blurOnSubmit={!multiline}
                       style={[styles.input, { backgroundColor: theme.color.surface, borderColor: error ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }, multiline && styles.textarea]}
@@ -241,6 +250,7 @@ export function ManualTranslationFields({
   disabled,
   titleMaxLength,
   descriptionMaxLength,
+  keyboardVisibility,
 }: {
   languageCode: DiscoveryLanguage;
   title: string;
@@ -251,6 +261,7 @@ export function ManualTranslationFields({
   disabled?: boolean;
   titleMaxLength?: number;
   descriptionMaxLength?: number;
+  keyboardVisibility?: AndroidFocusedInputVisibilityHandlers;
 }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
@@ -274,6 +285,7 @@ export function ManualTranslationFields({
         placeholder={t('inventory.form.translationTitlePlaceholder')}
         maxLength={titleMaxLength}
         disabled={disabled}
+        keyboardVisibility={keyboardVisibility}
       />
       <InventoryTextField
         label={t('inventory.form.translationDescriptionLabel', { language: inventoryLanguageLabel(languageCode, t) })}
@@ -283,6 +295,8 @@ export function ManualTranslationFields({
         maxLength={descriptionMaxLength}
         multiline
         disabled={disabled}
+        keyboardVisibility={keyboardVisibility}
+        keyboardScrollOffset={8}
       />
     </View>
   );
@@ -295,6 +309,7 @@ export function InventoryTranslationsEditor({
   disabled,
   titleMaxLength,
   descriptionMaxLength,
+  keyboardVisibility,
 }: {
   defaultLanguage: DiscoveryLanguage;
   translations: InventoryTranslationDraft[];
@@ -302,6 +317,7 @@ export function InventoryTranslationsEditor({
   disabled?: boolean;
   titleMaxLength?: number;
   descriptionMaxLength?: number;
+  keyboardVisibility?: AndroidFocusedInputVisibilityHandlers;
 }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
@@ -321,6 +337,7 @@ export function InventoryTranslationsEditor({
           titleMaxLength={titleMaxLength}
           descriptionMaxLength={descriptionMaxLength}
           disabled={disabled}
+          keyboardVisibility={keyboardVisibility}
         />
       ))}
 
@@ -367,6 +384,7 @@ export function InventoryLanguagePanel({
   disabled,
   titleMaxLength,
   descriptionMaxLength,
+  keyboardVisibility,
 }: {
   defaultLanguage: DiscoveryLanguage;
   translations: InventoryTranslationDraft[];
@@ -377,6 +395,7 @@ export function InventoryLanguagePanel({
   disabled?: boolean;
   titleMaxLength?: number;
   descriptionMaxLength?: number;
+  keyboardVisibility?: AndroidFocusedInputVisibilityHandlers;
 }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
@@ -421,6 +440,7 @@ export function InventoryLanguagePanel({
             titleMaxLength={titleMaxLength}
             descriptionMaxLength={descriptionMaxLength}
             disabled={disabled}
+            keyboardVisibility={keyboardVisibility}
           />
         </View>
       ) : null}

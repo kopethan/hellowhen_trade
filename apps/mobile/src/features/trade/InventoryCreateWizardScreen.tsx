@@ -13,6 +13,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import type { AndroidFocusedInputVisibilityHandlers } from '../../hooks/useAndroidFocusedInputVisibility';
 import { AppActionSheet, type AppActionSheetAction } from '../../components/AppActionSheet';
 import { AppCard } from '../../components/AppCard';
 import { AppConfirmSheet } from '../../components/AppConfirmSheet';
@@ -486,7 +487,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     }
   }
 
-  function renderStep() {
+  function renderStep(keyboardVisibility: AndroidFocusedInputVisibilityHandlers) {
     const durationLabel = durationPresetLabel(durationPreset, t);
     const previewMeta = [categoryLabel(category, t), durationLabel, modeLabel(mode, t), locationLabel.trim()].filter(Boolean).join(' · ');
     const tagList = parseInventoryList(tags);
@@ -503,6 +504,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
               maxLength={INVENTORY_TITLE_MAX_LENGTH}
               disabled={submitting}
               error={titleError}
+              keyboardVisibility={keyboardVisibility}
             />
             <InventoryTextField
               label={t('inventory.labels.description')}
@@ -513,6 +515,8 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
               multiline
               disabled={submitting}
               error={descriptionError}
+              keyboardVisibility={keyboardVisibility}
+              keyboardScrollOffset={8}
             />
           </AppCard>
           <InventoryLanguagePanel
@@ -525,6 +529,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
             titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
             descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
             disabled={submitting}
+            keyboardVisibility={keyboardVisibility}
           />
           {betaFeatures.plusSubscriptionFeatures.aiAssistEnabled ? (
             <>
@@ -581,7 +586,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
           {optionalDetailsExpanded ? (
             <>
               <AppCard style={styles.compactCard}>
-                <InventoryTextField label={t('inventory.labels.tags')} hint={t('inventory.form.separateWithCommas')} value={tags} onChangeText={setTags} placeholder={isNeed ? t('inventory.form.tagsNeedPlaceholder') : t('inventory.form.tagsOfferPlaceholder')} disabled={submitting} />
+                <InventoryTextField label={t('inventory.labels.tags')} hint={t('inventory.form.separateWithCommas')} value={tags} onChangeText={setTags} placeholder={isNeed ? t('inventory.form.tagsNeedPlaceholder') : t('inventory.form.tagsOfferPlaceholder')} disabled={submitting} keyboardVisibility={keyboardVisibility} />
                 <InventoryTextField
                   label={t('inventory.labels.location')}
                   hint={t('inventory.labels.optional')}
@@ -589,6 +594,8 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
                   onChangeText={setLocationLabel}
                   placeholder={isNeed ? t('inventory.form.locationNeedPlaceholder') : t('inventory.form.locationOfferPlaceholder')}
                   disabled={submitting}
+                  keyboardVisibility={keyboardVisibility}
+                  keyboardScrollOffset={8}
                 />
               </AppCard>
               {betaFeatures.plusSubscriptionFeatures.customizationEnabled ? (
@@ -742,11 +749,16 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
             onSecondary={onSecondary}
           />
         )}
+        androidFocusedInputVisibility
       >
-        {inventoryWizardDraft.restored ? <InfoNotice tone="info" title={t('inventory.wizard.draftRestoredTitle')} body={t('inventory.wizard.draftRestoredBody')} /> : null}
-        {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotSave')} body={error} /> : null}
-        {submitting && uploadProgressBody ? <InfoNotice tone="info" title={t('inventory.form.uploadProgressTitle')} body={uploadProgressBody} /> : null}
-        {renderStep()}
+        {(keyboardVisibility) => (
+          <>
+            {inventoryWizardDraft.restored ? <InfoNotice tone="info" title={t('inventory.wizard.draftRestoredTitle')} body={t('inventory.wizard.draftRestoredBody')} /> : null}
+            {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotSave')} body={error} /> : null}
+            {submitting && uploadProgressBody ? <InfoNotice tone="info" title={t('inventory.form.uploadProgressTitle')} body={uploadProgressBody} /> : null}
+            {renderStep(keyboardVisibility)}
+          </>
+        )}
       </WizardShell>
       <AppConfirmSheet {...unsavedChangesConfirm} />
       <AppActionSheet

@@ -91,8 +91,17 @@ export function MyOffersScreen() {
         <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.back')} onPress={handleBack} style={({ pressed }) => [styles.backButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
           <MobileIcon name="back" size={20} color={theme.color.text} />
         </Pressable>
-        <Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateOffer')} style={({ pressed }) => [styles.createButton, { backgroundColor: theme.semantic.offer.bg }, pressed && styles.pressed]}>
-          <View style={styles.createButtonContent}><MobileIcon name="add" size={16} color={theme.color.background} /><AppText style={[styles.createButtonText, { color: theme.color.background }]}>{t('common.actions.create')}</AppText></View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('inventory.actions.createOffer')}
+          onPress={() => navigation.navigate('CreateOffer')}
+          style={({ pressed }) => [
+            styles.createButton,
+            { backgroundColor: theme.semantic.offer.bg, borderColor: theme.semantic.offer.bg },
+            pressed && styles.createButtonPressed,
+          ]}
+        >
+          <MobileIcon name="add" size={23} color={theme.semantic.offer.onBg} />
         </Pressable>
       </View>
       <AppText style={styles.title}>{t('inventory.labels.offers')}</AppText>
@@ -169,4 +178,4 @@ function EmptyInventoryPlaceholder({ title, body, tone, onPress }: { title: stri
   );
 }
 
-const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerStack: { gap: 8 }, headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 }, backButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 20, fontWeight: '600' }, createButton: { minHeight: 44, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 10 }, createButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 7 }, createButtonText: { color: '#FFFFFF', fontWeight: '900' }, sourceTabs: { flexDirection: 'row', borderRadius: 22, borderWidth: 1, padding: 4, gap: 4 }, sourceTabButton: { flex: 1, minHeight: 44, borderRadius: 18, borderWidth: 1, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 }, sourceTabText: { fontSize: 13, fontWeight: '900' }, openCreatedButton: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, openCreatedText: { fontWeight: '900' }, emptyPlaceholder: { minHeight: 208, borderRadius: 28, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', padding: 22, gap: 10 }, emptyIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, emptyTitle: { textAlign: 'center', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 }, emptyBody: { textAlign: 'center', lineHeight: 20, fontWeight: '700' }, pressed: { opacity: 0.78 } });
+const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerStack: { gap: 8 }, headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 }, backButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 20, fontWeight: '600' }, createButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }, createButtonPressed: { opacity: 0.78, transform: [{ scale: 0.98 }] }, sourceTabs: { flexDirection: 'row', borderRadius: 22, borderWidth: 1, padding: 4, gap: 4 }, sourceTabButton: { flex: 1, minHeight: 44, borderRadius: 18, borderWidth: 1, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 }, sourceTabText: { fontSize: 13, fontWeight: '900' }, openCreatedButton: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, openCreatedText: { fontWeight: '900' }, emptyPlaceholder: { minHeight: 208, borderRadius: 28, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', padding: 22, gap: 10 }, emptyIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, emptyTitle: { textAlign: 'center', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 }, emptyBody: { textAlign: 'center', lineHeight: 20, fontWeight: '700' }, pressed: { opacity: 0.78 } });

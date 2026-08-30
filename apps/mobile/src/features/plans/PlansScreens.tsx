@@ -2,8 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import * as Location from 'expo-location';
-import { ActivityIndicator, Alert, findNodeHandle, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle, type LayoutChangeEvent } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle, type LayoutChangeEvent } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
@@ -29,6 +30,7 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import { useAndroidFocusedInputVisibility } from '../../hooks/useAndroidFocusedInputVisibility';
 import { resolveMediaVariantUrl } from '../trade/mediaUrls';
 import { ImagePickerField } from '../trade/components/ImagePickerField';
 import type { SelectedLocalImage, SelectedImageUploadProgress } from '../trade/mediaUpload';
@@ -1728,19 +1730,29 @@ function DisabledPlansScreen({ onBack }: { onBack: () => void }) {
   );
 }
 
-function HeaderAction({ icon, label, onPress, badgeCount = 0 }: { icon: MobileIconName; label: string; onPress: () => void; badgeCount?: number }) {
+type HeaderActionPrimaryTone = 'plan' | 'place';
+
+function HeaderAction({ icon, label, onPress, badgeCount = 0, primaryTone, iconSize = 20 }: { icon: MobileIconName; label: string; onPress: () => void; badgeCount?: number; primaryTone?: HeaderActionPrimaryTone; iconSize?: number }) {
   const theme = useThemeTokens();
+  const primarySemantic = primaryTone ? theme.semantic[primaryTone] : null;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }) => [styles.headerAction, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.headerAction,
+        {
+          backgroundColor: primarySemantic?.bg ?? theme.color.surface,
+          borderColor: primarySemantic?.bg ?? theme.color.border,
+        },
+        pressed && styles.headerActionPressed,
+      ]}
     >
-      <MobileIcon name={icon} size={20} color={theme.color.text} />
+      <MobileIcon name={icon} size={iconSize} color={primarySemantic?.onBg ?? theme.color.text} />
       {badgeCount > 0 ? (
-        <View style={[styles.headerActionBadge, { backgroundColor: theme.semantic.plan.text, borderColor: theme.color.surface }]}>
-          <AppText style={[styles.headerActionBadgeText, { color: theme.color.background }]}>{badgeCount}</AppText>
+        <View style={[styles.headerActionBadge, { backgroundColor: theme.semantic.plan.bg, borderColor: theme.color.surface }]}>
+          <AppText style={[styles.headerActionBadgeText, { color: theme.semantic.plan.onBg }]}>{badgeCount}</AppText>
         </View>
       ) : null}
     </Pressable>
@@ -1771,7 +1783,7 @@ function PlanRow({ plan, onPress }: { plan: PlanDto; onPress: () => void }) {
         <MobileIcon name="activity" size={15} color={theme.color.muted} />
         <AppText style={[styles.metaText, { color: theme.color.muted }]}>{getPlanMeta(plan, t)}</AppText>
       </View>
-      {firstPlace ? <AppText style={[styles.placePreview, { color: theme.semantic.plan.text }]}>{t('plans.row.startsWith', { place: firstPlace.title })}</AppText> : null}
+      {firstPlace ? <AppText style={[styles.placePreview, { color: theme.semantic.place.text }]}>{t('plans.row.startsWith', { place: firstPlace.title })}</AppText> : null}
     </Pressable>
   );
 }
@@ -2159,7 +2171,7 @@ function PlaceList({ scope, navigation, scrollProps }: { scope: PlaceListScope; 
   if (places.length === 0) {
     return (
       <View style={[scrollProps?.contentInsetStyle, styles.listContent]}>
-        <EmptyBlock title={scope === 'library' ? t('places.list.empty.libraryTitle') : t('places.list.empty.mineTitle')} body={scope === 'library' ? t('places.list.empty.libraryBody') : t('places.list.empty.mineBody')} actionLabel={scope === 'mine' ? t('places.list.actions.create') : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined} />
+        <EmptyBlock title={scope === 'library' ? t('places.list.empty.libraryTitle') : t('places.list.empty.mineTitle')} body={scope === 'library' ? t('places.list.empty.libraryBody') : t('places.list.empty.mineBody')} actionLabel={scope === 'mine' ? t('places.list.actions.create') : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined} tone="place" />
       </View>
     );
   }
@@ -2199,16 +2211,17 @@ function PlaceList({ scope, navigation, scrollProps }: { scope: PlaceListScope; 
   );
 }
 
-function EmptyBlock({ title, body, actionLabel, onAction }: { title: string; body: string; actionLabel?: string; onAction?: () => void }) {
+function EmptyBlock({ title, body, actionLabel, onAction, tone = 'plan' }: { title: string; body: string; actionLabel?: string; onAction?: () => void; tone?: 'plan' | 'place' }) {
   const theme = useThemeTokens();
+  const colors = theme.semantic[tone];
   return (
     <View style={[styles.emptyBlock, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-      <MobileIcon name="plan" size={28} color={theme.color.muted} />
+      <MobileIcon name={tone === 'place' ? 'location-on' : 'plan'} size={28} color={colors.text} />
       <AppText style={styles.emptyTitle}>{title}</AppText>
       <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{body}</AppText>
       {actionLabel && onAction ? (
-        <Pressable accessibilityRole="button" onPress={onAction} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
-          <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{actionLabel}</AppText>
+        <Pressable accessibilityRole="button" onPress={onAction} style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.bg }, pressed && styles.pressed]}>
+          <AppText style={[styles.primaryButtonText, { color: colors.onBg }]}>{actionLabel}</AppText>
         </Pressable>
       ) : null}
     </View>
@@ -2270,7 +2283,7 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
       <View style={styles.headerActions}>
         <HeaderAction icon="filter" label={activeFilterCount ? t('plans.feed.actions.filterActive', { count: activeFilterCount }) : t('plans.feed.actions.filter')} badgeCount={activeFilterCount} onPress={() => { setMenuOpen(false); navigation.navigate('PlanFilters', { filters: activeFilters, q: activeSearchQuery || undefined }); }} />
         <HeaderAction icon="activity" label={t('plans.feed.actions.menu')} onPress={() => setMenuOpen(true)} />
-        <HeaderAction icon="add" label={t('plans.feed.actions.create')} onPress={() => navigation.navigate('CreatePlan')} />
+        <HeaderAction icon="add" label={t('plans.feed.actions.create')} primaryTone="plan" iconSize={23} onPress={() => navigation.navigate('CreatePlan')} />
       </View>
     </View>
   );
@@ -2420,8 +2433,8 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
                       pressed && styles.pressed,
                     ]}
                   >
-                    <View style={[styles.planFilterCheck, { borderColor: selected ? theme.semantic.plan.border : theme.color.border, backgroundColor: selected ? theme.semantic.plan.text : 'transparent' }]}>
-                      {selected ? <MobileIcon name="close" size={11} color={theme.color.background} /> : null}
+                    <View style={[styles.planFilterCheck, { borderColor: selected ? theme.semantic.plan.border : theme.color.border, backgroundColor: selected ? theme.semantic.plan.bg : 'transparent' }]}>
+                      {selected ? <MobileIcon name="close" size={11} color={theme.semantic.plan.onBg} /> : null}
                     </View>
                     <View style={styles.planFilterOptionCopy}>
                       <AppText style={[styles.choiceTitle, selected && { color: theme.semantic.plan.text }]}>{t(option.labelKey)}</AppText>
@@ -2525,8 +2538,8 @@ function PlanPlaceLocationSheet({ location, visible, onClose }: { location: Plan
         <Pressable accessibilityRole="button" accessibilityLabel={t('plans.detail.location.closeActions')} style={styles.locationSheetBackdrop} onPress={onClose} />
         <View style={[styles.locationSheet, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
           <View style={styles.locationSheetHeader}>
-            <View style={[styles.locationSheetIcon, { backgroundColor: isLocal ? theme.semantic.place.softBg : theme.semantic.plan.softBg, borderColor: isLocal ? theme.semantic.place.border : theme.semantic.plan.border }]}>
-              <MobileIcon name={isLocal ? 'location-on' : 'plan'} size={18} color={isLocal ? theme.semantic.place.text : theme.semantic.plan.text} />
+            <View style={[styles.locationSheetIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}>
+              <MobileIcon name={isLocal ? 'location-on' : 'plan'} size={18} color={theme.semantic.place.text} />
             </View>
             <View style={styles.locationSheetHeaderCopy}>
               <AppText style={styles.locationSheetTitle}>{location.label}</AppText>
@@ -2550,10 +2563,10 @@ function PlanPlaceLocationSheet({ location, visible, onClose }: { location: Plan
                   onClose();
                   void openPlanPlaceLocation(location, t);
                 }}
-                style={({ pressed }) => [styles.locationSheetAction, { backgroundColor: isLocal ? theme.semantic.place.bg : theme.semantic.plan.bg, borderColor: isLocal ? theme.semantic.place.border : theme.semantic.plan.border }, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.locationSheetAction, { backgroundColor: theme.semantic.place.bg, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}
               >
-                <MobileIcon name={isLocal ? 'location-on' : 'plan'} size={17} color={theme.color.background} />
-                <AppText style={[styles.locationSheetActionText, { color: theme.color.background }]}>{openLabel}</AppText>
+                <MobileIcon name={isLocal ? 'location-on' : 'plan'} size={17} color={theme.semantic.place.onBg} />
+                <AppText style={[styles.locationSheetActionText, { color: theme.semantic.place.onBg }]}>{openLabel}</AppText>
               </Pressable>
             ) : null}
             <Pressable
@@ -2648,9 +2661,9 @@ function PlanPlaceTimelineCard({
               onPress={() => setLocationSheetVisible(true)}
               style={({ pressed }) => [styles.planRouteLocationRow, pressed && styles.pressed]}
             >
-              <MobileIcon name={locationDetails.kind === 'local' ? 'location-on' : 'plan'} color={locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text} size={16} />
+              <MobileIcon name={locationDetails.kind === 'local' ? 'location-on' : 'plan'} color={theme.semantic.place.text} size={16} />
               <View style={styles.planRouteLocationCopy}>
-                <AppText style={[styles.planRouteLocationLabel, { color: locationDetails.kind === 'local' ? theme.semantic.place.text : theme.semantic.plan.text }]}>{locationDetails.label}</AppText>
+                <AppText style={[styles.planRouteLocationLabel, { color: theme.semantic.place.text }]}>{locationDetails.label}</AppText>
                 <AppText style={[styles.planRouteLocationValue, { color: theme.color.text }]} numberOfLines={2}>{locationDetails.value}</AppText>
               </View>
               <MobileIcon name="chevron-right" color={theme.color.muted} size={16} />
@@ -2701,8 +2714,8 @@ function PlanPlaceTimelineCard({
                     verificationDisabled && styles.disabled,
                   ]}
                 >
-                  {isVerifyingPresence ? <ActivityIndicator size="small" color={canVerifyPresence ? theme.color.background : theme.color.muted} /> : <MobileIcon name="location-on" size={15} color={canVerifyPresence ? theme.color.background : theme.color.muted} />}
-                  <AppText style={[styles.planPresenceButtonText, { color: canVerifyPresence ? theme.color.background : theme.color.muted }]}>{isVerifyingPresence ? t('plans.detail.presence.checking') : t('plans.detail.presence.verify')}</AppText>
+                  {isVerifyingPresence ? <ActivityIndicator size="small" color={canVerifyPresence ? theme.semantic.place.onBg : theme.color.muted} /> : <MobileIcon name="location-on" size={15} color={canVerifyPresence ? theme.semantic.place.onBg : theme.color.muted} />}
+                  <AppText style={[styles.planPresenceButtonText, { color: canVerifyPresence ? theme.semantic.place.onBg : theme.color.muted }]}>{isVerifyingPresence ? t('plans.detail.presence.checking') : t('plans.detail.presence.verify')}</AppText>
                 </Pressable>
               ) : null}
             </View>
@@ -3009,13 +3022,13 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                   onPress={() => { void openPlanRouteMaps(routeMaps, t); }}
                   style={({ pressed }) => [styles.planRouteMapsButton, { backgroundColor: theme.semantic.place.bg, borderColor: theme.semantic.place.border }, pressed && styles.pressed]}
                 >
-                  <MobileIcon name="location-on" size={15} color={theme.color.background} />
-                  <AppText style={[styles.planRouteMapsButtonText, { color: theme.color.background }]}>{routeMaps.label}</AppText>
+                  <MobileIcon name="location-on" size={15} color={theme.semantic.place.onBg} />
+                  <AppText style={[styles.planRouteMapsButtonText, { color: theme.semantic.place.onBg }]}>{routeMaps.label}</AppText>
                 </Pressable>
               ) : null}
             </View>
             {routeMaps ? <AppText style={[styles.planRouteMapsHint, { color: theme.color.muted }]}>{routeMaps.body}</AppText> : null}
-            {places.length === 0 ? <EmptyBlock title={t('plans.detail.route.emptyTitle')} body={t('plans.detail.route.emptyBody')} /> : null}
+            {places.length === 0 ? <EmptyBlock title={t('plans.detail.route.emptyTitle')} body={t('plans.detail.route.emptyBody')} tone="place" /> : null}
             {places.map((place, index) => (
               <PlanPlaceTimelineCard
                 key={place.id}
@@ -3140,8 +3153,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
               ) : null}
               {canJoin ? (
                 <View style={styles.planPrimaryActionBlock}>
-                  <Pressable disabled={busy} accessibilityRole="button" onPress={joinPlan} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed, busy && styles.disabled]}>
-                    <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{busy ? t('plans.detail.actions.joining') : t('plans.detail.actions.join')}</AppText>
+                  <Pressable disabled={busy} accessibilityRole="button" onPress={joinPlan} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, busy && styles.disabled]}>
+                    <AppText style={[styles.primaryButtonText, { color: theme.semantic.plan.onBg }]}>{busy ? t('plans.detail.actions.joining') : t('plans.detail.actions.join')}</AppText>
                   </Pressable>
                   <AppText style={[styles.metaText, styles.planActionFootnote, { color: theme.color.muted }]}>{plan.joinApprovalMode === 'automatic' ? t('plans.detail.actions.freeJoinFootnote') : t('plans.detail.actions.requestJoinFootnote')}</AppText>
                 </View>
@@ -3182,7 +3195,7 @@ export function MyPlansScreen({ navigation }: SimpleScreenProps<'MyPlans'>) {
   const { t } = useTranslation();
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
   return (
-    <AppSmartHeaderScreen header={<AppHeader title={t('plans.collections.myPlans')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label={t('plans.feed.actions.create')} onPress={() => navigation.navigate('CreatePlan')} />} />}>
+    <AppSmartHeaderScreen header={<AppHeader title={t('plans.collections.myPlans')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label={t('plans.feed.actions.create')} primaryTone="plan" iconSize={23} onPress={() => navigation.navigate('CreatePlan')} />} />}>
       {(scrollProps) => <PlanList scope="mine" navigation={navigation} scrollProps={scrollProps} />}
     </AppSmartHeaderScreen>
   );
@@ -3202,7 +3215,7 @@ export function MyPlacesScreen({ navigation }: SimpleScreenProps<'MyPlaces'>) {
   const { t } = useTranslation();
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
   return (
-    <AppSmartHeaderScreen header={<AppHeader title={t('places.list.headers.myPlaces')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label={t('places.list.actions.create')} onPress={() => navigation.navigate('CreatePlace')} />} />}>
+    <AppSmartHeaderScreen header={<AppHeader title={t('places.list.headers.myPlaces')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label={t('places.list.actions.create')} primaryTone="place" iconSize={23} onPress={() => navigation.navigate('CreatePlace')} />} />}>
       {(scrollProps) => <PlaceList scope="mine" navigation={navigation} scrollProps={scrollProps} />}
     </AppSmartHeaderScreen>
   );
@@ -3227,7 +3240,7 @@ function ModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (val
         const active = value === mode;
         return (
           <Pressable key={mode} accessibilityRole="button" onPress={() => onChange(mode)} style={({ pressed }) => [styles.modeSegmentButton, { backgroundColor: active ? theme.semantic.place.bg : 'transparent' }, pressed && styles.pressed]}>
-            <AppText style={[styles.modeSegmentText, { color: active ? theme.color.background : theme.color.text }]}>{mode === 'remote' ? t('places.editor.mode.online') : t('places.editor.mode.offline')}</AppText>
+            <AppText style={[styles.modeSegmentText, { color: active ? theme.semantic.place.onBg : theme.color.text }]}>{mode === 'remote' ? t('places.editor.mode.online') : t('places.editor.mode.offline')}</AppText>
           </Pressable>
         );
       })}
@@ -3244,20 +3257,6 @@ function FormLabel({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-function scrollFocusedInputIntoView(scrollView: ScrollView | null, input: TextInput | null, additionalOffset = 28) {
-  if (Platform.OS !== 'android' || !scrollView || !input) return;
-  const nodeHandle = findNodeHandle(input);
-  if (!nodeHandle) return;
-
-  // Let the Android keyboard finish resizing the window before calculating the
-  // focused field position. This keeps lower fields above the IME instead of
-  // leaving them hidden behind it on narrow devices, while preserving iOS's
-  // existing KeyboardAvoidingView behavior.
-  setTimeout(() => {
-    scrollView.scrollResponderScrollNativeHandleToKeyboard(nodeHandle, additionalOffset, true);
-  }, 220);
-}
-
 function TextField({
   label,
   value,
@@ -3267,7 +3266,8 @@ function TextField({
   keyboardType,
   maxLength,
   compactMultiline,
-  keyboardScrollRef,
+  onKeyboardInputFocus,
+  onKeyboardInputBlur,
   keyboardScrollOffset,
 }: {
   label: string;
@@ -3278,7 +3278,8 @@ function TextField({
   keyboardType?: 'default' | 'numbers-and-punctuation' | 'url';
   maxLength?: number;
   compactMultiline?: boolean;
-  keyboardScrollRef?: React.RefObject<ScrollView | null>;
+  onKeyboardInputFocus?: (input: TextInput | null, additionalOffset?: number) => void;
+  onKeyboardInputBlur?: (input: TextInput | null) => void;
   keyboardScrollOffset?: number;
 }) {
   const theme = useThemeTokens();
@@ -3298,7 +3299,8 @@ function TextField({
         inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
         returnKeyType={multiline ? 'default' : 'done'}
         blurOnSubmit={!multiline}
-        onFocus={() => scrollFocusedInputIntoView(keyboardScrollRef?.current ?? null, inputRef.current, keyboardScrollOffset)}
+        onFocus={() => onKeyboardInputFocus?.(inputRef.current, keyboardScrollOffset)}
+        onBlur={() => onKeyboardInputBlur?.(inputRef.current)}
         style={[styles.input, multiline && styles.textArea, multiline && compactMultiline && styles.compactTextArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
       />
     </FormLabel>
@@ -3667,7 +3669,8 @@ function GooglePlacePicker({
   languageCode,
   country,
   maxLength = 240,
-  keyboardScrollRef,
+  onKeyboardInputFocus,
+  onKeyboardInputBlur,
   keyboardScrollOffset,
 }: {
   value: string;
@@ -3681,7 +3684,8 @@ function GooglePlacePicker({
   languageCode?: string;
   country?: string;
   maxLength?: number;
-  keyboardScrollRef?: React.RefObject<ScrollView | null>;
+  onKeyboardInputFocus?: (input: TextInput | null, additionalOffset?: number) => void;
+  onKeyboardInputBlur?: (input: TextInput | null) => void;
   keyboardScrollOffset?: number;
 }) {
   const theme = useThemeTokens();
@@ -3804,7 +3808,8 @@ function GooglePlacePicker({
           maxLength={maxLength}
           inputAccessoryViewID={KEYBOARD_DONE_ACCESSORY_ID}
           returnKeyType="search"
-          onFocus={() => scrollFocusedInputIntoView(keyboardScrollRef?.current ?? null, inputRef.current, keyboardScrollOffset)}
+          onFocus={() => onKeyboardInputFocus?.(inputRef.current, keyboardScrollOffset)}
+          onBlur={() => onKeyboardInputBlur?.(inputRef.current)}
           style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
         />
       </FormLabel>
@@ -3863,11 +3868,12 @@ function PillButton({ label, onPress, active, disabled }: { label: string; onPre
   );
 }
 
-function PrimaryButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
+function PrimaryButton({ label, onPress, disabled, tone = 'plan' }: { label: string; onPress: () => void; disabled?: boolean; tone?: 'plan' | 'place' }) {
   const theme = useThemeTokens();
+  const colors = theme.semantic[tone];
   return (
-    <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.place.bg }, pressed && styles.pressed, disabled && styles.disabled]}>
-      <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{label}</AppText>
+    <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.bg }, pressed && styles.pressed, disabled && styles.disabled]}>
+      <AppText style={[styles.primaryButtonText, { color: colors.onBg }]}>{label}</AppText>
     </Pressable>
   );
 }
@@ -3905,7 +3911,7 @@ function PlaceChoiceCard({ place, onPress }: { place: PlaceDto; onPress: () => v
         <AppText style={[styles.choiceMeta, { color: needsFix ? theme.semantic.warning.text : theme.color.muted }]} numberOfLines={2}>{disabledReason || meta || t('plans.create.place.reusable')}</AppText>
       </View>
       <View style={[styles.addMini, { backgroundColor: needsFix ? theme.semantic.warning.softBg : theme.semantic.place.bg, borderColor: needsFix ? theme.semantic.warning.border : 'transparent' }]}>
-        {needsFix ? <AppText style={[styles.addMiniText, { color: theme.semantic.warning.text }]}>{t('plans.create.place.fix')}</AppText> : <MobileIcon name="add" size={16} color={theme.color.background} />}
+        {needsFix ? <AppText style={[styles.addMiniText, { color: theme.semantic.warning.text }]}>{t('plans.create.place.fix')}</AppText> : <MobileIcon name="add" size={16} color={theme.semantic.place.onBg} />}
       </View>
     </Pressable>
   );
@@ -4135,6 +4141,17 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   const [expandedAddressPlaceIds, setExpandedAddressPlaceIds] = useState<string[]>([]);
   const [addressFocusPlaceId, setAddressFocusPlaceId] = useState<string | null>(null);
   const createPlanScrollRef = useRef<ScrollView | null>(null);
+  const detailPlaceScrollRef = useRef<ScrollView | null>(null);
+  const [createPlanBottomClearance, setCreatePlanBottomClearance] = useState(0);
+  const createPlanKeyboardVisibility = useAndroidFocusedInputVisibility({
+    scrollViewRef: createPlanScrollRef,
+    safeGap: 14,
+    bottomClearance: createPlanBottomClearance,
+  });
+  const detailPlaceKeyboardVisibility = useAndroidFocusedInputVisibility({
+    scrollViewRef: detailPlaceScrollRef,
+    safeGap: 14,
+  });
   const addressGuidanceOffsetsRef = useRef<Record<string, number>>({});
 
   const filteredMyPlaces = useMemo(() => filterPlaces(myPlaces, placeQuery), [myPlaces, placeQuery]);
@@ -4773,6 +4790,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                           helperText={t('plans.create.place.starterAddressHelp')}
                           languageCode={language}
                           autoFocus={addressFocusPlaceId === place.id}
+                          onKeyboardInputFocus={createPlanKeyboardVisibility.onInputFocus}
+                          onKeyboardInputBlur={createPlanKeyboardVisibility.onInputBlur}
+                          keyboardScrollOffset={8}
                         />
                         <View style={styles.actionGrid}>
                           <SecondaryButton label={t('plans.create.place.deleteThis')} icon="close" onPress={() => removeSelectedPlace(index)} />
@@ -4864,20 +4884,20 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
           )}
         </ScrollView>
         {stage === 'build' && places.length > 0 ? (
-          <View style={[styles.planCreateStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}>
+          <View onLayout={(event) => setCreatePlanBottomClearance(event.nativeEvent.layout.height)} style={[styles.planCreateStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}>
             <Pressable accessibilityRole="button" disabled={draftPlaceValidationBlocked} onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, draftPlaceValidationBlocked && styles.disabled]}>
-              <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('plans.create.preview.previewPlan')}</AppText>
+              <AppText style={[styles.primaryButtonText, { color: theme.semantic.plan.onBg }]}>{t('plans.create.preview.previewPlan')}</AppText>
             </Pressable>
           </View>
         ) : stage === 'preview' ? (
-          <View style={[styles.planCreateStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}>
+          <View onLayout={(event) => setCreatePlanBottomClearance(event.nativeEvent.layout.height)} style={[styles.planCreateStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}>
             <View style={styles.planCreateStickyActions}>
               <View style={styles.planCreateStickySecondary}>
                 <SecondaryButton label={t('plans.create.preview.back')} onPress={() => setStage('build')} disabled={saving} />
               </View>
               <View style={styles.planCreateStickyPrimary}>
                 <Pressable accessibilityRole="button" disabled={saving || draftPlaceValidationBlocked} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, (saving || draftPlaceValidationBlocked) && styles.disabled]}>
-                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{saving ? t('plans.create.preview.creating') : t('plans.create.preview.create')}</AppText>
+                  <AppText style={[styles.primaryButtonText, { color: theme.semantic.plan.onBg }]}>{saving ? t('plans.create.preview.creating') : t('plans.create.preview.create')}</AppText>
                 </Pressable>
               </View>
             </View>
@@ -4936,7 +4956,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                     <MobileIcon name="close" color={theme.color.text} size={18} />
                   </Pressable>
                 </View>
-                <ScrollView keyboardShouldPersistTaps="handled" style={styles.sourceListScroll} contentContainerStyle={styles.placeDetailSheetContent}>
+                <ScrollView ref={detailPlaceScrollRef} keyboardShouldPersistTaps="handled" style={styles.sourceListScroll} contentContainerStyle={styles.placeDetailSheetContent}>
                   <View style={styles.rowTop}>
                     {detailPlace.sourcePlaceId ? <SemanticBadge label={detailPlace.sourcePlaceSource === 'hellowhen_library' ? t('plans.create.placeDetail.sourceLibrary') : t('plans.create.placeDetail.sourceMine')} tone="place" size="sm" /> : <SemanticBadge label={t('plans.create.placeDetail.sourceCustom')} tone="place" size="sm" />}
                   </View>
@@ -4961,11 +4981,11 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                           onlineUrl: mode === 'remote' ? detailPlace.onlineUrl : '',
                         })}
                       />
-                      <TextField label={t('plans.create.place.name')} value={detailPlace.title} onChangeText={(title) => updateSelectedPlace(detailPlaceIndex, { title })} placeholder={detailPlace.mode === 'remote' ? t('plans.create.place.nameOnlinePlaceholder') : t('plans.create.place.nameOfflinePlaceholder')} maxLength={120} />
+                      <TextField label={t('plans.create.place.name')} value={detailPlace.title} onChangeText={(title) => updateSelectedPlace(detailPlaceIndex, { title })} placeholder={detailPlace.mode === 'remote' ? t('plans.create.place.nameOnlinePlaceholder') : t('plans.create.place.nameOfflinePlaceholder')} maxLength={120} onKeyboardInputFocus={detailPlaceKeyboardVisibility.onInputFocus} onKeyboardInputBlur={detailPlaceKeyboardVisibility.onInputBlur} />
                       {detailPlace.mode === 'remote' ? (
                         <>
-                          <TextField label={t('plans.create.place.onlineLabel')} value={detailPlace.onlineLabel} onChangeText={(onlineLabel) => updateSelectedPlace(detailPlaceIndex, { onlineLabel })} placeholder={t('plans.create.place.onlineLabelPlaceholder')} maxLength={120} />
-                          <TextField label={t('plans.create.place.onlineUrl')} value={detailPlace.onlineUrl} onChangeText={(onlineUrl) => updateSelectedPlace(detailPlaceIndex, { onlineUrl })} placeholder="https://..." keyboardType="url" maxLength={500} />
+                          <TextField label={t('plans.create.place.onlineLabel')} value={detailPlace.onlineLabel} onChangeText={(onlineLabel) => updateSelectedPlace(detailPlaceIndex, { onlineLabel })} placeholder={t('plans.create.place.onlineLabelPlaceholder')} maxLength={120} onKeyboardInputFocus={detailPlaceKeyboardVisibility.onInputFocus} onKeyboardInputBlur={detailPlaceKeyboardVisibility.onInputBlur} />
+                          <TextField label={t('plans.create.place.onlineUrl')} value={detailPlace.onlineUrl} onChangeText={(onlineUrl) => updateSelectedPlace(detailPlaceIndex, { onlineUrl })} placeholder="https://..." keyboardType="url" maxLength={500} onKeyboardInputFocus={detailPlaceKeyboardVisibility.onInputFocus} onKeyboardInputBlur={detailPlaceKeyboardVisibility.onInputBlur} keyboardScrollOffset={8} />
                           <InfoNotice tone="info" body={getOnlineProviderHint({ onlineUrl: detailPlace.onlineUrl }, t)} />
                         </>
                       ) : (
@@ -4978,6 +4998,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                             placeholder={t('plans.create.place.addressPlaceholder')}
                             helperText={t('plans.create.place.addressHelp')}
                             languageCode={language}
+                            onKeyboardInputFocus={detailPlaceKeyboardVisibility.onInputFocus}
+                            onKeyboardInputBlur={detailPlaceKeyboardVisibility.onInputBlur}
+                            keyboardScrollOffset={8}
                           />
                           {!hasValidOfflineProviderAddress(detailPlace.providerAddress) ? <InfoNotice tone="warning" body={getOfflineAddressRequirementMessage(detailPlace.providerAddress, t)} /> : null}
                         </>
@@ -5053,7 +5076,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                   </View>
                   <TextField label={t('plans.create.sourcePicker.searchLabel')} value={placeQuery} onChangeText={setPlaceQuery} placeholder={t('plans.create.sourcePicker.searchPlaceholder')} />
                   {loadingPlaces ? <View style={styles.inlineSmallLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('plans.create.sourcePicker.loading')}</AppText></View> : null}
-                  {!loadingPlaces && activeList.length === 0 ? <EmptyBlock title={t(pickerTab === 'mine' ? 'plans.create.sourcePicker.noMineTitle' : 'plans.create.sourcePicker.noLibraryTitle')} body={t(pickerTab === 'mine' ? 'plans.create.sourcePicker.noMineBody' : 'plans.create.sourcePicker.noLibraryBody')} /> : null}
+                  {!loadingPlaces && activeList.length === 0 ? <EmptyBlock title={t(pickerTab === 'mine' ? 'plans.create.sourcePicker.noMineTitle' : 'plans.create.sourcePicker.noLibraryTitle')} body={t(pickerTab === 'mine' ? 'plans.create.sourcePicker.noMineBody' : 'plans.create.sourcePicker.noLibraryBody')} tone="place" /> : null}
                   <ScrollView style={styles.sourceListScroll} keyboardShouldPersistTaps="handled">
                     {activeList.map((place) => <PlaceChoiceCard key={place.id} place={place} onPress={() => chooseReusablePlace(place)} />)}
                   </ScrollView>
@@ -5092,7 +5115,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
   const [message, setMessage] = useState<string | null>(null);
   const postSaveNavigationRef = useRef<(() => void) | null>(null);
   const [postSaveNavigationVersion, setPostSaveNavigationVersion] = useState(0);
-  const placeEditorScrollRef = useRef<ScrollView>(null);
+  const [placeEditorBottomClearance, setPlaceEditorBottomClearance] = useState(0);
 
   const translationsChanged = placeTranslationDraftFingerprint(state) !== placeTranslationDraftFingerprint(initialFormRef.current);
   const baseDetailsChanged = placeBaseDetailsFingerprint(state) !== placeBaseDetailsFingerprint(initialFormRef.current);
@@ -5297,8 +5320,16 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
 
   return (
     <AppFixedHeaderScreen bodyStyle={styles.placeEditorBody} header={<AppHeader title={isEditing ? t('places.editor.header.edit') : t('places.editor.header.create')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="save" label={t('places.editor.header.myPlaces')} onPress={() => navigation.navigate('MyPlaces')} />} />}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
-        <ScrollView ref={placeEditorScrollRef} contentContainerStyle={[styles.listContent, styles.placeEditorScrollContent]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+      <View style={styles.keyboardWrap}>
+        <KeyboardAwareScrollView
+          style={styles.keyboardAwareScroll}
+          contentContainerStyle={[styles.listContent, styles.placeEditorScrollContent]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          bottomOffset={placeEditorBottomClearance + (Platform.OS === 'ios' ? 48 : 14)}
+          extraKeyboardSpace={Platform.OS === 'ios' ? 24 : 0}
+        >
           {!translationOnlyMode ? (
             <View style={styles.placeCreateCompactHeader}>
               <AppText style={[styles.placeCreateSubtitle, { color: theme.color.muted }]}>{isEditing ? t('places.editor.subtitle.edit') : copyFromPlace ? t('places.editor.subtitle.copy') : t('places.editor.subtitle.create')}</AppText>
@@ -5335,12 +5366,12 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                       }))}
                     />
                   </View>
-                  <TextField label={t('places.editor.fields.name')} value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder={t('places.editor.fields.namePlaceholder')} maxLength={120} keyboardScrollRef={placeEditorScrollRef} />
+                  <TextField label={t('places.editor.fields.name')} value={state.title} onChangeText={(title) => setState((current) => ({ ...current, title }))} placeholder={t('places.editor.fields.namePlaceholder')} maxLength={120} />
                   {state.mode === 'remote' ? (
                     <>
-                      <TextField label={t('places.editor.fields.onlineUrl')} value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} keyboardScrollRef={placeEditorScrollRef} />
+                      <TextField label={t('places.editor.fields.onlineUrl')} value={state.onlineUrl} onChangeText={(onlineUrl) => setState((current) => ({ ...current, onlineUrl }))} placeholder="https://..." keyboardType="url" maxLength={500} />
                       <AppText style={[styles.placeDestinationHint, { color: theme.color.muted }]}>{getOnlineProviderHint({ onlineUrl: state.onlineUrl }, t)}</AppText>
-                      <TextField label={t('places.editor.fields.onlineLabel')} value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} maxLength={120} keyboardScrollRef={placeEditorScrollRef} />
+                      <TextField label={t('places.editor.fields.onlineLabel')} value={state.onlineLabel} onChangeText={(onlineLabel) => setState((current) => ({ ...current, onlineLabel }))} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} maxLength={120} />
                     </>
                   ) : (
                     <>
@@ -5352,13 +5383,11 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                         placeholder={t('places.editor.fields.addressPlaceholder')}
                         helperText={t('places.editor.fields.addressHelp')}
                         languageCode={language}
-                        keyboardScrollRef={placeEditorScrollRef}
-                        keyboardScrollOffset={36}
                       />
                       {!hasValidOfflineProviderAddress(state.providerAddress) ? <AppText style={[styles.placeDestinationHint, { color: theme.semantic.warning.text }]}>{getOfflineAddressRequirementMessage(state.providerAddress, t)}</AppText> : null}
                     </>
                   )}
-                  <TextField label={t('places.editor.fields.description')} value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder={t('places.editor.fields.descriptionPlaceholder')} multiline maxLength={2000} keyboardScrollRef={placeEditorScrollRef} keyboardScrollOffset={40} />
+                  <TextField label={t('places.editor.fields.description')} value={state.description} onChangeText={(description) => setState((current) => ({ ...current, description }))} placeholder={t('places.editor.fields.descriptionPlaceholder')} multiline maxLength={2000} />
                 </>
               )}
               <View style={styles.placeTranslationBlock}>
@@ -5412,8 +5441,8 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
                             <AppText style={[styles.placeTranslationRemoveText, { color: theme.semantic.danger.text }]}>{t('places.editor.language.remove')}</AppText>
                           </Pressable>
                         </View>
-                        <TextField label={t('places.editor.language.translatedName')} value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder={t('places.editor.language.translatedNamePlaceholder')} maxLength={120} keyboardScrollRef={placeEditorScrollRef} />
-                        <TextField label={t('places.editor.language.translatedDescription')} value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder={t('places.editor.language.translatedDescriptionPlaceholder')} multiline compactMultiline maxLength={2000} keyboardScrollRef={placeEditorScrollRef} keyboardScrollOffset={40} />
+                        <TextField label={t('places.editor.language.translatedName')} value={translation.title} onChangeText={(title) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, title }))} placeholder={t('places.editor.language.translatedNamePlaceholder')} maxLength={120} />
+                        <TextField label={t('places.editor.language.translatedDescription')} value={translation.description} onChangeText={(description) => setState((current) => updatePlaceTranslationDraft(current, { ...translation, description }))} placeholder={t('places.editor.language.translatedDescriptionPlaceholder')} multiline compactMultiline maxLength={2000} />
                       </View>
                     ))}
 
@@ -5481,8 +5510,11 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
               {error ? <InfoNotice tone="danger" body={error} /> : null}
             </View>
           )}
-        </ScrollView>
-        <View style={[styles.placeEditorStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}>
+        </KeyboardAwareScrollView>
+        <View
+          onLayout={(event) => setPlaceEditorBottomClearance(event.nativeEvent.layout.height)}
+          style={[styles.placeEditorStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}
+        >
           <View style={styles.placeEditorStickyActions}>
             <View style={styles.placeEditorStickySecondary}>
               <SecondaryButton
@@ -5492,12 +5524,12 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
               />
             </View>
             <View style={styles.placeEditorStickyPrimary}>
-              <PrimaryButton label={editorPrimaryLabel} onPress={handleEditorPrimaryAction} disabled={editorPrimaryDisabled} />
+              <PrimaryButton label={editorPrimaryLabel} onPress={handleEditorPrimaryAction} disabled={editorPrimaryDisabled} tone="place" />
             </View>
           </View>
         </View>
         <AppConfirmSheet {...unsavedChangesConfirm} />
-      </KeyboardAvoidingView>
+      </View>
     </AppFixedHeaderScreen>
   );
 }
@@ -5515,6 +5547,7 @@ const styles = StyleSheet.create({
   feedTitle: { fontSize: 35, lineHeight: 40, fontWeight: '900', letterSpacing: -1 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerAction: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' },
+  headerActionPressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
   headerActionBadge: { position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 9, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   headerActionBadgeText: { fontSize: 10, fontWeight: '900', lineHeight: 12 },
   filterRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
@@ -5546,6 +5579,7 @@ const styles = StyleSheet.create({
   planCreateStickyPrimary: { flex: 1, minWidth: 0 },
   planCreateCompactHeader: { gap: 7, paddingTop: 0, paddingBottom: 0 },
   placeEditorBody: { overflow: 'hidden' },
+  keyboardAwareScroll: { flex: 1 },
   placeEditorScrollContent: { paddingBottom: 18 },
   placeCreateCompactHeader: { paddingTop: 0, paddingBottom: 1 },
   placeCreateSubtitle: { fontSize: 13, lineHeight: 18, fontWeight: '800' },

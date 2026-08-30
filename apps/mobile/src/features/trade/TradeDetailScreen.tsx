@@ -289,7 +289,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
     { label: t('trade.labels.type'), value: postTypeLabel(trade, t), tone: 'trade' as const },
     { label: t('trade.labels.status'), value: formatStatus(trade.status, t), tone: statusTone(trade.status) },
     { label: t('trade.labels.expiry'), value: expiryLabel(trade.expiresAt, t, language), tone: 'time' as const },
-    { label: t('trade.labels.exchange'), value: paymentLabel, tone: 'proposal' as const },
+    { label: t('trade.labels.exchange'), value: paymentLabel, tone: 'trade' as const },
     { label: t('trade.labels.created'), value: createdLabel || null, tone: 'muted' as const },
   ];
   const primaryAction = actions.find((action) => action.variant !== 'danger') ?? null;

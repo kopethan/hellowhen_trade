@@ -23,6 +23,7 @@ export const auth = {
   subtitles: {
     ...enAuth.subtitles,
     login: 'Inicia sesión para crear necesidades, ofertas, intercambios y propuestas.',
+    loginNative: 'Inicia sesión para crear tus Planes, lugares e intercambios.',
     register: 'Crea tu cuenta y configura tus preferencias locales.',
     forgot: 'Solicita un enlace para restablecer tu cuenta de Hellowhen.',
     forgotNative: 'Restablece tu contraseña usando el email de tu cuenta.',

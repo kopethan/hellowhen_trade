@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import type { SemanticColorName } from '@hellowhen/theme';
 import { AppText } from '../../../components/AppText';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 
@@ -16,6 +17,7 @@ type WizardFooterProps = {
   onTertiary?: () => void;
   tertiaryDisabled?: boolean;
   helperText?: string;
+  primaryTone?: SemanticColorName;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -32,10 +34,12 @@ export function WizardFooter({
   onTertiary,
   tertiaryDisabled = false,
   helperText,
+  primaryTone = 'proposal',
   style,
 }: WizardFooterProps) {
   const theme = useThemeTokens();
   const isPrimaryDisabled = primaryDisabled || primaryLoading;
+  const primaryColors = theme.semantic[primaryTone];
 
   return (
     <View style={[styles.wrap, { backgroundColor: theme.color.background, borderColor: theme.color.border }, style]}>
@@ -62,12 +66,12 @@ export function WizardFooter({
           onPress={onPrimary}
           style={({ pressed }) => [
             styles.primaryButton,
-            { backgroundColor: theme.semantic.proposal.bg },
+            { backgroundColor: primaryColors.bg },
             isPrimaryDisabled && styles.disabled,
             pressed && styles.pressed,
           ]}
         >
-          <AppText style={styles.primaryText}>{primaryLoading ? primaryLoadingLabel ?? primaryLabel : primaryLabel}</AppText>
+          <AppText style={[styles.primaryText, { color: primaryColors.onBg }]}>{primaryLoading ? primaryLoadingLabel ?? primaryLabel : primaryLabel}</AppText>
         </Pressable>
       </View>
       {tertiaryLabel && onTertiary ? (
@@ -91,7 +95,7 @@ const styles = StyleSheet.create({
   primaryButton: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 52, borderRadius: 18, paddingHorizontal: 16 },
   secondaryButton: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 52, borderRadius: 18, borderWidth: 1, paddingHorizontal: 16 },
   tertiaryButton: { alignSelf: 'center', paddingHorizontal: 12, paddingVertical: 6 },
-  primaryText: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
+  primaryText: { fontSize: 15, fontWeight: '900' },
   secondaryText: { fontSize: 15, fontWeight: '900' },
   tertiaryText: { fontSize: 13, fontWeight: '900' },
   disabled: { opacity: 0.5 },

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { Platform, ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { getWizardActiveStep, type WizardStepDefinition } from '@hellowhen/shared';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -6,6 +6,7 @@ import { AppFixedHeaderScreen } from '../../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../../components/AppHeader';
 import { AppText } from '../../../components/AppText';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
+import { useAndroidFocusedInputVisibility, type AndroidFocusedInputVisibilityHandlers } from '../../../hooks/useAndroidFocusedInputVisibility';
 import { WizardProgress } from './WizardProgress';
 
 type WizardShellProps<TStepId extends string> = {
@@ -15,12 +16,13 @@ type WizardShellProps<TStepId extends string> = {
   rightSlot?: React.ReactNode;
   steps: readonly WizardStepDefinition<TStepId>[];
   activeStepId: TStepId;
-  children: React.ReactNode;
+  children: React.ReactNode | ((keyboardVisibility: AndroidFocusedInputVisibilityHandlers) => React.ReactNode);
   footer?: React.ReactNode;
   stepLabel?: string;
   ofLabel?: string;
   contentContainerStyle?: StyleProp<ViewStyle>;
   bodyStyle?: StyleProp<ViewStyle>;
+  androidFocusedInputVisibility?: boolean;
 };
 
 export function WizardShell<TStepId extends string>({
@@ -36,10 +38,20 @@ export function WizardShell<TStepId extends string>({
   ofLabel,
   contentContainerStyle,
   bodyStyle,
+  androidFocusedInputVisibility = false,
 }: WizardShellProps<TStepId>) {
   const theme = useThemeTokens();
   const insets = useSafeAreaInsets();
   const activeStep = getWizardActiveStep(steps, activeStepId);
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const [footerHeight, setFooterHeight] = useState(0);
+  const keyboardVisibility = useAndroidFocusedInputVisibility({
+    scrollViewRef,
+    safeGap: 14,
+    bottomClearance: footer ? footerHeight : 0,
+    enabled: androidFocusedInputVisibility,
+  });
+  const renderedChildren = typeof children === 'function' ? children(keyboardVisibility) : children;
   const footerBottomPadding = Platform.OS === 'android' ? Math.max(12, insets.bottom + 10) : 10;
 
   return (
@@ -54,6 +66,7 @@ export function WizardShell<TStepId extends string>({
       bodyStyle={[styles.body, bodyStyle]}
     >
       <ScrollView
+        ref={scrollViewRef}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
         showsVerticalScrollIndicator={false}
@@ -65,9 +78,16 @@ export function WizardShell<TStepId extends string>({
             {activeStep.description ? <AppText style={[styles.stepDescription, { color: theme.color.muted }]}>{activeStep.description}</AppText> : null}
           </View>
         ) : null}
-        {children}
+        {renderedChildren}
       </ScrollView>
-      {footer ? <View style={[styles.footer, { backgroundColor: theme.color.background, paddingBottom: footerBottomPadding }]}>{footer}</View> : null}
+      {footer ? (
+        <View
+          onLayout={androidFocusedInputVisibility ? (event) => setFooterHeight(event.nativeEvent.layout.height) : undefined}
+          style={[styles.footer, { backgroundColor: theme.color.background, paddingBottom: footerBottomPadding }]}
+        >
+          {footer}
+        </View>
+      ) : null}
     </AppFixedHeaderScreen>
   );
 }

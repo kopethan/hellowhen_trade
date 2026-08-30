@@ -97,20 +97,20 @@ function countCollection(response: unknown, key: string) {
 
 const accountActions: AccountAction[] = [
   { titleKey: 'account.items.profile.title', descriptionKey: 'account.items.profile.bodyNative', badgeKey: 'account.items.profile.badge', tone: 'info', route: 'AccountProfile', icon: 'profile', group: 'activity' },
-  { titleKey: 'account.items.notifications.title', descriptionKey: 'account.items.notifications.bodyNative', badgeKey: 'account.items.notifications.badge', tone: 'proposal', route: 'Notifications', icon: 'bell', group: 'activity' },
+  { titleKey: 'account.items.notifications.title', descriptionKey: 'account.items.notifications.bodyNative', badgeKey: 'account.items.notifications.badge', tone: 'muted', route: 'Notifications', icon: 'bell', group: 'activity' },
   ...(betaFeatures.savedLibraryEnabled ? [{ titleKey: 'account.items.saved.title', descriptionKey: 'account.items.saved.bodyNative', badgeKey: 'account.items.saved.badge', tone: 'proposal' as SemanticColorName, route: 'SavedLibrary' as AccountRoute, icon: 'save' as MobileIconName, group: 'activity' as AccountGroupKey }] : []),
   ...(betaFeatures.agendaEnabled ? [{ titleKey: 'account.items.agenda.title', descriptionKey: 'account.items.agenda.bodyNative', badgeKey: 'account.items.agenda.badge', tone: 'instruction' as SemanticColorName, route: 'Agenda' as AccountRoute, icon: 'bell' as MobileIconName, group: 'activity' as AccountGroupKey }] : []),
   ...(betaFeatures.plansVisible ? [
-    { titleKey: 'account.items.plansFeature.title', descriptionKey: 'account.items.plansFeature.bodyNative', badgeKey: 'account.items.plansFeature.badge', tone: 'instruction' as SemanticColorName, route: 'Plans' as AccountRoute, icon: 'plan' as MobileIconName, group: 'plans' as AccountGroupKey },
-    { titleKey: 'account.items.myPlansFeature.title', descriptionKey: 'account.items.myPlansFeature.bodyNative', badgeKey: 'account.items.myPlansFeature.badge', tone: 'info' as SemanticColorName, route: 'MyPlans' as AccountRoute, icon: 'activity' as MobileIconName, group: 'plans' as AccountGroupKey },
-    { titleKey: 'account.items.joinedPlansFeature.title', descriptionKey: 'account.items.joinedPlansFeature.bodyNative', badgeKey: 'account.items.joinedPlansFeature.badge', tone: 'success' as SemanticColorName, route: 'JoinedPlans' as AccountRoute, icon: 'proposal-accepted' as MobileIconName, group: 'plans' as AccountGroupKey },
-    { titleKey: 'account.items.myPlacesFeature.title', descriptionKey: 'account.items.myPlacesFeature.bodyNative', badgeKey: 'account.items.myPlacesFeature.badge', tone: 'proposal' as SemanticColorName, route: 'MyPlaces' as AccountRoute, icon: 'location-on' as MobileIconName, group: 'plans' as AccountGroupKey },
-    { titleKey: 'account.items.placeLibraryFeature.title', descriptionKey: 'account.items.placeLibraryFeature.bodyNative', badgeKey: 'account.items.placeLibraryFeature.badge', tone: 'instruction' as SemanticColorName, route: 'PlaceLibrary' as AccountRoute, icon: 'search' as MobileIconName, group: 'plans' as AccountGroupKey },
-    { titleKey: 'account.items.createPlanFeature.title', descriptionKey: 'account.items.createPlanFeature.bodyNative', badgeKey: 'account.items.createPlanFeature.badge', tone: 'success' as SemanticColorName, route: 'CreatePlan' as AccountRoute, icon: 'add' as MobileIconName, group: 'plans' as AccountGroupKey },
-    { titleKey: 'account.items.createPlaceFeature.title', descriptionKey: 'account.items.createPlaceFeature.bodyNative', badgeKey: 'account.items.createPlaceFeature.badge', tone: 'info' as SemanticColorName, route: 'CreatePlace' as AccountRoute, icon: 'location-on' as MobileIconName, group: 'plans' as AccountGroupKey },
+    { titleKey: 'account.items.plansFeature.title', descriptionKey: 'account.items.plansFeature.bodyNative', badgeKey: 'account.items.plansFeature.badge', tone: 'plan' as SemanticColorName, route: 'Plans' as AccountRoute, icon: 'plan' as MobileIconName, group: 'plans' as AccountGroupKey },
+    { titleKey: 'account.items.myPlansFeature.title', descriptionKey: 'account.items.myPlansFeature.bodyNative', badgeKey: 'account.items.myPlansFeature.badge', tone: 'plan' as SemanticColorName, route: 'MyPlans' as AccountRoute, icon: 'activity' as MobileIconName, group: 'plans' as AccountGroupKey },
+    { titleKey: 'account.items.joinedPlansFeature.title', descriptionKey: 'account.items.joinedPlansFeature.bodyNative', badgeKey: 'account.items.joinedPlansFeature.badge', tone: 'plan' as SemanticColorName, route: 'JoinedPlans' as AccountRoute, icon: 'proposal-accepted' as MobileIconName, group: 'plans' as AccountGroupKey },
+    { titleKey: 'account.items.myPlacesFeature.title', descriptionKey: 'account.items.myPlacesFeature.bodyNative', badgeKey: 'account.items.myPlacesFeature.badge', tone: 'place' as SemanticColorName, route: 'MyPlaces' as AccountRoute, icon: 'location-on' as MobileIconName, group: 'plans' as AccountGroupKey },
+    { titleKey: 'account.items.placeLibraryFeature.title', descriptionKey: 'account.items.placeLibraryFeature.bodyNative', badgeKey: 'account.items.placeLibraryFeature.badge', tone: 'place' as SemanticColorName, route: 'PlaceLibrary' as AccountRoute, icon: 'search' as MobileIconName, group: 'plans' as AccountGroupKey },
+    { titleKey: 'account.items.createPlanFeature.title', descriptionKey: 'account.items.createPlanFeature.bodyNative', badgeKey: 'account.items.createPlanFeature.badge', tone: 'plan' as SemanticColorName, route: 'CreatePlan' as AccountRoute, icon: 'add' as MobileIconName, group: 'plans' as AccountGroupKey },
+    { titleKey: 'account.items.createPlaceFeature.title', descriptionKey: 'account.items.createPlaceFeature.bodyNative', badgeKey: 'account.items.createPlaceFeature.badge', tone: 'place' as SemanticColorName, route: 'CreatePlace' as AccountRoute, icon: 'location-on' as MobileIconName, group: 'plans' as AccountGroupKey },
   ] : []),
-  { titleKey: 'account.items.guide.title', descriptionKey: 'account.items.guide.bodyNative', badgeKey: 'account.items.guide.badge', tone: 'info', route: 'OnboardingGuide', icon: 'help', group: 'activity' },
-  { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'success', route: 'SupportCenter', icon: 'help', group: 'activity' },
+  { titleKey: 'account.items.guide.title', descriptionKey: 'account.items.guide.bodyNative', badgeKey: 'account.items.guide.badge', tone: 'muted', route: 'OnboardingGuide', icon: 'help', group: 'activity' },
+  { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'muted', route: 'SupportCenter', icon: 'help', group: 'activity' },
   { titleKey: 'account.items.safety.title', descriptionKey: 'account.items.safety.bodyNative', badgeKey: 'account.items.safety.badge', tone: 'warning', route: 'SafetyCenter', icon: 'report-flag', group: 'settings' },
   { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings', group: 'settings' },
   { titleKey: 'account.items.legal.title', descriptionKey: 'account.items.legal.bodyNative', badgeKey: 'account.items.legal.badge', tone: 'warning', route: 'LegalPolicy', icon: 'warning', group: 'settings' },
@@ -229,18 +229,18 @@ export function AccountScreen() {
   ], [meHubCounts.needs, meHubCounts.offers, meHubCounts.trades, t]);
 
   const planWidgets = useMemo<MeHubWidget[]>(() => betaFeatures.plansVisible ? [
-    { title: t('account.items.plansFeature.title'), body: t('account.items.plansFeature.bodyNative'), route: 'Plans', icon: 'plan', tone: 'instruction' },
-    { title: t('account.items.myPlansFeature.title'), body: t('account.items.myPlansFeature.bodyNative'), route: 'MyPlans', icon: 'activity', tone: 'info', count: meHubCounts.myPlans },
-    { title: t('account.items.joinedPlansFeature.title'), body: t('account.items.joinedPlansFeature.bodyNative'), route: 'JoinedPlans', icon: 'proposal-accepted', tone: 'success', count: meHubCounts.joinedPlans },
-    { title: t('account.items.myPlacesFeature.title'), body: t('account.items.myPlacesFeature.bodyNative'), route: 'MyPlaces', icon: 'location-on', tone: 'proposal', count: meHubCounts.places },
-    { title: t('account.items.placeLibraryFeature.title'), body: t('account.items.placeLibraryFeature.bodyNative'), route: 'PlaceLibrary', icon: 'search', tone: 'instruction' },
+    { title: t('account.items.plansFeature.title'), body: t('account.items.plansFeature.bodyNative'), route: 'Plans', icon: 'plan', tone: 'plan' },
+    { title: t('account.items.myPlansFeature.title'), body: t('account.items.myPlansFeature.bodyNative'), route: 'MyPlans', icon: 'activity', tone: 'plan', count: meHubCounts.myPlans },
+    { title: t('account.items.joinedPlansFeature.title'), body: t('account.items.joinedPlansFeature.bodyNative'), route: 'JoinedPlans', icon: 'proposal-accepted', tone: 'plan', count: meHubCounts.joinedPlans },
+    { title: t('account.items.myPlacesFeature.title'), body: t('account.items.myPlacesFeature.bodyNative'), route: 'MyPlaces', icon: 'location-on', tone: 'place', count: meHubCounts.places },
+    { title: t('account.items.placeLibraryFeature.title'), body: t('account.items.placeLibraryFeature.bodyNative'), route: 'PlaceLibrary', icon: 'search', tone: 'place' },
   ] : [], [meHubCounts.joinedPlans, meHubCounts.myPlans, meHubCounts.places, t]);
 
   const toolWidgets = useMemo<MeHubWidget[]>(() => [
     ...(betaFeatures.savedLibraryEnabled ? [{ title: t('account.items.saved.title'), body: t('account.items.saved.bodyNative'), route: 'SavedLibrary' as AccountRoute, icon: 'save' as MobileIconName, tone: 'proposal' as SemanticColorName }] : []),
     ...(betaFeatures.agendaEnabled ? [{ title: t('account.items.agenda.title'), body: t('account.items.agenda.bodyNative'), route: 'Agenda' as AccountRoute, icon: 'calendar' as MobileIconName, tone: 'instruction' as SemanticColorName }] : []),
-    { title: t('account.items.notifications.title'), body: t('account.items.notifications.bodyNative'), route: 'Notifications', icon: 'bell', tone: 'proposal', count: notificationUnreadCount },
-    { title: t('account.items.support.title'), body: t('account.items.support.bodyNative'), route: 'SupportCenter', icon: 'help', tone: 'success' },
+    { title: t('account.items.notifications.title'), body: t('account.items.notifications.bodyNative'), route: 'Notifications', icon: 'bell', tone: 'muted', count: notificationUnreadCount },
+    { title: t('account.items.support.title'), body: t('account.items.support.bodyNative'), route: 'SupportCenter', icon: 'help', tone: 'muted' },
   ], [notificationUnreadCount, t]);
 
   const showFlagDiagnostics = betaFeatures.mobileDiagnosticsVisible;
@@ -283,8 +283,8 @@ export function AccountScreen() {
           </View>
           <View style={styles.quickActions}>
             <AccountQuickAction icon="trade" label={t('account.quickActions.tradeShort')} accessibilityLabel={t('account.quickActions.createTrade')} onPress={() => navigate('CreateTrade')} tone="trade" />
-            {betaFeatures.plansVisible ? <AccountQuickAction icon="plan" label={t('account.quickActions.planShort')} accessibilityLabel={t('account.quickActions.createPlan')} onPress={() => navigate('CreatePlan')} tone="instruction" /> : <AccountQuickAction icon="bell" label={t('account.quickActions.notifications')} count={notificationUnreadCount} onPress={() => navigate('Notifications')} tone="proposal" />}
-            {betaFeatures.plansVisible ? <AccountQuickAction icon="location-on" label={t('account.quickActions.placeShort')} accessibilityLabel={t('account.quickActions.addPlace')} onPress={() => navigate('CreatePlace')} tone="proposal" /> : <AccountQuickAction icon="help" label={t('account.quickActions.support')} onPress={() => navigate('SupportCenter')} tone="success" />}
+            {betaFeatures.plansVisible ? <AccountQuickAction icon="plan" label={t('account.quickActions.planShort')} accessibilityLabel={t('account.quickActions.createPlan')} onPress={() => navigate('CreatePlan')} tone="plan" /> : <AccountQuickAction icon="bell" label={t('account.quickActions.notifications')} count={notificationUnreadCount} onPress={() => navigate('Notifications')} tone="muted" />}
+            {betaFeatures.plansVisible ? <AccountQuickAction icon="location-on" label={t('account.quickActions.placeShort')} accessibilityLabel={t('account.quickActions.addPlace')} onPress={() => navigate('CreatePlace')} tone="place" /> : <AccountQuickAction icon="help" label={t('account.quickActions.support')} onPress={() => navigate('SupportCenter')} tone="muted" />}
           </View>
         </View>
 

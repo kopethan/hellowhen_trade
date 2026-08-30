@@ -23,7 +23,7 @@ const AUTH_COMPACT_WIDTH = 350;
 function authSubtitleKey(mode: AuthMode) {
   if (mode === 'register') return 'auth.subtitles.register';
   if (mode === 'forgot') return 'auth.subtitles.forgotNative';
-  return 'auth.subtitles.login';
+  return 'auth.subtitles.loginNative';
 }
 
 export function LoginScreen() {
@@ -135,7 +135,6 @@ export function LoginScreen() {
       <ScrollView contentContainerStyle={[styles.shell, compactLayout && styles.shellCompact]} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
         <AppCard style={[styles.authCard, compactLayout && styles.authCardCompact]}>
           <View style={styles.brandBlock}>
-            <SemanticBadge label={t('auth.brandBadge')} tone="trade" />
             <AppText numberOfLines={1} style={[styles.logo, compactLayout && styles.logoCompact]}>Hellowhen</AppText>
             <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t(authSubtitleKey(mode))}</AppText>
           </View>
