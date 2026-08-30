@@ -1,0 +1,760 @@
+diff --git a/.env.example b/.env.example
+index b0180ca..5b91047 100644
+--- a/.env.example
++++ b/.env.example
+@@ -11,6 +11,7 @@ UPLOAD_DIR=./uploads
+ 
+ # Public mobile store release policy. Disabled by default; no App Store / Play Store scraping is used.
+ # When enabled, each platform is evaluated independently. Incomplete or contradictory values fail open.
++# Roll out optional first, then mandatory only after physical-device store verification; see docs/launch/mobile-app-update-rollout.md.
+ MOBILE_RELEASE_POLICY_ENABLED=false
+ MOBILE_IOS_LATEST_VERSION=
+ MOBILE_IOS_LATEST_BUILD=
+diff --git a/apps/api/src/modules/mobile-release/__tests__/mobileReleasePolicy.test.ts b/apps/api/src/modules/mobile-release/__tests__/mobileReleasePolicy.test.ts
+index 09ad8d1..4884699 100644
+--- a/apps/api/src/modules/mobile-release/__tests__/mobileReleasePolicy.test.ts
++++ b/apps/api/src/modules/mobile-release/__tests__/mobileReleasePolicy.test.ts
+@@ -106,3 +106,33 @@ test('incomplete or contradictory platform configuration fails open', () => {
+   assert.equal(contradictoryPolicy.enabled, false);
+   assert.equal(contradictoryPolicy.status, 'current');
+ });
++
++test('same marketing version below the minimum build is mandatory', () => {
++  const policy = evaluateMobileReleasePolicy(query({ version: '1.0.2', build: 29 }), baseConfig);
++  assert.equal(policy.status, 'mandatory');
++});
++
++test('platform configuration is evaluated independently', () => {
++  const iosBroken = structuredClone(baseConfig);
++  iosBroken.ios.latestVersion = '';
++
++  const iosPolicy = evaluateMobileReleasePolicy(query(), iosBroken);
++  assert.equal(iosPolicy.enabled, false);
++
++  const androidPolicy = evaluateMobileReleasePolicy(query({ platform: 'android', version: '1.0.2', build: 11 }), iosBroken);
++  assert.equal(androidPolicy.enabled, true);
++  assert.equal(androidPolicy.status, 'optional');
++});
++
++test('invalid localized release notes fall back safely without changing update status', () => {
++  const config = structuredClone(baseConfig);
++  config.ios.releaseNotes.fr = 'x'.repeat(4001);
++  const policy = evaluateMobileReleasePolicy(query({ locale: 'fr' }), config);
++  assert.equal(policy.status, 'optional');
++  assert.equal(policy.releaseNotes, 'Bug fixes and improvements.');
++
++  config.ios.releaseNotes.en = '';
++  const withoutFallback = evaluateMobileReleasePolicy(query({ locale: 'fr' }), config);
++  assert.equal(withoutFallback.status, 'optional');
++  assert.equal(withoutFallback.releaseNotes, null);
++});
+diff --git a/apps/mobile/src/features/app-update/AppUpdatePolicyProvider.tsx b/apps/mobile/src/features/app-update/AppUpdatePolicyProvider.tsx
+index 137e357..09ccde6 100644
+--- a/apps/mobile/src/features/app-update/AppUpdatePolicyProvider.tsx
++++ b/apps/mobile/src/features/app-update/AppUpdatePolicyProvider.tsx
+@@ -9,6 +9,7 @@ import {
+   getOptionalUpdateDismissal,
+   readInstalledReleaseTarget,
+   shouldPresentAppUpdate,
++  validateAppUpdatePolicyResponse,
+   type OptionalUpdateDismissal,
+ } from './appUpdatePolicy';
+ import { readOptionalUpdateDismissal, writeOptionalUpdateDismissal } from './appUpdateStorage';
+@@ -70,7 +71,7 @@ export function AppUpdatePolicyProvider({ children }: { children: React.ReactNod
+     }
+ 
+     try {
+-      const [nextPolicy, nextDismissal] = await Promise.all([
++      const [policyResponse, nextDismissal] = await Promise.all([
+         api.mobile.releasePolicy({
+           platform: release.platform,
+           version: release.target.version,
+@@ -81,10 +82,8 @@ export function AppUpdatePolicyProvider({ children }: { children: React.ReactNod
+       ]);
+ 
+       if (!mountedRef.current || requestId !== latestRequestIdRef.current) return;
+-      const sameInstalledRelease = nextPolicy.platform === release.platform
+-        && nextPolicy.installed.version === release.target.version
+-        && nextPolicy.installed.build === release.target.build;
+-      setPolicy(sameInstalledRelease ? nextPolicy : null);
++      const nextPolicy = validateAppUpdatePolicyResponse(policyResponse, release);
++      setPolicy(nextPolicy);
+       setDismissal(nextDismissal);
+     } catch {
+       // Release policy is deliberately fail-open. A network/API problem must not block launch.
+diff --git a/apps/mobile/src/features/app-update/__tests__/appUpdatePolicy.test.ts b/apps/mobile/src/features/app-update/__tests__/appUpdatePolicy.test.ts
+new file mode 100644
+index 0000000..11d4d59
+--- /dev/null
++++ b/apps/mobile/src/features/app-update/__tests__/appUpdatePolicy.test.ts
+@@ -0,0 +1,115 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import type { MobileReleasePolicyResponse } from '@hellowhen/contracts';
++import {
++  getOptionalUpdateDismissal,
++  readInstalledReleaseTarget,
++  shouldPresentAppUpdate,
++  validateAppUpdatePolicyResponse,
++  type InstalledMobileRelease,
++} from '../appUpdatePolicy.js';
++
++const installed: InstalledMobileRelease = {
++  platform: 'ios',
++  target: { version: '1.0.2', build: 31 },
++};
++
++const optionalPolicy: MobileReleasePolicyResponse = {
++  enabled: true,
++  platform: 'ios',
++  status: 'optional',
++  installed: installed.target,
++  latest: { version: '1.0.3', build: 35 },
++  minimumSupported: { version: '1.0.2', build: 30 },
++  releaseNotes: 'Bug fixes and improvements.',
++};
++
++const mandatoryPolicy: MobileReleasePolicyResponse = {
++  ...optionalPolicy,
++  status: 'mandatory',
++  installed: { version: '1.0.1', build: 29 },
++};
++
++const mandatoryInstalled: InstalledMobileRelease = {
++  platform: 'ios',
++  target: mandatoryPolicy.installed,
++};
++
++test('installed release metadata accepts only native iOS/Android x.y.z versions and positive integer builds', () => {
++  assert.deepEqual(readInstalledReleaseTarget({ platform: 'ios', version: '1.0.2', build: '31' }), installed);
++  assert.equal(readInstalledReleaseTarget({ platform: 'web', version: '1.0.2', build: '31' }), null);
++  assert.equal(readInstalledReleaseTarget({ platform: 'android', version: '1.0', build: '12' }), null);
++  assert.equal(readInstalledReleaseTarget({ platform: 'android', version: '1.0.2', build: '0' }), null);
++  assert.equal(readInstalledReleaseTarget({ platform: 'android', version: '1.0.2', build: '12.5' }), null);
++});
++
++test('native validation accepts the expected optional policy for the exact installed release', () => {
++  assert.deepEqual(validateAppUpdatePolicyResponse(optionalPolicy, installed), optionalPolicy);
++});
++
++test('native validation rejects schema failures and installed-release mismatches', () => {
++  assert.equal(validateAppUpdatePolicyResponse({ ...optionalPolicy, status: 'force' }, installed), null);
++  assert.equal(validateAppUpdatePolicyResponse({ ...optionalPolicy, platform: 'android' }, installed), null);
++  assert.equal(validateAppUpdatePolicyResponse({ ...optionalPolicy, installed: { version: '1.0.2', build: 30 } }, installed), null);
++});
++
++test('native validation independently rejects false mandatory and false optional classifications', () => {
++  const falseMandatory = { ...optionalPolicy, status: 'mandatory' as const };
++  assert.equal(validateAppUpdatePolicyResponse(falseMandatory, installed), null);
++
++  const belowMinimum: InstalledMobileRelease = {
++    platform: 'ios',
++    target: { version: '1.0.1', build: 99 },
++  };
++  const falseOptional: MobileReleasePolicyResponse = {
++    ...optionalPolicy,
++    status: 'optional',
++    installed: belowMinimum.target,
++  };
++  assert.equal(validateAppUpdatePolicyResponse(falseOptional, belowMinimum), null);
++});
++
++test('native validation rejects contradictory minimum/latest targets', () => {
++  const contradictory: MobileReleasePolicyResponse = {
++    ...optionalPolicy,
++    minimumSupported: { version: '1.0.4', build: 1 },
++  };
++  assert.equal(validateAppUpdatePolicyResponse(contradictory, installed), null);
++});
++
++test('disabled current policy stays non-blocking', () => {
++  const disabled: MobileReleasePolicyResponse = {
++    enabled: false,
++    platform: 'ios',
++    status: 'current',
++    installed: installed.target,
++    latest: null,
++    minimumSupported: null,
++    releaseNotes: null,
++  };
++  assert.deepEqual(validateAppUpdatePolicyResponse(disabled, installed), disabled);
++  assert.equal(shouldPresentAppUpdate(disabled, null), false);
++});
++
++test('optional dismissal hides only the exact latest target', () => {
++  const dismissal = getOptionalUpdateDismissal(optionalPolicy);
++  assert.ok(dismissal);
++  assert.equal(shouldPresentAppUpdate(optionalPolicy, dismissal), false);
++
++  const newerOptional: MobileReleasePolicyResponse = {
++    ...optionalPolicy,
++    latest: { version: '1.0.4', build: 40 },
++  };
++  assert.equal(shouldPresentAppUpdate(newerOptional, dismissal), true);
++});
++
++test('mandatory policy always presents even when an older optional target was dismissed', () => {
++  const previousDismissal = {
++    platform: 'ios' as const,
++    version: '1.0.3',
++    build: 35,
++  };
++  const validated = validateAppUpdatePolicyResponse(mandatoryPolicy, mandatoryInstalled);
++  assert.ok(validated);
++  assert.equal(shouldPresentAppUpdate(validated, previousDismissal), true);
++});
+diff --git a/apps/mobile/src/features/app-update/__tests__/appUpdateStore.test.ts b/apps/mobile/src/features/app-update/__tests__/appUpdateStore.test.ts
+new file mode 100644
+index 0000000..ec5ba27
+--- /dev/null
++++ b/apps/mobile/src/features/app-update/__tests__/appUpdateStore.test.ts
+@@ -0,0 +1,46 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { getAppUpdateStoreUrls, openAppUpdateStore } from '../appUpdateStore.js';
++
++test('store URLs are pinned to the production Hellowhen identifiers', () => {
++  assert.deepEqual(getAppUpdateStoreUrls('ios'), [
++    'itms-apps://apps.apple.com/app/id6781399122',
++    'https://apps.apple.com/app/id6781399122',
++  ]);
++  assert.deepEqual(getAppUpdateStoreUrls('android'), [
++    'market://details?id=com.hellowhen.app',
++    'https://play.google.com/store/apps/details?id=com.hellowhen.app',
++  ]);
++});
++
++test('store opener stops after the native store URL succeeds', async () => {
++  const opened: string[] = [];
++  await openAppUpdateStore('ios', async (url) => {
++    opened.push(url);
++  });
++  assert.deepEqual(opened, ['itms-apps://apps.apple.com/app/id6781399122']);
++});
++
++test('store opener falls back to HTTPS when the native store URL fails', async () => {
++  const opened: string[] = [];
++  await openAppUpdateStore('android', async (url) => {
++    opened.push(url);
++    if (url.startsWith('market://')) throw new Error('native store unavailable');
++  });
++  assert.deepEqual(opened, [
++    'market://details?id=com.hellowhen.app',
++    'https://play.google.com/store/apps/details?id=com.hellowhen.app',
++  ]);
++});
++
++test('store opener rejects only after both store URLs fail', async () => {
++  const opened: string[] = [];
++  await assert.rejects(
++    openAppUpdateStore('ios', async (url) => {
++      opened.push(url);
++      throw new Error('cannot open');
++    }),
++    /cannot open/,
++  );
++  assert.equal(opened.length, 2);
++});
+diff --git a/apps/mobile/src/features/app-update/appUpdatePolicy.ts b/apps/mobile/src/features/app-update/appUpdatePolicy.ts
+index bf92273..f948109 100644
+--- a/apps/mobile/src/features/app-update/appUpdatePolicy.ts
++++ b/apps/mobile/src/features/app-update/appUpdatePolicy.ts
+@@ -1,7 +1,8 @@
+-import type {
+-  MobilePlatform,
+-  MobileReleasePolicyResponse,
+-  MobileReleaseTarget,
++import {
++  mobileReleasePolicyResponseSchema,
++  type MobilePlatform,
++  type MobileReleasePolicyResponse,
++  type MobileReleaseTarget,
+ } from '@hellowhen/contracts';
+ 
+ export type NativeReleaseMetadata = {
+@@ -10,6 +11,11 @@ export type NativeReleaseMetadata = {
+   build: string | null | undefined;
+ };
+ 
++export type InstalledMobileRelease = {
++  platform: MobilePlatform;
++  target: MobileReleaseTarget;
++};
++
+ export type OptionalUpdateDismissal = {
+   platform: MobilePlatform;
+   version: string;
+@@ -23,10 +29,27 @@ function isMobilePlatform(platform: string): platform is MobilePlatform {
+   return platform === 'ios' || platform === 'android';
+ }
+ 
+-export function readInstalledReleaseTarget(metadata: NativeReleaseMetadata): {
+-  platform: MobilePlatform;
+-  target: MobileReleaseTarget;
+-} | null {
++function parseVersionParts(version: string) {
++  return version.split('.').map((part) => BigInt(part));
++}
++
++export function compareAppUpdateTargets(left: MobileReleaseTarget, right: MobileReleaseTarget) {
++  const leftVersion = parseVersionParts(left.version);
++  const rightVersion = parseVersionParts(right.version);
++
++  for (let index = 0; index < 3; index += 1) {
++    const leftPart = leftVersion[index] ?? 0n;
++    const rightPart = rightVersion[index] ?? 0n;
++    if (leftPart < rightPart) return -1;
++    if (leftPart > rightPart) return 1;
++  }
++
++  if (left.build < right.build) return -1;
++  if (left.build > right.build) return 1;
++  return 0;
++}
++
++export function readInstalledReleaseTarget(metadata: NativeReleaseMetadata): InstalledMobileRelease | null {
+   if (!isMobilePlatform(metadata.platform)) return null;
+ 
+   const version = metadata.version?.trim();
+@@ -43,6 +66,32 @@ export function readInstalledReleaseTarget(metadata: NativeReleaseMetadata): {
+   };
+ }
+ 
++export function validateAppUpdatePolicyResponse(
++  value: unknown,
++  installedRelease: InstalledMobileRelease,
++): MobileReleasePolicyResponse | null {
++  const result = mobileReleasePolicyResponseSchema.safeParse(value);
++  if (!result.success) return null;
++
++  const policy = result.data;
++  if (policy.platform !== installedRelease.platform) return null;
++  if (policy.installed.version !== installedRelease.target.version || policy.installed.build !== installedRelease.target.build) return null;
++
++  if (!policy.enabled) {
++    return policy.status === 'current' ? policy : null;
++  }
++
++  if (!policy.latest || !policy.minimumSupported) return null;
++  if (compareAppUpdateTargets(policy.minimumSupported, policy.latest) > 0) return null;
++
++  const belowMinimum = compareAppUpdateTargets(installedRelease.target, policy.minimumSupported) < 0;
++  const belowLatest = compareAppUpdateTargets(installedRelease.target, policy.latest) < 0;
++  const expectedStatus = belowMinimum ? 'mandatory' : belowLatest ? 'optional' : 'current';
++  if (policy.status !== expectedStatus) return null;
++
++  return policy;
++}
++
+ export function getOptionalUpdateDismissal(policy: MobileReleasePolicyResponse): OptionalUpdateDismissal | null {
+   if (!policy.enabled || policy.status !== 'optional' || !policy.latest) return null;
+   return {
+diff --git a/docs/launch/mobile-app-update-rollout.md b/docs/launch/mobile-app-update-rollout.md
+new file mode 100644
+index 0000000..9237672
+--- /dev/null
++++ b/docs/launch/mobile-app-update-rollout.md
+@@ -0,0 +1,149 @@
++# Mobile app update rollout runbook
++
++This runbook activates the Hellowhen native update prompt introduced by APPUPDATE1–APPUPDATE4. The API is the policy authority; the mobile app reads the installed native marketing version/build and never scrapes App Store or Google Play pages.
++
++## Safety rules
++
++- Keep `MOBILE_RELEASE_POLICY_ENABLED=false` while shipping/testing the native update code itself.
++- Optional first; mandatory later.
++- Treat iOS and Android as independent rollout targets. A platform with incomplete configuration fails open.
++- Do not raise the minimum-supported target until the replacement binary is confirmed downloadable from the exact App Store / Google Play track used by the affected users on a physical device.
++- Never make a not-yet-available build mandatory.
++- A network/API/configuration failure must remain fail-open on the device.
++- The immediate rollback is `MOBILE_RELEASE_POLICY_ENABLED=false`; deploy/reload API configuration and probe again.
++
++## 1. Before any activation
++
++Run the focused automated checks from the repository root:
++
++```powershell
++npm run app-update:safety
++```
++
++Then run the normal mobile store-readiness workflow. APPUPDATE4 does not change the active marketing-version release preflight; resolve any existing version/runbook mismatch separately before a store build.
++
++Confirm the release-policy endpoint is deployed but disabled:
++
++```powershell
++npm run app-update:probe -- --api-url=https://api.hellowhen.com --platform=ios --version=1.0.2 --build=31 --expect=current
++npm run app-update:probe -- --api-url=https://api.hellowhen.com --platform=android --version=1.0.2 --build=13 --expect=current
++```
++
++Use real installed build numbers for the binaries you are probing. While the master flag is false, the response must be `enabled: false`, `status: current`, and `Cache-Control: no-store`.
++
++## 2. Publish and verify the replacement binary first
++
++Build and submit the new native version through the existing reviewed EAS/store process. Do not change update-policy enforcement just because the upload was accepted by a store console.
++
++For each platform you intend to activate:
++
++1. Wait until the target binary is available in the intended App Store / Google Play track.
++2. Install/update to that exact binary from the store on a physical device.
++3. Record its marketing version and native build/version code.
++4. Open Hellowhen and complete a basic launch/login/feed smoke.
++5. Confirm the update button's store destination opens the correct Hellowhen listing.
++
++Only then configure that platform's `LATEST` target.
++
++## 3. Optional rollout
++
++Example only — replace every value with the exact published binaries:
++
++```env
++MOBILE_RELEASE_POLICY_ENABLED=true
++
++MOBILE_IOS_LATEST_VERSION=1.0.3
++MOBILE_IOS_LATEST_BUILD=32
++MOBILE_IOS_MIN_SUPPORTED_VERSION=1.0.2
++MOBILE_IOS_MIN_SUPPORTED_BUILD=31
++
++MOBILE_ANDROID_LATEST_VERSION=1.0.3
++MOBILE_ANDROID_LATEST_BUILD=14
++MOBILE_ANDROID_MIN_SUPPORTED_VERSION=1.0.2
++MOBILE_ANDROID_MIN_SUPPORTED_BUILD=13
++
++MOBILE_UPDATE_MESSAGE_EN=Bug fixes and improvements.
++MOBILE_UPDATE_MESSAGE_FR=Corrections et améliorations.
++MOBILE_UPDATE_MESSAGE_ES=Correcciones y mejoras.
++```
++
++Keep `MIN_SUPPORTED` at the oldest release that must still be allowed. This makes older-but-supported users optional, not mandatory.
++
++Probe at least these cases per activated platform:
++
++```powershell
++# Old supported binary -> optional
++npm run app-update:probe -- --api-url=https://api.hellowhen.com --platform=ios --version=1.0.2 --build=31 --expect=optional
++
++# New published binary -> current
++npm run app-update:probe -- --api-url=https://api.hellowhen.com --platform=ios --version=1.0.3 --build=32 --expect=current
++```
++
++On a physical device using an optional old binary, verify:
++
++- Prompt title/body/version/release notes are readable in light and dark appearance.
++- `Later` closes the prompt.
++- Relaunching does not show the exact same optional target again.
++- Changing `LATEST` to a newer tested target makes the prompt eligible again.
++- `Update` opens the correct store listing.
++
++## 4. Mandatory rollout
++
++Mandatory rollout is an operational compatibility decision, not the default release mode. Keep an update optional until the replacement binary has been available long enough for your rollout needs and you have verified the store path again.
++
++Immediately before raising `MIN_SUPPORTED`:
++
++1. Reinstall/update the intended minimum-supported binary from the real store track on a physical device.
++2. Confirm the store target is available in every country/track where affected Hellowhen users can run the old binary.
++3. Confirm the API probe returns `current` for the intended minimum-supported binary.
++4. Confirm the API probe returns `optional` for any older binary that you have not decided to block yet.
++5. Record the exact minimum version/build in the release notes or deployment evidence.
++
++Then raise only the intended platform's minimum target. Example:
++
++```env
++MOBILE_IOS_MIN_SUPPORTED_VERSION=1.0.3
++MOBILE_IOS_MIN_SUPPORTED_BUILD=32
++```
++
++Probe an old binary:
++
++```powershell
++npm run app-update:probe -- --api-url=https://api.hellowhen.com --platform=ios --version=1.0.2 --build=31 --expect=mandatory
++```
++
++On the old physical-device binary verify:
++
++- No `Later` action is visible.
++- Android Back / modal dismissal cannot bypass a mandatory prompt.
++- `Update` reaches the correct store listing.
++- If store opening fails, Hellowhen keeps the prompt visible and presents the retry error instead of dismissing it.
++
++## 5. Rollback
++
++If a wrong version/build, store-availability problem, unexpected prompt, or API configuration issue is found:
++
++```env
++MOBILE_RELEASE_POLICY_ENABLED=false
++```
++
++Deploy/reload the API configuration immediately. Then probe the affected installed version and require `current`:
++
++```powershell
++npm run app-update:probe -- --api-url=https://api.hellowhen.com --platform=ios --version=1.0.2 --build=31 --expect=current
++```
++
++The mobile implementation intentionally fails open, so disabling the master flag is the fastest server-side way to remove both optional and mandatory prompts without a new app binary.
++
++## 6. Configuration guardrails
++
++For each platform:
++
++- Version format is numeric `x.y.z`.
++- Build/version code is a positive integer.
++- `MIN_SUPPORTED` must never be newer than `LATEST`.
++- Keep the store identifiers pinned to iOS App Store Connect app `6781399122` and Android package `com.hellowhen.app` unless the actual production app identifiers change.
++- Do not use web scraping or third-party store-version pages to drive policy.
++- Release notes are optional and must not contain secrets or private operational information.
++
++The API fails open for incomplete/contradictory platform configuration, and the native client independently validates/recomputes the received policy before presenting an update. These are last-resort safety nets, not substitutes for the rollout checks above.
+diff --git a/package-lock.json b/package-lock.json
+index d0bc37d..b1b501d 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -15,7 +15,8 @@
+         "@types/react": "~19.1.10",
+         "react": "19.1.0",
+         "react-native": "0.81.5",
+-        "typescript": "^5.4.5"
++        "typescript": "^5.4.5",
++        "tsx": "^4.21.0"
+       },
+       "engines": {
+         "node": ">=20"
+diff --git a/package.json b/package.json
+index ab7ea9f..a785d33 100644
+--- a/package.json
++++ b/package.json
+@@ -26,7 +26,7 @@
+     "mobile:launch-smoke": "node scripts/mobile-launch-smoke.mjs",
+     "build:packages": "npm run build -w @hellowhen/contracts && npm run build -w @hellowhen/api-client && npm run build -w @hellowhen/i18n && npm run build -w @hellowhen/shared && npm run build -w @hellowhen/theme && npm run build -w @hellowhen/trade-domain && npm run build -w @hellowhen/ui",
+     "build:apps": "npm run build -w @hellowhen/api && npm run build -w @hellowhen/web",
+-    "mobile:store-readiness": "npm run mobile:launch-smoke && npm run mobile:store-release-smoke && npm run mobile:app-review-smoke && npm run mobile:release-preflight && npm run mobile:submission-preflight && npm run store:copy-scan && npm run mobile:ugc-safety-smoke && node scripts/mobile-store-readiness.mjs && npm run cash-promise:safety-smoke",
++    "mobile:store-readiness": "npm run mobile:launch-smoke && npm run mobile:store-release-smoke && npm run mobile:app-review-smoke && npm run app-update:safety && npm run mobile:release-preflight && npm run mobile:submission-preflight && npm run store:copy-scan && npm run mobile:ugc-safety-smoke && node scripts/mobile-store-readiness.mjs && npm run cash-promise:safety-smoke",
+     "cash-promise:safety-smoke": "node scripts/cash-promise-safety-smoke.mjs",
+     "starter-library:qa": "node scripts/starter-library-qa.mjs",
+     "places:smoke": "node scripts/place-library-hidden-smoke.mjs",
+@@ -45,13 +45,18 @@
+     "store:copy-scan": "node scripts/store-visible-copy-scan.mjs",
+     "mobile:release-preflight": "node scripts/mobile-release-preflight.mjs",
+     "mobile:submission-preflight": "node scripts/mobile-submission-preflight.mjs",
+-    "app-update:policy-test": "npm run test:mobile-release -w @hellowhen/api"
++    "app-update:policy-test": "npm run test:mobile-release -w @hellowhen/api",
++    "app-update:native-test": "tsx --test apps/mobile/src/features/app-update/__tests__/appUpdatePolicy.test.ts apps/mobile/src/features/app-update/__tests__/appUpdateStore.test.ts",
++    "app-update:rollout-smoke": "node scripts/app-update-rollout-smoke.mjs",
++    "app-update:probe": "node scripts/app-update-policy-probe.mjs",
++    "app-update:safety": "npm run build -w @hellowhen/contracts && npm run app-update:policy-test && npm run app-update:native-test && npm run app-update:rollout-smoke"
+   },
+   "devDependencies": {
+     "@types/react": "~19.1.10",
+     "react": "19.1.0",
+     "react-native": "0.81.5",
+-    "typescript": "^5.4.5"
++    "typescript": "^5.4.5",
++    "tsx": "^4.21.0"
+   },
+   "engines": {
+     "node": ">=20"
+diff --git a/scripts/app-update-policy-probe.mjs b/scripts/app-update-policy-probe.mjs
+new file mode 100644
+index 0000000..6dd9e3f
+--- /dev/null
++++ b/scripts/app-update-policy-probe.mjs
+@@ -0,0 +1,83 @@
++#!/usr/bin/env node
++
++function parseArgs(argv) {
++  const values = {};
++  for (const arg of argv) {
++    if (!arg.startsWith('--')) continue;
++    const [rawKey, ...rest] = arg.slice(2).split('=');
++    values[rawKey] = rest.join('=');
++  }
++  return values;
++}
++
++function assert(condition, message) {
++  if (!condition) throw new Error(message);
++}
++
++function parsePositiveBuild(value) {
++  const parsed = Number(value);
++  assert(Number.isSafeInteger(parsed) && parsed > 0, '--build must be a positive integer.');
++  return parsed;
++}
++
++function assertTarget(value, label) {
++  assert(value && typeof value === 'object', `${label} must be an object.`);
++  assert(typeof value.version === 'string' && /^\d+\.\d+\.\d+$/.test(value.version), `${label}.version must use x.y.z.`);
++  assert(Number.isSafeInteger(value.build) && value.build > 0, `${label}.build must be a positive integer.`);
++}
++
++async function main() {
++  const args = parseArgs(process.argv.slice(2));
++  const apiUrl = args['api-url'];
++  const platform = args.platform;
++  const version = args.version;
++  const build = parsePositiveBuild(args.build);
++  const locale = args.locale || 'en';
++  const expected = args.expect;
++
++  assert(apiUrl, '--api-url is required.');
++  assert(platform === 'ios' || platform === 'android', '--platform must be ios or android.');
++  assert(typeof version === 'string' && /^\d+\.\d+\.\d+$/.test(version), '--version must use x.y.z.');
++  assert(['en', 'fr', 'es'].includes(locale), '--locale must be en, fr, or es.');
++  if (expected) assert(['current', 'optional', 'mandatory'].includes(expected), '--expect must be current, optional, or mandatory.');
++
++  const base = new URL(apiUrl);
++  const endpoint = new URL('/mobile/release-policy', base);
++  endpoint.searchParams.set('platform', platform);
++  endpoint.searchParams.set('version', version);
++  endpoint.searchParams.set('build', String(build));
++  endpoint.searchParams.set('locale', locale);
++
++  const response = await fetch(endpoint, { headers: { Accept: 'application/json' } });
++  assert(response.ok, `Release-policy endpoint returned HTTP ${response.status}.`);
++  const cacheControl = response.headers.get('cache-control') ?? '';
++  assert(cacheControl.toLowerCase().includes('no-store'), 'Release-policy endpoint must return Cache-Control: no-store.');
++
++  const body = await response.json();
++  assert(typeof body.enabled === 'boolean', 'Response enabled must be boolean.');
++  assert(body.platform === platform, 'Response platform does not match the probe platform.');
++  assert(['current', 'optional', 'mandatory'].includes(body.status), 'Response status is invalid.');
++  assertTarget(body.installed, 'installed');
++  assert(body.installed.version === version && body.installed.build === build, 'Response installed target does not echo the probed binary.');
++
++  if (body.latest !== null) assertTarget(body.latest, 'latest');
++  if (body.minimumSupported !== null) assertTarget(body.minimumSupported, 'minimumSupported');
++  if (body.releaseNotes !== null) assert(typeof body.releaseNotes === 'string', 'releaseNotes must be a string or null.');
++  if (expected) assert(body.status === expected, `Expected ${expected}, received ${body.status}.`);
++
++  console.log(JSON.stringify({
++    endpoint: endpoint.toString(),
++    enabled: body.enabled,
++    status: body.status,
++    installed: body.installed,
++    latest: body.latest,
++    minimumSupported: body.minimumSupported,
++    cacheControl,
++  }, null, 2));
++  console.log('App update live policy probe: PASS');
++}
++
++main().catch((error) => {
++  console.error(error instanceof Error ? error.message : error);
++  process.exitCode = 1;
++});
+diff --git a/scripts/app-update-rollout-smoke.mjs b/scripts/app-update-rollout-smoke.mjs
+new file mode 100644
+index 0000000..1e43438
+--- /dev/null
++++ b/scripts/app-update-rollout-smoke.mjs
+@@ -0,0 +1,111 @@
++#!/usr/bin/env node
++
++import { existsSync, readFileSync } from 'node:fs';
++import path from 'node:path';
++
++const root = process.cwd();
++
++function read(relativePath) {
++  return readFileSync(path.join(root, relativePath), 'utf8');
++}
++
++function readJson(relativePath) {
++  return JSON.parse(read(relativePath));
++}
++
++function assert(condition, message) {
++  if (!condition) throw new Error(message);
++}
++
++function assertContains(file, needle, message = `${file} must contain ${needle}`) {
++  assert(read(file).includes(needle), message);
++}
++
++function assertExists(relativePath, message = `${relativePath} must exist.`) {
++  assert(existsSync(path.join(root, relativePath)), message);
++}
++
++function runServerSafetyChecks() {
++  const envExample = read('.env.example');
++  assert(envExample.includes('MOBILE_RELEASE_POLICY_ENABLED=false'), 'Release policy must remain disabled by default.');
++  for (const key of [
++    'MOBILE_IOS_LATEST_VERSION=',
++    'MOBILE_IOS_LATEST_BUILD=',
++    'MOBILE_IOS_MIN_SUPPORTED_VERSION=',
++    'MOBILE_IOS_MIN_SUPPORTED_BUILD=',
++    'MOBILE_ANDROID_LATEST_VERSION=',
++    'MOBILE_ANDROID_LATEST_BUILD=',
++    'MOBILE_ANDROID_MIN_SUPPORTED_VERSION=',
++    'MOBILE_ANDROID_MIN_SUPPORTED_BUILD=',
++  ]) {
++    assert(envExample.includes(`\n${key}\n`), `${key} must stay empty in .env.example so rollout cannot activate accidentally.`);
++  }
++
++  assertContains('apps/api/src/routes.ts', "routes.use('/mobile', mobileReleaseRoutes);", 'Mobile release policy must stay on its public route without auth middleware.');
++  assertContains('apps/api/src/modules/mobile-release/mobileRelease.routes.ts', "res.setHeader('Cache-Control', 'no-store');", 'Release-policy responses must never be cached.');
++  assertContains('apps/api/src/app.ts', 'if (err instanceof ZodError) return res.status(400)', 'Malformed release-policy query parameters must be handled as validation errors, not 500s.');
++  assertContains('apps/api/src/modules/mobile-release/mobileReleasePolicy.ts', 'if (!latest || !minimumSupported) return disabledPolicy(input);');
++  assertContains('apps/api/src/modules/mobile-release/mobileReleasePolicy.ts', 'if (compareMobileReleaseTargets(minimumSupported, latest) > 0) return disabledPolicy(input);');
++  console.log('App update server fail-open/config safety: PASS');
++}
++
++function runNativeGateChecks() {
++  assertContains('apps/mobile/src/features/app-update/AppUpdatePolicyProvider.tsx', 'Application.nativeApplicationVersion', 'Native marketing version must come from the installed binary.');
++  assertContains('apps/mobile/src/features/app-update/AppUpdatePolicyProvider.tsx', 'Application.nativeBuildVersion', 'Native build/version code must come from the installed binary.');
++  assertContains('apps/mobile/src/features/app-update/AppUpdatePolicyProvider.tsx', 'ExecutionEnvironment.StoreClient', 'Expo Go must bypass native store-version checks.');
++  assertContains('apps/mobile/src/features/app-update/AppUpdatePolicyProvider.tsx', 'validateAppUpdatePolicyResponse(policyResponse, release)', 'Native app must runtime-validate policy responses before presenting an update.');
++  assertContains('apps/mobile/src/features/app-update/appUpdatePolicy.ts', 'mobileReleasePolicyResponseSchema.safeParse(value)', 'Native policy validation must include the shared runtime schema.');
++  assertContains('apps/mobile/src/features/app-update/appUpdatePolicy.ts', "const expectedStatus = belowMinimum ? 'mandatory' : belowLatest ? 'optional' : 'current';", 'Native policy validation must independently recompute update status.');
++  assertContains('apps/mobile/src/features/app-update/AppUpdatePolicyProvider.tsx', 'const FOREGROUND_RECHECK_INTERVAL_MS = 15 * 60 * 1000;', 'Foreground polling must stay throttled.');
++  assertContains('apps/mobile/src/features/app-update/AppUpdatePolicyProvider.tsx', 'setPolicy(null);\n      setDismissal(null);', 'Policy request failures must fail open.');
++  assertContains('apps/mobile/src/lib/api.ts', "if (namespace === 'mobile' && method === 'releasePolicy') return false;", 'Public release-policy failures must not trigger auth refresh.');
++  console.log('App update native gate/fail-open safety: PASS');
++}
++
++function runDismissalAndPromptChecks() {
++  assertContains('apps/mobile/src/features/app-update/appUpdateStorage.ts', 'hellowhen_mobile.appUpdate.dismissedOptional.v1', 'Optional dismissal must use a dedicated local key.');
++  assertContains('apps/mobile/src/features/app-update/appUpdatePolicy.ts', 'target.version === dismissal.version', 'Optional dismissal must compare exact target version.');
++  assertContains('apps/mobile/src/features/app-update/appUpdatePolicy.ts', 'target.build === dismissal.build', 'Optional dismissal must compare exact target build.');
++  assertContains('apps/mobile/src/features/app-update/appUpdatePolicy.ts', "if (policy.status === 'mandatory') return Boolean(policy.minimumSupported);", 'Mandatory updates must ignore optional dismissal.');
++  assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', 'onRequestClose={isMandatory ? () => undefined : dismiss}', 'Mandatory prompt must not close via Android Back.');
++  assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', '{!isMandatory ? (', 'Mandatory prompt must not render the Later action.');
++  console.log('App update dismissal/mandatory prompt safety: PASS');
++}
++
++function runStoreTargetChecks() {
++  const app = readJson('apps/mobile/app.json').expo;
++  const eas = readJson('apps/mobile/eas.json');
++  const storeModule = read('apps/mobile/src/features/app-update/appUpdateStore.ts');
++
++  assert(app.ios?.bundleIdentifier === 'com.hellowhen.app', 'iOS bundle identifier changed; review update store target before release.');
++  assert(app.android?.package === 'com.hellowhen.app', 'Android package changed; review update store target before release.');
++  assert(eas.submit?.production?.ios?.ascAppId === '6781399122', 'App Store Connect app id changed; review update store target before release.');
++  assert(storeModule.includes("const IOS_APP_STORE_ID = '6781399122';"), 'Update prompt must target the production App Store app id.');
++  assert(storeModule.includes("const ANDROID_PACKAGE_NAME = 'com.hellowhen.app';"), 'Update prompt must target the production Google Play package.');
++  assert(storeModule.includes('itms-apps://apps.apple.com/app/id${IOS_APP_STORE_ID}'), 'iOS native App Store URL is missing.');
++  assert(storeModule.includes('https://apps.apple.com/app/id${IOS_APP_STORE_ID}'), 'iOS HTTPS fallback is missing.');
++  assert(storeModule.includes('market://details?id=${ANDROID_PACKAGE_NAME}'), 'Android native Play Store URL is missing.');
++  assert(storeModule.includes('https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE_NAME}'), 'Android HTTPS fallback is missing.');
++  console.log('App update store-target/fallback safety: PASS');
++}
++
++function runRunbookChecks() {
++  const runbook = 'docs/launch/mobile-app-update-rollout.md';
++  assertExists(runbook, 'App update rollout runbook is missing.');
++  assertContains(runbook, 'MOBILE_RELEASE_POLICY_ENABLED=false', 'Runbook must document the immediate rollback switch.');
++  assertContains(runbook, 'Optional first; mandatory later', 'Runbook must require optional rollout before mandatory enforcement.');
++  assertContains(runbook, 'npm run app-update:probe --', 'Runbook must include the live endpoint probe.');
++  assertContains(runbook, 'Do not raise the minimum-supported target until', 'Runbook must prevent mandatory rollout before store availability is confirmed.');
++  console.log('App update rollout/rollback runbook: PASS');
++}
++
++function main() {
++  runServerSafetyChecks();
++  runNativeGateChecks();
++  runDismissalAndPromptChecks();
++  runStoreTargetChecks();
++  runRunbookChecks();
++  console.log('APPUPDATE4 release safety static smoke: PASS');
++}
++
++main();

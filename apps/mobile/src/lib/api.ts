@@ -92,6 +92,7 @@ function isUnauthorizedError(error: unknown) {
 function shouldRetryUnauthorized(path: string[]) {
   const [namespace, method] = path;
   if (namespace === 'auth' && method && authRetryBlockedMethods.has(method)) return false;
+  if (namespace === 'mobile' && method === 'releasePolicy') return false;
   return true;
 }
 

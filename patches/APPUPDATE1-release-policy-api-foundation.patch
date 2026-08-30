@@ -1,0 +1,440 @@
+diff --git a/.env.example b/.env.example
+index 2cc393d..b0180ca 100644
+--- a/.env.example
++++ b/.env.example
+@@ -8,6 +8,21 @@ JWT_SECRET=dev-change-me
+ WEB_ORIGIN=http://localhost:3000
+ MOBILE_ORIGIN=exp://127.0.0.1:8081
+ UPLOAD_DIR=./uploads
++
++# Public mobile store release policy. Disabled by default; no App Store / Play Store scraping is used.
++# When enabled, each platform is evaluated independently. Incomplete or contradictory values fail open.
++MOBILE_RELEASE_POLICY_ENABLED=false
++MOBILE_IOS_LATEST_VERSION=
++MOBILE_IOS_LATEST_BUILD=
++MOBILE_IOS_MIN_SUPPORTED_VERSION=
++MOBILE_IOS_MIN_SUPPORTED_BUILD=
++MOBILE_ANDROID_LATEST_VERSION=
++MOBILE_ANDROID_LATEST_BUILD=
++MOBILE_ANDROID_MIN_SUPPORTED_VERSION=
++MOBILE_ANDROID_MIN_SUPPORTED_BUILD=
++MOBILE_UPDATE_MESSAGE_EN=
++MOBILE_UPDATE_MESSAGE_FR=
++MOBILE_UPDATE_MESSAGE_ES=
+ # Media uploads stay local by default. Set MEDIA_STORAGE_DRIVER=s3 after configuring backend-only AWS envs.
+ # MEDIA_PUBLIC_BASE_URL should be your public CDN/CloudFront base URL, not an S3 secret URL.
+ MEDIA_STORAGE_DRIVER=local
+diff --git a/apps/api/package.json b/apps/api/package.json
+index d3415de..4de45c7 100644
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -20,7 +20,8 @@
+     "places:address-cleanup": "tsx src/scripts/cleanupInvalidOfflinePlaces.ts",
+     "test:plans": "tsx --test src/modules/plans/__tests__/plans.safety.test.ts",
+     "test:places": "tsx --test src/modules/places/__tests__/placeUpdatePolicy.test.ts src/modules/places/__tests__/placeOwnershipPolicy.test.ts",
+-    "test:inventory-original": "tsx --test src/modules/__tests__/inventoryOriginalCopy.test.ts"
++    "test:inventory-original": "tsx --test src/modules/__tests__/inventoryOriginalCopy.test.ts",
++    "test:mobile-release": "tsx --test src/modules/mobile-release/__tests__/mobileReleasePolicy.test.ts"
+   },
+   "dependencies": {
+     "@aws-sdk/client-s3": "^3.1077.0",
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 7de20cc..7f57a0a 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -145,6 +145,18 @@ export const env = {
+   airwallexSandboxPayoutReason: process.env.AIRWALLEX_SANDBOX_PAYOUT_REASON ?? 'services',
+   webAppUrl: process.env.WEB_APP_URL ?? process.env.WEB_ORIGIN ?? 'http://localhost:3000',
+   mobileAppUrl: process.env.MOBILE_APP_URL ?? 'hellowhen://',
++  mobileReleasePolicyEnabled: enabled(process.env.MOBILE_RELEASE_POLICY_ENABLED),
++  mobileIosLatestVersion: process.env.MOBILE_IOS_LATEST_VERSION ?? '',
++  mobileIosLatestBuild: process.env.MOBILE_IOS_LATEST_BUILD ?? '',
++  mobileIosMinimumSupportedVersion: process.env.MOBILE_IOS_MIN_SUPPORTED_VERSION ?? '',
++  mobileIosMinimumSupportedBuild: process.env.MOBILE_IOS_MIN_SUPPORTED_BUILD ?? '',
++  mobileAndroidLatestVersion: process.env.MOBILE_ANDROID_LATEST_VERSION ?? '',
++  mobileAndroidLatestBuild: process.env.MOBILE_ANDROID_LATEST_BUILD ?? '',
++  mobileAndroidMinimumSupportedVersion: process.env.MOBILE_ANDROID_MIN_SUPPORTED_VERSION ?? '',
++  mobileAndroidMinimumSupportedBuild: process.env.MOBILE_ANDROID_MIN_SUPPORTED_BUILD ?? '',
++  mobileUpdateMessageEn: process.env.MOBILE_UPDATE_MESSAGE_EN ?? '',
++  mobileUpdateMessageFr: process.env.MOBILE_UPDATE_MESSAGE_FR ?? '',
++  mobileUpdateMessageEs: process.env.MOBILE_UPDATE_MESSAGE_ES ?? '',
+   googleSignInEnabled: (process.env.GOOGLE_SIGN_IN_ENABLED ?? 'false').toLowerCase() === 'true',
+   googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID ?? '',
+   googleIosClientId: process.env.GOOGLE_IOS_CLIENT_ID ?? '',
+diff --git a/apps/api/src/modules/mobile-release/__tests__/mobileReleasePolicy.test.ts b/apps/api/src/modules/mobile-release/__tests__/mobileReleasePolicy.test.ts
+new file mode 100644
+index 0000000..09ad8d1
+--- /dev/null
++++ b/apps/api/src/modules/mobile-release/__tests__/mobileReleasePolicy.test.ts
+@@ -0,0 +1,108 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { mobileReleasePolicyQuerySchema, type MobileReleasePolicyQuery } from '@hellowhen/contracts';
++import {
++  compareMobileReleaseTargets,
++  evaluateMobileReleasePolicy,
++  type MobileReleasePolicyConfig,
++} from '../mobileReleasePolicy.js';
++
++const baseConfig: MobileReleasePolicyConfig = {
++  enabled: true,
++  ios: {
++    latestVersion: '1.0.3',
++    latestBuild: '35',
++    minimumSupportedVersion: '1.0.2',
++    minimumSupportedBuild: '30',
++    releaseNotes: {
++      en: 'Bug fixes and improvements.',
++      fr: 'Corrections et améliorations.',
++      es: 'Correcciones y mejoras.',
++    },
++  },
++  android: {
++    latestVersion: '1.0.3',
++    latestBuild: '14',
++    minimumSupportedVersion: '1.0.1',
++    minimumSupportedBuild: '10',
++    releaseNotes: {
++      en: 'Bug fixes and improvements.',
++    },
++  },
++};
++
++function query(overrides: Partial<MobileReleasePolicyQuery> = {}): MobileReleasePolicyQuery {
++  return {
++    platform: 'ios',
++    version: '1.0.2',
++    build: 31,
++    locale: 'en',
++    ...overrides,
++  };
++}
++
++
++test('release policy query rejects malformed versions and missing build numbers', () => {
++  assert.equal(mobileReleasePolicyQuerySchema.safeParse({ platform: 'ios', version: '1.0', build: '31' }).success, false);
++  assert.equal(mobileReleasePolicyQuerySchema.safeParse({ platform: 'ios', version: '1.0.2', build: '' }).success, false);
++  assert.equal(mobileReleasePolicyQuerySchema.safeParse({ platform: 'ios', version: '1.0.2', build: '31' }).success, true);
++});
++
++test('release comparison uses semantic x.y.z first and build number second', () => {
++  assert.equal(compareMobileReleaseTargets({ version: '1.0.2', build: 99 }, { version: '1.0.3', build: 1 }), -1);
++  assert.equal(compareMobileReleaseTargets({ version: '1.0.3', build: 34 }, { version: '1.0.3', build: 35 }), -1);
++  assert.equal(compareMobileReleaseTargets({ version: '1.1.0', build: 1 }, { version: '1.0.99', build: 999 }), 1);
++  assert.equal(compareMobileReleaseTargets({ version: '2.0.0', build: 1 }, { version: '2.0.0', build: 1 }), 0);
++});
++
++test('disabled master flag always returns a non-blocking policy', () => {
++  const policy = evaluateMobileReleasePolicy(query({ version: '0.0.1', build: 1 }), { ...baseConfig, enabled: false });
++  assert.equal(policy.enabled, false);
++  assert.equal(policy.status, 'current');
++  assert.equal(policy.latest, null);
++  assert.equal(policy.minimumSupported, null);
++});
++
++test('installed releases below minimum support are mandatory', () => {
++  const policy = evaluateMobileReleasePolicy(query({ version: '1.0.1', build: 99, locale: 'fr' }), baseConfig);
++  assert.equal(policy.enabled, true);
++  assert.equal(policy.status, 'mandatory');
++  assert.deepEqual(policy.minimumSupported, { version: '1.0.2', build: 30 });
++  assert.equal(policy.releaseNotes, 'Corrections et améliorations.');
++});
++
++test('supported releases below latest are optional', () => {
++  const policy = evaluateMobileReleasePolicy(query(), baseConfig);
++  assert.equal(policy.status, 'optional');
++  assert.deepEqual(policy.latest, { version: '1.0.3', build: 35 });
++});
++
++test('a lower build of the same marketing version is optional', () => {
++  const policy = evaluateMobileReleasePolicy(query({ version: '1.0.3', build: 34 }), baseConfig);
++  assert.equal(policy.status, 'optional');
++});
++
++test('latest or newer installed releases are current', () => {
++  assert.equal(evaluateMobileReleasePolicy(query({ version: '1.0.3', build: 35 }), baseConfig).status, 'current');
++  assert.equal(evaluateMobileReleasePolicy(query({ version: '1.0.4', build: 1 }), baseConfig).status, 'current');
++});
++
++test('release notes fall back to English when a locale has no configured message', () => {
++  const policy = evaluateMobileReleasePolicy(query({ platform: 'android', version: '1.0.2', build: 11, locale: 'es' }), baseConfig);
++  assert.equal(policy.status, 'optional');
++  assert.equal(policy.releaseNotes, 'Bug fixes and improvements.');
++});
++
++test('incomplete or contradictory platform configuration fails open', () => {
++  const incomplete = structuredClone(baseConfig);
++  incomplete.ios.latestBuild = '';
++  const incompletePolicy = evaluateMobileReleasePolicy(query(), incomplete);
++  assert.equal(incompletePolicy.enabled, false);
++  assert.equal(incompletePolicy.status, 'current');
++
++  const contradictory = structuredClone(baseConfig);
++  contradictory.ios.minimumSupportedVersion = '1.0.4';
++  const contradictoryPolicy = evaluateMobileReleasePolicy(query(), contradictory);
++  assert.equal(contradictoryPolicy.enabled, false);
++  assert.equal(contradictoryPolicy.status, 'current');
++});
+diff --git a/apps/api/src/modules/mobile-release/mobileRelease.routes.ts b/apps/api/src/modules/mobile-release/mobileRelease.routes.ts
+new file mode 100644
+index 0000000..94224ec
+--- /dev/null
++++ b/apps/api/src/modules/mobile-release/mobileRelease.routes.ts
+@@ -0,0 +1,12 @@
++import { Router } from 'express';
++import { mobileReleasePolicyQuerySchema } from '@hellowhen/contracts';
++import { getConfiguredMobileReleasePolicy } from './mobileReleaseConfig.js';
++
++export const mobileReleaseRoutes = Router();
++
++mobileReleaseRoutes.get('/release-policy', (req, res) => {
++  const input = mobileReleasePolicyQuerySchema.parse(req.query);
++  const policy = getConfiguredMobileReleasePolicy(input);
++  res.setHeader('Cache-Control', 'no-store');
++  res.json(policy);
++});
+diff --git a/apps/api/src/modules/mobile-release/mobileReleaseConfig.ts b/apps/api/src/modules/mobile-release/mobileReleaseConfig.ts
+new file mode 100644
+index 0000000..6c01e89
+--- /dev/null
++++ b/apps/api/src/modules/mobile-release/mobileReleaseConfig.ts
+@@ -0,0 +1,31 @@
++import type { MobileReleasePolicyQuery } from '@hellowhen/contracts';
++import { env } from '../../config/env.js';
++import { evaluateMobileReleasePolicy } from './mobileReleasePolicy.js';
++
++export function getConfiguredMobileReleasePolicy(input: MobileReleasePolicyQuery) {
++  return evaluateMobileReleasePolicy(input, {
++    enabled: env.mobileReleasePolicyEnabled,
++    ios: {
++      latestVersion: env.mobileIosLatestVersion,
++      latestBuild: env.mobileIosLatestBuild,
++      minimumSupportedVersion: env.mobileIosMinimumSupportedVersion,
++      minimumSupportedBuild: env.mobileIosMinimumSupportedBuild,
++      releaseNotes: {
++        en: env.mobileUpdateMessageEn,
++        fr: env.mobileUpdateMessageFr,
++        es: env.mobileUpdateMessageEs,
++      },
++    },
++    android: {
++      latestVersion: env.mobileAndroidLatestVersion,
++      latestBuild: env.mobileAndroidLatestBuild,
++      minimumSupportedVersion: env.mobileAndroidMinimumSupportedVersion,
++      minimumSupportedBuild: env.mobileAndroidMinimumSupportedBuild,
++      releaseNotes: {
++        en: env.mobileUpdateMessageEn,
++        fr: env.mobileUpdateMessageFr,
++        es: env.mobileUpdateMessageEs,
++      },
++    },
++  });
++}
+diff --git a/apps/api/src/modules/mobile-release/mobileReleasePolicy.ts b/apps/api/src/modules/mobile-release/mobileReleasePolicy.ts
+new file mode 100644
+index 0000000..18b17fd
+--- /dev/null
++++ b/apps/api/src/modules/mobile-release/mobileReleasePolicy.ts
+@@ -0,0 +1,105 @@
++import {
++  MOBILE_RELEASE_NOTES_MAX_LENGTH,
++  mobileReleaseTargetSchema,
++  type MobilePlatform,
++  type MobileReleaseLocale,
++  type MobileReleasePolicyQuery,
++  type MobileReleasePolicyResponse,
++  type MobileReleaseTarget,
++} from '@hellowhen/contracts';
++
++type MobileReleasePlatformConfig = {
++  latestVersion: string;
++  latestBuild: string;
++  minimumSupportedVersion: string;
++  minimumSupportedBuild: string;
++  releaseNotes: Partial<Record<MobileReleaseLocale, string>>;
++};
++
++export type MobileReleasePolicyConfig = {
++  enabled: boolean;
++  ios: MobileReleasePlatformConfig;
++  android: MobileReleasePlatformConfig;
++};
++
++function parseVersionParts(version: string) {
++  return version.split('.').map((part) => BigInt(part));
++}
++
++export function compareMobileReleaseTargets(left: MobileReleaseTarget, right: MobileReleaseTarget) {
++  const leftVersion = parseVersionParts(left.version);
++  const rightVersion = parseVersionParts(right.version);
++
++  for (let index = 0; index < 3; index += 1) {
++    const leftPart = leftVersion[index] ?? 0n;
++    const rightPart = rightVersion[index] ?? 0n;
++    if (leftPart < rightPart) return -1;
++    if (leftPart > rightPart) return 1;
++  }
++
++  if (left.build < right.build) return -1;
++  if (left.build > right.build) return 1;
++  return 0;
++}
++
++function parseConfiguredTarget(version: string, build: string): MobileReleaseTarget | null {
++  const result = mobileReleaseTargetSchema.safeParse({ version, build });
++  return result.success ? result.data : null;
++}
++
++function getPlatformConfig(config: MobileReleasePolicyConfig, platform: MobilePlatform) {
++  return platform === 'ios' ? config.ios : config.android;
++}
++
++function validReleaseNote(value: string | undefined) {
++  const note = value?.trim();
++  if (!note || note.length > MOBILE_RELEASE_NOTES_MAX_LENGTH) return null;
++  return note;
++}
++
++function getReleaseNotes(config: MobileReleasePlatformConfig, locale: MobileReleaseLocale) {
++  return validReleaseNote(config.releaseNotes[locale])
++    ?? validReleaseNote(config.releaseNotes.en)
++    ?? null;
++}
++
++function disabledPolicy(input: MobileReleasePolicyQuery): MobileReleasePolicyResponse {
++  return {
++    enabled: false,
++    platform: input.platform,
++    status: 'current',
++    installed: { version: input.version, build: input.build },
++    latest: null,
++    minimumSupported: null,
++    releaseNotes: null,
++  };
++}
++
++export function evaluateMobileReleasePolicy(
++  input: MobileReleasePolicyQuery,
++  config: MobileReleasePolicyConfig,
++): MobileReleasePolicyResponse {
++  if (!config.enabled) return disabledPolicy(input);
++
++  const platformConfig = getPlatformConfig(config, input.platform);
++  const latest = parseConfiguredTarget(platformConfig.latestVersion, platformConfig.latestBuild);
++  const minimumSupported = parseConfiguredTarget(platformConfig.minimumSupportedVersion, platformConfig.minimumSupportedBuild);
++
++  if (!latest || !minimumSupported) return disabledPolicy(input);
++  if (compareMobileReleaseTargets(minimumSupported, latest) > 0) return disabledPolicy(input);
++
++  const installed = { version: input.version, build: input.build };
++  const belowMinimum = compareMobileReleaseTargets(installed, minimumSupported) < 0;
++  const belowLatest = compareMobileReleaseTargets(installed, latest) < 0;
++  const status = belowMinimum ? 'mandatory' : belowLatest ? 'optional' : 'current';
++
++  return {
++    enabled: true,
++    platform: input.platform,
++    status,
++    installed,
++    latest,
++    minimumSupported,
++    releaseNotes: status === 'current' ? null : getReleaseNotes(platformConfig, input.locale),
++  };
++}
+diff --git a/apps/api/src/routes.ts b/apps/api/src/routes.ts
+index 03285f3..b17a943 100644
+--- a/apps/api/src/routes.ts
++++ b/apps/api/src/routes.ts
+@@ -12,6 +12,7 @@ import { inventoryFoldersRoutes } from './modules/inventory-folders.routes.js';
+ import { needsRoutes } from './modules/needs/needs.routes.js';
+ import { notificationsRoutes } from './modules/notifications/notifications.routes.js';
+ import { mediaRoutes } from './modules/media/media.routes.js';
++import { mobileReleaseRoutes } from './modules/mobile-release/mobileRelease.routes.js';
+ import { offersRoutes } from './modules/offers/offers.routes.js';
+ import { profileRoutes } from './modules/profile/profile.routes.js';
+ import { reportsRoutes } from './modules/reports/reports.routes.js';
+@@ -33,6 +34,7 @@ import { requireBusinessAccountsEnabled, requireMoneyFeaturesVisible, requireSub
+ export const routes = Router();
+ 
+ routes.use('/health', healthRoutes);
++routes.use('/mobile', mobileReleaseRoutes);
+ routes.use('/ai', aiAssistRoutes);
+ routes.use('/inventory-templates', inventoryTemplatesRoutes);
+ routes.use('/inventory-folders', inventoryFoldersRoutes);
+diff --git a/package.json b/package.json
+index 9ee3a7c..ab7ea9f 100644
+--- a/package.json
++++ b/package.json
+@@ -44,7 +44,8 @@
+     "mobile:ugc-safety-smoke": "node scripts/mobile-ugc-safety-smoke.mjs",
+     "store:copy-scan": "node scripts/store-visible-copy-scan.mjs",
+     "mobile:release-preflight": "node scripts/mobile-release-preflight.mjs",
+-    "mobile:submission-preflight": "node scripts/mobile-submission-preflight.mjs"
++    "mobile:submission-preflight": "node scripts/mobile-submission-preflight.mjs",
++    "app-update:policy-test": "npm run test:mobile-release -w @hellowhen/api"
+   },
+   "devDependencies": {
+     "@types/react": "~19.1.10",
+diff --git a/packages/contracts/src/index.ts b/packages/contracts/src/index.ts
+index 2ee4d2d..5ecb086 100644
+--- a/packages/contracts/src/index.ts
++++ b/packages/contracts/src/index.ts
+@@ -21,3 +21,4 @@ export * from './notifications.js';
+ export * from './plus.js';
+ export * from './tradeSearch.js';
+ export * from './membershipBilling.js';
++export * from './mobileRelease.js';
+diff --git a/packages/contracts/src/mobileRelease.ts b/packages/contracts/src/mobileRelease.ts
+new file mode 100644
+index 0000000..f20147c
+--- /dev/null
++++ b/packages/contracts/src/mobileRelease.ts
+@@ -0,0 +1,48 @@
++import { z } from 'zod';
++
++export const MOBILE_RELEASE_VERSION_MAX_LENGTH = 32;
++export const MOBILE_RELEASE_NOTES_MAX_LENGTH = 4000;
++
++export const mobilePlatformSchema = z.enum(['ios', 'android']);
++export const mobileReleaseLocaleSchema = z.enum(['en', 'fr', 'es']);
++export const mobileReleaseStatusSchema = z.enum(['current', 'optional', 'mandatory']);
++
++export const mobileMarketingVersionSchema = z.string()
++  .trim()
++  .min(1)
++  .max(MOBILE_RELEASE_VERSION_MAX_LENGTH)
++  .regex(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/, 'Version must use x.y.z numeric format.');
++
++export const mobileBuildNumberSchema = z.preprocess(
++  (value) => typeof value === 'string' && !value.trim() ? undefined : value,
++  z.coerce.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
++);
++
++export const mobileReleasePolicyQuerySchema = z.object({
++  platform: mobilePlatformSchema,
++  version: mobileMarketingVersionSchema,
++  build: mobileBuildNumberSchema,
++  locale: mobileReleaseLocaleSchema.optional().default('en'),
++}).strict();
++
++export const mobileReleaseTargetSchema = z.object({
++  version: mobileMarketingVersionSchema,
++  build: mobileBuildNumberSchema,
++});
++
++export const mobileReleasePolicyResponseSchema = z.object({
++  enabled: z.boolean(),
++  platform: mobilePlatformSchema,
++  status: mobileReleaseStatusSchema,
++  installed: mobileReleaseTargetSchema,
++  latest: mobileReleaseTargetSchema.nullable(),
++  minimumSupported: mobileReleaseTargetSchema.nullable(),
++  releaseNotes: z.string().max(MOBILE_RELEASE_NOTES_MAX_LENGTH).nullable(),
++});
++
++export type MobilePlatform = z.infer<typeof mobilePlatformSchema>;
++export type MobileReleaseLocale = z.infer<typeof mobileReleaseLocaleSchema>;
++export type MobileReleaseStatus = z.infer<typeof mobileReleaseStatusSchema>;
++export type MobileReleasePolicyQuery = z.infer<typeof mobileReleasePolicyQuerySchema>;
++export type MobileReleaseTarget = z.infer<typeof mobileReleaseTargetSchema>;
++export type MobileReleasePolicyResponse = z.infer<typeof mobileReleasePolicyResponseSchema>;

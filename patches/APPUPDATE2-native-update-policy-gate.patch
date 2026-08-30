@@ -1,0 +1,381 @@
+diff --git a/apps/mobile/package.json b/apps/mobile/package.json
+index e4b0d00..cac33a1 100644
+--- a/apps/mobile/package.json
++++ b/apps/mobile/package.json
+@@ -26,6 +26,7 @@
+     "@react-navigation/native": "^6.1.17",
+     "@react-navigation/native-stack": "^6.9.26",
+     "expo": "~54.0.0",
++    "expo-application": "~7.0.8",
+     "expo-asset": "~12.0.13",
+     "expo-build-properties": "~1.0.10",
+     "expo-constants": "~18.0.14",
+diff --git a/apps/mobile/src/App.tsx b/apps/mobile/src/App.tsx
+index afcaa34..ffdf18d 100644
+--- a/apps/mobile/src/App.tsx
++++ b/apps/mobile/src/App.tsx
+@@ -8,6 +8,7 @@ import { AuthProvider } from './providers/AuthProvider';
+ import { ThemeProvider } from './providers/ThemeProvider';
+ import { MobileI18nProvider } from './providers/MobileI18nProvider';
+ import { RootNavigator } from './navigation/RootNavigator';
++import { AppUpdatePolicyProvider } from './features/app-update/AppUpdatePolicyProvider';
+ 
+ export default function App() {
+   return (
+@@ -17,12 +18,14 @@ export default function App() {
+           <AppSettingsProvider>
+             <MobileI18nProvider>
+               <ThemeProvider>
+-                <AuthProvider>
+-                  <NavigationContainer>
+-                    <StatusBar style="auto" />
+-                    <RootNavigator />
+-                  </NavigationContainer>
+-                </AuthProvider>
++                <AppUpdatePolicyProvider>
++                  <AuthProvider>
++                    <NavigationContainer>
++                      <StatusBar style="auto" />
++                      <RootNavigator />
++                    </NavigationContainer>
++                  </AuthProvider>
++                </AppUpdatePolicyProvider>
+               </ThemeProvider>
+             </MobileI18nProvider>
+           </AppSettingsProvider>
+diff --git a/apps/mobile/src/features/app-update/AppUpdatePolicyProvider.tsx b/apps/mobile/src/features/app-update/AppUpdatePolicyProvider.tsx
+new file mode 100644
+index 0000000..137e357
+--- /dev/null
++++ b/apps/mobile/src/features/app-update/AppUpdatePolicyProvider.tsx
+@@ -0,0 +1,155 @@
++import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
++import { AppState, Platform, type AppStateStatus } from 'react-native';
++import * as Application from 'expo-application';
++import Constants, { ExecutionEnvironment } from 'expo-constants';
++import type { MobileReleasePolicyResponse, MobileReleaseTarget } from '@hellowhen/contracts';
++import { api } from '../../lib/api';
++import { useTranslation } from '../../providers/MobileI18nProvider';
++import {
++  getOptionalUpdateDismissal,
++  readInstalledReleaseTarget,
++  shouldPresentAppUpdate,
++  type OptionalUpdateDismissal,
++} from './appUpdatePolicy';
++import { readOptionalUpdateDismissal, writeOptionalUpdateDismissal } from './appUpdateStorage';
++
++const FOREGROUND_RECHECK_INTERVAL_MS = 15 * 60 * 1000;
++
++type AppUpdatePolicyPhase = 'idle' | 'checking' | 'ready';
++
++type AppUpdatePolicyContextValue = {
++  phase: AppUpdatePolicyPhase;
++  installed: MobileReleaseTarget | null;
++  policy: MobileReleasePolicyResponse | null;
++  checkedAt: number | null;
++  shouldPrompt: boolean;
++  isMandatory: boolean;
++  refresh: () => Promise<void>;
++  dismissOptionalUpdate: () => Promise<void>;
++};
++
++const AppUpdatePolicyContext = createContext<AppUpdatePolicyContextValue | null>(null);
++
++export function AppUpdatePolicyProvider({ children }: { children: React.ReactNode }) {
++  const { language } = useTranslation();
++  const [phase, setPhase] = useState<AppUpdatePolicyPhase>('idle');
++  const [installed, setInstalled] = useState<MobileReleaseTarget | null>(null);
++  const [policy, setPolicy] = useState<MobileReleasePolicyResponse | null>(null);
++  const [dismissal, setDismissal] = useState<OptionalUpdateDismissal | null>(null);
++  const [checkedAt, setCheckedAt] = useState<number | null>(null);
++  const mountedRef = useRef(true);
++  const latestRequestIdRef = useRef(0);
++  const lastCheckStartedAtRef = useRef(0);
++
++  const refresh = useCallback(async () => {
++    const requestId = latestRequestIdRef.current + 1;
++    latestRequestIdRef.current = requestId;
++    lastCheckStartedAtRef.current = Date.now();
++
++    const release = Constants.executionEnvironment === ExecutionEnvironment.StoreClient
++      ? null
++      : readInstalledReleaseTarget({
++        platform: Platform.OS,
++        version: Application.nativeApplicationVersion,
++        build: Application.nativeBuildVersion,
++      });
++
++    if (!release) {
++      if (!mountedRef.current || requestId !== latestRequestIdRef.current) return;
++      setInstalled(null);
++      setPolicy(null);
++      setDismissal(null);
++      setCheckedAt(Date.now());
++      setPhase('ready');
++      return;
++    }
++
++    if (mountedRef.current) {
++      setInstalled(release.target);
++      setPhase('checking');
++    }
++
++    try {
++      const [nextPolicy, nextDismissal] = await Promise.all([
++        api.mobile.releasePolicy({
++          platform: release.platform,
++          version: release.target.version,
++          build: release.target.build,
++          locale: language,
++        }),
++        readOptionalUpdateDismissal(release.platform),
++      ]);
++
++      if (!mountedRef.current || requestId !== latestRequestIdRef.current) return;
++      const sameInstalledRelease = nextPolicy.platform === release.platform
++        && nextPolicy.installed.version === release.target.version
++        && nextPolicy.installed.build === release.target.build;
++      setPolicy(sameInstalledRelease ? nextPolicy : null);
++      setDismissal(nextDismissal);
++    } catch {
++      // Release policy is deliberately fail-open. A network/API problem must not block launch.
++      if (!mountedRef.current || requestId !== latestRequestIdRef.current) return;
++      setPolicy(null);
++      setDismissal(null);
++    } finally {
++      if (mountedRef.current && requestId === latestRequestIdRef.current) {
++        setCheckedAt(Date.now());
++        setPhase('ready');
++      }
++    }
++  }, [language]);
++
++  useEffect(() => {
++    mountedRef.current = true;
++    void refresh();
++    return () => {
++      mountedRef.current = false;
++    };
++  }, [refresh]);
++
++  useEffect(() => {
++    let lastState: AppStateStatus = AppState.currentState;
++    const subscription = AppState.addEventListener('change', (nextState) => {
++      const wasInactive = lastState === 'inactive' || lastState === 'background';
++      lastState = nextState;
++      if (!wasInactive || nextState !== 'active') return;
++      if (Date.now() - lastCheckStartedAtRef.current < FOREGROUND_RECHECK_INTERVAL_MS) return;
++      void refresh();
++    });
++
++    return () => subscription.remove();
++  }, [refresh]);
++
++  const dismissOptionalUpdate = useCallback(async () => {
++    if (!policy) return;
++    const nextDismissal = getOptionalUpdateDismissal(policy);
++    if (!nextDismissal) return;
++
++    setDismissal(nextDismissal);
++    try {
++      await writeOptionalUpdateDismissal(nextDismissal);
++    } catch {
++      // Keep the current-session dismissal even if local persistence is temporarily unavailable.
++    }
++  }, [policy]);
++
++  const shouldPrompt = shouldPresentAppUpdate(policy, dismissal);
++  const value = useMemo<AppUpdatePolicyContextValue>(() => ({
++    phase,
++    installed,
++    policy,
++    checkedAt,
++    shouldPrompt,
++    isMandatory: shouldPrompt && policy?.status === 'mandatory',
++    refresh,
++    dismissOptionalUpdate,
++  }), [checkedAt, dismissOptionalUpdate, installed, phase, policy, refresh, shouldPrompt]);
++
++  return <AppUpdatePolicyContext.Provider value={value}>{children}</AppUpdatePolicyContext.Provider>;
++}
++
++export function useAppUpdatePolicy() {
++  const value = useContext(AppUpdatePolicyContext);
++  if (!value) throw new Error('useAppUpdatePolicy must be used within AppUpdatePolicyProvider');
++  return value;
++}
+diff --git a/apps/mobile/src/features/app-update/appUpdatePolicy.ts b/apps/mobile/src/features/app-update/appUpdatePolicy.ts
+new file mode 100644
+index 0000000..bf92273
+--- /dev/null
++++ b/apps/mobile/src/features/app-update/appUpdatePolicy.ts
+@@ -0,0 +1,74 @@
++import type {
++  MobilePlatform,
++  MobileReleasePolicyResponse,
++  MobileReleaseTarget,
++} from '@hellowhen/contracts';
++
++export type NativeReleaseMetadata = {
++  platform: string;
++  version: string | null | undefined;
++  build: string | null | undefined;
++};
++
++export type OptionalUpdateDismissal = {
++  platform: MobilePlatform;
++  version: string;
++  build: number;
++};
++
++const MARKETING_VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
++const BUILD_NUMBER_PATTERN = /^[1-9]\d*$/;
++
++function isMobilePlatform(platform: string): platform is MobilePlatform {
++  return platform === 'ios' || platform === 'android';
++}
++
++export function readInstalledReleaseTarget(metadata: NativeReleaseMetadata): {
++  platform: MobilePlatform;
++  target: MobileReleaseTarget;
++} | null {
++  if (!isMobilePlatform(metadata.platform)) return null;
++
++  const version = metadata.version?.trim();
++  const buildText = metadata.build?.trim();
++  if (!version || !MARKETING_VERSION_PATTERN.test(version)) return null;
++  if (!buildText || !BUILD_NUMBER_PATTERN.test(buildText)) return null;
++
++  const build = Number(buildText);
++  if (!Number.isSafeInteger(build) || build < 1) return null;
++
++  return {
++    platform: metadata.platform,
++    target: { version, build },
++  };
++}
++
++export function getOptionalUpdateDismissal(policy: MobileReleasePolicyResponse): OptionalUpdateDismissal | null {
++  if (!policy.enabled || policy.status !== 'optional' || !policy.latest) return null;
++  return {
++    platform: policy.platform,
++    version: policy.latest.version,
++    build: policy.latest.build,
++  };
++}
++
++export function matchesOptionalUpdateDismissal(
++  policy: MobileReleasePolicyResponse,
++  dismissal: OptionalUpdateDismissal | null,
++) {
++  const target = getOptionalUpdateDismissal(policy);
++  if (!target || !dismissal) return false;
++  return target.platform === dismissal.platform
++    && target.version === dismissal.version
++    && target.build === dismissal.build;
++}
++
++export function shouldPresentAppUpdate(
++  policy: MobileReleasePolicyResponse | null,
++  dismissal: OptionalUpdateDismissal | null,
++) {
++  if (!policy?.enabled || policy.status === 'current') return false;
++  if (policy.status === 'mandatory') return Boolean(policy.minimumSupported);
++  if (!policy.latest) return false;
++  return !matchesOptionalUpdateDismissal(policy, dismissal);
++}
+diff --git a/apps/mobile/src/features/app-update/appUpdateStorage.ts b/apps/mobile/src/features/app-update/appUpdateStorage.ts
+new file mode 100644
+index 0000000..231011d
+--- /dev/null
++++ b/apps/mobile/src/features/app-update/appUpdateStorage.ts
+@@ -0,0 +1,32 @@
++import AsyncStorage from '@react-native-async-storage/async-storage';
++import type { MobilePlatform } from '@hellowhen/contracts';
++import type { OptionalUpdateDismissal } from './appUpdatePolicy';
++
++const OPTIONAL_UPDATE_DISMISSAL_KEY = 'hellowhen_mobile.appUpdate.dismissedOptional.v1';
++
++function isOptionalUpdateDismissal(value: unknown): value is OptionalUpdateDismissal {
++  if (!value || typeof value !== 'object') return false;
++  const candidate = value as Partial<OptionalUpdateDismissal>;
++  return (candidate.platform === 'ios' || candidate.platform === 'android')
++    && typeof candidate.version === 'string'
++    && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(candidate.version)
++    && typeof candidate.build === 'number'
++    && Number.isSafeInteger(candidate.build)
++    && candidate.build > 0;
++}
++
++export async function readOptionalUpdateDismissal(platform: MobilePlatform) {
++  try {
++    const raw = await AsyncStorage.getItem(OPTIONAL_UPDATE_DISMISSAL_KEY);
++    if (!raw) return null;
++    const parsed = JSON.parse(raw) as unknown;
++    if (!isOptionalUpdateDismissal(parsed) || parsed.platform !== platform) return null;
++    return parsed;
++  } catch {
++    return null;
++  }
++}
++
++export async function writeOptionalUpdateDismissal(dismissal: OptionalUpdateDismissal) {
++  await AsyncStorage.setItem(OPTIONAL_UPDATE_DISMISSAL_KEY, JSON.stringify(dismissal));
++}
+diff --git a/apps/mobile/src/lib/api.ts b/apps/mobile/src/lib/api.ts
+index be66d65..499ea2c 100644
+--- a/apps/mobile/src/lib/api.ts
++++ b/apps/mobile/src/lib/api.ts
+@@ -92,6 +92,7 @@ function isUnauthorizedError(error: unknown) {
+ function shouldRetryUnauthorized(path: string[]) {
+   const [namespace, method] = path;
+   if (namespace === 'auth' && method && authRetryBlockedMethods.has(method)) return false;
++  if (namespace === 'mobile' && method === 'releasePolicy') return false;
+   return true;
+ }
+ 
+diff --git a/package-lock.json b/package-lock.json
+index fbecadc..d0bc37d 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -71,6 +71,7 @@
+         "@react-navigation/native": "^6.1.17",
+         "@react-navigation/native-stack": "^6.9.26",
+         "expo": "~54.0.0",
++        "expo-application": "~7.0.8",
+         "expo-asset": "~12.0.13",
+         "expo-build-properties": "~1.0.10",
+         "expo-constants": "~18.0.14",
+@@ -6513,6 +6514,14 @@
+         }
+       }
+     },
++    "node_modules/expo-application": {
++      "version": "7.0.8",
++      "resolved": "https://registry.npmjs.org/expo-application/-/expo-application-7.0.8.tgz",
++      "license": "MIT",
++      "peerDependencies": {
++        "expo": "*"
++      }
++    },
+     "node_modules/expo-asset": {
+       "version": "12.0.13",
+       "resolved": "https://registry.npmjs.org/expo-asset/-/expo-asset-12.0.13.tgz",
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 7fc8373..9c884bc 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, ListInventoryFoldersQuery, CreateInventoryFolderRequest, UpdateInventoryFolderRequest, AddInventoryFolderItemRequest, InventoryFoldersResponse, InventoryFolderResponse, InventoryFolderItemResponse, CreateSavedItemRequest, SavedItemStatusQuery, ListSavedItemsQuery, CreateSavedCollectionRequest, UpdateSavedCollectionRequest, AddSavedCollectionItemRequest, SavedItemsResponse, SavedItemResponse, SavedItemStatusResponse, SavedCollectionsResponse, SavedCollectionResponse, SavedCollectionItemResponse, ListAgendaItemsQuery, AgendaIcsExportQuery, CreateAgendaItemRequest, UpdateAgendaItemRequest, AgendaItemsResponse, AgendaItemResponse, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, CreateDealProblemReportRequest, UserReportsResponse, AdminReportActionRequest, AdminPlaceActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlaceRequest, UpdatePlaceRequest, ListPlacesQuery, PlaceResponse, PlacesResponse, GooglePlaceSearchQuery, GooglePlaceSearchResponse, GooglePlaceDetailsQuery, GooglePlaceDetailsResponse, GoogleAddressValidationRequest, GoogleAddressValidationResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, CreatePlanPublicMessageRequest, UpdatePlanPublicMessageRequest, ListPlanPublicMessagesQuery, PlanPublicMessagesResponse, PlanPublicMessageResponse, CreatePlacePresenceVerificationRequest, ListMyPlacePresenceVerificationsQuery, PlacePresenceVerificationResponse, PlacePresenceVerificationSummaryResponse, PlacePresenceVerificationHistoryResponse, AdminPlacePresenceVerificationActionRequest, AdminPlacePresenceVerificationResponse, AdminPlacePresenceVerificationsResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery, PlusSubscriptionSnapshotResponse, AdminPlusGrantRequest, AdminPlusUsersResponse, AdminPlusGrantResponse, AdminPlusAiAssistUsageResponse, AiAssistRequest, AiAssistResponse, ListTradeSearchSuggestionsQuery, RecordTradeSearchKeywordRequest, TradeSearchSuggestionsResponse, TradeSearchKeywordResponse, CreateMembershipCheckoutSessionRequest, MembershipCheckoutSessionResponse, MembershipCustomerPortalSessionResponse, SyncAppleStoreKitPurchaseRequest, AppleStoreKitSyncResponse, GooglePlayPurchaseSyncRequest, GooglePlaySyncResponse } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, ListInventoryFoldersQuery, CreateInventoryFolderRequest, UpdateInventoryFolderRequest, AddInventoryFolderItemRequest, InventoryFoldersResponse, InventoryFolderResponse, InventoryFolderItemResponse, CreateSavedItemRequest, SavedItemStatusQuery, ListSavedItemsQuery, CreateSavedCollectionRequest, UpdateSavedCollectionRequest, AddSavedCollectionItemRequest, SavedItemsResponse, SavedItemResponse, SavedItemStatusResponse, SavedCollectionsResponse, SavedCollectionResponse, SavedCollectionItemResponse, ListAgendaItemsQuery, AgendaIcsExportQuery, CreateAgendaItemRequest, UpdateAgendaItemRequest, AgendaItemsResponse, AgendaItemResponse, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, CreateDealProblemReportRequest, UserReportsResponse, AdminReportActionRequest, AdminPlaceActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlaceRequest, UpdatePlaceRequest, ListPlacesQuery, PlaceResponse, PlacesResponse, GooglePlaceSearchQuery, GooglePlaceSearchResponse, GooglePlaceDetailsQuery, GooglePlaceDetailsResponse, GoogleAddressValidationRequest, GoogleAddressValidationResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, CreatePlanPublicMessageRequest, UpdatePlanPublicMessageRequest, ListPlanPublicMessagesQuery, PlanPublicMessagesResponse, PlanPublicMessageResponse, CreatePlacePresenceVerificationRequest, ListMyPlacePresenceVerificationsQuery, PlacePresenceVerificationResponse, PlacePresenceVerificationSummaryResponse, PlacePresenceVerificationHistoryResponse, AdminPlacePresenceVerificationActionRequest, AdminPlacePresenceVerificationResponse, AdminPlacePresenceVerificationsResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery, PlusSubscriptionSnapshotResponse, AdminPlusGrantRequest, AdminPlusUsersResponse, AdminPlusGrantResponse, AdminPlusAiAssistUsageResponse, AiAssistRequest, AiAssistResponse, ListTradeSearchSuggestionsQuery, RecordTradeSearchKeywordRequest, TradeSearchSuggestionsResponse, TradeSearchKeywordResponse, CreateMembershipCheckoutSessionRequest, MembershipCheckoutSessionResponse, MembershipCustomerPortalSessionResponse, SyncAppleStoreKitPurchaseRequest, AppleStoreKitSyncResponse, GooglePlayPurchaseSyncRequest, GooglePlaySyncResponse, MobileReleasePolicyQuery, MobileReleasePolicyResponse } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, requestText, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -14,6 +14,7 @@ function buildQueryString(query?: Record<string, unknown>) {
+ 
+ export function createApiClient(options: ApiClientOptions) {
+   return {
++    mobile: { releasePolicy: (query: MobileReleasePolicyQuery) => requestJson<MobileReleasePolicyResponse>(options, `/mobile/release-policy${buildQueryString(query as unknown as Record<string, unknown>)}`) },
+     auth: { login: (body: LoginRequest) => requestJson<LoginResponse>(options, '/auth/login', { method: 'POST', body: JSON.stringify(body) }), register: (body: RegisterRequest) => requestJson<AuthResponse>(options, '/auth/register', { method: 'POST', body: JSON.stringify(body) }), google: (body: GoogleAuthRequest) => requestJson<LoginResponse>(options, '/auth/google', { method: 'POST', body: JSON.stringify(body) }), loginTwoFactor: (body: TwoFactorChallengeRequest) => requestJson<AuthResponse>(options, '/auth/login/2fa', { method: 'POST', body: JSON.stringify(body) }), refresh: (body: RefreshSessionRequest) => requestJson<AuthResponse>(options, '/auth/refresh', { method: 'POST', body: JSON.stringify(body) }), logout: (body?: LogoutRequest) => requestJson(options, '/auth/logout', { method: 'POST', body: JSON.stringify(body ?? {}) }), logoutAll: () => requestJson(options, '/auth/logout-all', { method: 'POST' }), forgotPassword: (body: ForgotPasswordRequest) => requestJson<ForgotPasswordResponse>(options, '/auth/forgot-password', { method: 'POST', body: JSON.stringify(body) }), resetPassword: (body: ResetPasswordRequest) => requestJson<ResetPasswordResponse>(options, '/auth/reset-password', { method: 'POST', body: JSON.stringify(body) }), changePassword: (body: ChangePasswordRequest) => requestJson<ChangePasswordResponse>(options, '/auth/change-password', { method: 'POST', body: JSON.stringify(body) }), requestEmailVerification: () => requestJson(options, '/auth/verify-email/request', { method: 'POST' }), verifyEmail: (token: string) => requestJson(options, '/auth/verify-email/confirm', { method: 'POST', body: JSON.stringify({ token }) }), twoFactorSetup: () => requestJson(options, '/auth/2fa/setup', { method: 'POST' }), twoFactorEnable: (body: TwoFactorCodeRequest) => requestJson(options, '/auth/2fa/enable', { method: 'POST', body: JSON.stringify(body) }), twoFactorDisable: (body: DisableTwoFactorRequest) => requestJson(options, '/auth/2fa/disable', { method: 'POST', body: JSON.stringify(body) }), reauthenticate: (body: ReauthenticateRequest) => requestJson(options, '/auth/reauthenticate', { method: 'POST', body: JSON.stringify(body) }), sessions: () => requestJson(options, '/auth/sessions'), revokeSession: (sessionId: string) => requestJson(options, `/auth/sessions/${sessionId}`, { method: 'DELETE' }), me: () => requestJson<AuthMeResponse>(options, '/auth/me') },
+     profile: { updateMe: (body: UpdateProfileRequest) => requestJson(options, '/profile/me', { method: 'PATCH', body: JSON.stringify(body) }) },
+     settings: { me: () => requestJson(options, '/settings/me'), updateMe: (body: UpdateSettingsRequest) => requestJson(options, '/settings/me', { method: 'PATCH', body: JSON.stringify(body) }) },

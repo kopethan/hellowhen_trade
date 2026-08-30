@@ -8,6 +8,8 @@ import { AuthProvider } from './providers/AuthProvider';
 import { ThemeProvider } from './providers/ThemeProvider';
 import { MobileI18nProvider } from './providers/MobileI18nProvider';
 import { RootNavigator } from './navigation/RootNavigator';
+import { AppUpdatePolicyProvider } from './features/app-update/AppUpdatePolicyProvider';
+import { AppUpdatePrompt } from './features/app-update/AppUpdatePrompt';
 
 export default function App() {
   return (
@@ -17,12 +19,15 @@ export default function App() {
           <AppSettingsProvider>
             <MobileI18nProvider>
               <ThemeProvider>
-                <AuthProvider>
-                  <NavigationContainer>
-                    <StatusBar style="auto" />
-                    <RootNavigator />
-                  </NavigationContainer>
-                </AuthProvider>
+                <AppUpdatePolicyProvider>
+                  <AuthProvider>
+                    <NavigationContainer>
+                      <StatusBar style="auto" />
+                      <RootNavigator />
+                    </NavigationContainer>
+                  </AuthProvider>
+                  <AppUpdatePrompt />
+                </AppUpdatePolicyProvider>
               </ThemeProvider>
             </MobileI18nProvider>
           </AppSettingsProvider>

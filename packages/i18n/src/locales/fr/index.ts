@@ -1,4 +1,5 @@
 import { account } from './account';
+import { appUpdate } from './appUpdate';
 import { auth } from './auth';
 import { common } from './common';
 import { inventory } from './inventory';
@@ -17,6 +18,7 @@ import { validation } from './validation';
 
 export const fr = {
   account,
+  appUpdate,
   auth,
   common,
   inventory,

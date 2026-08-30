@@ -12,6 +12,7 @@ import { inventoryFoldersRoutes } from './modules/inventory-folders.routes.js';
 import { needsRoutes } from './modules/needs/needs.routes.js';
 import { notificationsRoutes } from './modules/notifications/notifications.routes.js';
 import { mediaRoutes } from './modules/media/media.routes.js';
+import { mobileReleaseRoutes } from './modules/mobile-release/mobileRelease.routes.js';
 import { offersRoutes } from './modules/offers/offers.routes.js';
 import { profileRoutes } from './modules/profile/profile.routes.js';
 import { reportsRoutes } from './modules/reports/reports.routes.js';
@@ -33,6 +34,7 @@ import { requireBusinessAccountsEnabled, requireMoneyFeaturesVisible, requireSub
 export const routes = Router();
 
 routes.use('/health', healthRoutes);
+routes.use('/mobile', mobileReleaseRoutes);
 routes.use('/ai', aiAssistRoutes);
 routes.use('/inventory-templates', inventoryTemplatesRoutes);
 routes.use('/inventory-folders', inventoryFoldersRoutes);
