@@ -188,7 +188,10 @@ function runScreenFoundationChecks() {
   assertContains('apps/mobile/src/features/trade/ProposalDetailScreen.tsx', 'ConversationComposerBar', 'Proposal thread should keep the modern composer foundation.');
   assertContains('apps/mobile/src/features/trade/ProposalDetailScreen.tsx', 'ProposalPackageThreadBlock', 'Proposal thread should keep the inline proposal package block.');
   assertContains('apps/mobile/src/features/trade/InventoryDetailScreen.tsx', 'DetailBottomActionBar', 'Need/Offer detail should keep the shared bottom action area.');
-  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountActionGroup', 'Account screen should keep grouped account rows.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'MeWidgetSection', 'Me hub should keep grouped expandable widget sections.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'MeHubWidgetRow', 'Me hub should keep grouped widget rows inside expandable sections.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountMenuSection', 'Account menu should keep grouped settings/help/account sections.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountActionRow', 'Account menu should keep grouped action rows.');
   assertContains('apps/mobile/src/features/account/NotificationsScreen.tsx', 'groupNotifications', 'Notifications should keep dated grouping.');
   console.log('Mobile UI foundation smoke: PASS');
 }

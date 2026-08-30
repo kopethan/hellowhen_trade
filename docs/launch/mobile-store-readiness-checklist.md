@@ -25,19 +25,19 @@ npm run typecheck
 npm run build
 ```
 
-Do not submit until all eight command lines pass locally. `npm run mobile:store-readiness` also runs the store-release guard, App Review static smoke, release/submission preflights, store-visible copy scan, focused UGC safety smoke, and Cash Promise store/safety checklist guard. Complete [the Hellowhen 1.0.1 iPhone/iPad release smoke](./appstore-i18n-101-ios-device-release-smoke.md) and [the mobile UGC safety review checklist](./mobile-ugc-safety-review-checklist.md) on the exact production build.
+Do not submit until all eight command lines pass locally. `npm run mobile:store-readiness` also runs the store-release guard, App Review static smoke, release/submission preflights, store-visible copy scan, focused UGC safety smoke, and Cash Promise store/safety checklist guard. Complete [the Hellowhen 1.0.2 iPhone/iPad release smoke](./mobile-102-ios-device-release-smoke.md) and [the mobile UGC safety review checklist](./mobile-ugc-safety-review-checklist.md) on the exact production build.
 
 ## App metadata
 
-Follow [APPSTORE-I18N2 — Hellowhen 1.0.1 production release runbook](./appstore-i18n-101-production-release.md), then prepare or verify:
+Follow [Hellowhen 1.0.2 production release runbook](./mobile-102-production-release.md), then prepare or verify:
 
 - App name: `Hellowhen`.
 - Bundle ID: `com.hellowhen.app` or the final company-owned replacement.
 - Android package: `com.hellowhen.app` or the final company-owned replacement.
 - App icon and Android adaptive icon are production assets, not placeholders.
 - Splash image is production-ready and not a dev/test logo.
-- Marketing version is `1.0.1` for this App Store update.
-- EAS remote iOS build number is inspected before building and the resulting build is `27` or greater; never reset the remote number blindly.
+- Marketing version is `1.0.2` for this mobile update.
+- EAS remote iOS build number is inspected before building and the resulting build is `28` or greater; never reset the remote number blindly.
 - Portrait-only behavior is intentional and has been tested.
 - App category does not imply dating, payments, gambling, job placement, crypto, teen social, or financial services.
 - Age rating is set for adults only / 18+ launch positioning.
@@ -50,7 +50,7 @@ Create and test a reviewer account before submission:
 - Password: temporary reviewer password, changed after review.
 - User status: normal verified user, not admin.
 - Seeded state: at least one Need, one Offer, one public Trade, one public Plan with mapped offline Places, one pending proposal from another test user, one support ticket, and one unread notification.
-- Reviewer credentials are tested before submission. Final 1.0.1 App Review Notes and the English (U.S.) metadata package come from APPSTORE-I18N3; do not reuse the old rejection reply as the update note.
+- Reviewer credentials are tested before submission. Final 1.0.2 App Review Notes and the English (U.S.) metadata package come from RELEASE-METADATA1; do not reuse the old rejection reply as the update note.
 
 Do not give reviewers an admin account unless they explicitly ask for admin review access.
 
@@ -109,7 +109,7 @@ Verify on both an iPhone and an iPad review device:
 Before selecting the binary in App Store Connect:
 
 - Run `npm run mobile:app-review-smoke`.
-- Complete [APPSTORE-I18N2 — Hellowhen 1.0.1 iOS exact-binary release smoke](./appstore-i18n-101-ios-device-release-smoke.md).
+- Complete [Hellowhen 1.0.2 iOS exact-binary release smoke](./mobile-102-ios-device-release-smoke.md).
 - Test the exact EAS production binary, not Expo Go, a development client, or a preview build.
 - Replay both historical APPSTORE26 regressions on a physical iPhone and iPad compatibility presentation: no general Beta badge/copy and Apple Maps offered first alongside Google Maps.
 - Record the EAS build ID, marketing version, build number, device/OS, language, appearance, and result in the private release evidence.
@@ -189,31 +189,32 @@ Discover Plans and Trades → inspect an offline Place → create a Need/Offer �
 
 Avoid screenshots that show hidden wallet, payouts, Cash Promise, paid plans, ads, admin UI, debug screens, mock money, or release-state badges.
 
-## 1.0.1 App Store localization/review handoff
+## 1.0.2 App Store localization/review handoff
 
-APPSTORE-I18N2 prepares the binary/version/build workflow but intentionally does not invent the final English store copy. Before final App Review submission, complete:
+RELEASE-VERSION1 prepares the 1.0.2 binary/version/build workflow. Before final App Review submission, use:
 
 ```txt
-APPSTORE-I18N3 — English App Store metadata/review checklist
+RELEASE-METADATA1 — 1.0.2 App Store submission package
 ```
 
-APPSTORE-I18N3 is implemented in:
+RELEASE-METADATA1 is implemented in:
 
 ```txt
-docs/launch/appstore-i18n-101-english-localization.md
-docs/launch/appstore-i18n-101-en-US-metadata.json
+docs/launch/appstore-i18n-102-english-localization.md
+docs/launch/appstore-i18n-102-en-US-metadata.json
+docs/launch/appstore-i18n-102-submission-evidence-template.md
 ```
 
 It provides and verifies:
 
 - exact English (U.S.) App Store metadata and screenshots;
 - preservation of the existing French localization;
-- What's New for version 1.0.1;
+- What's New for version 1.0.2;
 - App Review Notes for this normal update;
 - shared production support/privacy URLs;
 - a screenshot order that reflects capabilities present in the submitted repository.
 
-Run `npm run mobile:submission-preflight` before final submission. It verifies the 1.0.1 release identity, metadata field limits, disabled-feature exclusions, remote EAS versioning safeguards, active runbook/evidence integration, and preservation of the historical APPSTORE26 regression material.
+Run `npm run mobile:submission-preflight` before final submission. It verifies the 1.0.2 release identity, metadata field limits, disabled-feature exclusions, remote EAS versioning safeguards, active runbook/evidence integration, and preservation of the historical APPSTORE26 regression material.
 
 ## Manual device sign-off
 

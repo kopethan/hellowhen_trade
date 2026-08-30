@@ -4,15 +4,15 @@
 
 ## Before native store submission
 
-- Follow the [Hellowhen 1.0.1 production release runbook](./appstore-i18n-101-production-release.md) for version `1.0.1`, remote build-number inspection, exact-binary QA, and submission.
+- Follow the [Hellowhen 1.0.2 production release runbook](./mobile-102-production-release.md) for version `1.0.2`, remote build-number inspection, exact-binary QA, and build preparation.
 - Run `npm run mobile:release-preflight` before starting the EAS production build.
-- Run `npm run mobile:submission-preflight` before completing the 1.0.1 App Review Information and final submission.
+- Run `npm run mobile:submission-preflight` before completing the 1.0.2 App Review Information and final submission.
 - Run `npm run mobile:app-review-smoke` and `npm run mobile:store-readiness` from the repository root.
-- Complete `docs/launch/appstore-i18n-101-ios-device-release-smoke.md` against the exact EAS production binary selected for App Store Connect.
-- Follow `docs/launch/appstore-i18n-101-english-localization.md` and copy exact English (U.S.) fields from `docs/launch/appstore-i18n-101-en-US-metadata.json` before submitting version 1.0.1.
+- Complete `docs/launch/mobile-102-ios-device-release-smoke.md` against the exact EAS production binary selected for App Store Connect.
+- Follow `docs/launch/appstore-i18n-102-english-localization.md` and copy exact English (U.S.) fields from `docs/launch/appstore-i18n-102-en-US-metadata.json` before submitting version 1.0.2.
 - Replay rejected-build regressions on iPhone and iPad compatibility mode: no general Beta presentation and Apple Maps offered for eligible Place/Plan route actions.
 - Confirm `EXPO_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `EXPO_PUBLIC_WALLET_VISIBLE=false`, `EXPO_PUBLIC_PAYOUTS_VISIBLE=false`, and `EXPO_PUBLIC_MONEY_TRADES_ENABLED=false`.
-- Verify app icon, splash, bundle identifiers, marketing version `1.0.1`, iOS build number `27` or greater, and store screenshots.
+- Verify app icon, splash, bundle identifiers, marketing version `1.0.2`, iOS build number `28` or greater, and store screenshots.
 - Verify login/register/reset flows on iOS and Android devices.
 - Verify Google sign-in is disabled/hidden for first launch, with no placeholder OAuth URL scheme in native config.
 - Verify registration requires Terms/Privacy acceptance and the 18+ age confirmation checkbox.

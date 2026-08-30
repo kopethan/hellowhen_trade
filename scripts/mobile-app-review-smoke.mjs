@@ -137,7 +137,7 @@ function runReviewerJourneyRouteChecks() {
 }
 
 function runReviewEvidenceChecklistChecks() {
-  const checklist = 'docs/launch/appstore-i18n-101-ios-device-release-smoke.md';
+  const checklist = 'docs/launch/mobile-102-ios-device-release-smoke.md';
   assertNonEmptyFile(checklist, 'The App Store iPhone/iPad device checklist is missing.');
   assertContains(checklist, 'iPad Air 11-inch (M3)', 'The checklist must replay the device used for the rejected build.');
   assertContains(checklist, 'APPSTORE26 rejection regressions', 'The checklist must include explicit rejection-regression coverage.');
@@ -155,7 +155,7 @@ function main() {
   runIphoneAndIpadShellChecks();
   runReviewerJourneyRouteChecks();
   runReviewEvidenceChecklistChecks();
-  console.log('APPSTORE-I18N2 1.0.1 static App Review smoke: PASS');
+  console.log('RELEASE-METADATA1 1.0.2 static App Review smoke: PASS');
   console.log('Manual iPhone and iPad checks are still required on the exact submitted binary.');
 }
 
