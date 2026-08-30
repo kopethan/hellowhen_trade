@@ -41,11 +41,11 @@ const UPDATE_BACKGROUNDS = {
   dark: '#090E24',
 } as const;
 
-const APPEARANCE_OPTIONS: AppearanceOption[] = [
+const APPEARANCE_OPTIONS = [
   { value: 'system', labelKey: 'onboarding.preferences.appearanceOptions.system' },
   { value: 'light', labelKey: 'onboarding.preferences.appearanceOptions.light' },
   { value: 'dark', labelKey: 'onboarding.preferences.appearanceOptions.dark' },
-];
+] as const satisfies readonly AppearanceOption[];
 
 export function AppUpdatePrompt() {
   const theme = useThemeTokens();

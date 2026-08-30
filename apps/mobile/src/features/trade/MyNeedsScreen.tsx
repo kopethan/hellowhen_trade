@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { InventoryTemplateDto } from '@hellowhen/contracts';
@@ -7,12 +7,21 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
+import { AppHeader } from '../../components/AppHeader';
 import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { MobileIcon } from '../../components/MobileIcon';
 import { InfoNotice } from '../../components/SemanticUI';
+import {
+  EMPTY_LIBRARY_HEADER_CONTROLS_STATE,
+  LibraryHeaderActions,
+  SlidingSegmentedControl,
+  type LibraryHeaderControlsHandle,
+  type LibraryHeaderControlsState,
+} from '../../components/library';
 import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
 import { InventoryCompactRow } from './components/InventoryCompactRow';
+import { ManagedInventoryLibraryFilters } from './components/ManagedInventoryLibraryFilters';
 import { InventoryFoldersPanel, type InventoryFolderSelection } from './components/InventoryFoldersPanel';
 import { useInventoryDisplayResolver, useLocalizedInventoryItem, useLocalizedInventoryItems } from './inventoryDisplay';
 import type { NeedItem } from './types';
@@ -32,6 +41,12 @@ export function MyNeedsScreen() {
   const resolveInventoryDisplay = useInventoryDisplayResolver();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [sourceTab, setSourceTab] = useState<SourceTab>('mine');
+  const mineControlsRef = useRef<LibraryHeaderControlsHandle>(null);
+  const exploreControlsRef = useRef<LibraryHeaderControlsHandle>(null);
+  const [controlsByTab, setControlsByTab] = useState<Record<SourceTab, LibraryHeaderControlsState>>({
+    mine: { ...EMPTY_LIBRARY_HEADER_CONTROLS_STATE },
+    starter: { ...EMPTY_LIBRARY_HEADER_CONTROLS_STATE },
+  });
   const [items, setItems] = useState<NeedItem[]>([]);
   const [templates, setTemplates] = useState<InventoryTemplateDto[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -78,6 +93,13 @@ export function MyNeedsScreen() {
   const displayCreatedItem = useLocalizedInventoryItem(createdNeed);
 
   const activeLoading = sourceTab === 'starter' ? templateLoading : loading;
+  const activeControls = controlsByTab[sourceTab];
+  const activeControlsRef = sourceTab === 'starter' ? exploreControlsRef : mineControlsRef;
+  const updateControls = useCallback((tab: SourceTab, state: LibraryHeaderControlsState) => {
+    setControlsByTab((current) => ({ ...current, [tab]: state }));
+  }, []);
+  const updateMineControls = useCallback((state: LibraryHeaderControlsState) => updateControls('mine', state), [updateControls]);
+  const updateExploreControls = useCallback((state: LibraryHeaderControlsState) => updateControls('starter', state), [updateControls]);
   const handleBack = useCallback(() => {
     if (navigation.canGoBack()) {
       navigation.goBack();
@@ -86,27 +108,22 @@ export function MyNeedsScreen() {
     navigation.replace('TradeTabs', { screen: 'MeTab' });
   }, [navigation]);
   const header = (
-    <View style={styles.headerStack}>
-      <View style={styles.headerRow}>
-        <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.back')} onPress={handleBack} style={({ pressed }) => [styles.backButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-          <MobileIcon name="back" size={20} color={theme.color.text} />
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('inventory.actions.createNeed')}
-          onPress={() => navigation.navigate('CreateNeed')}
-          style={({ pressed }) => [
-            styles.createButton,
-            { backgroundColor: theme.semantic.need.bg, borderColor: theme.semantic.need.bg },
-            pressed && styles.createButtonPressed,
-          ]}
-        >
-          <MobileIcon name="add" size={23} color={theme.semantic.need.onBg} />
-        </Pressable>
-      </View>
-      <AppText style={styles.title}>{t('inventory.labels.needs')}</AppText>
-      <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('inventory.empty.needNativeBody')}</AppText>
-    </View>
+    <AppHeader
+      title={t('inventory.labels.needs')}
+      onBack={handleBack}
+      rightSlot={(
+        <LibraryHeaderActions
+          tone="need"
+          state={activeControls}
+          searchAccessibilityLabel={sourceTab === 'starter' ? t('inventory.libraryFilters.searchStarterLibrary') : t('inventory.libraryFilters.searchMyNeeds')}
+          filterAccessibilityLabel={sourceTab === 'starter' ? t('inventory.libraryFilters.openFilters') : t('inventory.libraryFilters.filterMyNeeds')}
+          createAccessibilityLabel={t('inventory.actions.createNeed')}
+          onToggleSearch={() => activeControlsRef.current?.toggleSearch()}
+          onOpenFilters={() => activeControlsRef.current?.openFilters()}
+          onCreate={() => navigation.navigate('CreateNeed')}
+        />
+      )}
+    />
   );
 
   const sortedItems = useMemo(() => {
@@ -140,15 +157,23 @@ export function MyNeedsScreen() {
   return (
     <AppSmartHeaderScreen header={header} resetKey={sourceTab}>
       {(scrollProps) => (
-        <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={activeLoading} onRefresh={() => { void loadItems(); void loadTemplates(); setFolderRefreshKey((key) => key + 1); }} />}>
+        <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} refreshControl={<RefreshControl refreshing={activeLoading} onRefresh={() => { void loadItems(); void loadTemplates(); setFolderRefreshKey((key) => key + 1); }} />}>
           <SourceTabs value={sourceTab} onChange={(nextTab) => { setSourceTab(nextTab); setNotice(null); setCreatedNeed(null); }} />
+          {sourceTab === 'mine' ? <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('inventory.empty.needNativeBody')}</AppText> : null}
           {notice ? <InfoNotice tone="success" title={t('inventory.messages.starterSaved')} body={notice} /> : null}
           {createdNeed ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: createdNeed.id, title: displayCreatedItem?.title ?? createdNeed.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.need.softBg, borderColor: theme.semantic.need.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.need.text }]}>{t('inventory.actions.openSavedNeed')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.need.text} /></Pressable> : null}
-          {sourceTab === 'starter' ? <StarterInventoryLibrary kind="need" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('inventory.actions.useThisNeed')} onUseTemplate={(template) => { void cloneTemplate(template); }} /> : <>
+          <View style={sourceTab === 'mine' ? undefined : styles.hiddenSegment}>
             {betaFeatures.inventoryFoldersEnabled ? <InventoryFoldersPanel kind="need" items={displayItems.map((item) => ({ id: item.id, title: item.title }))} refreshKey={folderRefreshKey} onSelectionChange={setFolderSelection} /> : null}
             {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotLoadNeed')} body={error} /> : null}
-            {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title={emptyTitle} body={emptyBody} tone="need" onPress={() => navigation.navigate('CreateNeed')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><InventoryCompactRow kind="need" item={item} /></Pressable>)}
-          </>}
+            <ManagedInventoryLibraryFilters ref={mineControlsRef} kind="need" items={sortedItems} headerControls onHeaderControlsStateChange={updateMineControls}>
+              {(visibleItems) => visibleItems.length === 0
+                ? <EmptyInventoryPlaceholder title={emptyTitle} body={emptyBody} tone="need" onPress={() => navigation.navigate('CreateNeed')} />
+                : visibleItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><InventoryCompactRow kind="need" item={item} /></Pressable>)}
+            </ManagedInventoryLibraryFilters>
+          </View>
+          <View style={sourceTab === 'starter' ? undefined : styles.hiddenSegment}>
+            <StarterInventoryLibrary ref={exploreControlsRef} kind="need" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('inventory.actions.useThisNeed')} onUseTemplate={(template) => { void cloneTemplate(template); }} headerControls onHeaderControlsStateChange={updateExploreControls} />
+          </View>
         </ScrollView>
       )}
     </AppSmartHeaderScreen>
@@ -156,14 +181,18 @@ export function MyNeedsScreen() {
 }
 
 function SourceTabs({ value, onChange }: { value: SourceTab; onChange: (value: SourceTab) => void }) {
-  const theme = useThemeTokens();
   const { t } = useTranslation();
-  return <View style={[styles.sourceTabs, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SourceTabButton label={t('inventory.labels.myNeeds')} active={value === 'mine'} onPress={() => onChange('mine')} /><SourceTabButton label={t('inventory.labels.starterNeeds')} active={value === 'starter'} onPress={() => onChange('starter')} /></View>;
-}
-
-function SourceTabButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
-  const theme = useThemeTokens();
-  return <Pressable accessibilityRole="tab" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.sourceTabButton, active && { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.sourceTabText, { color: active ? theme.color.text : theme.color.muted }]}>{label}</AppText></Pressable>;
+  return (
+    <SlidingSegmentedControl<SourceTab>
+      value={value}
+      onChange={onChange}
+      tone="need"
+      options={[
+        { value: 'mine', label: t('common.librarySegments.mine') },
+        { value: 'starter', label: t('common.librarySegments.explore') },
+      ]}
+    />
+  );
 }
 
 function EmptyInventoryPlaceholder({ title, body, tone, onPress }: { title: string; body: string; tone: 'need' | 'offer'; onPress: () => void }) {
@@ -178,4 +207,15 @@ function EmptyInventoryPlaceholder({ title, body, tone, onPress }: { title: stri
   );
 }
 
-const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerStack: { gap: 8 }, headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 }, backButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 20, fontWeight: '600' }, createButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }, createButtonPressed: { opacity: 0.78, transform: [{ scale: 0.98 }] }, sourceTabs: { flexDirection: 'row', borderRadius: 22, borderWidth: 1, padding: 4, gap: 4 }, sourceTabButton: { flex: 1, minHeight: 44, borderRadius: 18, borderWidth: 1, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 }, sourceTabText: { fontSize: 13, fontWeight: '900' }, openCreatedButton: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, openCreatedText: { fontWeight: '900' }, emptyPlaceholder: { minHeight: 208, borderRadius: 28, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', padding: 22, gap: 10 }, emptyIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, emptyTitle: { textAlign: 'center', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 }, emptyBody: { textAlign: 'center', lineHeight: 20, fontWeight: '700' }, pressed: { opacity: 0.78 } });
+const styles = StyleSheet.create({
+  content: { paddingBottom: 28, gap: 14 },
+  subtitle: { lineHeight: 20, fontWeight: '600' },
+  hiddenSegment: { display: 'none' },
+  openCreatedButton: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  openCreatedText: { fontWeight: '900' },
+  emptyPlaceholder: { minHeight: 208, borderRadius: 28, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', padding: 22, gap: 10 },
+  emptyIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  emptyTitle: { textAlign: 'center', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 },
+  emptyBody: { textAlign: 'center', lineHeight: 20, fontWeight: '700' },
+  pressed: { opacity: 0.78 },
+});

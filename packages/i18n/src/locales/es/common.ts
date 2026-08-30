@@ -2,6 +2,10 @@ import { common as enCommon } from '../en/common';
 
 export const common = {
   ...enCommon,
+  librarySegments: {
+    mine: 'Mis',
+    explore: 'Explorar',
+  },
   actions: {
     ...enCommon.actions,
     add: 'Añadir',

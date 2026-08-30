@@ -1,0 +1,61 @@
+diff --git a/apps/api/src/modules/places/hellowhenPlaceLibrarySeed.ts b/apps/api/src/modules/places/hellowhenPlaceLibrarySeed.ts
+index d927e81..913ca2b 100644
+--- a/apps/api/src/modules/places/hellowhenPlaceLibrarySeed.ts
++++ b/apps/api/src/modules/places/hellowhenPlaceLibrarySeed.ts
+@@ -202,7 +202,7 @@ export const hellowhenPlaceLibrarySeedEntries: HellowhenPlaceLibrarySeedEntry[]
+     city: 'Paris',
+     countryCode: 'FR',
+     areaLabel: 'Paris, France',
+-    googleQuery: 'Pantheon Paris France monument',
++    googleQuery: 'Panthéon 75005 Paris France',
+     matchTokens: ['pantheon'],
+     category: 'Monument',
+     tags: ['paris', 'latin-quarter', 'monument', 'history'],
+diff --git a/apps/api/src/scripts/seedHellowhenPlaceLibrary.ts b/apps/api/src/scripts/seedHellowhenPlaceLibrary.ts
+index 0c66355..c6716b2 100644
+--- a/apps/api/src/scripts/seedHellowhenPlaceLibrary.ts
++++ b/apps/api/src/scripts/seedHellowhenPlaceLibrary.ts
+@@ -229,14 +229,25 @@ async function main() {
+ 
+   let created = 0;
+   let updated = 0;
++  const failures: Array<{ key: string; message: string }> = [];
++
+   for (const entry of selected) {
+-    const result = await upsertLibraryPlace(entry);
+-    if (result.created) created += 1;
+-    else updated += 1;
+-    console.log(`${result.created ? 'created' : 'updated'} ${entry.key}: ${result.place.title} -> ${result.resolved.formattedAddress}`);
++    try {
++      const result = await upsertLibraryPlace(entry);
++      if (result.created) created += 1;
++      else updated += 1;
++      console.log(`${result.created ? 'created' : 'updated'} ${entry.key}: ${result.place.title} -> ${result.resolved.formattedAddress}`);
++    } catch (error) {
++      const message = error instanceof Error ? error.message : String(error);
++      failures.push({ key: entry.key, message });
++      console.error(`failed ${entry.key}: ${message}`);
++    }
+   }
+ 
+-  console.log(`Hellowhen Place Library seed complete: ${created} created, ${updated} updated.`);
++  console.log(`Hellowhen Place Library seed complete: ${created} created, ${updated} updated, ${failures.length} failed.`);
++  if (failures.length) {
++    throw new Error(`Hellowhen Place Library seed finished with ${failures.length} failure(s): ${failures.map((failure) => failure.key).join(', ')}`);
++  }
+ }
+ 
+ main()
+diff --git a/docs/product/hellowhen-place-library-seed.md b/docs/product/hellowhen-place-library-seed.md
+index 29b4783..102465d 100644
+--- a/docs/product/hellowhen-place-library-seed.md
++++ b/docs/product/hellowhen-place-library-seed.md
+@@ -14,7 +14,7 @@ The curated definitions intentionally store search queries rather than hard-code
+ - The seed never creates a user or pretends a Place was user-created.
+ - The seed is idempotent: it updates an existing library Place when the same Google Place ID or English library title already exists.
+ - The seed never archives extra library Places that an admin may have added separately.
+-- A failed or ambiguous Google prediction stops that entry instead of silently accepting the first result.
++- A failed or ambiguous Google prediction never silently accepts the first result. The seed records that entry as failed, continues with the remaining curated Places, and exits non-zero after the batch so the failed keys are visible.
+ - Production writes require an explicit `HELLOWHEN_PLACE_LIBRARY_ALLOW_PRODUCTION=true` guard.
+ - The default command is a dry run and makes no provider requests or database writes.
+ 

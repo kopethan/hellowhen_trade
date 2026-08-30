@@ -19,9 +19,10 @@
     "media:s3-migrate": "tsx src/scripts/migrateLocalMediaToS3.ts",
     "places:address-cleanup": "tsx src/scripts/cleanupInvalidOfflinePlaces.ts",
     "test:plans": "tsx --test src/modules/plans/__tests__/plans.safety.test.ts",
-    "test:places": "tsx --test src/modules/places/__tests__/placeUpdatePolicy.test.ts src/modules/places/__tests__/placeOwnershipPolicy.test.ts",
+    "test:places": "tsx --test src/modules/places/__tests__/placeUpdatePolicy.test.ts src/modules/places/__tests__/placeOwnershipPolicy.test.ts src/modules/places/__tests__/hellowhenPlaceLibrarySeed.test.ts",
     "test:inventory-original": "tsx --test src/modules/__tests__/inventoryOriginalCopy.test.ts",
-    "test:mobile-release": "tsx --test src/modules/mobile-release/__tests__/mobileReleasePolicy.test.ts"
+    "test:mobile-release": "tsx --test src/modules/mobile-release/__tests__/mobileReleasePolicy.test.ts",
+    "places:library-seed": "tsx src/scripts/seedHellowhenPlaceLibrary.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1077.0",

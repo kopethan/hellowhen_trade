@@ -1,0 +1,768 @@
+diff --git a/apps/mobile/src/components/AppHeader.tsx b/apps/mobile/src/components/AppHeader.tsx
+index cfc8bce..3ae265f 100644
+--- a/apps/mobile/src/components/AppHeader.tsx
++++ b/apps/mobile/src/components/AppHeader.tsx
+@@ -20,6 +20,7 @@ type AppHeaderProps = {
+   title: string;
+   onBack: () => void;
+   rightSlot?: React.ReactNode;
++  backAccessibilityLabel?: string;
+   /**
+    * Opt-in edge reveal for genuinely long titles. The default stays truncated
+    * so existing headers do not suddenly animate. Motion is skipped when the
+@@ -129,6 +130,7 @@ export function AppHeader({
+   title,
+   onBack,
+   rightSlot,
++  backAccessibilityLabel,
+   titleOverflowBehavior = 'truncate',
+ }: AppHeaderProps) {
+   const theme = useThemeTokens();
+@@ -138,7 +140,7 @@ export function AppHeader({
+     <View style={styles.headerRow}>
+       <Pressable
+         accessibilityRole="button"
+-        accessibilityLabel={t('navigation.goBack')}
++        accessibilityLabel={backAccessibilityLabel ?? t('navigation.goBack')}
+         onPress={onBack}
+         style={({ pressed }) => [
+           styles.backButton,
+diff --git a/apps/mobile/src/components/library/LibraryFilterScreen.tsx b/apps/mobile/src/components/library/LibraryFilterScreen.tsx
+new file mode 100644
+index 0000000..3096d39
+--- /dev/null
++++ b/apps/mobile/src/components/library/LibraryFilterScreen.tsx
+@@ -0,0 +1,188 @@
++import React from 'react';
++import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
++import type { SemanticColorName } from '@hellowhen/theme';
++import { useSafeAreaInsets } from 'react-native-safe-area-context';
++import { useReducedMotion } from '../../hooks/useReducedMotion';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++import { AppHeader } from '../AppHeader';
++import { AppText } from '../AppText';
++
++type LibraryFilterScreenProps = {
++  visible: boolean;
++  title: string;
++  body?: string;
++  children: React.ReactNode;
++  closeAccessibilityLabel: string;
++  resetLabel: string;
++  applyLabel: string;
++  onClose: () => void;
++  onReset: () => void;
++  onApply: () => void;
++  tone?: SemanticColorName;
++  resetDisabled?: boolean;
++  applyDisabled?: boolean;
++};
++
++export function LibraryFilterScreen({
++  visible,
++  title,
++  body,
++  children,
++  closeAccessibilityLabel,
++  resetLabel,
++  applyLabel,
++  onClose,
++  onReset,
++  onApply,
++  tone,
++  resetDisabled = false,
++  applyDisabled = false,
++}: LibraryFilterScreenProps) {
++  const theme = useThemeTokens();
++  const insets = useSafeAreaInsets();
++  const reducedMotion = useReducedMotion();
++  const semantic = tone ? theme.semantic[tone] : theme.semantic.info;
++
++  return (
++    <Modal
++      animationType={reducedMotion ? 'none' : 'slide'}
++      presentationStyle="fullScreen"
++      onRequestClose={onClose}
++      transparent={false}
++      visible={visible}
++    >
++      <View
++        accessibilityViewIsModal
++        style={[
++          styles.screen,
++          {
++            backgroundColor: theme.color.background,
++            paddingTop: Math.max(insets.top, 10),
++          },
++        ]}
++      >
++        <View style={styles.headerWrap}>
++          <AppHeader
++            title={title}
++            onBack={onClose}
++            backAccessibilityLabel={closeAccessibilityLabel}
++            rightSlot={(
++              <Pressable
++                accessibilityRole="button"
++                accessibilityLabel={resetLabel}
++                accessibilityState={{ disabled: resetDisabled }}
++                disabled={resetDisabled}
++                onPress={onReset}
++                style={({ pressed }) => [
++                  styles.resetAction,
++                  { borderColor: theme.color.border, backgroundColor: theme.color.surface },
++                  pressed && !resetDisabled && styles.pressed,
++                  resetDisabled && styles.disabled,
++                ]}
++              >
++                <AppText style={[styles.resetActionText, { color: theme.color.text }]}>{resetLabel}</AppText>
++              </Pressable>
++            )}
++          />
++        </View>
++
++        <ScrollView
++          contentContainerStyle={[
++            styles.content,
++            { paddingBottom: 28 + Math.max(insets.bottom, 8) },
++          ]}
++          keyboardShouldPersistTaps="handled"
++          showsVerticalScrollIndicator={false}
++        >
++          {body ? <AppText style={[styles.body, { color: theme.color.muted }]}>{body}</AppText> : null}
++          {children}
++        </ScrollView>
++
++        <View
++          style={[
++            styles.footer,
++            {
++              backgroundColor: theme.color.background,
++              borderTopColor: theme.color.border,
++              paddingBottom: Math.max(insets.bottom, 10),
++            },
++          ]}
++        >
++          <Pressable
++            accessibilityRole="button"
++            accessibilityLabel={applyLabel}
++            accessibilityState={{ disabled: applyDisabled }}
++            disabled={applyDisabled}
++            onPress={onApply}
++            style={({ pressed }) => [
++              styles.applyButton,
++              { backgroundColor: semantic.bg, borderColor: semantic.bg },
++              pressed && !applyDisabled && styles.pressed,
++              applyDisabled && styles.disabled,
++            ]}
++          >
++            <AppText style={[styles.applyText, { color: semantic.onBg }]}>{applyLabel}</AppText>
++          </Pressable>
++        </View>
++      </View>
++    </Modal>
++  );
++}
++
++const styles = StyleSheet.create({
++  screen: {
++    flex: 1,
++  },
++  headerWrap: {
++    paddingHorizontal: 16,
++    paddingBottom: 10,
++  },
++  resetAction: {
++    minHeight: 44,
++    borderRadius: 22,
++    borderWidth: 1,
++    paddingHorizontal: 15,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  resetActionText: {
++    fontSize: 13,
++    lineHeight: 17,
++    fontWeight: '900',
++  },
++  content: {
++    paddingHorizontal: 18,
++    paddingTop: 8,
++    gap: 22,
++  },
++  body: {
++    fontSize: 13,
++    lineHeight: 19,
++    fontWeight: '600',
++  },
++  footer: {
++    borderTopWidth: 1,
++    paddingHorizontal: 16,
++    paddingTop: 12,
++  },
++  applyButton: {
++    minHeight: 52,
++    borderRadius: 18,
++    borderWidth: 1,
++    paddingHorizontal: 18,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  applyText: {
++    fontSize: 14,
++    lineHeight: 18,
++    fontWeight: '900',
++  },
++  pressed: {
++    opacity: 0.78,
++    transform: [{ scale: 0.99 }],
++  },
++  disabled: {
++    opacity: 0.45,
++  },
++});
+diff --git a/apps/mobile/src/components/library/LibraryFilterSheet.tsx b/apps/mobile/src/components/library/LibraryFilterSheet.tsx
+deleted file mode 100644
+index 4f64e24..0000000
+--- a/apps/mobile/src/components/library/LibraryFilterSheet.tsx
++++ /dev/null
+@@ -1,293 +0,0 @@
+-import React, { useEffect, useRef, useState } from 'react';
+-import { Animated, Easing, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+-import type { SemanticColorName } from '@hellowhen/theme';
+-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+-import { useReducedMotion } from '../../hooks/useReducedMotion';
+-import { useThemeTokens } from '../../providers/ThemeProvider';
+-import { AppText } from '../AppText';
+-import { MobileIcon } from '../MobileIcon';
+-
+-type LibraryFilterSheetProps = {
+-  visible: boolean;
+-  title: string;
+-  body?: string;
+-  children: React.ReactNode;
+-  closeAccessibilityLabel: string;
+-  resetLabel: string;
+-  applyLabel: string;
+-  onClose: () => void;
+-  onReset: () => void;
+-  onApply: () => void;
+-  tone?: SemanticColorName;
+-  resetDisabled?: boolean;
+-  applyDisabled?: boolean;
+-};
+-
+-export function LibraryFilterSheet({
+-  visible,
+-  title,
+-  body,
+-  children,
+-  closeAccessibilityLabel,
+-  resetLabel,
+-  applyLabel,
+-  onClose,
+-  onReset,
+-  onApply,
+-  tone,
+-  resetDisabled = false,
+-  applyDisabled = false,
+-}: LibraryFilterSheetProps) {
+-  const theme = useThemeTokens();
+-  const insets = useSafeAreaInsets();
+-  const reducedMotion = useReducedMotion();
+-  const semantic = tone ? theme.semantic[tone] : theme.semantic.info;
+-  const bottomInset = Platform.OS === 'android' ? Math.max(0, insets.bottom) : Math.max(8, insets.bottom);
+-  const [rendered, setRendered] = useState(visible);
+-  const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+-  const enteredRef = useRef(visible);
+-
+-  useEffect(() => {
+-    progress.stopAnimation();
+-
+-    if (visible && !rendered) {
+-      enteredRef.current = false;
+-      setRendered(true);
+-      return;
+-    }
+-
+-    if (visible) {
+-      if (enteredRef.current) return;
+-      enteredRef.current = true;
+-
+-      if (reducedMotion) {
+-        progress.setValue(1);
+-        return;
+-      }
+-
+-      progress.setValue(0);
+-      const animation = Animated.timing(progress, {
+-        toValue: 1,
+-        duration: 220,
+-        easing: Easing.out(Easing.cubic),
+-        useNativeDriver: true,
+-      });
+-      animation.start();
+-      return () => animation.stop();
+-    }
+-
+-    if (!rendered) return;
+-    enteredRef.current = false;
+-
+-    if (reducedMotion) {
+-      progress.setValue(0);
+-      setRendered(false);
+-      return;
+-    }
+-
+-    const animation = Animated.timing(progress, {
+-      toValue: 0,
+-      duration: 160,
+-      easing: Easing.in(Easing.cubic),
+-      useNativeDriver: true,
+-    });
+-    animation.start(({ finished }) => {
+-      if (finished) setRendered(false);
+-    });
+-    return () => animation.stop();
+-  }, [progress, reducedMotion, rendered, visible]);
+-
+-  if (!rendered) return null;
+-
+-  const translateY = progress.interpolate({
+-    inputRange: [0, 1],
+-    outputRange: [34, 0],
+-  });
+-  const scale = progress.interpolate({
+-    inputRange: [0, 1],
+-    outputRange: [0.985, 1],
+-  });
+-
+-  return (
+-    <Modal animationType="none" onRequestClose={onClose} transparent visible={rendered}>
+-      <View style={[styles.modalRoot, { paddingBottom: 14 + bottomInset }]}>
+-        <Animated.View
+-          pointerEvents="none"
+-          style={[StyleSheet.absoluteFillObject, styles.backdropVisual, { opacity: progress }]}
+-        />
+-        <Pressable accessible={false} style={styles.dismissArea} onPress={onClose}>
+-          <Animated.View style={[styles.sheetMotion, { opacity: progress, transform: [{ translateY }, { scale }] }]}>
+-            <Pressable
+-              accessibilityViewIsModal
+-              accessible={false}
+-              onPress={(event) => event.stopPropagation()}
+-              style={[styles.sheet, { backgroundColor: theme.color.elevated, borderColor: theme.color.border }]}
+-            >
+-              <View style={[styles.handle, { backgroundColor: theme.color.border }]} />
+-
+-              <View style={styles.headerRow}>
+-                <View style={styles.headerCopy}>
+-                  <AppText accessibilityRole="header" style={styles.title}>{title}</AppText>
+-                  {body ? <AppText style={[styles.body, { color: theme.color.muted }]}>{body}</AppText> : null}
+-                </View>
+-                <Pressable
+-                  accessibilityRole="button"
+-                  accessibilityLabel={closeAccessibilityLabel}
+-                  onPress={onClose}
+-                  style={({ pressed }) => [styles.closeButton, { borderColor: theme.color.border }, pressed && styles.pressed]}
+-                >
+-                  <MobileIcon name="close" size={18} color={theme.color.text} decorative />
+-                </Pressable>
+-              </View>
+-
+-              <ScrollView
+-                contentContainerStyle={styles.content}
+-                keyboardShouldPersistTaps="handled"
+-                showsVerticalScrollIndicator={false}
+-              >
+-                {children}
+-              </ScrollView>
+-
+-              <View style={[styles.footer, { borderTopColor: theme.color.border }]}>
+-                <Pressable
+-                  accessibilityRole="button"
+-                  accessibilityState={{ disabled: resetDisabled }}
+-                  disabled={resetDisabled}
+-                  onPress={onReset}
+-                  style={({ pressed }) => [
+-                    styles.footerButton,
+-                    styles.resetButton,
+-                    { borderColor: theme.color.border },
+-                    pressed && !resetDisabled && styles.pressed,
+-                    resetDisabled && styles.disabled,
+-                  ]}
+-                >
+-                  <AppText style={[styles.resetText, { color: theme.color.text }]}>{resetLabel}</AppText>
+-                </Pressable>
+-                <Pressable
+-                  accessibilityRole="button"
+-                  accessibilityState={{ disabled: applyDisabled }}
+-                  disabled={applyDisabled}
+-                  onPress={onApply}
+-                  style={({ pressed }) => [
+-                    styles.footerButton,
+-                    styles.applyButton,
+-                    { backgroundColor: semantic.bg, borderColor: semantic.bg },
+-                    pressed && !applyDisabled && styles.pressed,
+-                    applyDisabled && styles.disabled,
+-                  ]}
+-                >
+-                  <AppText style={[styles.applyText, { color: semantic.onBg }]}>{applyLabel}</AppText>
+-                </Pressable>
+-              </View>
+-            </Pressable>
+-          </Animated.View>
+-        </Pressable>
+-      </View>
+-    </Modal>
+-  );
+-}
+-
+-const styles = StyleSheet.create({
+-  modalRoot: {
+-    flex: 1,
+-    paddingHorizontal: 14,
+-    paddingTop: 28,
+-  },
+-  backdropVisual: {
+-    backgroundColor: 'rgba(2, 6, 23, 0.56)',
+-  },
+-  dismissArea: {
+-    flex: 1,
+-    justifyContent: 'flex-end',
+-  },
+-  sheetMotion: {
+-    maxHeight: '88%',
+-  },
+-  sheet: {
+-    maxHeight: '100%',
+-    borderWidth: 1,
+-    borderRadius: 28,
+-    overflow: 'hidden',
+-  },
+-  handle: {
+-    width: 38,
+-    height: 4,
+-    borderRadius: 2,
+-    alignSelf: 'center',
+-    marginTop: 10,
+-    opacity: 0.9,
+-  },
+-  headerRow: {
+-    flexDirection: 'row',
+-    alignItems: 'flex-start',
+-    gap: 12,
+-    paddingHorizontal: 18,
+-    paddingTop: 12,
+-    paddingBottom: 12,
+-  },
+-  headerCopy: {
+-    flex: 1,
+-    minWidth: 0,
+-    gap: 5,
+-  },
+-  title: {
+-    fontSize: 20,
+-    lineHeight: 25,
+-    fontWeight: '900',
+-    letterSpacing: -0.25,
+-  },
+-  body: {
+-    fontSize: 13,
+-    lineHeight: 18,
+-    fontWeight: '600',
+-  },
+-  closeButton: {
+-    width: 44,
+-    height: 44,
+-    borderRadius: 22,
+-    borderWidth: 1,
+-    alignItems: 'center',
+-    justifyContent: 'center',
+-  },
+-  content: {
+-    paddingHorizontal: 18,
+-    paddingVertical: 8,
+-    gap: 20,
+-  },
+-  footer: {
+-    borderTopWidth: 1,
+-    padding: 14,
+-    flexDirection: 'row',
+-    gap: 10,
+-  },
+-  footerButton: {
+-    minHeight: 50,
+-    borderRadius: 18,
+-    borderWidth: 1,
+-    alignItems: 'center',
+-    justifyContent: 'center',
+-    paddingHorizontal: 16,
+-  },
+-  resetButton: {
+-    minWidth: 108,
+-  },
+-  applyButton: {
+-    flex: 1,
+-  },
+-  resetText: {
+-    fontSize: 14,
+-    fontWeight: '900',
+-  },
+-  applyText: {
+-    fontSize: 14,
+-    fontWeight: '900',
+-  },
+-  pressed: {
+-    opacity: 0.76,
+-    transform: [{ scale: 0.98 }],
+-  },
+-  disabled: {
+-    opacity: 0.45,
+-  },
+-});
+diff --git a/apps/mobile/src/components/library/index.ts b/apps/mobile/src/components/library/index.ts
+index d52d9b4..f48b458 100644
+--- a/apps/mobile/src/components/library/index.ts
++++ b/apps/mobile/src/components/library/index.ts
+@@ -2,7 +2,7 @@ export * from './LibraryHeaderActions';
+ export * from './LibraryHeaderControls';
+ export * from './LibraryInlineSearch';
+ export * from './LibraryActiveFilterChips';
+-export * from './LibraryFilterSheet';
++export * from './LibraryFilterScreen';
+ export * from './LibraryFilterControls';
+ export * from './LibrarySearchFilterRow';
+ export * from './SlidingSegmentedControl';
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 4f1f9bd..cae509c 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -16,7 +16,7 @@ import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppHeaderActionButton } from '../../components/AppHeaderActionButton';
+ import { AppText } from '../../components/AppText';
+-import { EMPTY_LIBRARY_HEADER_CONTROLS_STATE, LibraryActiveFilterChips, LibraryFilterGroup, LibraryFilterOption, LibraryFilterSheet, LibraryHeaderActions, LibraryInlineSearch, LibrarySearchFilterRow, SlidingSegmentedControl, useScopedLibraryState, type LibraryHeaderControlsHandle, type LibraryHeaderControlsState } from '../../components/library';
++import { EMPTY_LIBRARY_HEADER_CONTROLS_STATE, LibraryActiveFilterChips, LibraryFilterGroup, LibraryFilterOption, LibraryFilterScreen, LibraryHeaderActions, LibraryInlineSearch, LibrarySearchFilterRow, SlidingSegmentedControl, useScopedLibraryState, type LibraryHeaderControlsHandle, type LibraryHeaderControlsState } from '../../components/library';
+ import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+ import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
+ import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
+@@ -2204,7 +2204,7 @@ const PlaceList = forwardRef<LibraryHeaderControlsHandle, PlaceListProps>(functi
+   const [removedPlaceTitle, setRemovedPlaceTitle] = useState<string | null>(null);
+   const [archivingPlaceId, setArchivingPlaceId] = useState<string | null>(null);
+   const [archiveConfirmPlace, setArchiveConfirmPlace] = useState<PlaceDto | null>(null);
+-  const [filterSheetVisible, setFilterSheetVisible] = useState(false);
++  const [filterScreenVisible, setFilterScreenVisible] = useState(false);
+   const [searchExpanded, setSearchExpanded] = useState(false);
+   const [draftFilters, setDraftFilters] = useState<Pick<PlaceLibraryUiState, 'mode' | 'category' | 'status' | 'area' | 'popularOnly'>>({ mode: 'all', category: null, status: 'all', area: null, popularOnly: false });
+   const { stateByScope, setScopeState, resetScopeState } = useScopedLibraryState<PlaceListScope, PlaceLibraryUiState>({
+@@ -2240,7 +2240,7 @@ const PlaceList = forwardRef<LibraryHeaderControlsHandle, PlaceListProps>(functi
+     setRemovedPlaceTitle(null);
+     setArchiveConfirmPlace(null);
+     setArchivingPlaceId(null);
+-    setFilterSheetVisible(false);
++    setFilterScreenVisible(false);
+   }, [scope]);
+ 
+   useFocusEffect(useCallback(() => { void load(); }, [load]));
+@@ -2335,7 +2335,7 @@ const PlaceList = forwardRef<LibraryHeaderControlsHandle, PlaceListProps>(functi
+ 
+   function openFilters() {
+     setDraftFilters({ mode: activeState.mode, category: activeState.category, status: activeState.status, area: activeState.area, popularOnly: activeState.popularOnly });
+-    setFilterSheetVisible(true);
++    setFilterScreenVisible(true);
+   }
+ 
+   function resetDraftFilters() {
+@@ -2351,7 +2351,7 @@ const PlaceList = forwardRef<LibraryHeaderControlsHandle, PlaceListProps>(functi
+       area: scope === 'library' ? draftFilters.area : null,
+       popularOnly: scope === 'library' ? draftFilters.popularOnly : false,
+     }));
+-    setFilterSheetVisible(false);
++    setFilterScreenVisible(false);
+   }
+ 
+   const libraryControls = (
+@@ -2379,22 +2379,22 @@ const PlaceList = forwardRef<LibraryHeaderControlsHandle, PlaceListProps>(functi
+           filterCount={activeFilterCount}
+           tone="place"
+           clearAccessibilityLabel={t('places.list.filters.clearSearch')}
+-          filtersExpanded={filterSheetVisible}
++          filtersExpanded={filterScreenVisible}
+         />
+       )}
+       <LibraryActiveFilterChips filters={activeFilterChips} tone="place" />
+     </View>
+   );
+ 
+-  const filterSheet = (
+-    <LibraryFilterSheet
+-      visible={filterSheetVisible}
++  const filterScreen = (
++    <LibraryFilterScreen
++      visible={filterScreenVisible}
+       title={t('places.list.filters.title')}
+       body={scope === 'library' ? t('places.list.filters.libraryBody') : t('places.list.filters.mineBody')}
+       closeAccessibilityLabel={t('places.list.filters.closeFilters')}
+       resetLabel={t('places.list.filters.reset')}
+       applyLabel={t('places.list.filters.showResults', { count: draftFilteredCount })}
+-      onClose={() => setFilterSheetVisible(false)}
++      onClose={() => setFilterScreenVisible(false)}
+       onReset={resetDraftFilters}
+       onApply={applyDraftFilters}
+       tone="place"
+@@ -2434,7 +2434,7 @@ const PlaceList = forwardRef<LibraryHeaderControlsHandle, PlaceListProps>(functi
+           <LibraryFilterOption label={t('places.list.filters.popular')} selected={draftFilters.popularOnly} tone="place" onPress={() => setDraftFilters((current) => ({ ...current, popularOnly: true }))} />
+         </LibraryFilterGroup>
+       ) : null}
+-    </LibraryFilterSheet>
++    </LibraryFilterScreen>
+   );
+ 
+   function confirmArchivePlace(place: PlaceDto) {
+@@ -2510,7 +2510,7 @@ const PlaceList = forwardRef<LibraryHeaderControlsHandle, PlaceListProps>(functi
+         {libraryControls}
+         {listBody}
+       </ScrollView>
+-      {filterSheet}
++      {filterScreen}
+       <AppConfirmSheet
+         visible={Boolean(archiveConfirmPlace)}
+         title={t('places.list.confirmDelete.title')}
+diff --git a/apps/mobile/src/features/trade/components/ManagedInventoryLibraryFilters.tsx b/apps/mobile/src/features/trade/components/ManagedInventoryLibraryFilters.tsx
+index 7af6437..64cc5e2 100644
+--- a/apps/mobile/src/features/trade/components/ManagedInventoryLibraryFilters.tsx
++++ b/apps/mobile/src/features/trade/components/ManagedInventoryLibraryFilters.tsx
+@@ -11,7 +11,7 @@ import {
+   LibraryActiveFilterChips,
+   LibraryFilterGroup,
+   LibraryFilterOption,
+-  LibraryFilterSheet,
++  LibraryFilterScreen,
+   LibraryInlineSearch,
+   LibrarySearchFilterRow,
+   type LibraryHeaderControlsHandle,
+@@ -163,7 +163,7 @@ function ManagedInventoryLibraryFiltersInner<TItem extends ManagedInventoryItem>
+   const [query, setQuery] = useState('');
+   const [filters, setFilters] = useState<ManagedInventoryFilterState>({ ...defaultFilters });
+   const [draftFilters, setDraftFilters] = useState<ManagedInventoryFilterState>({ ...defaultFilters });
+-  const [filterSheetVisible, setFilterSheetVisible] = useState(false);
++  const [filterScreenVisible, setFilterScreenVisible] = useState(false);
+   const [searchExpanded, setSearchExpanded] = useState(false);
+ 
+   const categories = useMemo(() => uniqueTextOptions(items.map((item) => item.category)), [items]);
+@@ -264,7 +264,7 @@ function ManagedInventoryLibraryFiltersInner<TItem extends ManagedInventoryItem>
+ 
+   function openFilters() {
+     setDraftFilters(filters);
+-    setFilterSheetVisible(true);
++    setFilterScreenVisible(true);
+   }
+ 
+   function clearAll() {
+@@ -297,22 +297,22 @@ function ManagedInventoryLibraryFiltersInner<TItem extends ManagedInventoryItem>
+           filterCount={filterCount}
+           tone={tone}
+           clearAccessibilityLabel={t('inventory.libraryFilters.clearMineSearch')}
+-          filtersExpanded={filterSheetVisible}
++          filtersExpanded={filterScreenVisible}
+         />
+       )}
+ 
+       <LibraryActiveFilterChips filters={activeFilters} tone={tone} />
+ 
+-      <LibraryFilterSheet
+-        visible={filterSheetVisible}
++      <LibraryFilterScreen
++        visible={filterScreenVisible}
+         title={t('inventory.libraryFilters.title')}
+         body={kind === 'need' ? t('inventory.libraryFilters.mineNeedsBody') : t('inventory.libraryFilters.mineOffersBody')}
+         closeAccessibilityLabel={t('inventory.libraryFilters.closeFilters')}
+         resetLabel={t('inventory.libraryFilters.reset')}
+         applyLabel={t('inventory.libraryFilters.showResults', { count: draftVisibleCount })}
+-        onClose={() => setFilterSheetVisible(false)}
++        onClose={() => setFilterScreenVisible(false)}
+         onReset={() => setDraftFilters({ ...defaultFilters })}
+-        onApply={() => { setFilters(draftFilters); setFilterSheetVisible(false); }}
++        onApply={() => { setFilters(draftFilters); setFilterScreenVisible(false); }}
+         tone={tone}
+         resetDisabled={filtersAreDefault(draftFilters)}
+       >
+@@ -369,7 +369,7 @@ function ManagedInventoryLibraryFiltersInner<TItem extends ManagedInventoryItem>
+             ))}
+           </LibraryFilterGroup>
+         ) : null}
+-      </LibraryFilterSheet>
++      </LibraryFilterScreen>
+ 
+       {items.length > 0 && visibleItems.length === 0 && hasSearchOrFilters ? (
+         <View style={[styles.emptyState, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+diff --git a/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx b/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx
+index ecec0f3..00ac2b5 100644
+--- a/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx
++++ b/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx
+@@ -15,7 +15,7 @@ import {
+   LibraryActiveFilterChips,
+   LibraryFilterGroup,
+   LibraryFilterOption,
+-  LibraryFilterSheet,
++  LibraryFilterScreen,
+   LibraryInlineSearch,
+   LibrarySearchFilterRow,
+   type LibraryHeaderControlsHandle,
+@@ -185,7 +185,7 @@ function StarterInventoryLibraryInner({
+   const { t } = useTranslation();
+   const [query, setQuery] = useState('');
+   const [filters, setFilters] = useState<StarterTemplateFilterState>({ ...defaultStarterFilters });
+-  const [filterSheetVisible, setFilterSheetVisible] = useState(false);
++  const [filterScreenVisible, setFilterScreenVisible] = useState(false);
+   const [searchExpanded, setSearchExpanded] = useState(false);
+   const [draftFilters, setDraftFilters] = useState<StarterTemplateFilterState>({ ...defaultStarterFilters });
+   const plural = kind === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
+@@ -286,9 +286,9 @@ function StarterInventoryLibraryInner({
+ 
+   function openFilters() {
+     setDraftFilters(filters);
+-    setFilterSheetVisible(true);
++    setFilterScreenVisible(true);
+   }
+-  const closeFilters = () => setFilterSheetVisible(false);
++  const closeFilters = () => setFilterScreenVisible(false);
+   const resetDraftFilters = () => setDraftFilters({ ...defaultStarterFilters });
+   const clearAll = () => {
+     setQuery('');
+@@ -297,7 +297,7 @@ function StarterInventoryLibraryInner({
+   };
+   const applyDraftFilters = () => {
+     setFilters(draftFilters);
+-    setFilterSheetVisible(false);
++    setFilterScreenVisible(false);
+   };
+ 
+   return (
+@@ -322,14 +322,14 @@ function StarterInventoryLibraryInner({
+           filterCount={activeFilterCount}
+           tone={tone}
+           clearAccessibilityLabel={t('inventory.libraryFilters.clearSearch')}
+-          filtersExpanded={filterSheetVisible}
++          filtersExpanded={filterScreenVisible}
+         />
+       )}
+ 
+       <LibraryActiveFilterChips filters={activeFilters} tone={tone} />
+ 
+-      <LibraryFilterSheet
+-        visible={filterSheetVisible}
++      <LibraryFilterScreen
++        visible={filterScreenVisible}
+         title={t('inventory.libraryFilters.title')}
+         body={t('inventory.libraryFilters.body')}
+         closeAccessibilityLabel={t('inventory.libraryFilters.closeFilters')}
+@@ -388,7 +388,7 @@ function StarterInventoryLibraryInner({
+             ))}
+           </LibraryFilterGroup>
+         ) : null}
+-      </LibraryFilterSheet>
++      </LibraryFilterScreen>
+ 
+       {error ? <InfoNotice tone="danger" title={t('inventory.errors.starterLibraryError')} body={error} /> : null}
+       {loading ? <InfoNotice tone="instruction" title={t('inventory.messages.loadingStarterLibrary')} body={t('inventory.messages.checkingReusableStarters', { items: plural })} /> : null}

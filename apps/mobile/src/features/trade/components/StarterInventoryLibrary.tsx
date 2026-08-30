@@ -1,19 +1,49 @@
-import React, { useMemo, useState } from 'react';
-import { Image, Pressable, StyleSheet, TextInput, View } from 'react-native';
-import type { InventoryItemType, InventoryTemplateDto, TradeExchangeMode } from '@hellowhen/contracts';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState, type ForwardedRef } from 'react';
+import { Image, Keyboard, Pressable, StyleSheet, View } from 'react-native';
+import type {
+  InventoryAvailabilityPreset,
+  InventoryDurationPreset,
+  InventoryItemType,
+  InventoryTemplateDto,
+  TradeExchangeMode,
+} from '@hellowhen/contracts';
 import type { ThemeTokens } from '@hellowhen/theme';
 import { AppCard } from '../../../components/AppCard';
 import { AppText } from '../../../components/AppText';
 import { MobileIcon } from '../../../components/MobileIcon';
+import {
+  LibraryActiveFilterChips,
+  LibraryFilterGroup,
+  LibraryFilterOption,
+  LibraryFilterScreen,
+  LibraryInlineSearch,
+  LibrarySearchFilterRow,
+  type LibraryHeaderControlsHandle,
+  type LibraryHeaderControlsState,
+} from '../../../components/library';
 import { InfoNotice, SemanticBadge } from '../../../components/SemanticUI';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { useTranslation } from '../../../providers/MobileI18nProvider';
-import { itemTypeLabel, itemTypePluralLabel, modeLabel } from './InventoryFormFields';
+import {
+  availabilityPresetLabel,
+  categoryLabel,
+  durationPresetLabel,
+  exchangeModes,
+  inventoryAvailabilityPresetOptions,
+  itemTypeLabel,
+  itemTypePluralLabel,
+  modeLabel,
+  needDurationPresetOptions,
+  offerDurationPresetOptions,
+} from './InventoryFormFields';
 import { STARTER_PACK_FILTERS, matchesStarterPackFilter, type StarterPackFilter } from './starterTemplateFilters';
 import { resolveMediaUrl } from '../mediaUrls';
 
 type TemplateKind = 'need' | 'offer';
 type ItemTypeFilter = 'all' | InventoryItemType;
+type ModeFilter = 'all' | TradeExchangeMode;
+type AvailabilityFilter = 'all' | InventoryAvailabilityPreset;
+type DurationFilter = 'all' | InventoryDurationPreset;
 
 type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
 
@@ -27,9 +57,28 @@ type StarterInventoryLibraryProps = {
   emptyTitle?: string;
   emptyBody?: string;
   onUseTemplate: (template: InventoryTemplateDto) => void;
+  headerControls?: boolean;
+  onHeaderControlsStateChange?: (state: LibraryHeaderControlsState) => void;
+};
+
+type StarterTemplateFilterState = {
+  starterPack: StarterPackFilter;
+  itemType: ItemTypeFilter;
+  category: string | null;
+  mode: ModeFilter;
+  availability: AvailabilityFilter;
+  duration: DurationFilter;
 };
 
 const itemTypeFilters: ItemTypeFilter[] = ['all', 'service', 'goods', 'other'];
+const defaultStarterFilters: StarterTemplateFilterState = {
+  starterPack: 'all',
+  itemType: 'all',
+  category: null,
+  mode: 'all',
+  availability: 'all',
+  duration: 'all',
+};
 
 function optionalModeLabel(mode: TradeExchangeMode | null | undefined, t: TFunction) {
   return mode ? modeLabel(mode, t) : undefined;
@@ -57,14 +106,44 @@ function templateSearchText(template: InventoryTemplateDto, t: TFunction) {
   return [
     template.title,
     template.description,
+    template.itemType,
     template.category,
     template.timing,
     template.availability,
+    template.availabilityPreset,
+    template.durationPreset,
+    template.mode,
     template.locationLabel,
     ...(template.tags ?? []),
     ...(template.includes ?? []),
     sourceLabel(template, t),
   ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function matchesTemplateFilters(template: InventoryTemplateDto, filters: StarterTemplateFilterState, needle: string, t: TFunction) {
+  if (!matchesStarterPackFilter(template, filters.starterPack)) return false;
+  if (filters.itemType !== 'all' && (template.itemType ?? 'service') !== filters.itemType) return false;
+  if (filters.category && template.category?.trim().toLowerCase() !== filters.category.trim().toLowerCase()) return false;
+  if (filters.mode !== 'all' && template.mode !== filters.mode) return false;
+  if (filters.availability !== 'all' && template.availabilityPreset !== filters.availability) return false;
+  if (filters.duration !== 'all' && template.durationPreset !== filters.duration) return false;
+  return !needle || templateSearchText(template, t).includes(needle);
+}
+
+function uniqueTextOptions(values: Array<string | null | undefined>) {
+  const valuesByKey = new Map<string, string>();
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (!valuesByKey.has(key)) valuesByKey.set(key, trimmed);
+  }
+  return [...valuesByKey.values()].sort((left, right) => left.localeCompare(right));
+}
+
+function availableOrderedOptions<T extends string>(values: Array<T | null | undefined>, order: readonly T[]) {
+  const available = new Set(values.filter((value): value is T => Boolean(value)));
+  return order.filter((value) => available.has(value));
 }
 
 function sectionLabel(itemType: InventoryItemType, t: TFunction) {
@@ -80,7 +159,16 @@ function groupedTemplates(templates: InventoryTemplateDto[], t: TFunction) {
   })).filter((section) => section.templates.length > 0);
 }
 
-export function StarterInventoryLibrary({
+function starterFilterCount(filters: StarterTemplateFilterState) {
+  return Number(filters.starterPack !== 'all')
+    + Number(filters.itemType !== 'all')
+    + Number(Boolean(filters.category))
+    + Number(filters.mode !== 'all')
+    + Number(filters.availability !== 'all')
+    + Number(filters.duration !== 'all');
+}
+
+function StarterInventoryLibraryInner({
   kind,
   templates,
   loading = false,
@@ -90,83 +178,217 @@ export function StarterInventoryLibrary({
   emptyTitle,
   emptyBody,
   onUseTemplate,
-}: StarterInventoryLibraryProps) {
+  headerControls = false,
+  onHeaderControlsStateChange,
+}: StarterInventoryLibraryProps, ref: ForwardedRef<LibraryHeaderControlsHandle>) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
-  const [itemTypeFilter, setItemTypeFilter] = useState<ItemTypeFilter>('all');
-  const [starterPackFilter, setStarterPackFilter] = useState<StarterPackFilter>('all');
+  const [filters, setFilters] = useState<StarterTemplateFilterState>({ ...defaultStarterFilters });
+  const [filterScreenVisible, setFilterScreenVisible] = useState(false);
+  const [searchExpanded, setSearchExpanded] = useState(false);
+  const [draftFilters, setDraftFilters] = useState<StarterTemplateFilterState>({ ...defaultStarterFilters });
   const plural = kind === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
   const defaultActionLabel = kind === 'need' ? t('inventory.actions.useThisNeed') : t('inventory.actions.useThisOffer');
-  const filteredTemplates = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return templates.filter((template) => {
-      const matchesPack = matchesStarterPackFilter(template, starterPackFilter);
-      const matchesType = itemTypeFilter === 'all' || (template.itemType ?? 'service') === itemTypeFilter;
-      const matchesSearch = !needle || templateSearchText(template, t).includes(needle);
-      return matchesPack && matchesType && matchesSearch;
-    });
-  }, [itemTypeFilter, query, starterPackFilter, t, templates]);
+  const tone = kind === 'need' ? 'need' : 'offer';
+  const needle = query.trim().toLowerCase();
+  const categories = useMemo(() => uniqueTextOptions(templates.map((template) => template.category)), [templates]);
+  const modes = useMemo(() => availableOrderedOptions(templates.map((template) => template.mode), exchangeModes), [templates]);
+  const availabilityPresets = useMemo(() => availableOrderedOptions(templates.map((template) => template.availabilityPreset), inventoryAvailabilityPresetOptions), [templates]);
+  const durationPresets = useMemo(() => availableOrderedOptions(
+    templates.map((template) => template.durationPreset),
+    kind === 'need' ? needDurationPresetOptions : offerDurationPresetOptions,
+  ), [kind, templates]);
+  const filteredTemplates = useMemo(
+    () => templates.filter((template) => matchesTemplateFilters(template, filters, needle, t)),
+    [filters, needle, t, templates],
+  );
+  const draftFilteredCount = useMemo(
+    () => templates.filter((template) => matchesTemplateFilters(template, draftFilters, needle, t)).length,
+    [draftFilters, needle, t, templates],
+  );
   const sections = useMemo(() => groupedTemplates(filteredTemplates, t), [filteredTemplates, t]);
+  const activeFilterCount = starterFilterCount(filters);
+  const hasQuery = Boolean(needle);
+  const canUseControls = templates.length > 0;
+
+  useImperativeHandle(ref, () => ({
+    toggleSearch: () => {
+      if (!canUseControls) return;
+      setSearchExpanded((current) => {
+        if (current) Keyboard.dismiss();
+        return !current;
+      });
+    },
+    closeSearch: () => {
+      Keyboard.dismiss();
+      setSearchExpanded(false);
+    },
+    openFilters: () => {
+      if (!canUseControls) return;
+      openFilters();
+    },
+  }), [canUseControls, filters]);
+
+  useEffect(() => {
+    onHeaderControlsStateChange?.({
+      searchExpanded,
+      hasQuery,
+      filterCount: activeFilterCount,
+      canSearch: canUseControls,
+      canFilter: canUseControls,
+    });
+  }, [activeFilterCount, canUseControls, hasQuery, onHeaderControlsStateChange, searchExpanded]);
+
+  const packLabel = (pack: StarterPackFilter) => t(STARTER_PACK_FILTERS.find((filter) => filter.value === pack)?.key ?? 'inventory.starterPacks.all');
+  const modeFilterLabel = (mode: ModeFilter) => mode === 'all' ? t('inventory.libraryFilters.allModes') : modeLabel(mode, t);
+  const availabilityFilterLabel = (availability: AvailabilityFilter) => availability === 'all' ? t('inventory.libraryFilters.allAvailability') : availabilityPresetLabel(availability, t);
+  const durationFilterLabel = (duration: DurationFilter) => duration === 'all' ? t('inventory.libraryFilters.allDurations') : durationPresetLabel(duration, t);
+
+  const activeFilters = [
+    ...(filters.starterPack !== 'all' ? [{
+      key: 'starter-pack',
+      label: packLabel(filters.starterPack),
+      accessibilityLabel: `${t('common.actions.remove')} ${packLabel(filters.starterPack)}`,
+      onRemove: () => setFilters((current) => ({ ...current, starterPack: 'all' })),
+    }] : []),
+    ...(filters.itemType !== 'all' ? [{
+      key: 'item-type',
+      label: itemTypePluralLabel(filters.itemType, t),
+      accessibilityLabel: `${t('common.actions.remove')} ${itemTypePluralLabel(filters.itemType, t)}`,
+      onRemove: () => setFilters((current) => ({ ...current, itemType: 'all' })),
+    }] : []),
+    ...(filters.category ? [{
+      key: 'category',
+      label: categoryLabel(filters.category, t),
+      accessibilityLabel: `${t('common.actions.remove')} ${categoryLabel(filters.category, t)}`,
+      onRemove: () => setFilters((current) => ({ ...current, category: null })),
+    }] : []),
+    ...(filters.mode !== 'all' ? [{
+      key: 'mode',
+      label: modeFilterLabel(filters.mode),
+      accessibilityLabel: `${t('common.actions.remove')} ${modeFilterLabel(filters.mode)}`,
+      onRemove: () => setFilters((current) => ({ ...current, mode: 'all' })),
+    }] : []),
+    ...(filters.availability !== 'all' ? [{
+      key: 'availability',
+      label: availabilityFilterLabel(filters.availability),
+      accessibilityLabel: `${t('common.actions.remove')} ${availabilityFilterLabel(filters.availability)}`,
+      onRemove: () => setFilters((current) => ({ ...current, availability: 'all' })),
+    }] : []),
+    ...(filters.duration !== 'all' ? [{
+      key: 'duration',
+      label: durationFilterLabel(filters.duration),
+      accessibilityLabel: `${t('common.actions.remove')} ${durationFilterLabel(filters.duration)}`,
+      onRemove: () => setFilters((current) => ({ ...current, duration: 'all' })),
+    }] : []),
+  ];
+
+  function openFilters() {
+    setDraftFilters(filters);
+    setFilterScreenVisible(true);
+  }
+  const closeFilters = () => setFilterScreenVisible(false);
+  const resetDraftFilters = () => setDraftFilters({ ...defaultStarterFilters });
+  const clearAll = () => {
+    setQuery('');
+    setFilters({ ...defaultStarterFilters });
+    setDraftFilters({ ...defaultStarterFilters });
+  };
+  const applyDraftFilters = () => {
+    setFilters(draftFilters);
+    setFilterScreenVisible(false);
+  };
 
   return (
     <View style={styles.wrapper}>
-      <View style={[styles.searchBox, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-        <MobileIcon name="search" size={18} color={theme.color.muted} />
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder={`${t('common.actions.search')} ${t('inventory.labels.starterLibrary').toLowerCase()}`}
-          placeholderTextColor={theme.color.muted}
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="search"
-          style={[styles.searchInput, { color: theme.color.text }]}
+      {headerControls ? (
+        searchExpanded ? (
+          <LibraryInlineSearch
+            query={query}
+            onQueryChange={(value) => setQuery(value.slice(0, 120))}
+            placeholder={t('inventory.libraryFilters.searchStarterLibrary')}
+            clearAccessibilityLabel={t('inventory.libraryFilters.clearSearch')}
+            tone={tone}
+          />
+        ) : null
+      ) : (
+        <LibrarySearchFilterRow
+          query={query}
+          onQueryChange={setQuery}
+          searchPlaceholder={t('inventory.libraryFilters.searchStarterLibrary')}
+          filterAccessibilityLabel={t('inventory.libraryFilters.openFilters')}
+          onOpenFilters={openFilters}
+          filterCount={activeFilterCount}
+          tone={tone}
+          clearAccessibilityLabel={t('inventory.libraryFilters.clearSearch')}
+          filtersExpanded={filterScreenVisible}
         />
-      </View>
+      )}
 
-      <View style={styles.filterStack}>
-        <View style={styles.filterRow}>
-          {STARTER_PACK_FILTERS.map((filter) => {
-            const selected = starterPackFilter === filter.value;
-            return (
-              <Pressable
-                key={filter.value}
-                accessibilityRole="button"
-                onPress={() => setStarterPackFilter(filter.value)}
-                style={({ pressed }) => [
-                  styles.filterChip,
-                  { backgroundColor: theme.color.surface, borderColor: theme.color.border },
-                  selected && { backgroundColor: theme.color.text, borderColor: theme.color.text },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{t(filter.key)}</AppText>
-              </Pressable>
-            );
-          })}
-        </View>
-        <View style={styles.filterRow}>
-          {itemTypeFilters.map((filter) => {
-            const selected = itemTypeFilter === filter;
-            return (
-              <Pressable
-                key={filter}
-                accessibilityRole="button"
-                onPress={() => setItemTypeFilter(filter)}
-                style={({ pressed }) => [
-                  styles.filterChip,
-                  { backgroundColor: theme.color.surface, borderColor: theme.color.border },
-                  selected && { backgroundColor: theme.color.text, borderColor: theme.color.text },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{itemTypePluralLabel(filter, t)}</AppText>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
+      <LibraryActiveFilterChips filters={activeFilters} tone={tone} />
+
+      <LibraryFilterScreen
+        visible={filterScreenVisible}
+        title={t('inventory.libraryFilters.title')}
+        body={t('inventory.libraryFilters.body')}
+        closeAccessibilityLabel={t('inventory.libraryFilters.closeFilters')}
+        resetLabel={t('inventory.libraryFilters.reset')}
+        applyLabel={t('inventory.libraryFilters.showResults', { count: draftFilteredCount })}
+        onClose={closeFilters}
+        onReset={resetDraftFilters}
+        onApply={applyDraftFilters}
+        tone={tone}
+        resetDisabled={starterFilterCount(draftFilters) === 0}
+      >
+        <LibraryFilterGroup title={t('inventory.libraryFilters.ideaGroup')}>
+          {STARTER_PACK_FILTERS.map((filter) => (
+            <LibraryFilterOption key={filter.value} label={t(filter.key)} selected={draftFilters.starterPack === filter.value} tone={tone} onPress={() => setDraftFilters((current) => ({ ...current, starterPack: filter.value }))} />
+          ))}
+        </LibraryFilterGroup>
+
+        <LibraryFilterGroup title={t('inventory.libraryFilters.type')}>
+          {itemTypeFilters.map((itemType) => (
+            <LibraryFilterOption key={itemType} label={itemTypePluralLabel(itemType, t)} selected={draftFilters.itemType === itemType} tone={tone} onPress={() => setDraftFilters((current) => ({ ...current, itemType }))} />
+          ))}
+        </LibraryFilterGroup>
+
+        {categories.length ? (
+          <LibraryFilterGroup title={t('inventory.libraryFilters.category')}>
+            <LibraryFilterOption label={t('inventory.libraryFilters.allCategories')} selected={!draftFilters.category} tone={tone} onPress={() => setDraftFilters((current) => ({ ...current, category: null }))} />
+            {categories.map((category) => (
+              <LibraryFilterOption key={category} label={categoryLabel(category, t)} selected={draftFilters.category?.toLowerCase() === category.toLowerCase()} tone={tone} onPress={() => setDraftFilters((current) => ({ ...current, category }))} />
+            ))}
+          </LibraryFilterGroup>
+        ) : null}
+
+        {modes.length ? (
+          <LibraryFilterGroup title={t('inventory.libraryFilters.mode')}>
+            <LibraryFilterOption label={modeFilterLabel('all')} selected={draftFilters.mode === 'all'} tone={tone} onPress={() => setDraftFilters((current) => ({ ...current, mode: 'all' }))} />
+            {modes.map((mode) => (
+              <LibraryFilterOption key={mode} label={modeFilterLabel(mode)} selected={draftFilters.mode === mode} tone={tone} onPress={() => setDraftFilters((current) => ({ ...current, mode }))} />
+            ))}
+          </LibraryFilterGroup>
+        ) : null}
+
+        {availabilityPresets.length ? (
+          <LibraryFilterGroup title={t('inventory.libraryFilters.availability')}>
+            <LibraryFilterOption label={availabilityFilterLabel('all')} selected={draftFilters.availability === 'all'} tone={tone} onPress={() => setDraftFilters((current) => ({ ...current, availability: 'all' }))} />
+            {availabilityPresets.map((availability) => (
+              <LibraryFilterOption key={availability} label={availabilityFilterLabel(availability)} selected={draftFilters.availability === availability} tone={tone} onPress={() => setDraftFilters((current) => ({ ...current, availability }))} />
+            ))}
+          </LibraryFilterGroup>
+        ) : null}
+
+        {durationPresets.length ? (
+          <LibraryFilterGroup title={t('inventory.libraryFilters.duration')}>
+            <LibraryFilterOption label={durationFilterLabel('all')} selected={draftFilters.duration === 'all'} tone={tone} onPress={() => setDraftFilters((current) => ({ ...current, duration: 'all' }))} />
+            {durationPresets.map((duration) => (
+              <LibraryFilterOption key={duration} label={durationFilterLabel(duration)} selected={draftFilters.duration === duration} tone={tone} onPress={() => setDraftFilters((current) => ({ ...current, duration }))} />
+            ))}
+          </LibraryFilterGroup>
+        ) : null}
+      </LibraryFilterScreen>
 
       {error ? <InfoNotice tone="danger" title={t('inventory.errors.starterLibraryError')} body={error} /> : null}
       {loading ? <InfoNotice tone="instruction" title={t('inventory.messages.loadingStarterLibrary')} body={t('inventory.messages.checkingReusableStarters', { items: plural })} /> : null}
@@ -176,6 +398,19 @@ export function StarterInventoryLibrary({
           <SemanticBadge label={t('inventory.labels.starterLibrary')} tone="instruction" />
           <AppText style={styles.emptyTitle}>{emptyTitle ?? t('inventory.empty.noStarterFound', { items: plural })}</AppText>
           <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{emptyBody ?? t('inventory.empty.tryAnotherSearch')}</AppText>
+          {needle || activeFilterCount > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={clearAll}
+              style={({ pressed }) => [
+                styles.emptyAction,
+                { backgroundColor: theme.semantic[tone].softBg, borderColor: theme.semantic[tone].border },
+                pressed && styles.pressed,
+              ]}
+            >
+              <AppText style={[styles.emptyActionText, { color: theme.semantic[tone].text }]}>{t('inventory.libraryFilters.clearAll')}</AppText>
+            </Pressable>
+          ) : null}
         </AppCard>
       ) : null}
 
@@ -267,14 +502,11 @@ function StarterTemplateCard({ template, theme, kind, actionLabel, cloning, disa
   );
 }
 
+
+export const StarterInventoryLibrary = forwardRef<LibraryHeaderControlsHandle, StarterInventoryLibraryProps>(StarterInventoryLibraryInner);
+
 const styles = StyleSheet.create({
   wrapper: { gap: 12 },
-  searchBox: { minHeight: 48, borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  searchInput: { flex: 1, fontSize: 15, fontWeight: '800', paddingVertical: 0 },
-  filterStack: { gap: 8 },
-  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  filterChip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
-  filterChipText: { fontSize: 13, fontWeight: '900' },
   section: { gap: 10 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   sectionTitle: { fontSize: 19, fontWeight: '900', letterSpacing: -0.2 },
@@ -294,6 +526,8 @@ const styles = StyleSheet.create({
   emptyCard: { gap: 10 },
   emptyTitle: { fontSize: 20, lineHeight: 24, fontWeight: '900', letterSpacing: -0.25 },
   emptyBody: { lineHeight: 20, fontWeight: '700' },
+  emptyAction: { minHeight: 44, alignSelf: 'flex-start', borderRadius: 16, borderWidth: 1, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
+  emptyActionText: { fontSize: 13, fontWeight: '900' },
   disabled: { opacity: 0.55 },
-  pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
+  pressed: { opacity: 0.78, transform: [{ scale: 0.985 }] },
 });

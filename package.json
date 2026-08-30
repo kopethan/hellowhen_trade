@@ -46,10 +46,11 @@
     "mobile:release-preflight": "node scripts/mobile-release-preflight.mjs",
     "mobile:submission-preflight": "node scripts/mobile-submission-preflight.mjs",
     "app-update:policy-test": "npm run test:mobile-release -w @hellowhen/api",
-    "app-update:native-test": "tsx --test apps/mobile/src/features/app-update/__tests__/appUpdatePolicy.test.ts apps/mobile/src/features/app-update/__tests__/appUpdateStore.test.ts",
+    "app-update:native-test": "npm run typecheck:tests -w @hellowhen/mobile && tsx --test apps/mobile/src/features/app-update/__tests__/appUpdatePolicy.test.ts apps/mobile/src/features/app-update/__tests__/appUpdateStore.test.ts",
     "app-update:rollout-smoke": "node scripts/app-update-rollout-smoke.mjs",
     "app-update:probe": "node scripts/app-update-policy-probe.mjs",
-    "app-update:safety": "npm run build -w @hellowhen/contracts && npm run app-update:policy-test && npm run app-update:native-test && npm run app-update:rollout-smoke"
+    "app-update:safety": "npm run build -w @hellowhen/contracts && npm run app-update:policy-test && npm run app-update:native-test && npm run app-update:rollout-smoke",
+    "places:library-seed": "npm run places:library-seed -w @hellowhen/api --"
   },
   "devDependencies": {
     "@types/react": "~19.1.10",

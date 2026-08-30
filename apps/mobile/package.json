@@ -9,7 +9,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "eas-build-post-install": "cd ../.. && npm run build:packages",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -48,6 +49,7 @@
     "react-native-svg": "15.12.1"
   },
   "devDependencies": {
+    "@types/node": "^20.11.30",
     "@types/react": "~19.1.10",
     "babel-preset-expo": "~54.0.12",
     "typescript": "~5.9.2"

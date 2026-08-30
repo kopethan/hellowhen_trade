@@ -1,0 +1,705 @@
+diff --git a/.env.example b/.env.example
+index 5b91047..44d01e6 100644
+--- a/.env.example
++++ b/.env.example
+@@ -492,6 +492,10 @@ GOOGLE_PLACES_REQUEST_TIMEOUT_MS=4500
+ GOOGLE_PLACES_MONTHLY_SOFT_LIMIT=9000
+ GOOGLE_PLACES_MONTHLY_HARD_LIMIT=10000
+ 
++# One-time guard for the explicit Hellowhen curated Place Library seed command.
++# Leave false during normal app/runtime operation. Set true only for an intended production `places:library-seed -- --apply` run, then unset it.
++HELLOWHEN_PLACE_LIBRARY_ALLOW_PRODUCTION=false
++
+ # Optional Place card static map previews. These render Google Static Maps as direct image URLs; do not download/re-host them.
+ # Static map visuals should be generated from provider-selected coordinates, not manual/free-text-only addresses.
+ GOOGLE_STATIC_MAPS_ENABLED=false
+diff --git a/apps/api/package.json b/apps/api/package.json
+index 4de45c7..7edff9c 100644
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -19,9 +19,10 @@
+     "media:s3-migrate": "tsx src/scripts/migrateLocalMediaToS3.ts",
+     "places:address-cleanup": "tsx src/scripts/cleanupInvalidOfflinePlaces.ts",
+     "test:plans": "tsx --test src/modules/plans/__tests__/plans.safety.test.ts",
+-    "test:places": "tsx --test src/modules/places/__tests__/placeUpdatePolicy.test.ts src/modules/places/__tests__/placeOwnershipPolicy.test.ts",
++    "test:places": "tsx --test src/modules/places/__tests__/placeUpdatePolicy.test.ts src/modules/places/__tests__/placeOwnershipPolicy.test.ts src/modules/places/__tests__/hellowhenPlaceLibrarySeed.test.ts",
+     "test:inventory-original": "tsx --test src/modules/__tests__/inventoryOriginalCopy.test.ts",
+-    "test:mobile-release": "tsx --test src/modules/mobile-release/__tests__/mobileReleasePolicy.test.ts"
++    "test:mobile-release": "tsx --test src/modules/mobile-release/__tests__/mobileReleasePolicy.test.ts",
++    "places:library-seed": "tsx src/scripts/seedHellowhenPlaceLibrary.ts"
+   },
+   "dependencies": {
+     "@aws-sdk/client-s3": "^3.1077.0",
+diff --git a/apps/api/src/modules/places/__tests__/hellowhenPlaceLibrarySeed.test.ts b/apps/api/src/modules/places/__tests__/hellowhenPlaceLibrarySeed.test.ts
+new file mode 100644
+index 0000000..6944d17
+--- /dev/null
++++ b/apps/api/src/modules/places/__tests__/hellowhenPlaceLibrarySeed.test.ts
+@@ -0,0 +1,44 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import {
++  HELLOWHEN_PLACE_LIBRARY_PACK,
++  googlePredictionMatchesEntry,
++  hellowhenPlaceLibrarySeedEntries,
++  normalizeHellowhenPlaceMatchText,
++} from '../hellowhenPlaceLibrarySeed.js';
++
++test('initial Hellowhen Place Library pack is a focused, complete Paris set', () => {
++  assert.equal(HELLOWHEN_PLACE_LIBRARY_PACK, 'paris-popular-v1');
++  assert.ok(hellowhenPlaceLibrarySeedEntries.length >= 12);
++
++  const keys = new Set<string>();
++  const englishTitles = new Set<string>();
++  for (const entry of hellowhenPlaceLibrarySeedEntries) {
++    assert.equal(entry.city, 'Paris');
++    assert.equal(entry.countryCode, 'FR');
++    assert.equal(entry.areaLabel, 'Paris, France');
++    assert.ok(entry.key.length >= 3);
++    assert.ok(entry.googleQuery.toLowerCase().includes('paris'));
++    assert.ok(entry.matchTokens.length >= 1);
++    assert.ok(entry.tags.length >= 2 && entry.tags.length <= 8);
++    assert.ok(entry.defaultDurationMinutes >= 5 && entry.defaultDurationMinutes <= 24 * 60);
++
++    assert.equal(keys.has(entry.key), false, `duplicate key: ${entry.key}`);
++    keys.add(entry.key);
++    assert.equal(englishTitles.has(entry.copy.en.title), false, `duplicate English title: ${entry.copy.en.title}`);
++    englishTitles.add(entry.copy.en.title);
++
++    for (const languageCode of ['en', 'fr', 'es'] as const) {
++      assert.ok(entry.copy[languageCode].title.trim().length >= 3, `${entry.key} missing ${languageCode} title`);
++      assert.ok(entry.copy[languageCode].description.trim().length >= 20, `${entry.key} missing ${languageCode} description`);
++    }
++  }
++});
++
++test('prediction matching ignores accents, punctuation, and case', () => {
++  const sacreCoeur = hellowhenPlaceLibrarySeedEntries.find((entry) => entry.key === 'sacre-coeur');
++  assert.ok(sacreCoeur);
++  assert.equal(googlePredictionMatchesEntry(sacreCoeur, 'Basilique du Sacré-Cœur de Montmartre, Paris'), true);
++  assert.equal(googlePredictionMatchesEntry(sacreCoeur, 'Louvre Museum, Paris'), false);
++  assert.equal(normalizeHellowhenPlaceMatchText('Musée d’Orsay'), 'musee d orsay');
++});
+diff --git a/apps/api/src/modules/places/hellowhenPlaceLibrarySeed.ts b/apps/api/src/modules/places/hellowhenPlaceLibrarySeed.ts
+new file mode 100644
+index 0000000..d927e81
+--- /dev/null
++++ b/apps/api/src/modules/places/hellowhenPlaceLibrarySeed.ts
+@@ -0,0 +1,297 @@
++export type HellowhenPlaceLibraryLanguage = 'en' | 'fr' | 'es';
++
++export type HellowhenPlaceLibraryCopy = {
++  title: string;
++  description: string;
++};
++
++export type HellowhenPlaceLibrarySeedEntry = {
++  key: string;
++  city: string;
++  countryCode: 'FR';
++  areaLabel: string;
++  googleQuery: string;
++  matchTokens: string[];
++  category: 'Landmark' | 'Museum' | 'Park' | 'Garden' | 'Square' | 'Cultural venue' | 'Monument';
++  tags: string[];
++  defaultDurationMinutes: number;
++  copy: Record<HellowhenPlaceLibraryLanguage, HellowhenPlaceLibraryCopy>;
++};
++
++export const HELLOWHEN_PLACE_LIBRARY_PACK = 'paris-popular-v1' as const;
++
++export const hellowhenPlaceLibrarySeedEntries: HellowhenPlaceLibrarySeedEntry[] = [
++  {
++    key: 'eiffel-tower',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: 'Eiffel Tower Paris France',
++    matchTokens: ['eiffel'],
++    category: 'Landmark',
++    tags: ['paris', 'landmark', 'architecture', 'viewpoint'],
++    defaultDurationMinutes: 90,
++    copy: {
++      en: { title: 'Eiffel Tower', description: 'A world-famous Paris landmark and an easy reference point for walks, photo stops, and nearby meetups.' },
++      fr: { title: 'Tour Eiffel', description: 'Un monument parisien emblématique et un point de repère simple pour une promenade, des photos ou un rendez-vous à proximité.' },
++      es: { title: 'Torre Eiffel', description: 'Un monumento emblemático de París y un punto de referencia sencillo para paseos, fotos o encuentros cercanos.' },
++    },
++  },
++  {
++    key: 'louvre-museum',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: 'Louvre Museum Paris France',
++    matchTokens: ['louvre'],
++    category: 'Museum',
++    tags: ['paris', 'museum', 'art', 'culture'],
++    defaultDurationMinutes: 180,
++    copy: {
++      en: { title: 'Louvre Museum', description: 'A major art museum in central Paris, useful as a cultural destination or a recognizable meeting area around the Louvre complex.' },
++      fr: { title: 'Musée du Louvre', description: 'Un grand musée d’art au centre de Paris, pratique comme destination culturelle ou comme zone de rendez-vous facilement reconnaissable.' },
++      es: { title: 'Museo del Louvre', description: 'Un gran museo de arte en el centro de París, útil como destino cultural o como zona de encuentro fácil de reconocer.' },
++    },
++  },
++  {
++    key: 'arc-de-triomphe',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: 'Arc de Triomphe Paris France',
++    matchTokens: ['triomphe'],
++    category: 'Monument',
++    tags: ['paris', 'monument', 'landmark', 'champs-elysees'],
++    defaultDurationMinutes: 60,
++    copy: {
++      en: { title: 'Arc de Triomphe', description: 'A famous Paris monument at Place Charles de Gaulle, well suited to sightseeing plans and nearby Champs-Élysées meetups.' },
++      fr: { title: 'Arc de Triomphe', description: 'Un monument parisien célèbre de la place Charles-de-Gaulle, adapté aux visites et aux rendez-vous près des Champs-Élysées.' },
++      es: { title: 'Arco del Triunfo', description: 'Un famoso monumento parisino en la plaza Charles de Gaulle, ideal para visitas y encuentros cerca de los Campos Elíseos.' },
++    },
++  },
++  {
++    key: 'sacre-coeur',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: 'Basilique du Sacre Coeur Paris France',
++    matchTokens: ['sacre', 'coeur'],
++    category: 'Landmark',
++    tags: ['paris', 'montmartre', 'landmark', 'viewpoint'],
++    defaultDurationMinutes: 60,
++    copy: {
++      en: { title: 'Sacré-Cœur Basilica', description: 'A well-known Montmartre landmark with broad city views and plenty of nearby streets for walking or meeting.' },
++      fr: { title: 'Basilique du Sacré-Cœur', description: 'Un lieu emblématique de Montmartre avec une large vue sur Paris et de nombreuses rues voisines pour se promener ou se retrouver.' },
++      es: { title: 'Basílica del Sagrado Corazón', description: 'Un lugar emblemático de Montmartre con amplias vistas de París y muchas calles cercanas para pasear o encontrarse.' },
++    },
++  },
++  {
++    key: 'notre-dame-paris',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: 'Notre Dame Cathedral Paris France',
++    matchTokens: ['notre', 'dame'],
++    category: 'Landmark',
++    tags: ['paris', 'ile-de-la-cite', 'cathedral', 'architecture'],
++    defaultDurationMinutes: 60,
++    copy: {
++      en: { title: 'Notre-Dame Cathedral of Paris', description: 'A historic landmark on Île de la Cité and a central reference point for walks along the Seine and the old city.' },
++      fr: { title: 'Cathédrale Notre-Dame de Paris', description: 'Un monument historique de l’Île de la Cité et un point de repère central pour les promenades le long de la Seine et dans le vieux Paris.' },
++      es: { title: 'Catedral de Notre-Dame de París', description: 'Un monumento histórico de la Île de la Cité y un punto de referencia central para paseos junto al Sena y por el casco histórico.' },
++    },
++  },
++  {
++    key: 'musee-dorsay',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: "Musee d'Orsay Paris France",
++    matchTokens: ['orsay'],
++    category: 'Museum',
++    tags: ['paris', 'museum', 'art', 'seine'],
++    defaultDurationMinutes: 150,
++    copy: {
++      en: { title: "Musée d'Orsay", description: 'A major Paris art museum on the Seine, useful for museum visits, creative outings, and nearby Left Bank plans.' },
++      fr: { title: 'Musée d’Orsay', description: 'Un grand musée d’art parisien au bord de la Seine, adapté aux visites, sorties créatives et activités proches de la rive gauche.' },
++      es: { title: 'Museo de Orsay', description: 'Un importante museo de arte parisino junto al Sena, ideal para visitas, salidas creativas y planes cerca de la margen izquierda.' },
++    },
++  },
++  {
++    key: 'sainte-chapelle',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: 'Sainte Chapelle Paris France',
++    matchTokens: ['sainte', 'chapelle'],
++    category: 'Monument',
++    tags: ['paris', 'ile-de-la-cite', 'monument', 'architecture'],
++    defaultDurationMinutes: 60,
++    copy: {
++      en: { title: 'Sainte-Chapelle', description: 'A historic chapel on Île de la Cité, useful for architecture-focused plans and compact cultural walks near Notre-Dame and the Seine.' },
++      fr: { title: 'Sainte-Chapelle', description: 'Une chapelle historique de l’Île de la Cité, adaptée aux activités autour de l’architecture et aux courtes promenades culturelles près de Notre-Dame et de la Seine.' },
++      es: { title: 'Sainte-Chapelle', description: 'Una capilla histórica de la Île de la Cité, ideal para planes de arquitectura y paseos culturales cortos cerca de Notre-Dame y el Sena.' },
++    },
++  },
++  {
++    key: 'palais-garnier',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: 'Palais Garnier Paris France',
++    matchTokens: ['garnier'],
++    category: 'Cultural venue',
++    tags: ['paris', 'opera', 'architecture', 'culture'],
++    defaultDurationMinutes: 90,
++    copy: {
++      en: { title: 'Palais Garnier', description: 'A landmark opera house in central Paris and an easy meeting reference for culture, architecture, or nearby shopping plans.' },
++      fr: { title: 'Palais Garnier', description: 'Un opéra emblématique du centre de Paris et un point de rendez-vous simple pour des activités culturelles, architecturales ou proches des grands magasins.' },
++      es: { title: 'Palais Garnier', description: 'Un teatro de ópera emblemático del centro de París y un punto de encuentro sencillo para planes culturales, de arquitectura o compras cercanas.' },
++    },
++  },
++  {
++    key: 'luxembourg-gardens',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: 'Jardin du Luxembourg Paris France',
++    matchTokens: ['luxembourg'],
++    category: 'Garden',
++    tags: ['paris', 'garden', 'park', 'left-bank'],
++    defaultDurationMinutes: 90,
++    copy: {
++      en: { title: 'Luxembourg Gardens', description: 'A large central garden on the Left Bank, well suited to walks, informal meetups, outdoor breaks, and relaxed group plans.' },
++      fr: { title: 'Jardin du Luxembourg', description: 'Un grand jardin central de la rive gauche, adapté aux promenades, rendez-vous informels, pauses en plein air et activités de groupe détendues.' },
++      es: { title: 'Jardines de Luxemburgo', description: 'Un gran jardín céntrico de la margen izquierda, ideal para paseos, encuentros informales, descansos al aire libre y planes de grupo tranquilos.' },
++    },
++  },
++  {
++    key: 'tuileries-garden',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: 'Jardin des Tuileries Paris France',
++    matchTokens: ['tuileries'],
++    category: 'Garden',
++    tags: ['paris', 'garden', 'louvre', 'outdoors'],
++    defaultDurationMinutes: 60,
++    copy: {
++      en: { title: 'Tuileries Garden', description: 'A central garden between the Louvre and Place de la Concorde, useful for walking routes, outdoor breaks, and easy meetups.' },
++      fr: { title: 'Jardin des Tuileries', description: 'Un jardin central entre le Louvre et la place de la Concorde, pratique pour les promenades, pauses en plein air et rendez-vous simples.' },
++      es: { title: 'Jardín de las Tullerías', description: 'Un jardín céntrico entre el Louvre y la plaza de la Concordia, útil para paseos, descansos al aire libre y encuentros sencillos.' },
++    },
++  },
++  {
++    key: 'place-des-vosges',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: 'Place des Vosges Paris France',
++    matchTokens: ['vosges'],
++    category: 'Square',
++    tags: ['paris', 'marais', 'square', 'architecture'],
++    defaultDurationMinutes: 60,
++    copy: {
++      en: { title: 'Place des Vosges', description: 'A historic square in the Marais, useful for a calm meetup, short walk, or starting point for exploring the neighborhood.' },
++      fr: { title: 'Place des Vosges', description: 'Une place historique du Marais, adaptée à un rendez-vous calme, une courte promenade ou comme point de départ pour découvrir le quartier.' },
++      es: { title: 'Place des Vosges', description: 'Una plaza histórica del Marais, ideal para un encuentro tranquilo, un paseo corto o como punto de partida para recorrer el barrio.' },
++    },
++  },
++  {
++    key: 'pantheon-paris',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: 'Pantheon Paris France monument',
++    matchTokens: ['pantheon'],
++    category: 'Monument',
++    tags: ['paris', 'latin-quarter', 'monument', 'history'],
++    defaultDurationMinutes: 75,
++    copy: {
++      en: { title: 'Panthéon', description: 'A major monument in the Latin Quarter and a clear meeting reference for cultural walks around the surrounding historic streets.' },
++      fr: { title: 'Panthéon', description: 'Un monument majeur du Quartier latin et un point de rendez-vous clair pour des promenades culturelles dans les rues historiques voisines.' },
++      es: { title: 'Panteón de París', description: 'Un importante monumento del Barrio Latino y un punto de encuentro claro para paseos culturales por las calles históricas cercanas.' },
++    },
++  },
++  {
++    key: 'champ-de-mars',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: 'Champ de Mars Paris France',
++    matchTokens: ['champ', 'mars'],
++    category: 'Park',
++    tags: ['paris', 'park', 'eiffel-tower', 'outdoors'],
++    defaultDurationMinutes: 60,
++    copy: {
++      en: { title: 'Champ de Mars', description: 'A large public green space beside the Eiffel Tower, suitable for outdoor meetups, walks, photos, and relaxed group activities.' },
++      fr: { title: 'Champ-de-Mars', description: 'Un grand espace vert public près de la tour Eiffel, adapté aux rendez-vous en plein air, promenades, photos et activités de groupe détendues.' },
++      es: { title: 'Campo de Marte', description: 'Un gran espacio verde público junto a la Torre Eiffel, adecuado para encuentros al aire libre, paseos, fotos y actividades de grupo tranquilas.' },
++    },
++  },
++  {
++    key: 'place-de-la-concorde',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: 'Place de la Concorde Paris France',
++    matchTokens: ['concorde'],
++    category: 'Square',
++    tags: ['paris', 'square', 'landmark', 'tuileries'],
++    defaultDurationMinutes: 45,
++    copy: {
++      en: { title: 'Place de la Concorde', description: 'A large central square between the Tuileries and Champs-Élysées, useful as a recognizable waypoint for city walks.' },
++      fr: { title: 'Place de la Concorde', description: 'Une grande place centrale entre les Tuileries et les Champs-Élysées, pratique comme point de repère pour les promenades dans Paris.' },
++      es: { title: 'Plaza de la Concordia', description: 'Una gran plaza céntrica entre las Tullerías y los Campos Elíseos, útil como punto de referencia para paseos por la ciudad.' },
++    },
++  },
++  {
++    key: 'buttes-chaumont',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: 'Parc des Buttes Chaumont Paris France',
++    matchTokens: ['buttes', 'chaumont'],
++    category: 'Park',
++    tags: ['paris', 'park', 'outdoors', '19th-arrondissement'],
++    defaultDurationMinutes: 90,
++    copy: {
++      en: { title: 'Parc des Buttes-Chaumont', description: 'A large hilly park in northeast Paris, useful for outdoor plans, walking, casual meetups, and longer relaxed visits.' },
++      fr: { title: 'Parc des Buttes-Chaumont', description: 'Un grand parc vallonné du nord-est de Paris, adapté aux activités en plein air, promenades, rendez-vous informels et visites plus longues.' },
++      es: { title: 'Parque de Buttes-Chaumont', description: 'Un gran parque con colinas en el noreste de París, ideal para planes al aire libre, paseos, encuentros informales y visitas más largas.' },
++    },
++  },
++  {
++    key: 'pont-alexandre-iii',
++    city: 'Paris',
++    countryCode: 'FR',
++    areaLabel: 'Paris, France',
++    googleQuery: 'Pont Alexandre III Paris France',
++    matchTokens: ['alexandre'],
++    category: 'Landmark',
++    tags: ['paris', 'bridge', 'seine', 'photography'],
++    defaultDurationMinutes: 30,
++    copy: {
++      en: { title: 'Pont Alexandre III', description: 'An ornate Seine bridge and recognizable photo stop, useful as a short waypoint between Invalides, the river, and nearby museums.' },
++      fr: { title: 'Pont Alexandre III', description: 'Un pont ornemental sur la Seine et un lieu photo reconnaissable, pratique comme étape courte entre les Invalides, le fleuve et les musées voisins.' },
++      es: { title: 'Puente Alejandro III', description: 'Un puente ornamentado sobre el Sena y un punto fotográfico reconocible, útil como parada breve entre Los Inválidos, el río y los museos cercanos.' },
++    },
++  },
++];
++
++export function normalizeHellowhenPlaceMatchText(value: string) {
++  return value
++    .normalize('NFD')
++    .replace(/[\u0300-\u036f]/g, '')
++    .replace(/[œŒ]/g, 'oe')
++    .replace(/[æÆ]/g, 'ae')
++    .replace(/ß/g, 'ss')
++    .toLowerCase()
++    .replace(/[^a-z0-9]+/g, ' ')
++    .trim();
++}
++
++export function googlePredictionMatchesEntry(entry: HellowhenPlaceLibrarySeedEntry, predictionText: string) {
++  const normalized = normalizeHellowhenPlaceMatchText(predictionText);
++  return entry.matchTokens.every((token) => normalized.includes(normalizeHellowhenPlaceMatchText(token)));
++}
+diff --git a/apps/api/src/scripts/seedHellowhenPlaceLibrary.ts b/apps/api/src/scripts/seedHellowhenPlaceLibrary.ts
+new file mode 100644
+index 0000000..0c66355
+--- /dev/null
++++ b/apps/api/src/scripts/seedHellowhenPlaceLibrary.ts
+@@ -0,0 +1,249 @@
++import {
++  InventoryTranslationTargetType,
++  PlaceAddressValidationStatus,
++  PlaceLocationSource,
++  PlaceSource,
++  PlaceStatus,
++  PlaceVisibility,
++  PlanPlaceMode,
++  PrismaClient,
++} from '@prisma/client';
++import { env } from '../config/env.js';
++import { reserveGooglePlacesBudget } from '../modules/places/googlePlacesBudget.js';
++import {
++  HELLOWHEN_PLACE_LIBRARY_PACK,
++  googlePredictionMatchesEntry,
++  hellowhenPlaceLibrarySeedEntries,
++  type HellowhenPlaceLibrarySeedEntry,
++} from '../modules/places/hellowhenPlaceLibrarySeed.js';
++import { placeStaticMapTemplateFamilyForSeed } from '../modules/places/placeStaticMapTemplates.js';
++
++const prisma = new PrismaClient();
++const autocompleteUrl = 'https://places.googleapis.com/v1/places:autocomplete';
++const detailsBaseUrl = 'https://places.googleapis.com/v1/places';
++
++function parseOnlyKeys(argv: string[]) {
++  const option = argv.find((arg) => arg.startsWith('--only='));
++  if (!option) return null;
++  const values = option.slice('--only='.length).split(',').map((value) => value.trim()).filter(Boolean);
++  return values.length ? new Set(values) : null;
++}
++
++function safeString(value: unknown) {
++  return typeof value === 'string' ? value.trim() : '';
++}
++
++function pickText(value: unknown) {
++  if (typeof value === 'string') return value.trim();
++  if (value && typeof value === 'object' && 'text' in value) return safeString((value as { text?: unknown }).text);
++  return '';
++}
++
++async function fetchGoogleJson(url: string, init: RequestInit) {
++  const controller = new AbortController();
++  const timeout = setTimeout(() => controller.abort(), env.googlePlacesRequestTimeoutMs);
++  try {
++    const response = await fetch(url, { ...init, signal: controller.signal });
++    const json = await response.json().catch(() => null) as any;
++    if (!response.ok) {
++      const providerMessage = safeString(json?.error?.message) || safeString(json?.error_message) || `Google Places request failed with HTTP ${response.status}.`;
++      throw new Error(providerMessage);
++    }
++    return json;
++  } finally {
++    clearTimeout(timeout);
++  }
++}
++
++function googleHeaders(fieldMask?: string) {
++  return {
++    'content-type': 'application/json',
++    'x-goog-api-key': env.googleMapsServerApiKey,
++    ...(fieldMask ? { 'x-goog-fieldmask': fieldMask } : {}),
++  };
++}
++
++async function resolveGooglePlace(entry: HellowhenPlaceLibrarySeedEntry) {
++  const autocompleteBudget = reserveGooglePlacesBudget('autocomplete');
++  if (!autocompleteBudget.ok) throw new Error(autocompleteBudget.message);
++
++  const autocomplete = await fetchGoogleJson(autocompleteUrl, {
++    method: 'POST',
++    headers: googleHeaders('suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat'),
++    body: JSON.stringify({
++      input: entry.googleQuery,
++      languageCode: 'en',
++      includedRegionCodes: [entry.countryCode],
++    }),
++  });
++
++  const predictions = Array.isArray(autocomplete?.suggestions)
++    ? autocomplete.suggestions.map((suggestion: any) => suggestion?.placePrediction).filter(Boolean)
++    : [];
++  const prediction = predictions.find((candidate: any) => {
++    const text = [pickText(candidate?.structuredFormat?.mainText), pickText(candidate?.structuredFormat?.secondaryText), pickText(candidate?.text)].filter(Boolean).join(' ');
++    return safeString(candidate?.placeId) && googlePredictionMatchesEntry(entry, text);
++  });
++
++  const placeId = safeString(prediction?.placeId);
++  if (!placeId) {
++    const candidates = predictions.map((candidate: any) => pickText(candidate?.text)).filter(Boolean).slice(0, 5);
++    throw new Error(`No safe Google Places match for ${entry.key}. Candidates: ${candidates.join(' | ') || 'none'}`);
++  }
++
++  const detailsBudget = reserveGooglePlacesBudget('details');
++  if (!detailsBudget.ok) throw new Error(detailsBudget.message);
++
++  const url = new URL(`${detailsBaseUrl}/${encodeURIComponent(placeId.replace(/^places\//, ''))}`);
++  url.searchParams.set('languageCode', 'en');
++  const details = await fetchGoogleJson(url.toString(), {
++    method: 'GET',
++    headers: googleHeaders('id,displayName,formattedAddress,location,googleMapsUri'),
++  });
++
++  const resolvedId = safeString(details?.id) || placeId.replace(/^places\//, '');
++  const formattedAddress = safeString(details?.formattedAddress);
++  const latitude = details?.location?.latitude;
++  const longitude = details?.location?.longitude;
++  if (!resolvedId || !formattedAddress || typeof latitude !== 'number' || typeof longitude !== 'number') {
++    throw new Error(`Google Places returned incomplete provider data for ${entry.key}.`);
++  }
++
++  return {
++    googlePlaceId: resolvedId,
++    googlePlaceName: pickText(details?.displayName) || entry.copy.en.title,
++    formattedAddress,
++    googleMapsUri: safeString(details?.googleMapsUri) || null,
++    latitude,
++    longitude,
++  };
++}
++
++async function upsertLibraryPlace(entry: HellowhenPlaceLibrarySeedEntry) {
++  const resolved = await resolveGooglePlace(entry);
++  const seed = `hellowhen-library:${HELLOWHEN_PLACE_LIBRARY_PACK}:${entry.key}`;
++  const existing = await prisma.place.findFirst({
++    where: {
++      source: PlaceSource.hellowhen_library,
++      OR: [
++        { googlePlaceId: resolved.googlePlaceId },
++        { title: entry.copy.en.title },
++      ],
++    },
++    select: { id: true },
++  });
++
++  const data = {
++    ownerId: null,
++    source: PlaceSource.hellowhen_library,
++    status: PlaceStatus.active,
++    visibility: PlaceVisibility.library,
++    mode: PlanPlaceMode.local,
++    title: entry.copy.en.title,
++    description: entry.copy.en.description,
++    defaultLanguage: 'en',
++    category: entry.category,
++    tags: Array.from(new Set([...entry.tags, 'popular'])),
++    areaLabel: entry.areaLabel,
++    addressPublicText: resolved.formattedAddress,
++    addressPrivateText: null,
++    googlePlaceId: resolved.googlePlaceId,
++    googlePlaceName: resolved.googlePlaceName,
++    formattedAddress: resolved.formattedAddress,
++    googleMapsUri: resolved.googleMapsUri,
++    latitude: resolved.latitude,
++    longitude: resolved.longitude,
++    locationSource: PlaceLocationSource.google_places,
++    addressValidationStatus: PlaceAddressValidationStatus.confirmed,
++    onlineLabel: null,
++    onlineUrl: null,
++    defaultDurationMinutes: entry.defaultDurationMinutes,
++    defaultNote: null,
++    defaultMeetingInstructions: null,
++    staticMapTemplateFamily: placeStaticMapTemplateFamilyForSeed(seed),
++    staticMapTemplateSeed: seed,
++    archivedAt: null,
++  };
++
++  const place = await prisma.$transaction(async (tx) => {
++    const stored = existing
++      ? await tx.place.update({ where: { id: existing.id }, data })
++      : await tx.place.create({ data });
++
++    for (const languageCode of ['fr', 'es'] as const) {
++      const copy = entry.copy[languageCode];
++      await tx.inventoryTranslation.upsert({
++        where: {
++          targetType_targetId_languageCode: {
++            targetType: InventoryTranslationTargetType.place,
++            targetId: stored.id,
++            languageCode,
++          },
++        },
++        update: { title: copy.title, description: copy.description },
++        create: {
++          targetType: InventoryTranslationTargetType.place,
++          targetId: stored.id,
++          languageCode,
++          title: copy.title,
++          description: copy.description,
++          createdById: null,
++        },
++      });
++    }
++
++    return stored;
++  });
++
++  return { place, resolved, created: !existing };
++}
++
++async function main() {
++  const argv = process.argv.slice(2);
++  const apply = argv.includes('--apply');
++  const onlyKeys = parseOnlyKeys(argv);
++  const selected = onlyKeys
++    ? hellowhenPlaceLibrarySeedEntries.filter((entry) => onlyKeys.has(entry.key))
++    : hellowhenPlaceLibrarySeedEntries;
++
++  if (onlyKeys) {
++    const unknown = [...onlyKeys].filter((key) => !hellowhenPlaceLibrarySeedEntries.some((entry) => entry.key === key));
++    if (unknown.length) throw new Error(`Unknown Hellowhen Place Library key(s): ${unknown.join(', ')}`);
++  }
++  if (!selected.length) throw new Error('No Hellowhen Place Library entries selected.');
++
++  console.log(`Hellowhen Place Library pack: ${HELLOWHEN_PLACE_LIBRARY_PACK}`);
++  console.log(`Selected ${selected.length} curated place(s): ${selected.map((entry) => entry.key).join(', ')}`);
++
++  if (!apply) {
++    console.log('Dry run only. No Google Places requests or database writes were made. Re-run with --apply to resolve provider data and upsert the library.');
++    return;
++  }
++
++  if (!env.googleMapsServerApiKey) {
++    throw new Error('GOOGLE_MAPS_SERVER_API_KEY (or GOOGLE_PLACES_SERVER_API_KEY) is required to seed provider-confirmed offline places.');
++  }
++  if (env.nodeEnv === 'production' && process.env.HELLOWHEN_PLACE_LIBRARY_ALLOW_PRODUCTION?.trim().toLowerCase() !== 'true') {
++    throw new Error('Refusing to seed the production Place Library. Set HELLOWHEN_PLACE_LIBRARY_ALLOW_PRODUCTION=true only for the intended production run.');
++  }
++
++  let created = 0;
++  let updated = 0;
++  for (const entry of selected) {
++    const result = await upsertLibraryPlace(entry);
++    if (result.created) created += 1;
++    else updated += 1;
++    console.log(`${result.created ? 'created' : 'updated'} ${entry.key}: ${result.place.title} -> ${result.resolved.formattedAddress}`);
++  }
++
++  console.log(`Hellowhen Place Library seed complete: ${created} created, ${updated} updated.`);
++}
++
++main()
++  .catch((error) => {
++    console.error(error instanceof Error ? error.message : error);
++    process.exitCode = 1;
++  })
++  .finally(async () => {
++    await prisma.$disconnect();
++  });
+diff --git a/docs/product/hellowhen-place-library-seed.md b/docs/product/hellowhen-place-library-seed.md
+new file mode 100644
+index 0000000..29b4783
+--- /dev/null
++++ b/docs/product/hellowhen-place-library-seed.md
+@@ -0,0 +1,45 @@
++# PLACE-LIB3 Hellowhen popular Places seed
++
++PLACE-LIB3 adds the first curated Hellowhen Place Library content pack without creating fake users or copying library Places into user inventories.
++
++## Initial pack
++
++The first pack is `paris-popular-v1`. It contains a focused set of recognizable Paris landmarks, museums, gardens, squares, parks, and cultural venues. Every entry has English source copy plus French and Spanish display translations.
++
++The curated definitions intentionally store search queries rather than hard-coded Google Place IDs or coordinates. The seed command resolves each entry against Google Places at the moment it is applied, verifies the prediction against expected name tokens, then stores the provider-confirmed Place metadata required by the existing offline Place address policy.
++
++## Safety rules
++
++- Library Places use `source = hellowhen_library`, `visibility = library`, `status = active`, and `ownerId = null`.
++- The seed never creates a user or pretends a Place was user-created.
++- The seed is idempotent: it updates an existing library Place when the same Google Place ID or English library title already exists.
++- The seed never archives extra library Places that an admin may have added separately.
++- A failed or ambiguous Google prediction stops that entry instead of silently accepting the first result.
++- Production writes require an explicit `HELLOWHEN_PLACE_LIBRARY_ALLOW_PRODUCTION=true` guard.
++- The default command is a dry run and makes no provider requests or database writes.
++
++## Commands
++
++Preview the pack without network or database changes:
++
++```bash
++npm run places:library-seed
++```
++
++Resolve all entries through Google Places and upsert them:
++
++```bash
++npm run places:library-seed -- --apply
++```
++
++Resolve only selected entries while testing:
++
++```bash
++npm run places:library-seed -- --apply --only=eiffel-tower,louvre-museum
++```
++
++The apply command requires `GOOGLE_MAPS_SERVER_API_KEY` (or the existing `GOOGLE_PLACES_SERVER_API_KEY` fallback). On production, also set `HELLOWHEN_PLACE_LIBRARY_ALLOW_PRODUCTION=true` for the intended run and unset it afterward.
++
++## Future packs
++
++Add future cities as separate reviewed packs rather than turning this into an uncontrolled global directory. The Hellowhen Places UI can keep using the existing search and contextual filters while the curated content grows city by city.
+diff --git a/package.json b/package.json
+index a785d33..01e4627 100644
+--- a/package.json
++++ b/package.json
+@@ -49,7 +49,8 @@
+     "app-update:native-test": "tsx --test apps/mobile/src/features/app-update/__tests__/appUpdatePolicy.test.ts apps/mobile/src/features/app-update/__tests__/appUpdateStore.test.ts",
+     "app-update:rollout-smoke": "node scripts/app-update-rollout-smoke.mjs",
+     "app-update:probe": "node scripts/app-update-policy-probe.mjs",
+-    "app-update:safety": "npm run build -w @hellowhen/contracts && npm run app-update:policy-test && npm run app-update:native-test && npm run app-update:rollout-smoke"
++    "app-update:safety": "npm run build -w @hellowhen/contracts && npm run app-update:policy-test && npm run app-update:native-test && npm run app-update:rollout-smoke",
++    "places:library-seed": "npm run places:library-seed -w @hellowhen/api --"
+   },
+   "devDependencies": {
+     "@types/react": "~19.1.10",

@@ -1,0 +1,840 @@
+diff --git a/apps/mobile/src/components/AppHeaderActionButton.tsx b/apps/mobile/src/components/AppHeaderActionButton.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..f79d1ba5275cd13e451069d93852ba4f3bbd54ec
+--- /dev/null
++++ b/apps/mobile/src/components/AppHeaderActionButton.tsx
+@@ -0,0 +1,96 @@
++import React from 'react';
++import { Pressable, StyleSheet, View } from 'react-native';
++import type { SemanticColorName } from '@hellowhen/theme';
++import { useThemeTokens } from '../providers/ThemeProvider';
++import { AppText } from './AppText';
++import { MobileIcon, type MobileIconName } from './MobileIcon';
++
++type AppHeaderActionButtonProps = {
++  icon: MobileIconName;
++  accessibilityLabel: string;
++  onPress: () => void;
++  tone?: SemanticColorName;
++  iconSize?: number;
++  badgeCount?: number;
++  badgeTone?: SemanticColorName;
++  disabled?: boolean;
++};
++
++export function AppHeaderActionButton({
++  icon,
++  accessibilityLabel,
++  onPress,
++  tone,
++  iconSize = 20,
++  badgeCount = 0,
++  badgeTone = tone ?? 'info',
++  disabled = false,
++}: AppHeaderActionButtonProps) {
++  const theme = useThemeTokens();
++  const semantic = tone ? theme.semantic[tone] : null;
++  const badgeSemantic = theme.semantic[badgeTone];
++
++  return (
++    <Pressable
++      accessibilityRole="button"
++      accessibilityLabel={accessibilityLabel}
++      accessibilityState={{ disabled }}
++      disabled={disabled}
++      onPress={onPress}
++      style={({ pressed }) => [
++        styles.button,
++        {
++          backgroundColor: semantic?.bg ?? theme.color.surface,
++          borderColor: semantic?.bg ?? theme.color.border,
++        },
++        pressed && !disabled && styles.pressed,
++        disabled && styles.disabled,
++      ]}
++    >
++      <MobileIcon name={icon} size={iconSize} color={semantic?.onBg ?? theme.color.text} decorative />
++      {badgeCount > 0 ? (
++        <View style={[styles.badge, { backgroundColor: badgeSemantic.bg, borderColor: theme.color.surface }]}>
++          <AppText style={[styles.badgeText, { color: badgeSemantic.onBg }]}>
++            {badgeCount > 99 ? '99+' : badgeCount}
++          </AppText>
++        </View>
++      ) : null}
++    </Pressable>
++  );
++}
++
++const styles = StyleSheet.create({
++  button: {
++    width: 44,
++    height: 44,
++    borderRadius: 22,
++    borderWidth: 1,
++    alignItems: 'center',
++    justifyContent: 'center',
++    overflow: 'visible',
++  },
++  badge: {
++    position: 'absolute',
++    top: -4,
++    right: -5,
++    minWidth: 19,
++    height: 19,
++    borderRadius: 10,
++    borderWidth: 2,
++    paddingHorizontal: 4,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  badgeText: {
++    fontSize: 10,
++    lineHeight: 12,
++    fontWeight: '900',
++  },
++  pressed: {
++    opacity: 0.78,
++    transform: [{ scale: 0.98 }],
++  },
++  disabled: {
++    opacity: 0.45,
++  },
++});
+diff --git a/apps/mobile/src/components/library/LibraryActiveFilterChips.tsx b/apps/mobile/src/components/library/LibraryActiveFilterChips.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..fa443bfad64172d8faaabc3b56837450210522fa
+--- /dev/null
++++ b/apps/mobile/src/components/library/LibraryActiveFilterChips.tsx
+@@ -0,0 +1,73 @@
++import React from 'react';
++import { Pressable, StyleSheet, View } from 'react-native';
++import type { SemanticColorName } from '@hellowhen/theme';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++import { AppText } from '../AppText';
++import { MobileIcon } from '../MobileIcon';
++
++export type LibraryActiveFilterChip = {
++  key: string;
++  label: string;
++  accessibilityLabel?: string;
++  onRemove: () => void;
++};
++
++type LibraryActiveFilterChipsProps = {
++  filters: readonly LibraryActiveFilterChip[];
++  tone?: SemanticColorName;
++};
++
++export function LibraryActiveFilterChips({ filters, tone }: LibraryActiveFilterChipsProps) {
++  const theme = useThemeTokens();
++  const semantic = tone ? theme.semantic[tone] : theme.semantic.info;
++
++  if (filters.length === 0) return null;
++
++  return (
++    <View style={styles.row}>
++      {filters.map((filter) => (
++        <Pressable
++          key={filter.key}
++          accessibilityRole="button"
++          accessibilityLabel={filter.accessibilityLabel ?? filter.label}
++          onPress={filter.onRemove}
++          style={({ pressed }) => [
++            styles.chip,
++            { backgroundColor: semantic.softBg, borderColor: semantic.border },
++            pressed && styles.pressed,
++          ]}
++        >
++          <AppText style={[styles.label, { color: semantic.text }]} numberOfLines={1}>{filter.label}</AppText>
++          <MobileIcon name="close" size={14} color={semantic.text} decorative />
++        </Pressable>
++      ))}
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  row: {
++    flexDirection: 'row',
++    flexWrap: 'wrap',
++    gap: 8,
++  },
++  chip: {
++    minHeight: 36,
++    maxWidth: '100%',
++    borderRadius: 18,
++    borderWidth: 1,
++    paddingHorizontal: 11,
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 6,
++  },
++  label: {
++    flexShrink: 1,
++    fontSize: 12,
++    lineHeight: 16,
++    fontWeight: '900',
++  },
++  pressed: {
++    opacity: 0.72,
++  },
++});
+diff --git a/apps/mobile/src/components/library/LibraryFilterSheet.tsx b/apps/mobile/src/components/library/LibraryFilterSheet.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..9f8668d96a9130fe2f95adbea63821a0d55abdc0
+--- /dev/null
++++ b/apps/mobile/src/components/library/LibraryFilterSheet.tsx
+@@ -0,0 +1,200 @@
++import React from 'react';
++import { Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
++import type { SemanticColorName } from '@hellowhen/theme';
++import { useSafeAreaInsets } from 'react-native-safe-area-context';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++import { AppText } from '../AppText';
++import { MobileIcon } from '../MobileIcon';
++
++type LibraryFilterSheetProps = {
++  visible: boolean;
++  title: string;
++  body?: string;
++  children: React.ReactNode;
++  closeAccessibilityLabel: string;
++  resetLabel: string;
++  applyLabel: string;
++  onClose: () => void;
++  onReset: () => void;
++  onApply: () => void;
++  tone?: SemanticColorName;
++  resetDisabled?: boolean;
++  applyDisabled?: boolean;
++};
++
++export function LibraryFilterSheet({
++  visible,
++  title,
++  body,
++  children,
++  closeAccessibilityLabel,
++  resetLabel,
++  applyLabel,
++  onClose,
++  onReset,
++  onApply,
++  tone,
++  resetDisabled = false,
++  applyDisabled = false,
++}: LibraryFilterSheetProps) {
++  const theme = useThemeTokens();
++  const insets = useSafeAreaInsets();
++  const semantic = tone ? theme.semantic[tone] : theme.semantic.info;
++  const bottomInset = Platform.OS === 'android' ? Math.max(0, insets.bottom) : Math.max(8, insets.bottom);
++
++  return (
++    <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
++      <Pressable accessible={false} style={[styles.backdrop, { paddingBottom: 14 + bottomInset }]} onPress={onClose}>
++        <Pressable
++          accessible={false}
++          onPress={(event) => event.stopPropagation()}
++          style={[styles.sheet, { backgroundColor: theme.color.elevated, borderColor: theme.color.border }]}
++        >
++          <View style={styles.headerRow}>
++            <View style={styles.headerCopy}>
++              <AppText style={styles.title}>{title}</AppText>
++              {body ? <AppText style={[styles.body, { color: theme.color.muted }]}>{body}</AppText> : null}
++            </View>
++            <Pressable
++              accessibilityRole="button"
++              accessibilityLabel={closeAccessibilityLabel}
++              onPress={onClose}
++              style={({ pressed }) => [styles.closeButton, { borderColor: theme.color.border }, pressed && styles.pressed]}
++            >
++              <MobileIcon name="close" size={18} color={theme.color.text} decorative />
++            </Pressable>
++          </View>
++
++          <ScrollView
++            contentContainerStyle={styles.content}
++            keyboardShouldPersistTaps="handled"
++            showsVerticalScrollIndicator={false}
++          >
++            {children}
++          </ScrollView>
++
++          <View style={[styles.footer, { borderTopColor: theme.color.border }]}>
++            <Pressable
++              accessibilityRole="button"
++              accessibilityState={{ disabled: resetDisabled }}
++              disabled={resetDisabled}
++              onPress={onReset}
++              style={({ pressed }) => [
++                styles.footerButton,
++                styles.resetButton,
++                { borderColor: theme.color.border },
++                pressed && !resetDisabled && styles.pressed,
++                resetDisabled && styles.disabled,
++              ]}
++            >
++              <AppText style={[styles.resetText, { color: theme.color.text }]}>{resetLabel}</AppText>
++            </Pressable>
++            <Pressable
++              accessibilityRole="button"
++              accessibilityState={{ disabled: applyDisabled }}
++              disabled={applyDisabled}
++              onPress={onApply}
++              style={({ pressed }) => [
++                styles.footerButton,
++                styles.applyButton,
++                { backgroundColor: semantic.bg, borderColor: semantic.bg },
++                pressed && !applyDisabled && styles.pressed,
++                applyDisabled && styles.disabled,
++              ]}
++            >
++              <AppText style={[styles.applyText, { color: semantic.onBg }]}>{applyLabel}</AppText>
++            </Pressable>
++          </View>
++        </Pressable>
++      </Pressable>
++    </Modal>
++  );
++}
++
++const styles = StyleSheet.create({
++  backdrop: {
++    flex: 1,
++    justifyContent: 'flex-end',
++    backgroundColor: 'rgba(2, 6, 23, 0.56)',
++    paddingHorizontal: 14,
++    paddingTop: 28,
++  },
++  sheet: {
++    maxHeight: '88%',
++    borderWidth: 1,
++    borderRadius: 28,
++    overflow: 'hidden',
++  },
++  headerRow: {
++    flexDirection: 'row',
++    alignItems: 'flex-start',
++    gap: 12,
++    paddingHorizontal: 18,
++    paddingTop: 18,
++    paddingBottom: 12,
++  },
++  headerCopy: {
++    flex: 1,
++    minWidth: 0,
++    gap: 5,
++  },
++  title: {
++    fontSize: 20,
++    lineHeight: 25,
++    fontWeight: '900',
++    letterSpacing: -0.25,
++  },
++  body: {
++    fontSize: 13,
++    lineHeight: 18,
++    fontWeight: '600',
++  },
++  closeButton: {
++    width: 40,
++    height: 40,
++    borderRadius: 20,
++    borderWidth: 1,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  content: {
++    paddingHorizontal: 18,
++    paddingVertical: 8,
++    gap: 18,
++  },
++  footer: {
++    borderTopWidth: 1,
++    padding: 14,
++    flexDirection: 'row',
++    gap: 10,
++  },
++  footerButton: {
++    minHeight: 48,
++    borderRadius: 18,
++    borderWidth: 1,
++    alignItems: 'center',
++    justifyContent: 'center',
++    paddingHorizontal: 16,
++  },
++  resetButton: {
++    minWidth: 108,
++  },
++  applyButton: {
++    flex: 1,
++  },
++  resetText: {
++    fontSize: 14,
++    fontWeight: '900',
++  },
++  applyText: {
++    fontSize: 14,
++    fontWeight: '900',
++  },
++  pressed: {
++    opacity: 0.76,
++    transform: [{ scale: 0.99 }],
++  },
++  disabled: {
++    opacity: 0.45,
++  },
++});
+diff --git a/apps/mobile/src/components/library/LibrarySearchFilterRow.tsx b/apps/mobile/src/components/library/LibrarySearchFilterRow.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..50b97c48b18e0e8cbea5d4fd5425f96a4c4b2769
+--- /dev/null
++++ b/apps/mobile/src/components/library/LibrarySearchFilterRow.tsx
+@@ -0,0 +1,150 @@
++import React from 'react';
++import { Pressable, StyleSheet, TextInput, View } from 'react-native';
++import type { SemanticColorName } from '@hellowhen/theme';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++import { AppText } from '../AppText';
++import { MobileIcon } from '../MobileIcon';
++
++type LibrarySearchFilterRowProps = {
++  query: string;
++  onQueryChange: (query: string) => void;
++  searchPlaceholder: string;
++  searchAccessibilityLabel?: string;
++  filterAccessibilityLabel: string;
++  onOpenFilters: () => void;
++  filterCount?: number;
++  tone?: SemanticColorName;
++  clearAccessibilityLabel: string;
++  filtersExpanded?: boolean;
++};
++
++export function LibrarySearchFilterRow({
++  query,
++  onQueryChange,
++  searchPlaceholder,
++  searchAccessibilityLabel,
++  filterAccessibilityLabel,
++  onOpenFilters,
++  filterCount = 0,
++  tone,
++  clearAccessibilityLabel,
++  filtersExpanded = false,
++}: LibrarySearchFilterRowProps) {
++  const theme = useThemeTokens();
++  const semantic = tone ? theme.semantic[tone] : theme.semantic.info;
++
++  return (
++    <View style={styles.row}>
++      <View style={[styles.searchBox, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++        <MobileIcon name="search" size={18} color={theme.color.muted} decorative />
++        <TextInput
++          accessibilityLabel={searchAccessibilityLabel ?? searchPlaceholder}
++          value={query}
++          onChangeText={onQueryChange}
++          placeholder={searchPlaceholder}
++          placeholderTextColor={theme.color.muted}
++          autoCapitalize="none"
++          autoCorrect={false}
++          returnKeyType="search"
++          style={[styles.searchInput, { color: theme.color.text }]}
++        />
++        {query ? (
++          <Pressable
++            accessibilityRole="button"
++            accessibilityLabel={clearAccessibilityLabel}
++            onPress={() => onQueryChange('')}
++            hitSlop={6}
++            style={({ pressed }) => [styles.clearButton, pressed && styles.pressed]}
++          >
++            <MobileIcon name="close" size={16} color={theme.color.muted} decorative />
++          </Pressable>
++        ) : null}
++      </View>
++
++      <Pressable
++        accessibilityRole="button"
++        accessibilityLabel={filterAccessibilityLabel}
++        accessibilityState={{ expanded: filtersExpanded }}
++        onPress={onOpenFilters}
++        style={({ pressed }) => [
++          styles.filterButton,
++          {
++            backgroundColor: filterCount > 0 ? semantic.softBg : theme.color.surface,
++            borderColor: filterCount > 0 ? semantic.border : theme.color.border,
++          },
++          pressed && styles.pressed,
++        ]}
++      >
++        <MobileIcon name="filter" size={19} color={filterCount > 0 ? semantic.text : theme.color.text} decorative />
++        {filterCount > 0 ? (
++          <View style={[styles.countBadge, { backgroundColor: semantic.bg }]}>
++            <AppText style={[styles.countText, { color: semantic.onBg }]}>{filterCount > 99 ? '99+' : filterCount}</AppText>
++          </View>
++        ) : null}
++      </Pressable>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  row: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 10,
++  },
++  searchBox: {
++    flex: 1,
++    minWidth: 0,
++    minHeight: 48,
++    borderRadius: 18,
++    borderWidth: 1,
++    paddingLeft: 14,
++    paddingRight: 8,
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 10,
++  },
++  searchInput: {
++    flex: 1,
++    minWidth: 0,
++    fontSize: 15,
++    lineHeight: 20,
++    fontWeight: '800',
++    paddingVertical: 0,
++  },
++  clearButton: {
++    width: 32,
++    height: 32,
++    borderRadius: 16,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  filterButton: {
++    width: 48,
++    height: 48,
++    borderRadius: 18,
++    borderWidth: 1,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  countBadge: {
++    position: 'absolute',
++    top: -5,
++    right: -5,
++    minWidth: 20,
++    height: 20,
++    borderRadius: 10,
++    paddingHorizontal: 5,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  countText: {
++    fontSize: 10,
++    lineHeight: 12,
++    fontWeight: '900',
++  },
++  pressed: {
++    opacity: 0.76,
++    transform: [{ scale: 0.98 }],
++  },
++});
+diff --git a/apps/mobile/src/components/library/SlidingSegmentedControl.tsx b/apps/mobile/src/components/library/SlidingSegmentedControl.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..2caf694ba5925e330235f3150840f252edd121da
+--- /dev/null
++++ b/apps/mobile/src/components/library/SlidingSegmentedControl.tsx
+@@ -0,0 +1,208 @@
++import React, { useEffect, useMemo, useRef, useState } from 'react';
++import { Animated, Pressable, StyleSheet, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
++import type { SemanticColorName } from '@hellowhen/theme';
++import { useReducedMotion } from '../../hooks/useReducedMotion';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++
++type SegmentOption<T extends string> = {
++  value: T;
++  label: string;
++  accessibilityLabel?: string;
++  disabled?: boolean;
++};
++
++type SlidingSegmentedControlProps<T extends string> = {
++  value: T;
++  options: readonly SegmentOption<T>[];
++  onChange: (value: T) => void;
++  tone?: SemanticColorName;
++  animationDuration?: number;
++  style?: StyleProp<ViewStyle>;
++};
++
++const OUTER_PADDING = 4;
++const SEGMENT_GAP = 4;
++
++function SegmentLabel({
++  label,
++  active,
++  selectedColor,
++  unselectedColor,
++  reducedMotion,
++}: {
++  label: string;
++  active: boolean;
++  selectedColor: string;
++  unselectedColor: string;
++  reducedMotion: boolean;
++}) {
++  const progress = useRef(new Animated.Value(active ? 1 : 0)).current;
++
++  useEffect(() => {
++    if (reducedMotion) {
++      progress.setValue(active ? 1 : 0);
++      return;
++    }
++
++    Animated.timing(progress, {
++      toValue: active ? 1 : 0,
++      duration: 150,
++      useNativeDriver: false,
++    }).start();
++  }, [active, progress, reducedMotion]);
++
++  const color = progress.interpolate({
++    inputRange: [0, 1],
++    outputRange: [unselectedColor, selectedColor],
++  });
++
++  return (
++    <Animated.Text numberOfLines={1} style={[styles.label, { color }]}>
++      {label}
++    </Animated.Text>
++  );
++}
++
++export function SlidingSegmentedControl<T extends string>({
++  value,
++  options,
++  onChange,
++  tone,
++  animationDuration = 240,
++  style,
++}: SlidingSegmentedControlProps<T>) {
++  const theme = useThemeTokens();
++  const reducedMotion = useReducedMotion();
++  const [containerWidth, setContainerWidth] = useState(0);
++  const activeIndex = Math.max(0, options.findIndex((option) => option.value === value));
++  const animatedIndex = useRef(new Animated.Value(activeIndex)).current;
++  const selectedSemantic = tone ? theme.semantic[tone] : null;
++  const segmentWidth = useMemo(() => {
++    if (!containerWidth || options.length === 0) return 0;
++    const available = containerWidth - OUTER_PADDING * 2 - SEGMENT_GAP * Math.max(options.length - 1, 0);
++    return Math.max(0, available / options.length);
++  }, [containerWidth, options.length]);
++
++  useEffect(() => {
++    if (reducedMotion) {
++      animatedIndex.setValue(activeIndex);
++      return;
++    }
++
++    Animated.timing(animatedIndex, {
++      toValue: activeIndex,
++      duration: animationDuration,
++      useNativeDriver: true,
++    }).start();
++  }, [activeIndex, animatedIndex, animationDuration, reducedMotion]);
++
++  function handleLayout(event: LayoutChangeEvent) {
++    setContainerWidth(event.nativeEvent.layout.width);
++  }
++
++  const translateX = animatedIndex.interpolate({
++    inputRange: [0, Math.max(options.length - 1, 1)],
++    outputRange: [0, (segmentWidth + SEGMENT_GAP) * Math.max(options.length - 1, 1)],
++  });
++  const selectedBackground = selectedSemantic?.softBg ?? theme.color.surface;
++  const selectedBorder = selectedSemantic?.border ?? theme.color.border;
++  const selectedText = selectedSemantic?.text ?? theme.color.text;
++
++  return (
++    <View
++      onLayout={handleLayout}
++      style={[
++        styles.container,
++        { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border },
++        style,
++      ]}
++    >
++      {segmentWidth > 0 ? (
++        <Animated.View
++          pointerEvents="none"
++          style={[
++            styles.indicator,
++            {
++              width: segmentWidth,
++              backgroundColor: selectedBackground,
++              borderColor: selectedBorder,
++              transform: [{ translateX }],
++            },
++          ]}
++        />
++      ) : null}
++
++      {options.map((option) => {
++        const active = option.value === value;
++        return (
++          <Pressable
++            key={option.value}
++            accessibilityRole="tab"
++            accessibilityLabel={option.accessibilityLabel ?? option.label}
++            accessibilityState={{ selected: active, disabled: Boolean(option.disabled) }}
++            disabled={option.disabled}
++            onPress={() => onChange(option.value)}
++            style={({ pressed }) => [
++              styles.segment,
++              pressed && !option.disabled && styles.pressed,
++              option.disabled && styles.disabled,
++            ]}
++          >
++            <SegmentLabel
++              label={option.label}
++              active={active}
++              selectedColor={selectedText}
++              unselectedColor={theme.color.muted}
++              reducedMotion={reducedMotion}
++            />
++          </Pressable>
++        );
++      })}
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  container: {
++    minHeight: 52,
++    borderRadius: 24,
++    borderWidth: 1,
++    padding: OUTER_PADDING,
++    gap: SEGMENT_GAP,
++    flexDirection: 'row',
++    alignItems: 'stretch',
++    position: 'relative',
++    overflow: 'hidden',
++  },
++  indicator: {
++    position: 'absolute',
++    top: OUTER_PADDING,
++    bottom: OUTER_PADDING,
++    left: OUTER_PADDING,
++    borderRadius: 20,
++    borderWidth: 1,
++  },
++  segment: {
++    flex: 1,
++    minWidth: 0,
++    minHeight: 44,
++    borderRadius: 20,
++    alignItems: 'center',
++    justifyContent: 'center',
++    paddingHorizontal: 10,
++    zIndex: 1,
++  },
++  label: {
++    maxWidth: '100%',
++    fontSize: 13,
++    lineHeight: 17,
++    fontWeight: '900',
++    textAlign: 'center',
++  },
++  pressed: {
++    opacity: 0.72,
++  },
++  disabled: {
++    opacity: 0.45,
++  },
++});
+diff --git a/apps/mobile/src/components/library/index.ts b/apps/mobile/src/components/library/index.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..422d635da40f6b63e221df83fceafd0d2891d6dc
+--- /dev/null
++++ b/apps/mobile/src/components/library/index.ts
+@@ -0,0 +1,5 @@
++export * from './LibraryActiveFilterChips';
++export * from './LibraryFilterSheet';
++export * from './LibrarySearchFilterRow';
++export * from './SlidingSegmentedControl';
++export * from './useScopedLibraryState';
+diff --git a/apps/mobile/src/components/library/useScopedLibraryState.ts b/apps/mobile/src/components/library/useScopedLibraryState.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..b7b36eaee12788e958b05d03f363ea259ba70ed5
+--- /dev/null
++++ b/apps/mobile/src/components/library/useScopedLibraryState.ts
+@@ -0,0 +1,34 @@
++import { useCallback, useRef, useState } from 'react';
++
++type ScopedStateUpdater<TState> = TState | ((current: TState) => TState);
++
++/**
++ * Keeps independent local UI state for each Mine / Library segment. Switching
++ * scopes therefore does not leak search text or filters into the other scope.
++ */
++export function useScopedLibraryState<TScope extends string, TState>(initialState: Record<TScope, TState>) {
++  const initialStateRef = useRef(initialState);
++  const [stateByScope, setStateByScope] = useState<Record<TScope, TState>>(initialState);
++
++  const setScopeState = useCallback((scope: TScope, updater: ScopedStateUpdater<TState>) => {
++    setStateByScope((current) => ({
++      ...current,
++      [scope]: typeof updater === 'function'
++        ? (updater as (state: TState) => TState)(current[scope])
++        : updater,
++    }));
++  }, []);
++
++  const resetScopeState = useCallback((scope: TScope) => {
++    setStateByScope((current) => ({
++      ...current,
++      [scope]: initialStateRef.current[scope],
++    }));
++  }, []);
++
++  return {
++    stateByScope,
++    setScopeState,
++    resetScopeState,
++  };
++}
+diff --git a/apps/mobile/src/hooks/useReducedMotion.ts b/apps/mobile/src/hooks/useReducedMotion.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0309c86ee6466e0a620b829323bc766a00086e5e
+--- /dev/null
++++ b/apps/mobile/src/hooks/useReducedMotion.ts
+@@ -0,0 +1,26 @@
++import { useEffect, useState } from 'react';
++import { AccessibilityInfo } from 'react-native';
++
++/**
++ * Mirrors the platform Reduce Motion preference so shared motion primitives
++ * can fall back to an immediate state change when animation is not desired.
++ */
++export function useReducedMotion() {
++  const [reducedMotion, setReducedMotion] = useState(false);
++
++  useEffect(() => {
++    let mounted = true;
++
++    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
++      if (mounted) setReducedMotion(enabled);
++    }).catch(() => undefined);
++
++    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReducedMotion);
++    return () => {
++      mounted = false;
++      subscription.remove();
++    };
++  }, []);
++
++  return reducedMotion;
++}

@@ -3,7 +3,7 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { normalizePreviewCardTheme } from '@hellowhen/shared';
 import { AppText } from '../../../components/AppText';
 import { LowerImageAtmosphere } from '../../../components/LowerImageAtmosphere';
-import { POSTER_CARD_GEOMETRY } from '../../../components/PosterCardGeometry';
+import { DECK_CARD_TYPOGRAPHY, POSTER_CARD_GEOMETRY } from '../../../components/PosterCardGeometry';
 import { PosterCardFooter } from '../../../components/PosterCardFooter';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 
@@ -324,35 +324,25 @@ const styles = StyleSheet.create({
     paddingBottom: POSTER_CARD_GEOMETRY.footerContentPaddingBottom,
   },
   eyebrow: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '900',
+    ...DECK_CARD_TYPOGRAPHY.eyebrow,
     textTransform: 'uppercase',
-    letterSpacing: 0.75,
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 7,
   },
   title: {
-    fontSize: 18.5,
-    lineHeight: 22,
-    fontWeight: '900',
-    letterSpacing: -0.45,
+    ...DECK_CARD_TYPOGRAPHY.title,
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 6,
   },
   subtitle: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '800',
+    ...DECK_CARD_TYPOGRAPHY.meta,
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 6,
   },
   statusText: {
     alignSelf: 'flex-start',
     marginTop: 2,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '900',
+    ...DECK_CARD_TYPOGRAPHY.status,
     letterSpacing: 0.8,
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 5,

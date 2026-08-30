@@ -1,4 +1,8 @@
 export const common = {
+  librarySegments: {
+    mine: 'Mes',
+    explore: 'Explorer',
+  },
   actions: {
     add: 'Ajouter',
     back: 'Retour',

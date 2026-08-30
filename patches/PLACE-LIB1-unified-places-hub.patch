@@ -1,0 +1,354 @@
+diff --git a/apps/mobile/src/features/account/AccountScreen.tsx b/apps/mobile/src/features/account/AccountScreen.tsx
+index 9cc3f9f61c2af187dd6a9a62e1787b72f84035f0..ea7d5c4468896e60fbcd9e8400c8ff5c90deb9c8 100644
+--- a/apps/mobile/src/features/account/AccountScreen.tsx
++++ b/apps/mobile/src/features/account/AccountScreen.tsx
+@@ -105,7 +105,6 @@ const accountActions: AccountAction[] = [
+     { titleKey: 'account.items.myPlansFeature.title', descriptionKey: 'account.items.myPlansFeature.bodyNative', badgeKey: 'account.items.myPlansFeature.badge', tone: 'plan' as SemanticColorName, route: 'MyPlans' as AccountRoute, icon: 'activity' as MobileIconName, group: 'plans' as AccountGroupKey },
+     { titleKey: 'account.items.joinedPlansFeature.title', descriptionKey: 'account.items.joinedPlansFeature.bodyNative', badgeKey: 'account.items.joinedPlansFeature.badge', tone: 'plan' as SemanticColorName, route: 'JoinedPlans' as AccountRoute, icon: 'proposal-accepted' as MobileIconName, group: 'plans' as AccountGroupKey },
+     { titleKey: 'account.items.myPlacesFeature.title', descriptionKey: 'account.items.myPlacesFeature.bodyNative', badgeKey: 'account.items.myPlacesFeature.badge', tone: 'place' as SemanticColorName, route: 'MyPlaces' as AccountRoute, icon: 'location-on' as MobileIconName, group: 'plans' as AccountGroupKey },
+-    { titleKey: 'account.items.placeLibraryFeature.title', descriptionKey: 'account.items.placeLibraryFeature.bodyNative', badgeKey: 'account.items.placeLibraryFeature.badge', tone: 'place' as SemanticColorName, route: 'PlaceLibrary' as AccountRoute, icon: 'search' as MobileIconName, group: 'plans' as AccountGroupKey },
+     { titleKey: 'account.items.createPlanFeature.title', descriptionKey: 'account.items.createPlanFeature.bodyNative', badgeKey: 'account.items.createPlanFeature.badge', tone: 'plan' as SemanticColorName, route: 'CreatePlan' as AccountRoute, icon: 'add' as MobileIconName, group: 'plans' as AccountGroupKey },
+     { titleKey: 'account.items.createPlaceFeature.title', descriptionKey: 'account.items.createPlaceFeature.bodyNative', badgeKey: 'account.items.createPlaceFeature.badge', tone: 'place' as SemanticColorName, route: 'CreatePlace' as AccountRoute, icon: 'location-on' as MobileIconName, group: 'plans' as AccountGroupKey },
+   ] : []),
+@@ -233,7 +232,6 @@ export function AccountScreen() {
+     { title: t('account.items.myPlansFeature.title'), body: t('account.items.myPlansFeature.bodyNative'), route: 'MyPlans', icon: 'activity', tone: 'plan', count: meHubCounts.myPlans },
+     { title: t('account.items.joinedPlansFeature.title'), body: t('account.items.joinedPlansFeature.bodyNative'), route: 'JoinedPlans', icon: 'proposal-accepted', tone: 'plan', count: meHubCounts.joinedPlans },
+     { title: t('account.items.myPlacesFeature.title'), body: t('account.items.myPlacesFeature.bodyNative'), route: 'MyPlaces', icon: 'location-on', tone: 'place', count: meHubCounts.places },
+-    { title: t('account.items.placeLibraryFeature.title'), body: t('account.items.placeLibraryFeature.bodyNative'), route: 'PlaceLibrary', icon: 'search', tone: 'place' },
+   ] : [], [meHubCounts.joinedPlans, meHubCounts.myPlans, meHubCounts.places, t]);
+ 
+   const toolWidgets = useMemo<MeHubWidget[]>(() => [
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index fdf7ed312e748bc516303f078805d235c7aea9a9..d6e974b19771f5a455c570c8d4d496b47eb1af86 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -14,7 +14,9 @@ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import type { AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
+ import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
++import { AppHeaderActionButton } from '../../components/AppHeaderActionButton';
+ import { AppText } from '../../components/AppText';
++import { SlidingSegmentedControl } from '../../components/library';
+ import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+ import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
+ import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
+@@ -2110,16 +2112,19 @@ const PlanIdeaDeckSection = React.memo(function PlanIdeaDeckSection({ ideaKey, i
+   );
+ });
+ 
+-function PlaceList({ scope, navigation, scrollProps }: { scope: PlaceListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'>; scrollProps?: AppCollapsibleHeaderScrollProps }) {
++function PlaceList({ scope, navigation, scrollProps, headerContent }: { scope: PlaceListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'>; scrollProps?: AppCollapsibleHeaderScrollProps; headerContent?: React.ReactNode }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+   const [places, setPlaces] = useState<PlaceDto[]>([]);
++  const [loadedScope, setLoadedScope] = useState<PlaceListScope | null>(null);
+   const [loading, setLoading] = useState(true);
+   const [refreshing, setRefreshing] = useState(false);
+   const [error, setError] = useState<{ title: string; body: string } | null>(null);
+   const [removedPlaceTitle, setRemovedPlaceTitle] = useState<string | null>(null);
+   const [archivingPlaceId, setArchivingPlaceId] = useState<string | null>(null);
+   const [archiveConfirmPlace, setArchiveConfirmPlace] = useState<PlaceDto | null>(null);
++  const activeScopeRef = useRef<PlaceListScope>(scope);
++  activeScopeRef.current = scope;
+ 
+   const load = useCallback(async ({ refresh = false }: { refresh?: boolean } = {}) => {
+     if (!isPlansVisible()) { setLoading(false); return; }
+@@ -2127,16 +2132,26 @@ function PlaceList({ scope, navigation, scrollProps }: { scope: PlaceListScope;
+     setError(null);
+     try {
+       const response = scope === 'library' ? await api.places.library() : await api.places.mine();
++      if (activeScopeRef.current !== scope) return;
+       setPlaces((response.places ?? []).filter((place) => place.status !== 'archived'));
+     } catch {
++      if (activeScopeRef.current !== scope) return;
+       setError({ title: t('places.list.errors.load'), body: t('places.list.errors.tryAgain') });
+       setPlaces([]);
+     } finally {
++      if (activeScopeRef.current !== scope) return;
++      setLoadedScope(scope);
+       setLoading(false);
+       setRefreshing(false);
+     }
+   }, [scope, t]);
+ 
++  useEffect(() => {
++    setRemovedPlaceTitle(null);
++    setArchiveConfirmPlace(null);
++    setArchivingPlaceId(null);
++  }, [scope]);
++
+   useFocusEffect(useCallback(() => { void load(); }, [load]));
+ 
+   function confirmArchivePlace(place: PlaceDto) {
+@@ -2160,17 +2175,23 @@ function PlaceList({ scope, navigation, scrollProps }: { scope: PlaceListScope;
+     }
+   }
+ 
+-  if (loading) {
+-    return <View style={[scrollProps?.contentInsetStyle, styles.inlineLoading]}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('places.list.loading')}</AppText></View>;
++  if (loading || loadedScope !== scope) {
++    return (
++      <View style={[scrollProps?.contentInsetStyle, styles.placeListStaticContent]}>
++        {headerContent}
++        <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('places.list.loading')}</AppText></View>
++      </View>
++    );
+   }
+ 
+   if (error) {
+-    return <View style={[scrollProps?.contentInsetStyle, styles.listContent]}><InfoNotice tone="warning" title={error.title} body={error.body} /></View>;
++    return <View style={[scrollProps?.contentInsetStyle, styles.placeListStaticContent]}>{headerContent}<InfoNotice tone="warning" title={error.title} body={error.body} /></View>;
+   }
+ 
+   if (places.length === 0) {
+     return (
+-      <View style={[scrollProps?.contentInsetStyle, styles.listContent]}>
++      <View style={[scrollProps?.contentInsetStyle, styles.placeListStaticContent]}>
++        {headerContent}
+         <EmptyBlock title={scope === 'library' ? t('places.list.empty.libraryTitle') : t('places.list.empty.mineTitle')} body={scope === 'library' ? t('places.list.empty.libraryBody') : t('places.list.empty.mineBody')} actionLabel={scope === 'mine' ? t('places.list.actions.create') : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined} tone="place" />
+       </View>
+     );
+@@ -2184,7 +2205,8 @@ function PlaceList({ scope, navigation, scrollProps }: { scope: PlaceListScope;
+         showsVerticalScrollIndicator={false}
+         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
+       >
+-        {removedPlaceTitle ? <InfoNotice tone="success" title={t('places.list.messages.title')} body={t('places.list.messages.removed', { title: removedPlaceTitle })} /> : null}
++        {headerContent}
++        {scope === 'mine' && removedPlaceTitle ? <InfoNotice tone="success" title={t('places.list.messages.title')} body={t('places.list.messages.removed', { title: removedPlaceTitle })} /> : null}
+         {scope === 'mine' ? <InfoNotice tone="info" title={t('places.list.notice.title')} body={t('places.list.notice.body')} /> : null}
+         {places.map((place) => (
+           <PlaceRow
+@@ -3211,24 +3233,59 @@ export function JoinedPlansScreen({ navigation }: SimpleScreenProps<'JoinedPlans
+   );
+ }
+ 
+-export function MyPlacesScreen({ navigation }: SimpleScreenProps<'MyPlaces'>) {
++function PlacesHubScreen({ navigation, initialScope }: { navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate' | 'goBack'>; initialScope: PlaceListScope }) {
+   const { t } = useTranslation();
++  const [scope, setScope] = useState<PlaceListScope>(initialScope);
++
+   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
++
++  const sourceTabs = (
++    <SlidingSegmentedControl<PlaceListScope>
++      value={scope}
++      onChange={setScope}
++      tone="place"
++      options={[
++        { value: 'mine', label: t('places.list.segments.mine') },
++        { value: 'library', label: t('places.list.segments.library') },
++      ]}
++    />
++  );
++
+   return (
+-    <AppSmartHeaderScreen header={<AppHeader title={t('places.list.headers.myPlaces')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label={t('places.list.actions.create')} primaryTone="place" iconSize={23} onPress={() => navigation.navigate('CreatePlace')} />} />}>
+-      {(scrollProps) => <PlaceList scope="mine" navigation={navigation} scrollProps={scrollProps} />}
++    <AppSmartHeaderScreen
++      resetKey={scope}
++      header={(
++        <AppHeader
++          title={t('places.list.headers.places')}
++          onBack={() => navigation.goBack()}
++          rightSlot={(
++            <AppHeaderActionButton
++              icon="add"
++              iconSize={23}
++              accessibilityLabel={t('places.list.actions.create')}
++              onPress={() => navigation.navigate('CreatePlace')}
++              tone="place"
++            />
++          )}
++        />
++      )}
++    >
++      {(scrollProps) => <PlaceList scope={scope} navigation={navigation} scrollProps={scrollProps} headerContent={sourceTabs} />}
+     </AppSmartHeaderScreen>
+   );
+ }
+ 
++export function MyPlacesScreen({ navigation }: SimpleScreenProps<'MyPlaces'>) {
++  return <PlacesHubScreen navigation={navigation} initialScope="mine" />;
++}
++
++/**
++ * Compatibility route for existing links and navigation calls. The old
++ * standalone library screen now opens the same Places hub with Hellowhen
++ * Places selected.
++ */
+ export function PlaceLibraryScreen({ navigation }: SimpleScreenProps<'PlaceLibrary'>) {
+-  const { t } = useTranslation();
+-  if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+-  return (
+-    <AppSmartHeaderScreen header={<AppHeader title={t('places.list.headers.library')} onBack={() => navigation.goBack()} />}>
+-      {(scrollProps) => <PlaceList scope="library" navigation={navigation} scrollProps={scrollProps} />}
+-    </AppSmartHeaderScreen>
+-  );
++  return <PlacesHubScreen navigation={navigation} initialScope="library" />;
+ }
+ 
+ function ModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (value: PlanPlaceMode) => void }) {
+@@ -5571,6 +5628,7 @@ const styles = StyleSheet.create({
+   menuTitle: { fontSize: 15, lineHeight: 19, fontWeight: '900' },
+   menuBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
+   listContent: { gap: 10, paddingBottom: 34 },
++  placeListStaticContent: { flex: 1, gap: 10, paddingBottom: 34 },
+   planCreateBody: { overflow: 'hidden' },
+   planCreateScrollContent: { paddingBottom: 18 },
+   planCreateStickyBar: { flexShrink: 0, zIndex: 5, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10 },
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+index b5623d38bdf0a44d672c0dc6ece9e9dc02153a50..de94be2925cd0546749d41da079a794c3b447a14 100644
+--- a/packages/i18n/src/locales/en/account.ts
++++ b/packages/i18n/src/locales/en/account.ts
+@@ -1215,9 +1215,9 @@ export const account = {
+       badge: 'Joined',
+     },
+     myPlacesFeature: {
+-      title: 'My places',
+-      body: 'Reusable offline or online places for future Plans.',
+-      bodyNative: 'Reusable offline or online places.',
++      title: 'Places',
++      body: 'Your reusable places and Hellowhen’s curated place library for Plans.',
++      bodyNative: 'Your places and Hellowhen Places in one hub.',
+       badge: 'Places',
+     },
+     placeLibraryFeature: {
+diff --git a/packages/i18n/src/locales/en/places.ts b/packages/i18n/src/locales/en/places.ts
+index a998b4143c7e58cba43be7897f2ab6bef69da91e..03c06469ffca58d043e36f3aa7ea0372d7c92d4c 100644
+--- a/packages/i18n/src/locales/en/places.ts
++++ b/packages/i18n/src/locales/en/places.ts
+@@ -6,9 +6,14 @@ export const places = {
+   },
+   list: {
+     headers: {
++      places: 'Places',
+       myPlaces: 'My places',
+       library: 'Place Library',
+     },
++    segments: {
++      mine: 'My Places',
++      library: 'Hellowhen Places',
++    },
+     badges: {
+       mine: 'My place',
+       library: 'Library place',
+diff --git a/packages/i18n/src/locales/en/plans.ts b/packages/i18n/src/locales/en/plans.ts
+index 908c8bc198903f1886816cccb18ff0f01f2fdb9d..de48d8354b18fcb4e0ea422b12705735775995de 100644
+--- a/packages/i18n/src/locales/en/plans.ts
++++ b/packages/i18n/src/locales/en/plans.ts
+@@ -651,7 +651,7 @@ export const plans = {
+     menu: { title: 'Plans menu', body: 'Everything related to your Plans, Places, and starter ideas.', group: 'Plans workspace' },
+     myPlans: { title: 'My plans', body: 'Plans you created.' },
+     joinedPlans: { title: 'Joined plans', body: 'Plans you joined freely.' },
+-    myPlaces: { title: 'My places', body: 'Reusable offline or online Places.' },
++    myPlaces: { title: 'Places', body: 'Your reusable Places and Hellowhen Places.' },
+     planIdeas: { title: 'Plan ideas', body: 'Starter Plan ideas you can review and customize.' },
+   },
+ } as const;
+diff --git a/packages/i18n/src/locales/es/account.ts b/packages/i18n/src/locales/es/account.ts
+index 5d77d9dbdc23073f6a68e00a12414876ebee81b6..b3202ca2439fef87e66d50619d2871950adfc520 100644
+--- a/packages/i18n/src/locales/es/account.ts
++++ b/packages/i18n/src/locales/es/account.ts
+@@ -1147,7 +1147,7 @@ export const account = {
+     plansFeature: { ...enAccount.items.plansFeature, title: 'Planes', body: 'Planes por lugares con Mis lugares y la biblioteca de lugares de Hellowhen.', bodyNative: 'Planes, Mis lugares y biblioteca de lugares.', badge: 'Planes', action: 'Abrir' },
+     myPlansFeature: { ...enAccount.items.myPlansFeature, title: 'Mis planes', body: 'Planes que creaste y puedes gestionar.', bodyNative: 'Planes que creaste y puedes gestionar.', badge: 'Míos' },
+     joinedPlansFeature: { ...enAccount.items.joinedPlansFeature, title: 'Planes unidos', body: 'Planes a los que te uniste libremente.', bodyNative: 'Planes a los que te uniste.', badge: 'Unidos' },
+-    myPlacesFeature: { ...enAccount.items.myPlacesFeature, title: 'Mis lugares', body: 'Lugares offline u online reutilizables para futuros Planes.', bodyNative: 'Lugares offline u online reutilizables.', badge: 'Lugares' },
++    myPlacesFeature: { ...enAccount.items.myPlacesFeature, title: 'Lugares', body: 'Tus lugares reutilizables y la selección de lugares Hellowhen para Planes.', bodyNative: 'Tus lugares y los lugares Hellowhen en un solo espacio.', badge: 'Lugares' },
+     placeLibraryFeature: { ...enAccount.items.placeLibraryFeature, title: 'Biblioteca de lugares Hellowhen', body: 'Lugares iniciales/de biblioteca que puedes añadir a Planes.', bodyNative: 'Lugares de biblioteca para Planes.', badge: 'Biblioteca' },
+     createPlanFeature: { ...enAccount.items.createPlanFeature, title: 'Crear plan', body: 'Elige lugares, ordénalos y crea un Plan de unión libre.', bodyNative: 'Elige lugares y crea un Plan libre.', badge: 'Crear' },
+     createPlaceFeature: { ...enAccount.items.createPlaceFeature, title: 'Crear lugar', body: 'Guarda un Lugar privado reutilizable para futuros Planes.', bodyNative: 'Guarda un Lugar privado reutilizable.', badge: 'Crear' },
+diff --git a/packages/i18n/src/locales/es/places.ts b/packages/i18n/src/locales/es/places.ts
+index 11125df108cdb51104ea05ed4da61d8e91194087..475113aab0ef533827b3a445ac6a3219049ab6a0 100644
+--- a/packages/i18n/src/locales/es/places.ts
++++ b/packages/i18n/src/locales/es/places.ts
+@@ -6,9 +6,14 @@ export const places = {
+   },
+   list: {
+     headers: {
++      places: 'Lugares',
+       myPlaces: 'Mis lugares',
+       library: 'Biblioteca de lugares',
+     },
++    segments: {
++      mine: 'Mis lugares',
++      library: 'Lugares Hellowhen',
++    },
+     badges: {
+       mine: 'Mi lugar',
+       library: 'Lugar de la biblioteca',
+diff --git a/packages/i18n/src/locales/es/plans.ts b/packages/i18n/src/locales/es/plans.ts
+index 5fb93aa57cfeeaa31a3e4e9ae163f810e539d9c7..deffb6ca126a261f8b124e10fe7b94fd7ca2be05 100644
+--- a/packages/i18n/src/locales/es/plans.ts
++++ b/packages/i18n/src/locales/es/plans.ts
+@@ -649,7 +649,7 @@ export const plans = {
+     menu: { title: 'Menú de Planes', body: 'Todo lo relacionado con tus Planes, lugares e ideas iniciales.', group: 'Espacio de Planes' },
+     myPlans: { title: 'Mis Planes', body: 'Los Planes que has creado.' },
+     joinedPlans: { title: 'Planes unidos', body: 'Los Planes a los que te has unido libremente.' },
+-    myPlaces: { title: 'Mis lugares', body: 'Lugares reutilizables presenciales o en línea.' },
++    myPlaces: { title: 'Lugares', body: 'Tus lugares reutilizables y los lugares Hellowhen.' },
+     planIdeas: { title: 'Ideas de Plan', body: 'Ideas iniciales que puedes revisar y personalizar.' },
+   },
+ } as const;
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+index d3644ecb11255f2e25ac0e4c9a18ebc078bda2aa..74d35438d371d9bf9845e323980fc1343fa32b09 100644
+--- a/packages/i18n/src/locales/fr/account.ts
++++ b/packages/i18n/src/locales/fr/account.ts
+@@ -1215,9 +1215,9 @@ export const account = {
+       badge: 'Rejoints',
+     },
+     myPlacesFeature: {
+-      title: 'Mes lieux',
+-      body: 'Lieux hors ligne ou en ligne réutilisables pour de futurs Plans.',
+-      bodyNative: 'Lieux hors ligne ou en ligne réutilisables.',
++      title: 'Lieux',
++      body: 'Vos lieux réutilisables et la sélection de lieux Hellowhen pour les Plans.',
++      bodyNative: 'Vos lieux et les lieux Hellowhen dans un seul espace.',
+       badge: 'Lieux',
+     },
+     placeLibraryFeature: {
+diff --git a/packages/i18n/src/locales/fr/places.ts b/packages/i18n/src/locales/fr/places.ts
+index 3136d7e5369e2843eb23f3e90831f71feab8f362..8700a073704bdd5c5cd952ff8b74d0084dfc855b 100644
+--- a/packages/i18n/src/locales/fr/places.ts
++++ b/packages/i18n/src/locales/fr/places.ts
+@@ -6,9 +6,14 @@ export const places = {
+   },
+   list: {
+     headers: {
++      places: 'Lieux',
+       myPlaces: 'Mes lieux',
+       library: 'Bibliothèque de lieux',
+     },
++    segments: {
++      mine: 'Mes lieux',
++      library: 'Lieux Hellowhen',
++    },
+     badges: {
+       mine: 'Mon lieu',
+       library: 'Lieu de la bibliothèque',
+diff --git a/packages/i18n/src/locales/fr/plans.ts b/packages/i18n/src/locales/fr/plans.ts
+index e64c39fc570f7152acbcba6684d1d552065b3b83..edc11066c9bdeec119b0a0b284462043309f1ddf 100644
+--- a/packages/i18n/src/locales/fr/plans.ts
++++ b/packages/i18n/src/locales/fr/plans.ts
+@@ -651,7 +651,7 @@ export const plans = {
+     menu: { title: 'Menu Plans', body: 'Retrouvez vos Plans, vos lieux et vos idées de départ au même endroit.', group: 'Espace Plans' },
+     myPlans: { title: 'Mes Plans', body: 'Les Plans que vous avez créés.' },
+     joinedPlans: { title: 'Plans rejoints', body: 'Les Plans que vous avez rejoints librement.' },
+-    myPlaces: { title: 'Mes lieux', body: 'Vos lieux réutilisables sur place ou en ligne.' },
++    myPlaces: { title: 'Lieux', body: 'Vos lieux réutilisables et les lieux Hellowhen.' },
+     planIdeas: { title: 'Idées de Plan', body: 'Des idées de départ à consulter et personnaliser.' },
+   },
+ } as const;
+diff --git a/packages/shared/src/appNavigation.ts b/packages/shared/src/appNavigation.ts
+index 830c75d6909610cf771c4695d28d9bcec6425cdf..7e5c1e9af0f891952fb6754e522a74f1a2906cc6 100644
+--- a/packages/shared/src/appNavigation.ts
++++ b/packages/shared/src/appNavigation.ts
+@@ -75,7 +75,7 @@ export const normalWorkspaceMenus = {
+     { id: 'plan_guide', title: 'Plan Guide', body: 'Learn how Plans, Places, joining, creating, and safety work.', titleKey: 'navigation.workspace.plans.planGuide.title', bodyKey: 'navigation.workspace.plans.planGuide.body', icon: 'help', tone: 'muted' },
+     { id: 'my_plans', title: 'My plans', body: 'Plans you created.', titleKey: 'plans.workspace.myPlans.title', bodyKey: 'plans.workspace.myPlans.body', icon: 'plan', tone: 'plan' },
+     { id: 'joined_plans', title: 'Joined plans', body: 'Plans you joined freely.', titleKey: 'plans.workspace.joinedPlans.title', bodyKey: 'plans.workspace.joinedPlans.body', icon: 'activity', tone: 'plan' },
+-    { id: 'my_places', title: 'My places', body: 'Reusable offline or online places.', titleKey: 'plans.workspace.myPlaces.title', bodyKey: 'plans.workspace.myPlaces.body', icon: 'location-on', tone: 'place' },
++    { id: 'my_places', title: 'Places', body: 'Your reusable places and Hellowhen Places.', titleKey: 'plans.workspace.myPlaces.title', bodyKey: 'plans.workspace.myPlaces.body', icon: 'location-on', tone: 'place' },
+     { id: 'plan_ideas', title: 'Plan ideas', body: 'Starter Plan ideas you can review and customize.', titleKey: 'plans.workspace.planIdeas.title', bodyKey: 'plans.workspace.planIdeas.body', icon: 'search', tone: 'plan' },
+   ],
+   trade: [

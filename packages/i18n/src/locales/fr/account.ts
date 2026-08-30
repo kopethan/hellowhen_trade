@@ -1215,9 +1215,9 @@ export const account = {
       badge: 'Rejoints',
     },
     myPlacesFeature: {
-      title: 'Mes lieux',
-      body: 'Lieux hors ligne ou en ligne réutilisables pour de futurs Plans.',
-      bodyNative: 'Lieux hors ligne ou en ligne réutilisables.',
+      title: 'Lieux',
+      body: 'Vos lieux réutilisables et la sélection de lieux Hellowhen pour les Plans.',
+      bodyNative: 'Vos lieux et les lieux Hellowhen dans un seul espace.',
       badge: 'Lieux',
     },
     placeLibraryFeature: {

@@ -1,20 +1,22 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import * as Location from 'expo-location';
-import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle, type LayoutChangeEvent } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View, type ImageStyle, type LayoutChangeEvent } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
-import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
+import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type ListPlacesQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
 import { formatLocalizedDateTime, type SupportedLanguage, type TranslationValues } from '@hellowhen/i18n';
 import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, resolveInventoryOriginalCopy, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import type { AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
 import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
+import { AppHeaderActionButton } from '../../components/AppHeaderActionButton';
 import { AppText } from '../../components/AppText';
+import { EMPTY_LIBRARY_HEADER_CONTROLS_STATE, LibraryActiveFilterChips, LibraryFilterGroup, LibraryFilterOption, LibraryFilterScreen, LibraryHeaderActions, LibraryInlineSearch, LibrarySearchFilterRow, SlidingSegmentedControl, useScopedLibraryState, type LibraryHeaderControlsHandle, type LibraryHeaderControlsState } from '../../components/library';
 import { AppConfirmSheet } from '../../components/AppConfirmSheet';
 import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
 import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccessory';
@@ -33,6 +35,7 @@ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { useAndroidFocusedInputVisibility } from '../../hooks/useAndroidFocusedInputVisibility';
 import { resolveMediaVariantUrl } from '../trade/mediaUrls';
 import { ImagePickerField } from '../trade/components/ImagePickerField';
+import { MOBILE_DECK_FEED_GAP } from '../trade/components/tradeDeckGeometry';
 import type { SelectedLocalImage, SelectedImageUploadProgress } from '../trade/mediaUpload';
 import { SelectedImageUploadError, uploadSelectedImages } from '../trade/mediaUpload';
 import {
@@ -2072,72 +2075,342 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '', focusStar
 
 
 const PlanDeckSection = React.memo(function PlanDeckSection({ plan, index, total, navigation }: { plan: PlanDto; index: number; total: number; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'> }) {
-  const theme = useThemeTokens();
-  const { t } = useTranslation();
   const handlePress = useCallback(() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title }), [navigation, plan.id, plan.title]);
-  return (
-    <View style={styles.deckSection}>
-      <View style={styles.deckSectionHeader}>
-        <View style={styles.deckSectionCopy}>
-          <AppText style={styles.deckSectionTitle} numberOfLines={1}>{plan.title}</AppText>
-          <AppText style={[styles.deckSectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{getOwnerName(plan, t)} · {getPlanMeta(plan, t)}</AppText>
-        </View>
-        <SemanticBadge label={`${index + 1}/${total}`} tone="muted" size="sm" />
-      </View>
-      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} />
-    </View>
-  );
+  return <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} />;
 });
 
 const PlanIdeaDeckSection = React.memo(function PlanIdeaDeckSection({ ideaKey, index, total, onPressIdea }: { ideaKey: StarterPlanIdeaKey; index: number; total: number; onPressIdea: (ideaKey: StarterPlanIdeaKey) => void }) {
-  const theme = useThemeTokens();
   const { t } = useTranslation();
   const idea = starterPlanIdeas[ideaKey];
   const plan = useMemo(() => planIdeaPreviewPlan(idea), [idea]);
   const handlePress = useCallback(() => onPressIdea(ideaKey), [ideaKey, onPressIdea]);
-  const stopCountLabel = t(idea.stops.length === 1 ? 'plans.deck.ideaStopsOne' : 'plans.deck.ideaStopsMany', { count: idea.stops.length });
-  return (
-    <View style={styles.deckSection}>
-      <View style={styles.deckSectionHeader}>
-        <View style={styles.deckSectionCopy}>
-          <AppText style={styles.deckSectionTitle} numberOfLines={1}>{idea.title}</AppText>
-          <AppText style={[styles.deckSectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{stopCountLabel} · {starterPlanIdeaRequirementSummaryLocalized(idea, t)}</AppText>
-        </View>
-        <SemanticBadge label={`${index + 1}/${total}`} tone="muted" size="sm" />
-      </View>
-      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} topBadgeLabel={t('plans.deck.ideaBadge', { pack: idea.pack })} topBadgeTone="plan" showModeBadge={false} />
-    </View>
-  );
+  return <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} topBadgeLabel={t('plans.deck.ideaBadge', { pack: idea.pack })} topBadgeTone="plan" showModeBadge={false} />;
 });
 
-function PlaceList({ scope, navigation, scrollProps }: { scope: PlaceListScope; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'>; scrollProps?: AppCollapsibleHeaderScrollProps }) {
+type PlaceModeFilter = 'all' | PlanPlaceMode;
+type PlaceStatusFilter = 'all' | 'active' | 'draft';
+type PlaceLibraryUiState = {
+  query: string;
+  mode: PlaceModeFilter;
+  category: string | null;
+  status: PlaceStatusFilter;
+  area: string | null;
+  popularOnly: boolean;
+};
+
+const defaultPlaceLibraryUiState: PlaceLibraryUiState = {
+  query: '',
+  mode: 'all',
+  category: null,
+  status: 'all',
+  area: null,
+  popularOnly: false,
+};
+
+function normalizePlaceLibraryQuery(value: string) {
+  return value.trim().replace(/\s+/g, ' ').slice(0, 120);
+}
+
+function placeMatchesLibraryQuery(place: PlaceDto, query: string) {
+  const needle = normalizePlaceLibraryQuery(query).toLowerCase();
+  if (!needle) return true;
+  return [
+    place.title,
+    place.originalTitle,
+    place.description,
+    place.originalDescription,
+    place.category,
+    place.areaLabel,
+    place.addressPublicText,
+    place.formattedAddress,
+    place.googlePlaceName,
+    place.onlineLabel,
+    place.onlineUrl,
+    ...(place.tags ?? []),
+  ].filter(Boolean).join(' ').toLowerCase().includes(needle);
+}
+
+function placeMatchesLibraryFilters(place: PlaceDto, state: PlaceLibraryUiState, scope: PlaceListScope) {
+  if (!placeMatchesLibraryQuery(place, state.query)) return false;
+  if (state.mode !== 'all' && place.mode !== state.mode) return false;
+  if (state.category && place.category?.trim().toLowerCase() !== state.category.trim().toLowerCase()) return false;
+  if (scope === 'mine' && state.status !== 'all' && place.status !== state.status) return false;
+  if (scope === 'library' && state.area && place.areaLabel?.trim().toLowerCase() !== state.area.trim().toLowerCase()) return false;
+  if (scope === 'library' && state.popularOnly && !(place.tags ?? []).some((tag) => tag.trim().toLowerCase() === 'popular')) return false;
+  return true;
+}
+
+function normalizedPlaceTextOptions(values: Array<string | null | undefined>) {
+  const byNormalized = new Map<string, string>();
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (!trimmed) continue;
+    const normalized = trimmed.toLowerCase();
+    if (!byNormalized.has(normalized)) byNormalized.set(normalized, trimmed);
+  }
+  return [...byNormalized.values()].sort((left, right) => left.localeCompare(right));
+}
+
+function placeCategoryOptions(places: PlaceDto[]) {
+  return normalizedPlaceTextOptions(places.map((place) => place.category));
+}
+
+function placeAreaOptions(places: PlaceDto[]) {
+  return normalizedPlaceTextOptions(places.map((place) => place.areaLabel));
+}
+
+type PlaceListProps = {
+  scope: PlaceListScope;
+  navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'>;
+  scrollProps?: AppCollapsibleHeaderScrollProps;
+  headerContent?: React.ReactNode;
+  headerControls?: boolean;
+  onHeaderControlsStateChange?: (state: LibraryHeaderControlsState) => void;
+};
+
+const PlaceList = forwardRef<LibraryHeaderControlsHandle, PlaceListProps>(function PlaceList({ scope, navigation, scrollProps, headerContent, headerControls = false, onHeaderControlsStateChange }, ref: ForwardedRef<LibraryHeaderControlsHandle>) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
   const [places, setPlaces] = useState<PlaceDto[]>([]);
+  const [loadedScope, setLoadedScope] = useState<PlaceListScope | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<{ title: string; body: string } | null>(null);
   const [removedPlaceTitle, setRemovedPlaceTitle] = useState<string | null>(null);
   const [archivingPlaceId, setArchivingPlaceId] = useState<string | null>(null);
   const [archiveConfirmPlace, setArchiveConfirmPlace] = useState<PlaceDto | null>(null);
+  const [filterScreenVisible, setFilterScreenVisible] = useState(false);
+  const [searchExpanded, setSearchExpanded] = useState(false);
+  const [draftFilters, setDraftFilters] = useState<Pick<PlaceLibraryUiState, 'mode' | 'category' | 'status' | 'area' | 'popularOnly'>>({ mode: 'all', category: null, status: 'all', area: null, popularOnly: false });
+  const { stateByScope, setScopeState, resetScopeState } = useScopedLibraryState<PlaceListScope, PlaceLibraryUiState>({
+    mine: { ...defaultPlaceLibraryUiState },
+    library: { ...defaultPlaceLibraryUiState },
+  });
+  const activeScopeRef = useRef<PlaceListScope>(scope);
+  activeScopeRef.current = scope;
+  const activeState = stateByScope[scope];
 
   const load = useCallback(async ({ refresh = false }: { refresh?: boolean } = {}) => {
     if (!isPlansVisible()) { setLoading(false); return; }
     if (refresh) setRefreshing(true); else setLoading(true);
     setError(null);
     try {
-      const response = scope === 'library' ? await api.places.library() : await api.places.mine();
+      const query: ListPlacesQuery = { take: 100 };
+      const response = scope === 'library' ? await api.places.library(query) : await api.places.mine(query);
+      if (activeScopeRef.current !== scope) return;
       setPlaces((response.places ?? []).filter((place) => place.status !== 'archived'));
     } catch {
+      if (activeScopeRef.current !== scope) return;
       setError({ title: t('places.list.errors.load'), body: t('places.list.errors.tryAgain') });
       setPlaces([]);
     } finally {
+      if (activeScopeRef.current !== scope) return;
+      setLoadedScope(scope);
       setLoading(false);
       setRefreshing(false);
     }
   }, [scope, t]);
 
+  useEffect(() => {
+    setRemovedPlaceTitle(null);
+    setArchiveConfirmPlace(null);
+    setArchivingPlaceId(null);
+    setFilterScreenVisible(false);
+  }, [scope]);
+
   useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  const categories = useMemo(() => placeCategoryOptions(places), [places]);
+  const areas = useMemo(() => placeAreaOptions(places), [places]);
+  const filteredPlaces = useMemo(
+    () => places.filter((place) => placeMatchesLibraryFilters(place, activeState, scope)),
+    [activeState, places, scope],
+  );
+  const activeFilterCount = Number(activeState.mode !== 'all') + Number(Boolean(activeState.category)) + Number(scope === 'mine' && activeState.status !== 'all') + Number(scope === 'library' && Boolean(activeState.area)) + Number(scope === 'library' && activeState.popularOnly);
+  const hasQuery = Boolean(normalizePlaceLibraryQuery(activeState.query));
+  const hasActiveSearchOrFilters = Boolean(hasQuery || activeFilterCount);
+  const canUseControls = loadedScope === scope && !loading && places.length > 0;
+  const draftState: PlaceLibraryUiState = { ...activeState, ...draftFilters };
+  const draftFilteredCount = useMemo(
+    () => places.filter((place) => placeMatchesLibraryFilters(place, draftState, scope)).length,
+    [draftFilters, activeState.query, places, scope],
+  );
+
+  useImperativeHandle(ref, () => ({
+    toggleSearch: () => {
+      if (!canUseControls) return;
+      setSearchExpanded((current) => {
+        if (current) Keyboard.dismiss();
+        return !current;
+      });
+    },
+    closeSearch: () => {
+      Keyboard.dismiss();
+      setSearchExpanded(false);
+    },
+    openFilters: () => {
+      if (!canUseControls) return;
+      openFilters();
+    },
+  }), [activeState, canUseControls]);
+
+  useEffect(() => {
+    onHeaderControlsStateChange?.({
+      searchExpanded,
+      hasQuery,
+      filterCount: activeFilterCount,
+      canSearch: canUseControls,
+      canFilter: canUseControls,
+    });
+  }, [activeFilterCount, canUseControls, hasQuery, onHeaderControlsStateChange, searchExpanded]);
+
+  const modeLabel = (mode: PlaceModeFilter) => mode === 'remote'
+    ? t('places.list.filters.online')
+    : mode === 'local'
+      ? t('places.list.filters.offline')
+      : t('places.list.filters.allModes');
+  const statusLabel = (status: PlaceStatusFilter) => status === 'active'
+    ? t('places.list.filters.active')
+    : status === 'draft'
+      ? t('places.list.filters.draft')
+      : t('places.list.filters.allStatuses');
+
+  const activeFilterChips = [
+    ...(activeState.mode !== 'all' ? [{
+      key: 'mode',
+      label: modeLabel(activeState.mode),
+      accessibilityLabel: `${t('places.list.filters.removeFilter')} ${modeLabel(activeState.mode)}`,
+      onRemove: () => setScopeState(scope, (current) => ({ ...current, mode: 'all' })),
+    }] : []),
+    ...(activeState.category ? [{
+      key: 'category',
+      label: activeState.category,
+      accessibilityLabel: `${t('places.list.filters.removeFilter')} ${activeState.category}`,
+      onRemove: () => setScopeState(scope, (current) => ({ ...current, category: null })),
+    }] : []),
+    ...(scope === 'mine' && activeState.status !== 'all' ? [{
+      key: 'status',
+      label: statusLabel(activeState.status),
+      accessibilityLabel: `${t('places.list.filters.removeFilter')} ${statusLabel(activeState.status)}`,
+      onRemove: () => setScopeState(scope, (current) => ({ ...current, status: 'all' })),
+    }] : []),
+    ...(scope === 'library' && activeState.area ? [{
+      key: 'area',
+      label: activeState.area,
+      accessibilityLabel: `${t('places.list.filters.removeFilter')} ${activeState.area}`,
+      onRemove: () => setScopeState(scope, (current) => ({ ...current, area: null })),
+    }] : []),
+    ...(scope === 'library' && activeState.popularOnly ? [{
+      key: 'popular',
+      label: t('places.list.filters.popular'),
+      accessibilityLabel: `${t('places.list.filters.removeFilter')} ${t('places.list.filters.popular')}`,
+      onRemove: () => setScopeState(scope, (current) => ({ ...current, popularOnly: false })),
+    }] : []),
+  ];
+
+  function openFilters() {
+    setDraftFilters({ mode: activeState.mode, category: activeState.category, status: activeState.status, area: activeState.area, popularOnly: activeState.popularOnly });
+    setFilterScreenVisible(true);
+  }
+
+  function resetDraftFilters() {
+    setDraftFilters({ mode: 'all', category: null, status: 'all', area: null, popularOnly: false });
+  }
+
+  function applyDraftFilters() {
+    setScopeState(scope, (current) => ({
+      ...current,
+      mode: draftFilters.mode,
+      category: draftFilters.category,
+      status: scope === 'mine' ? draftFilters.status : 'all',
+      area: scope === 'library' ? draftFilters.area : null,
+      popularOnly: scope === 'library' ? draftFilters.popularOnly : false,
+    }));
+    setFilterScreenVisible(false);
+  }
+
+  const libraryControls = (
+    <View style={styles.placeLibraryControls}>
+      {headerContent}
+      {headerControls ? (
+        searchExpanded ? (
+          <LibraryInlineSearch
+            query={activeState.query}
+            onQueryChange={(query) => setScopeState(scope, (current) => ({ ...current, query: query.slice(0, 120) }))}
+            placeholder={scope === 'library' ? t('places.list.filters.searchLibrary') : t('places.list.filters.searchMine')}
+            accessibilityLabel={scope === 'library' ? t('places.list.filters.searchLibrary') : t('places.list.filters.searchMine')}
+            clearAccessibilityLabel={t('places.list.filters.clearSearch')}
+            tone="place"
+          />
+        ) : null
+      ) : (
+        <LibrarySearchFilterRow
+          query={activeState.query}
+          onQueryChange={(query) => setScopeState(scope, (current) => ({ ...current, query: query.slice(0, 120) }))}
+          searchPlaceholder={scope === 'library' ? t('places.list.filters.searchLibrary') : t('places.list.filters.searchMine')}
+          searchAccessibilityLabel={scope === 'library' ? t('places.list.filters.searchLibrary') : t('places.list.filters.searchMine')}
+          filterAccessibilityLabel={t('places.list.filters.openFilters')}
+          onOpenFilters={openFilters}
+          filterCount={activeFilterCount}
+          tone="place"
+          clearAccessibilityLabel={t('places.list.filters.clearSearch')}
+          filtersExpanded={filterScreenVisible}
+        />
+      )}
+      <LibraryActiveFilterChips filters={activeFilterChips} tone="place" />
+    </View>
+  );
+
+  const filterScreen = (
+    <LibraryFilterScreen
+      visible={filterScreenVisible}
+      title={t('places.list.filters.title')}
+      body={scope === 'library' ? t('places.list.filters.libraryBody') : t('places.list.filters.mineBody')}
+      closeAccessibilityLabel={t('places.list.filters.closeFilters')}
+      resetLabel={t('places.list.filters.reset')}
+      applyLabel={t('places.list.filters.showResults', { count: draftFilteredCount })}
+      onClose={() => setFilterScreenVisible(false)}
+      onReset={resetDraftFilters}
+      onApply={applyDraftFilters}
+      tone="place"
+      resetDisabled={draftFilters.mode === 'all' && !draftFilters.category && (scope === 'library' || draftFilters.status === 'all') && (scope === 'mine' || (!draftFilters.area && !draftFilters.popularOnly))}
+    >
+      <LibraryFilterGroup title={t('places.list.filters.mode')}>
+        {(['all', 'local', 'remote'] as PlaceModeFilter[]).map((mode) => (
+          <LibraryFilterOption key={mode} label={modeLabel(mode)} selected={draftFilters.mode === mode} tone="place" onPress={() => setDraftFilters((current) => ({ ...current, mode }))} />
+        ))}
+      </LibraryFilterGroup>
+      {categories.length ? (
+        <LibraryFilterGroup title={t('places.list.filters.category')}>
+          <LibraryFilterOption label={t('places.list.filters.allCategories')} selected={!draftFilters.category} tone="place" onPress={() => setDraftFilters((current) => ({ ...current, category: null }))} />
+          {categories.map((category) => (
+            <LibraryFilterOption key={category} label={category} selected={draftFilters.category?.toLowerCase() === category.toLowerCase()} tone="place" onPress={() => setDraftFilters((current) => ({ ...current, category }))} />
+          ))}
+        </LibraryFilterGroup>
+      ) : null}
+      {scope === 'mine' ? (
+        <LibraryFilterGroup title={t('places.list.filters.status')}>
+          {(['all', 'active', 'draft'] as PlaceStatusFilter[]).map((status) => (
+            <LibraryFilterOption key={status} label={statusLabel(status)} selected={draftFilters.status === status} tone="place" onPress={() => setDraftFilters((current) => ({ ...current, status }))} />
+          ))}
+        </LibraryFilterGroup>
+      ) : null}
+      {scope === 'library' && areas.length ? (
+        <LibraryFilterGroup title={t('places.list.filters.area')}>
+          <LibraryFilterOption label={t('places.list.filters.allAreas')} selected={!draftFilters.area} tone="place" onPress={() => setDraftFilters((current) => ({ ...current, area: null }))} />
+          {areas.map((area) => (
+            <LibraryFilterOption key={area} label={area} selected={draftFilters.area?.toLowerCase() === area.toLowerCase()} tone="place" onPress={() => setDraftFilters((current) => ({ ...current, area }))} />
+          ))}
+        </LibraryFilterGroup>
+      ) : null}
+      {scope === 'library' ? (
+        <LibraryFilterGroup title={t('places.list.filters.discovery')}>
+          <LibraryFilterOption label={t('places.list.filters.allDiscovery')} selected={!draftFilters.popularOnly} tone="place" onPress={() => setDraftFilters((current) => ({ ...current, popularOnly: false }))} />
+          <LibraryFilterOption label={t('places.list.filters.popular')} selected={draftFilters.popularOnly} tone="place" onPress={() => setDraftFilters((current) => ({ ...current, popularOnly: true }))} />
+        </LibraryFilterGroup>
+      ) : null}
+    </LibraryFilterScreen>
+  );
 
   function confirmArchivePlace(place: PlaceDto) {
     if (scope !== 'mine' || place.source !== 'user') return;
@@ -2160,21 +2433,44 @@ function PlaceList({ scope, navigation, scrollProps }: { scope: PlaceListScope; 
     }
   }
 
-  if (loading) {
-    return <View style={[scrollProps?.contentInsetStyle, styles.inlineLoading]}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('places.list.loading')}</AppText></View>;
-  }
-
-  if (error) {
-    return <View style={[scrollProps?.contentInsetStyle, styles.listContent]}><InfoNotice tone="warning" title={error.title} body={error.body} /></View>;
-  }
-
-  if (places.length === 0) {
-    return (
-      <View style={[scrollProps?.contentInsetStyle, styles.listContent]}>
-        <EmptyBlock title={scope === 'library' ? t('places.list.empty.libraryTitle') : t('places.list.empty.mineTitle')} body={scope === 'library' ? t('places.list.empty.libraryBody') : t('places.list.empty.mineBody')} actionLabel={scope === 'mine' ? t('places.list.actions.create') : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined} tone="place" />
-      </View>
-    );
-  }
+  const listBody = loading || loadedScope !== scope ? (
+    <View style={styles.inlineLoading}>
+      <ActivityIndicator />
+      <AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('places.list.loading')}</AppText>
+    </View>
+  ) : error ? (
+    <InfoNotice tone="warning" title={error.title} body={error.body} />
+  ) : places.length === 0 ? (
+    <EmptyBlock
+      title={scope === 'library' ? t('places.list.empty.libraryTitle') : t('places.list.empty.mineTitle')}
+      body={scope === 'library' ? t('places.list.empty.libraryBody') : t('places.list.empty.mineBody')}
+      actionLabel={scope === 'mine' ? t('places.list.actions.create') : undefined}
+      onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined}
+      tone="place"
+    />
+  ) : filteredPlaces.length === 0 ? (
+    <EmptyBlock
+      title={t('places.list.empty.filteredTitle')}
+      body={scope === 'library' ? t('places.list.empty.filteredLibraryBody') : t('places.list.empty.filteredMineBody')}
+      actionLabel={hasActiveSearchOrFilters ? t('places.list.filters.clearAll') : undefined}
+      onAction={hasActiveSearchOrFilters ? () => resetScopeState(scope) : undefined}
+      tone="place"
+    />
+  ) : (
+    <>
+      {scope === 'mine' && removedPlaceTitle ? <InfoNotice tone="success" title={t('places.list.messages.title')} body={t('places.list.messages.removed', { title: removedPlaceTitle })} /> : null}
+      {scope === 'mine' ? <InfoNotice tone="info" title={t('places.list.notice.title')} body={t('places.list.notice.body')} /> : null}
+      {filteredPlaces.map((place) => (
+        <PlaceRow
+          key={place.id}
+          place={place}
+          onEdit={scope === 'mine' && place.source === 'user' ? () => navigation.navigate('CreatePlace', { editPlace: place }) : undefined}
+          onArchive={scope === 'mine' && place.source === 'user' ? () => confirmArchivePlace(place) : undefined}
+          archiving={archivingPlaceId === place.id}
+        />
+      ))}
+    </>
+  );
 
   return (
     <>
@@ -2182,20 +2478,14 @@ function PlaceList({ scope, navigation, scrollProps }: { scope: PlaceListScope; 
         {...scrollProps?.scrollViewProps}
         contentContainerStyle={[scrollProps?.contentInsetStyle, styles.listContent]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
       >
-        {removedPlaceTitle ? <InfoNotice tone="success" title={t('places.list.messages.title')} body={t('places.list.messages.removed', { title: removedPlaceTitle })} /> : null}
-        {scope === 'mine' ? <InfoNotice tone="info" title={t('places.list.notice.title')} body={t('places.list.notice.body')} /> : null}
-        {places.map((place) => (
-          <PlaceRow
-            key={place.id}
-            place={place}
-            onEdit={scope === 'mine' && place.source === 'user' ? () => navigation.navigate('CreatePlace', { editPlace: place }) : undefined}
-            onArchive={scope === 'mine' && place.source === 'user' ? () => confirmArchivePlace(place) : undefined}
-            archiving={archivingPlaceId === place.id}
-          />
-        ))}
+        {libraryControls}
+        {listBody}
       </ScrollView>
+      {filterScreen}
       <AppConfirmSheet
         visible={Boolean(archiveConfirmPlace)}
         title={t('places.list.confirmDelete.title')}
@@ -2209,7 +2499,8 @@ function PlaceList({ scope, navigation, scrollProps }: { scope: PlaceListScope; 
       />
     </>
   );
-}
+
+});
 
 function EmptyBlock({ title, body, actionLabel, onAction, tone = 'plan' }: { title: string; body: string; actionLabel?: string; onAction?: () => void; tone?: 'plan' | 'place' }) {
   const theme = useThemeTokens();
@@ -3211,24 +3502,74 @@ export function JoinedPlansScreen({ navigation }: SimpleScreenProps<'JoinedPlans
   );
 }
 
-export function MyPlacesScreen({ navigation }: SimpleScreenProps<'MyPlaces'>) {
+function PlacesHubScreen({ navigation, initialScope }: { navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate' | 'goBack'>; initialScope: PlaceListScope }) {
   const { t } = useTranslation();
+  const [scope, setScope] = useState<PlaceListScope>(initialScope);
+  const placeControlsRef = useRef<LibraryHeaderControlsHandle>(null);
+  const [headerControlsState, setHeaderControlsState] = useState<LibraryHeaderControlsState>({ ...EMPTY_LIBRARY_HEADER_CONTROLS_STATE });
+
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
+
+  const sourceTabs = (
+    <SlidingSegmentedControl<PlaceListScope>
+      value={scope}
+      onChange={setScope}
+      tone="place"
+      options={[
+        { value: 'mine', label: t('common.librarySegments.mine') },
+        { value: 'library', label: t('common.librarySegments.explore') },
+      ]}
+    />
+  );
+
   return (
-    <AppSmartHeaderScreen header={<AppHeader title={t('places.list.headers.myPlaces')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="add" label={t('places.list.actions.create')} primaryTone="place" iconSize={23} onPress={() => navigation.navigate('CreatePlace')} />} />}>
-      {(scrollProps) => <PlaceList scope="mine" navigation={navigation} scrollProps={scrollProps} />}
+    <AppSmartHeaderScreen
+      resetKey={scope}
+      header={(
+        <AppHeader
+          title={t('places.list.headers.places')}
+          onBack={() => navigation.goBack()}
+          rightSlot={(
+            <LibraryHeaderActions
+              tone="place"
+              state={headerControlsState}
+              searchAccessibilityLabel={scope === 'library' ? t('places.list.filters.searchLibrary') : t('places.list.filters.searchMine')}
+              filterAccessibilityLabel={t('places.list.filters.openFilters')}
+              createAccessibilityLabel={t('places.list.actions.create')}
+              onToggleSearch={() => placeControlsRef.current?.toggleSearch()}
+              onOpenFilters={() => placeControlsRef.current?.openFilters()}
+              onCreate={() => navigation.navigate('CreatePlace')}
+            />
+          )}
+        />
+      )}
+    >
+      {(scrollProps) => (
+        <PlaceList
+          ref={placeControlsRef}
+          scope={scope}
+          navigation={navigation}
+          scrollProps={scrollProps}
+          headerContent={sourceTabs}
+          headerControls
+          onHeaderControlsStateChange={setHeaderControlsState}
+        />
+      )}
     </AppSmartHeaderScreen>
   );
 }
 
+export function MyPlacesScreen({ navigation }: SimpleScreenProps<'MyPlaces'>) {
+  return <PlacesHubScreen navigation={navigation} initialScope="mine" />;
+}
+
+/**
+ * Compatibility route for existing links and navigation calls. The old
+ * standalone library screen now opens the same Places hub with Hellowhen
+ * Places selected.
+ */
 export function PlaceLibraryScreen({ navigation }: SimpleScreenProps<'PlaceLibrary'>) {
-  const { t } = useTranslation();
-  if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
-  return (
-    <AppSmartHeaderScreen header={<AppHeader title={t('places.list.headers.library')} onBack={() => navigation.goBack()} />}>
-      {(scrollProps) => <PlaceList scope="library" navigation={navigation} scrollProps={scrollProps} />}
-    </AppSmartHeaderScreen>
-  );
+  return <PlacesHubScreen navigation={navigation} initialScope="library" />;
 }
 
 function ModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (value: PlanPlaceMode) => void }) {
@@ -5571,6 +5912,7 @@ const styles = StyleSheet.create({
   menuTitle: { fontSize: 15, lineHeight: 19, fontWeight: '900' },
   menuBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
   listContent: { gap: 10, paddingBottom: 34 },
+  placeLibraryControls: { gap: 10, marginBottom: 2 },
   planCreateBody: { overflow: 'hidden' },
   planCreateScrollContent: { paddingBottom: 18 },
   planCreateStickyBar: { flexShrink: 0, zIndex: 5, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10 },
@@ -5640,12 +5982,7 @@ const styles = StyleSheet.create({
   googlePlaceStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   googlePlaceStatusText: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
   googlePlaceNotice: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
-  deckFeedContent: { gap: 20, paddingTop: 2, paddingBottom: 34 },
-  deckSection: { gap: 10 },
-  deckSectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 2 },
-  deckSectionCopy: { flex: 1, minWidth: 0, gap: 2 },
-  deckSectionTitle: { fontSize: 19, lineHeight: 24, fontWeight: '900', letterSpacing: -0.3 },
-  deckSectionMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+  deckFeedContent: { gap: MOBILE_DECK_FEED_GAP, paddingTop: MOBILE_DECK_FEED_GAP + 42, paddingBottom: 34 },
   inlineLoading: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
   loadingText: { fontWeight: '800' },
   planHeaderShareButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },

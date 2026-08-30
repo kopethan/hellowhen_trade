@@ -649,7 +649,7 @@ export const plans = {
     menu: { title: 'Menú de Planes', body: 'Todo lo relacionado con tus Planes, lugares e ideas iniciales.', group: 'Espacio de Planes' },
     myPlans: { title: 'Mis Planes', body: 'Los Planes que has creado.' },
     joinedPlans: { title: 'Planes unidos', body: 'Los Planes a los que te has unido libremente.' },
-    myPlaces: { title: 'Mis lugares', body: 'Lugares reutilizables presenciales o en línea.' },
+    myPlaces: { title: 'Lugares', body: 'Tus lugares reutilizables y los lugares Hellowhen.' },
     planIdeas: { title: 'Ideas de Plan', body: 'Ideas iniciales que puedes revisar y personalizar.' },
   },
 } as const;

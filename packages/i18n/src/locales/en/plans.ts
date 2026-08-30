@@ -651,7 +651,7 @@ export const plans = {
     menu: { title: 'Plans menu', body: 'Everything related to your Plans, Places, and starter ideas.', group: 'Plans workspace' },
     myPlans: { title: 'My plans', body: 'Plans you created.' },
     joinedPlans: { title: 'Joined plans', body: 'Plans you joined freely.' },
-    myPlaces: { title: 'My places', body: 'Reusable offline or online Places.' },
+    myPlaces: { title: 'Places', body: 'Your reusable Places and Hellowhen Places.' },
     planIdeas: { title: 'Plan ideas', body: 'Starter Plan ideas you can review and customize.' },
   },
 } as const;

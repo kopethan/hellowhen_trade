@@ -18,6 +18,7 @@ import { type AppCollapsibleHeaderScrollProps } from '../../components/AppCollap
 import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
+import { DECK_CARD_TYPOGRAPHY } from '../../components/PosterCardGeometry';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useAuth } from '../../providers/AuthProvider';
@@ -25,7 +26,7 @@ import { useTranslation } from '../../providers/MobileI18nProvider';
 import { TradeSquareDeck } from './components/TradeSquareDeck';
 import { TradeExchangeIcon } from './components/TradeExchangeIcon';
 import { TradePosterCard } from './components/TradePosterCard';
-import { getMobileTradeDeckCardSize, shouldUseCompactTradeDeckContent } from './components/tradeDeckGeometry';
+import { getMobileTradeDeckCardSize, MOBILE_DECK_FEED_GAP, shouldUseCompactTradeDeckContent } from './components/tradeDeckGeometry';
 import { emptyFeedStarterIdeaPlacement, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedStarterIdeaPlacement, getFeedTradeIdeaMedia, getInlineFeedIdeaKey, getRandomizedFeedIdeaKeys, type FeedTradeIdeaKey, type FeedTradeIdeaVisualKey } from './tradeFeedIdeas';
 import { FeatureGuidePromptCard } from '../onboarding-guide/FeatureGuidePromptCard';
 import { useFeatureGuidePrompt } from '../onboarding-guide/onboardingGuideStorage';
@@ -1321,7 +1322,7 @@ const styles = StyleSheet.create({
   suggestionRow: { minHeight: 42, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   suggestionText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '900' },
   suggestionSource: { fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
-  feedList: { gap: 22 },
+  feedList: { gap: MOBILE_DECK_FEED_GAP },
   feedIdeasCard: { gap: 16, paddingTop: 10 },
   feedIdeasHeader: { gap: 7, paddingHorizontal: 6, paddingBottom: 4 },
   feedIdeasTitle: { fontSize: 21, lineHeight: 25, fontWeight: '900', letterSpacing: -0.5 },
@@ -1358,11 +1359,11 @@ const styles = StyleSheet.create({
   feedIdeaToplineRightCompact: { maxWidth: '32%', fontSize: 10, lineHeight: 12, letterSpacing: 0.45 },
   feedIdeaSideBlock: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 3, minHeight: 0 },
   feedIdeaSideBlockCompact: { gap: 2, paddingVertical: 0 },
-  feedIdeaSideEyebrow: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  feedIdeaSideEyebrow: { ...DECK_CARD_TYPOGRAPHY.eyebrow },
   feedIdeaSideEyebrowCompact: { fontSize: 11, lineHeight: 14 },
-  feedIdeaSideTitle: { textAlign: 'center', fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.55, paddingBottom: 1 },
+  feedIdeaSideTitle: { textAlign: 'center', ...DECK_CARD_TYPOGRAPHY.title, paddingBottom: 1 },
   feedIdeaSideTitleCompact: { fontSize: 17, lineHeight: 20, letterSpacing: -0.35, paddingBottom: 0 },
-  feedIdeaSideMeta: { textAlign: 'center', fontSize: 12, lineHeight: 16, fontWeight: '800' },
+  feedIdeaSideMeta: { textAlign: 'center', ...DECK_CARD_TYPOGRAPHY.meta },
   feedIdeaSideMetaCompact: { fontSize: 10.5, lineHeight: 13 },
   feedIdeaExchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 1 },
   feedIdeaExchangeRowCompact: { gap: 10, marginVertical: 0 },

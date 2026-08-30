@@ -1215,9 +1215,9 @@ export const account = {
       badge: 'Joined',
     },
     myPlacesFeature: {
-      title: 'My places',
-      body: 'Reusable offline or online places for future Plans.',
-      bodyNative: 'Reusable offline or online places.',
+      title: 'Places',
+      body: 'Your reusable places and Hellowhen’s curated place library for Plans.',
+      bodyNative: 'Your places and Hellowhen Places in one hub.',
       badge: 'Places',
     },
     placeLibraryFeature: {

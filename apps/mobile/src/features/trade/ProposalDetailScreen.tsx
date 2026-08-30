@@ -962,6 +962,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
         title={headerTitle}
         onBack={() => navigation.goBack()}
         rightSlot={proposal ? <HeaderDetailsButton onPress={() => setThreadInfoMode('menu')} label={t('trade.proposals.threadMenu')} /> : null}
+        titleOverflowBehavior="scroll"
       />
 
       {!proposal ? (

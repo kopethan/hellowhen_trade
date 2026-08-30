@@ -4,6 +4,7 @@ import type { MediaAssetDto, TradePostType } from '@hellowhen/contracts';
 import { formatMoney, normalizePreviewCardTheme } from '@hellowhen/shared';
 import { useTranslation } from '../../../providers/MobileI18nProvider';
 import { AppText } from '../../../components/AppText';
+import { DECK_CARD_TYPOGRAPHY } from '../../../components/PosterCardGeometry';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { TradeExchangeIcon } from './TradeExchangeIcon';
 import { resolveMediaVariantUrl } from '../mediaUrls';
@@ -298,11 +299,11 @@ const styles = StyleSheet.create({
   summaryBodyNarrow: { gap: 8 },
   tradeSideBlock: { alignItems: 'center', gap: 5, paddingVertical: 3 },
   tradeSideBlockNarrow: { gap: 2, paddingVertical: 0 },
-  sideEyebrow: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  sideEyebrow: { ...DECK_CARD_TYPOGRAPHY.eyebrow },
   sideEyebrowNarrow: { fontSize: 11, lineHeight: 14 },
-  sideTitle: { textAlign: 'center', fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.55, paddingBottom: 1 },
+  sideTitle: { textAlign: 'center', ...DECK_CARD_TYPOGRAPHY.title, paddingBottom: 1 },
   sideTitleNarrow: { fontSize: 17, lineHeight: 20, letterSpacing: -0.35, paddingBottom: 0 },
-  sideMeta: { textAlign: 'center', fontSize: 12, lineHeight: 16, fontWeight: '800' },
+  sideMeta: { textAlign: 'center', ...DECK_CARD_TYPOGRAPHY.meta },
   sideMetaNarrow: { fontSize: 10.5, lineHeight: 13 },
   exchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 1 },
   exchangeRowNarrow: { gap: 10, marginVertical: 0 },

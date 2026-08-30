@@ -1,0 +1,224 @@
+diff --git a/apps/mobile/src/components/library/SlidingSegmentedControl.tsx b/apps/mobile/src/components/library/SlidingSegmentedControl.tsx
+index 0587b01..5d8d6f0 100644
+--- a/apps/mobile/src/components/library/SlidingSegmentedControl.tsx
++++ b/apps/mobile/src/components/library/SlidingSegmentedControl.tsx
+@@ -47,7 +47,7 @@ function SegmentLabel({
+ 
+     const animation = Animated.timing(progress, {
+       toValue: active ? 1 : 0,
+-      duration: 140,
++      duration: 170,
+       easing: Easing.out(Easing.cubic),
+       useNativeDriver: false,
+     });
+@@ -72,47 +72,54 @@ export function SlidingSegmentedControl<T extends string>({
+   options,
+   onChange,
+   tone,
+-  animationDuration = 250,
++  animationDuration = 280,
+   style,
+ }: SlidingSegmentedControlProps<T>) {
+   const theme = useThemeTokens();
+   const reducedMotion = useReducedMotion();
+   const [containerWidth, setContainerWidth] = useState(0);
+   const activeIndex = Math.max(0, options.findIndex((option) => option.value === value));
+-  const animatedIndex = useRef(new Animated.Value(activeIndex)).current;
++  const indicatorOffset = useRef(new Animated.Value(0)).current;
++  const previousSegmentWidthRef = useRef(0);
++  const hasMeasuredRef = useRef(false);
+   const selectedSemantic = tone ? theme.semantic[tone] : null;
+   const segmentWidth = useMemo(() => {
+     if (!containerWidth || options.length === 0) return 0;
+     const available = containerWidth - OUTER_PADDING * 2 - SEGMENT_GAP * Math.max(options.length - 1, 0);
+     return Math.max(0, available / options.length);
+   }, [containerWidth, options.length]);
++  const segmentStride = segmentWidth + SEGMENT_GAP;
++  const targetOffset = segmentStride * activeIndex;
+ 
+   useEffect(() => {
+-    animatedIndex.stopAnimation();
+-    if (reducedMotion) {
+-      animatedIndex.setValue(activeIndex);
++    if (segmentWidth <= 0) return;
++
++    const layoutChanged = Math.abs(previousSegmentWidthRef.current - segmentWidth) > 0.5;
++    previousSegmentWidthRef.current = segmentWidth;
++
++    if (!hasMeasuredRef.current || layoutChanged || reducedMotion) {
++      indicatorOffset.stopAnimation();
++      indicatorOffset.setValue(targetOffset);
++      hasMeasuredRef.current = true;
+       return;
+     }
+ 
+-    const animation = Animated.timing(animatedIndex, {
+-      toValue: activeIndex,
++    indicatorOffset.stopAnimation();
++    const animation = Animated.timing(indicatorOffset, {
++      toValue: targetOffset,
+       duration: animationDuration,
+-      easing: Easing.out(Easing.cubic),
++      easing: Easing.bezier(0.22, 1, 0.36, 1),
+       useNativeDriver: true,
+     });
+     animation.start();
+     return () => animation.stop();
+-  }, [activeIndex, animatedIndex, animationDuration, reducedMotion]);
++  }, [animationDuration, indicatorOffset, reducedMotion, segmentWidth, targetOffset]);
+ 
+   function handleLayout(event: LayoutChangeEvent) {
+     const nextWidth = event.nativeEvent.layout.width;
+     setContainerWidth((current) => Math.abs(current - nextWidth) < 0.5 ? current : nextWidth);
+   }
+ 
+-  const translateX = animatedIndex.interpolate({
+-    inputRange: [0, Math.max(options.length - 1, 1)],
+-    outputRange: [0, (segmentWidth + SEGMENT_GAP) * Math.max(options.length - 1, 1)],
+-  });
+   const selectedBackground = selectedSemantic?.softBg ?? theme.color.surface;
+   const selectedBorder = selectedSemantic?.border ?? theme.color.border;
+   const selectedText = selectedSemantic?.text ?? theme.color.text;
+@@ -135,7 +142,7 @@ export function SlidingSegmentedControl<T extends string>({
+               width: segmentWidth,
+               backgroundColor: selectedBackground,
+               borderColor: selectedBorder,
+-              transform: [{ translateX }],
++              transform: [{ translateX: indicatorOffset }],
+             },
+           ]}
+         />
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 896c402..6d82831 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -2405,56 +2405,44 @@ function PlaceList({ scope, navigation, scrollProps, headerContent }: { scope: P
+     }
+   }
+ 
+-  if (loading || loadedScope !== scope) {
+-    return (
+-      <>
+-        <View style={[scrollProps?.contentInsetStyle, styles.placeListStaticContent]}>
+-          {libraryControls}
+-          <View style={styles.inlineLoading}><ActivityIndicator /><AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('places.list.loading')}</AppText></View>
+-        </View>
+-        {filterSheet}
+-      </>
+-    );
+-  }
+-
+-  if (error) {
+-    return (
+-      <>
+-        <View style={[scrollProps?.contentInsetStyle, styles.placeListStaticContent]}>{libraryControls}<InfoNotice tone="warning" title={error.title} body={error.body} /></View>
+-        {filterSheet}
+-      </>
+-    );
+-  }
+-
+-  if (places.length === 0) {
+-    return (
+-      <>
+-        <View style={[scrollProps?.contentInsetStyle, styles.placeListStaticContent]}>
+-          {libraryControls}
+-          <EmptyBlock title={scope === 'library' ? t('places.list.empty.libraryTitle') : t('places.list.empty.mineTitle')} body={scope === 'library' ? t('places.list.empty.libraryBody') : t('places.list.empty.mineBody')} actionLabel={scope === 'mine' ? t('places.list.actions.create') : undefined} onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined} tone="place" />
+-        </View>
+-        {filterSheet}
+-      </>
+-    );
+-  }
+-
+-  if (filteredPlaces.length === 0) {
+-    return (
+-      <>
+-        <View style={[scrollProps?.contentInsetStyle, styles.placeListStaticContent]}>
+-          {libraryControls}
+-          <EmptyBlock
+-            title={t('places.list.empty.filteredTitle')}
+-            body={scope === 'library' ? t('places.list.empty.filteredLibraryBody') : t('places.list.empty.filteredMineBody')}
+-            actionLabel={hasActiveSearchOrFilters ? t('places.list.filters.clearAll') : undefined}
+-            onAction={hasActiveSearchOrFilters ? () => resetScopeState(scope) : undefined}
+-            tone="place"
+-          />
+-        </View>
+-        {filterSheet}
+-      </>
+-    );
+-  }
++  const listBody = loading || loadedScope !== scope ? (
++    <View style={styles.inlineLoading}>
++      <ActivityIndicator />
++      <AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('places.list.loading')}</AppText>
++    </View>
++  ) : error ? (
++    <InfoNotice tone="warning" title={error.title} body={error.body} />
++  ) : places.length === 0 ? (
++    <EmptyBlock
++      title={scope === 'library' ? t('places.list.empty.libraryTitle') : t('places.list.empty.mineTitle')}
++      body={scope === 'library' ? t('places.list.empty.libraryBody') : t('places.list.empty.mineBody')}
++      actionLabel={scope === 'mine' ? t('places.list.actions.create') : undefined}
++      onAction={scope === 'mine' ? () => navigation.navigate('CreatePlace') : undefined}
++      tone="place"
++    />
++  ) : filteredPlaces.length === 0 ? (
++    <EmptyBlock
++      title={t('places.list.empty.filteredTitle')}
++      body={scope === 'library' ? t('places.list.empty.filteredLibraryBody') : t('places.list.empty.filteredMineBody')}
++      actionLabel={hasActiveSearchOrFilters ? t('places.list.filters.clearAll') : undefined}
++      onAction={hasActiveSearchOrFilters ? () => resetScopeState(scope) : undefined}
++      tone="place"
++    />
++  ) : (
++    <>
++      {scope === 'mine' && removedPlaceTitle ? <InfoNotice tone="success" title={t('places.list.messages.title')} body={t('places.list.messages.removed', { title: removedPlaceTitle })} /> : null}
++      {scope === 'mine' ? <InfoNotice tone="info" title={t('places.list.notice.title')} body={t('places.list.notice.body')} /> : null}
++      {filteredPlaces.map((place) => (
++        <PlaceRow
++          key={place.id}
++          place={place}
++          onEdit={scope === 'mine' && place.source === 'user' ? () => navigation.navigate('CreatePlace', { editPlace: place }) : undefined}
++          onArchive={scope === 'mine' && place.source === 'user' ? () => confirmArchivePlace(place) : undefined}
++          archiving={archivingPlaceId === place.id}
++        />
++      ))}
++    </>
++  );
+ 
+   return (
+     <>
+@@ -2467,17 +2455,7 @@ function PlaceList({ scope, navigation, scrollProps, headerContent }: { scope: P
+         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load({ refresh: true }); }} />}
+       >
+         {libraryControls}
+-        {scope === 'mine' && removedPlaceTitle ? <InfoNotice tone="success" title={t('places.list.messages.title')} body={t('places.list.messages.removed', { title: removedPlaceTitle })} /> : null}
+-        {scope === 'mine' ? <InfoNotice tone="info" title={t('places.list.notice.title')} body={t('places.list.notice.body')} /> : null}
+-        {filteredPlaces.map((place) => (
+-          <PlaceRow
+-            key={place.id}
+-            place={place}
+-            onEdit={scope === 'mine' && place.source === 'user' ? () => navigation.navigate('CreatePlace', { editPlace: place }) : undefined}
+-            onArchive={scope === 'mine' && place.source === 'user' ? () => confirmArchivePlace(place) : undefined}
+-            archiving={archivingPlaceId === place.id}
+-          />
+-        ))}
++        {listBody}
+       </ScrollView>
+       {filterSheet}
+       <AppConfirmSheet
+@@ -2493,6 +2471,7 @@ function PlaceList({ scope, navigation, scrollProps, headerContent }: { scope: P
+       />
+     </>
+   );
++
+ }
+ 
+ function EmptyBlock({ title, body, actionLabel, onAction, tone = 'plan' }: { title: string; body: string; actionLabel?: string; onAction?: () => void; tone?: 'plan' | 'place' }) {
+@@ -5890,7 +5869,6 @@ const styles = StyleSheet.create({
+   menuTitle: { fontSize: 15, lineHeight: 19, fontWeight: '900' },
+   menuBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
+   listContent: { gap: 10, paddingBottom: 34 },
+-  placeListStaticContent: { flex: 1, gap: 10, paddingBottom: 34 },
+   placeLibraryControls: { gap: 10, marginBottom: 2 },
+   planCreateBody: { overflow: 'hidden' },
+   planCreateScrollContent: { paddingBottom: 18 },

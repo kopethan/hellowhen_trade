@@ -4,7 +4,7 @@ import type { MediaAssetDto, PlaceStaticMapDto, PlanDto, PlanPlaceDto } from '@h
 import type { SemanticColorName } from '@hellowhen/theme';
 import { AppText } from '../../../components/AppText';
 import { LowerImageAtmosphere } from '../../../components/LowerImageAtmosphere';
-import { POSTER_CARD_GEOMETRY } from '../../../components/PosterCardGeometry';
+import { DECK_CARD_TYPOGRAPHY, POSTER_CARD_GEOMETRY } from '../../../components/PosterCardGeometry';
 import { PosterCardFooter } from '../../../components/PosterCardFooter';
 import { SemanticBadge } from '../../../components/SemanticUI';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
@@ -120,7 +120,7 @@ function getPlanParticipantCount(plan: PlanDto) {
   return plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
 }
 
-function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'place', showModeBadge = true }: { card: PlanPlaceDeckCard; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
+function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLabel, topBadgeTone = 'place', showModeBadge = true }: { card: PlanPlaceDeckCard; deckIndex: number; deckTotal: number; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
   const theme = useThemeTokens();
   const { language, t } = useTranslation();
   const isDark = theme.mode === 'dark';
@@ -138,7 +138,9 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'pl
   const timeLabel = isEmpty
     ? t('plans.deck.participants', { count: getPlanParticipantCount(card.plan) })
     : formatPlanPlaceDate(place?.startsAt ?? card.plan.startsAt, language, t('plans.common.flexibleTime'));
-  const primaryBadgeLabel = topBadgeLabel ?? t('plans.deck.placeBadge', { counter: cardCounter });
+  const contentBadgeLabel = topBadgeLabel ?? t('plans.deck.placeBadge', { counter: cardCounter });
+  const deckCounter = `${String(deckIndex + 1).padStart(2, '0')}/${String(Math.max(deckTotal, 1)).padStart(2, '0')}`;
+  const primaryBadgeLabel = deckTotal > 1 ? `${deckCounter} · ${contentBadgeLabel}` : contentBadgeLabel;
   const hasPosterImage = Boolean(imageUrl);
   const posterTextShadow = hasPosterImage ? 'rgba(0,0,0,0.34)' : isDark ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.48)';
   const posterTitleColor = hasPosterImage ? '#FFFFFF' : theme.color.text;
@@ -228,7 +230,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'pl
   );
 }
 
-export function PlanSquareDeck({ plan, onOpen, style, topBadgeLabel, topBadgeTone, showModeBadge = true }: PlanSquareDeckProps) {
+export function PlanSquareDeck({ plan, index = 0, total = 1, onOpen, style, topBadgeLabel, topBadgeTone, showModeBadge = true }: PlanSquareDeckProps) {
   const cards = useMemo(() => buildPlanPlaceDeckCards(plan), [plan]);
   const handleOpen = onOpen ?? (() => {});
 
@@ -236,7 +238,7 @@ export function PlanSquareDeck({ plan, onOpen, style, topBadgeLabel, topBadgeTon
     <View style={[styles.container, style]}>
       <ContinuousSquareStackDeck<PlanPlaceDeckCard>
         cards={cards}
-        renderCard={({ card }) => <PlanPlaceDeckCardView card={card} onOpen={handleOpen} topBadgeLabel={topBadgeLabel} topBadgeTone={topBadgeTone} showModeBadge={showModeBadge} />}
+        renderCard={({ card }) => <PlanPlaceDeckCardView card={card} deckIndex={index} deckTotal={total} onOpen={handleOpen} topBadgeLabel={topBadgeLabel} topBadgeTone={topBadgeTone} showModeBadge={showModeBadge} />}
         renderWindow="visible"
         showDebugBadge={false}
         depthEffect="motionOnly"
@@ -351,40 +353,29 @@ const styles = StyleSheet.create({
     paddingBottom: POSTER_CARD_GEOMETRY.footerContentPaddingBottom,
   },
   planTitle: {
-    fontSize: 10,
-    fontWeight: '800',
+    ...DECK_CARD_TYPOGRAPHY.eyebrow,
     textTransform: 'uppercase',
-    letterSpacing: 0.72,
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
   placeTitle: {
-    fontSize: 25.5,
-    lineHeight: 29,
-    fontWeight: '900',
-    letterSpacing: -0.82,
+    ...DECK_CARD_TYPOGRAPHY.title,
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4.5,
   },
   emptyHint: {
-    fontSize: 13.5,
-    lineHeight: 18.5,
-    fontWeight: '800',
+    ...DECK_CARD_TYPOGRAPHY.meta,
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4.5,
   },
   placeMetaText: {
     marginTop: 3,
-    fontSize: 12.2,
-    lineHeight: 16.5,
-    fontWeight: '800',
+    ...DECK_CARD_TYPOGRAPHY.meta,
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4.5,
   },
   placeTimeText: {
-    fontSize: 12.2,
-    lineHeight: 16.5,
-    fontWeight: '800',
+    ...DECK_CARD_TYPOGRAPHY.status,
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4.5,
   },

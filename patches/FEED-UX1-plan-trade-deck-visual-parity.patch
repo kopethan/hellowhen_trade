@@ -1,0 +1,341 @@
+diff --git a/apps/mobile/src/components/PosterCardGeometry.ts b/apps/mobile/src/components/PosterCardGeometry.ts
+index fd56781..73f86c5 100644
+--- a/apps/mobile/src/components/PosterCardGeometry.ts
++++ b/apps/mobile/src/components/PosterCardGeometry.ts
+@@ -16,3 +16,31 @@ export const POSTER_CARD_GEOMETRY = {
+   footerContentPaddingBottom: 9,
+   footerContentGap: 4,
+ } as const;
++
++// Shared text roles for square Plan/Trade deck cards. Layouts can stay distinct,
++// while equivalent information keeps the same visual hierarchy across feeds.
++export const DECK_CARD_TYPOGRAPHY = {
++  eyebrow: {
++    fontSize: 11,
++    lineHeight: 14,
++    fontWeight: '900' as const,
++    letterSpacing: 0.75,
++  },
++  title: {
++    fontSize: 20,
++    lineHeight: 25,
++    fontWeight: '900' as const,
++    letterSpacing: -0.55,
++  },
++  meta: {
++    fontSize: 12,
++    lineHeight: 16,
++    fontWeight: '800' as const,
++  },
++  status: {
++    fontSize: 11,
++    lineHeight: 14,
++    fontWeight: '900' as const,
++    letterSpacing: 0.45,
++  },
++} as const;
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index cae509c..981cac6 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -35,6 +35,7 @@ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+ import { useAndroidFocusedInputVisibility } from '../../hooks/useAndroidFocusedInputVisibility';
+ import { resolveMediaVariantUrl } from '../trade/mediaUrls';
+ import { ImagePickerField } from '../trade/components/ImagePickerField';
++import { MOBILE_DECK_FEED_GAP } from '../trade/components/tradeDeckGeometry';
+ import type { SelectedLocalImage, SelectedImageUploadProgress } from '../trade/mediaUpload';
+ import { SelectedImageUploadError, uploadSelectedImages } from '../trade/mediaUpload';
+ import {
+@@ -2074,42 +2075,16 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '', focusStar
+ 
+ 
+ const PlanDeckSection = React.memo(function PlanDeckSection({ plan, index, total, navigation }: { plan: PlanDto; index: number; total: number; navigation: Pick<NativeStackNavigationProp<RootStackParamList>, 'navigate'> }) {
+-  const theme = useThemeTokens();
+-  const { t } = useTranslation();
+   const handlePress = useCallback(() => navigation.navigate('PlanDetail', { planId: plan.id, title: plan.title }), [navigation, plan.id, plan.title]);
+-  return (
+-    <View style={styles.deckSection}>
+-      <View style={styles.deckSectionHeader}>
+-        <View style={styles.deckSectionCopy}>
+-          <AppText style={styles.deckSectionTitle} numberOfLines={1}>{plan.title}</AppText>
+-          <AppText style={[styles.deckSectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{getOwnerName(plan, t)} · {getPlanMeta(plan, t)}</AppText>
+-        </View>
+-        <SemanticBadge label={`${index + 1}/${total}`} tone="muted" size="sm" />
+-      </View>
+-      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} />
+-    </View>
+-  );
++  return <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} />;
+ });
+ 
+ const PlanIdeaDeckSection = React.memo(function PlanIdeaDeckSection({ ideaKey, index, total, onPressIdea }: { ideaKey: StarterPlanIdeaKey; index: number; total: number; onPressIdea: (ideaKey: StarterPlanIdeaKey) => void }) {
+-  const theme = useThemeTokens();
+   const { t } = useTranslation();
+   const idea = starterPlanIdeas[ideaKey];
+   const plan = useMemo(() => planIdeaPreviewPlan(idea), [idea]);
+   const handlePress = useCallback(() => onPressIdea(ideaKey), [ideaKey, onPressIdea]);
+-  const stopCountLabel = t(idea.stops.length === 1 ? 'plans.deck.ideaStopsOne' : 'plans.deck.ideaStopsMany', { count: idea.stops.length });
+-  return (
+-    <View style={styles.deckSection}>
+-      <View style={styles.deckSectionHeader}>
+-        <View style={styles.deckSectionCopy}>
+-          <AppText style={styles.deckSectionTitle} numberOfLines={1}>{idea.title}</AppText>
+-          <AppText style={[styles.deckSectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{stopCountLabel} · {starterPlanIdeaRequirementSummaryLocalized(idea, t)}</AppText>
+-        </View>
+-        <SemanticBadge label={`${index + 1}/${total}`} tone="muted" size="sm" />
+-      </View>
+-      <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} topBadgeLabel={t('plans.deck.ideaBadge', { pack: idea.pack })} topBadgeTone="plan" showModeBadge={false} />
+-    </View>
+-  );
++  return <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} topBadgeLabel={t('plans.deck.ideaBadge', { pack: idea.pack })} topBadgeTone="plan" showModeBadge={false} />;
+ });
+ 
+ type PlaceModeFilter = 'all' | PlanPlaceMode;
+@@ -6007,12 +5982,7 @@ const styles = StyleSheet.create({
+   googlePlaceStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+   googlePlaceStatusText: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+   googlePlaceNotice: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
+-  deckFeedContent: { gap: 20, paddingTop: 2, paddingBottom: 34 },
+-  deckSection: { gap: 10 },
+-  deckSectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 2 },
+-  deckSectionCopy: { flex: 1, minWidth: 0, gap: 2 },
+-  deckSectionTitle: { fontSize: 19, lineHeight: 24, fontWeight: '900', letterSpacing: -0.3 },
+-  deckSectionMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
++  deckFeedContent: { gap: MOBILE_DECK_FEED_GAP, paddingTop: 2, paddingBottom: 34 },
+   inlineLoading: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
+   loadingText: { fontWeight: '800' },
+   planHeaderShareButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+diff --git a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+index f0357a5..cb94007 100644
+--- a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
++++ b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+@@ -4,7 +4,7 @@ import type { MediaAssetDto, PlaceStaticMapDto, PlanDto, PlanPlaceDto } from '@h
+ import type { SemanticColorName } from '@hellowhen/theme';
+ import { AppText } from '../../../components/AppText';
+ import { LowerImageAtmosphere } from '../../../components/LowerImageAtmosphere';
+-import { POSTER_CARD_GEOMETRY } from '../../../components/PosterCardGeometry';
++import { DECK_CARD_TYPOGRAPHY, POSTER_CARD_GEOMETRY } from '../../../components/PosterCardGeometry';
+ import { PosterCardFooter } from '../../../components/PosterCardFooter';
+ import { SemanticBadge } from '../../../components/SemanticUI';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+@@ -120,7 +120,7 @@ function getPlanParticipantCount(plan: PlanDto) {
+   return plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
+ }
+ 
+-function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'place', showModeBadge = true }: { card: PlanPlaceDeckCard; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
++function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLabel, topBadgeTone = 'place', showModeBadge = true }: { card: PlanPlaceDeckCard; deckIndex: number; deckTotal: number; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
+   const theme = useThemeTokens();
+   const { language, t } = useTranslation();
+   const isDark = theme.mode === 'dark';
+@@ -138,7 +138,9 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'pl
+   const timeLabel = isEmpty
+     ? t('plans.deck.participants', { count: getPlanParticipantCount(card.plan) })
+     : formatPlanPlaceDate(place?.startsAt ?? card.plan.startsAt, language, t('plans.common.flexibleTime'));
+-  const primaryBadgeLabel = topBadgeLabel ?? t('plans.deck.placeBadge', { counter: cardCounter });
++  const contentBadgeLabel = topBadgeLabel ?? t('plans.deck.placeBadge', { counter: cardCounter });
++  const deckCounter = `${String(deckIndex + 1).padStart(2, '0')}/${String(Math.max(deckTotal, 1)).padStart(2, '0')}`;
++  const primaryBadgeLabel = deckTotal > 1 ? `${deckCounter} · ${contentBadgeLabel}` : contentBadgeLabel;
+   const hasPosterImage = Boolean(imageUrl);
+   const posterTextShadow = hasPosterImage ? 'rgba(0,0,0,0.34)' : isDark ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.48)';
+   const posterTitleColor = hasPosterImage ? '#FFFFFF' : theme.color.text;
+@@ -228,7 +230,7 @@ function PlanPlaceDeckCardView({ card, onOpen, topBadgeLabel, topBadgeTone = 'pl
+   );
+ }
+ 
+-export function PlanSquareDeck({ plan, onOpen, style, topBadgeLabel, topBadgeTone, showModeBadge = true }: PlanSquareDeckProps) {
++export function PlanSquareDeck({ plan, index = 0, total = 1, onOpen, style, topBadgeLabel, topBadgeTone, showModeBadge = true }: PlanSquareDeckProps) {
+   const cards = useMemo(() => buildPlanPlaceDeckCards(plan), [plan]);
+   const handleOpen = onOpen ?? (() => {});
+ 
+@@ -236,7 +238,7 @@ export function PlanSquareDeck({ plan, onOpen, style, topBadgeLabel, topBadgeTon
+     <View style={[styles.container, style]}>
+       <ContinuousSquareStackDeck<PlanPlaceDeckCard>
+         cards={cards}
+-        renderCard={({ card }) => <PlanPlaceDeckCardView card={card} onOpen={handleOpen} topBadgeLabel={topBadgeLabel} topBadgeTone={topBadgeTone} showModeBadge={showModeBadge} />}
++        renderCard={({ card }) => <PlanPlaceDeckCardView card={card} deckIndex={index} deckTotal={total} onOpen={handleOpen} topBadgeLabel={topBadgeLabel} topBadgeTone={topBadgeTone} showModeBadge={showModeBadge} />}
+         renderWindow="visible"
+         showDebugBadge={false}
+         depthEffect="motionOnly"
+@@ -351,40 +353,29 @@ const styles = StyleSheet.create({
+     paddingBottom: POSTER_CARD_GEOMETRY.footerContentPaddingBottom,
+   },
+   planTitle: {
+-    fontSize: 10,
+-    fontWeight: '800',
++    ...DECK_CARD_TYPOGRAPHY.eyebrow,
+     textTransform: 'uppercase',
+-    letterSpacing: 0.72,
+     textShadowOffset: { width: 0, height: 1 },
+     textShadowRadius: 4,
+   },
+   placeTitle: {
+-    fontSize: 25.5,
+-    lineHeight: 29,
+-    fontWeight: '900',
+-    letterSpacing: -0.82,
++    ...DECK_CARD_TYPOGRAPHY.title,
+     textShadowOffset: { width: 0, height: 1 },
+     textShadowRadius: 4.5,
+   },
+   emptyHint: {
+-    fontSize: 13.5,
+-    lineHeight: 18.5,
+-    fontWeight: '800',
++    ...DECK_CARD_TYPOGRAPHY.meta,
+     textShadowOffset: { width: 0, height: 1 },
+     textShadowRadius: 4.5,
+   },
+   placeMetaText: {
+     marginTop: 3,
+-    fontSize: 12.2,
+-    lineHeight: 16.5,
+-    fontWeight: '800',
++    ...DECK_CARD_TYPOGRAPHY.meta,
+     textShadowOffset: { width: 0, height: 1 },
+     textShadowRadius: 4.5,
+   },
+   placeTimeText: {
+-    fontSize: 12.2,
+-    lineHeight: 16.5,
+-    fontWeight: '800',
++    ...DECK_CARD_TYPOGRAPHY.status,
+     textShadowOffset: { width: 0, height: 1 },
+     textShadowRadius: 4.5,
+   },
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index 4a284d4..af57255 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -18,6 +18,7 @@ import { type AppCollapsibleHeaderScrollProps } from '../../components/AppCollap
+ import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
+ import { AppText } from '../../components/AppText';
+ import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
++import { DECK_CARD_TYPOGRAPHY } from '../../components/PosterCardGeometry';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useAuth } from '../../providers/AuthProvider';
+@@ -25,7 +26,7 @@ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { TradeSquareDeck } from './components/TradeSquareDeck';
+ import { TradeExchangeIcon } from './components/TradeExchangeIcon';
+ import { TradePosterCard } from './components/TradePosterCard';
+-import { getMobileTradeDeckCardSize, shouldUseCompactTradeDeckContent } from './components/tradeDeckGeometry';
++import { getMobileTradeDeckCardSize, MOBILE_DECK_FEED_GAP, shouldUseCompactTradeDeckContent } from './components/tradeDeckGeometry';
+ import { emptyFeedStarterIdeaPlacement, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedStarterIdeaPlacement, getFeedTradeIdeaMedia, getInlineFeedIdeaKey, getRandomizedFeedIdeaKeys, type FeedTradeIdeaKey, type FeedTradeIdeaVisualKey } from './tradeFeedIdeas';
+ import { FeatureGuidePromptCard } from '../onboarding-guide/FeatureGuidePromptCard';
+ import { useFeatureGuidePrompt } from '../onboarding-guide/onboardingGuideStorage';
+@@ -1321,7 +1322,7 @@ const styles = StyleSheet.create({
+   suggestionRow: { minHeight: 42, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+   suggestionText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '900' },
+   suggestionSource: { fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
+-  feedList: { gap: 22 },
++  feedList: { gap: MOBILE_DECK_FEED_GAP },
+   feedIdeasCard: { gap: 16, paddingTop: 10 },
+   feedIdeasHeader: { gap: 7, paddingHorizontal: 6, paddingBottom: 4 },
+   feedIdeasTitle: { fontSize: 21, lineHeight: 25, fontWeight: '900', letterSpacing: -0.5 },
+@@ -1358,11 +1359,11 @@ const styles = StyleSheet.create({
+   feedIdeaToplineRightCompact: { maxWidth: '32%', fontSize: 10, lineHeight: 12, letterSpacing: 0.45 },
+   feedIdeaSideBlock: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 3, minHeight: 0 },
+   feedIdeaSideBlockCompact: { gap: 2, paddingVertical: 0 },
+-  feedIdeaSideEyebrow: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
++  feedIdeaSideEyebrow: { ...DECK_CARD_TYPOGRAPHY.eyebrow },
+   feedIdeaSideEyebrowCompact: { fontSize: 11, lineHeight: 14 },
+-  feedIdeaSideTitle: { textAlign: 'center', fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.55, paddingBottom: 1 },
++  feedIdeaSideTitle: { textAlign: 'center', ...DECK_CARD_TYPOGRAPHY.title, paddingBottom: 1 },
+   feedIdeaSideTitleCompact: { fontSize: 17, lineHeight: 20, letterSpacing: -0.35, paddingBottom: 0 },
+-  feedIdeaSideMeta: { textAlign: 'center', fontSize: 12, lineHeight: 16, fontWeight: '800' },
++  feedIdeaSideMeta: { textAlign: 'center', ...DECK_CARD_TYPOGRAPHY.meta },
+   feedIdeaSideMetaCompact: { fontSize: 10.5, lineHeight: 13 },
+   feedIdeaExchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 1 },
+   feedIdeaExchangeRowCompact: { gap: 10, marginVertical: 0 },
+diff --git a/apps/mobile/src/features/trade/components/TradePosterCard.tsx b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+index c87193d..37b1847 100644
+--- a/apps/mobile/src/features/trade/components/TradePosterCard.tsx
++++ b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+@@ -3,7 +3,7 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
+ import { normalizePreviewCardTheme } from '@hellowhen/shared';
+ import { AppText } from '../../../components/AppText';
+ import { LowerImageAtmosphere } from '../../../components/LowerImageAtmosphere';
+-import { POSTER_CARD_GEOMETRY } from '../../../components/PosterCardGeometry';
++import { DECK_CARD_TYPOGRAPHY, POSTER_CARD_GEOMETRY } from '../../../components/PosterCardGeometry';
+ import { PosterCardFooter } from '../../../components/PosterCardFooter';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+ 
+@@ -324,35 +324,25 @@ const styles = StyleSheet.create({
+     paddingBottom: POSTER_CARD_GEOMETRY.footerContentPaddingBottom,
+   },
+   eyebrow: {
+-    fontSize: 11,
+-    lineHeight: 14,
+-    fontWeight: '900',
++    ...DECK_CARD_TYPOGRAPHY.eyebrow,
+     textTransform: 'uppercase',
+-    letterSpacing: 0.75,
+     textShadowOffset: { width: 0, height: 1 },
+     textShadowRadius: 7,
+   },
+   title: {
+-    fontSize: 18.5,
+-    lineHeight: 22,
+-    fontWeight: '900',
+-    letterSpacing: -0.45,
++    ...DECK_CARD_TYPOGRAPHY.title,
+     textShadowOffset: { width: 0, height: 1 },
+     textShadowRadius: 6,
+   },
+   subtitle: {
+-    fontSize: 12,
+-    lineHeight: 16,
+-    fontWeight: '800',
++    ...DECK_CARD_TYPOGRAPHY.meta,
+     textShadowOffset: { width: 0, height: 1 },
+     textShadowRadius: 6,
+   },
+   statusText: {
+     alignSelf: 'flex-start',
+     marginTop: 2,
+-    fontSize: 11,
+-    lineHeight: 14,
+-    fontWeight: '900',
++    ...DECK_CARD_TYPOGRAPHY.status,
+     letterSpacing: 0.8,
+     textShadowOffset: { width: 0, height: 1 },
+     textShadowRadius: 5,
+diff --git a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+index 8283773..bbc5313 100644
+--- a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
++++ b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+@@ -4,6 +4,7 @@ import type { MediaAssetDto, TradePostType } from '@hellowhen/contracts';
+ import { formatMoney, normalizePreviewCardTheme } from '@hellowhen/shared';
+ import { useTranslation } from '../../../providers/MobileI18nProvider';
+ import { AppText } from '../../../components/AppText';
++import { DECK_CARD_TYPOGRAPHY } from '../../../components/PosterCardGeometry';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+ import { TradeExchangeIcon } from './TradeExchangeIcon';
+ import { resolveMediaVariantUrl } from '../mediaUrls';
+@@ -298,11 +299,11 @@ const styles = StyleSheet.create({
+   summaryBodyNarrow: { gap: 8 },
+   tradeSideBlock: { alignItems: 'center', gap: 5, paddingVertical: 3 },
+   tradeSideBlockNarrow: { gap: 2, paddingVertical: 0 },
+-  sideEyebrow: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
++  sideEyebrow: { ...DECK_CARD_TYPOGRAPHY.eyebrow },
+   sideEyebrowNarrow: { fontSize: 11, lineHeight: 14 },
+-  sideTitle: { textAlign: 'center', fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.55, paddingBottom: 1 },
++  sideTitle: { textAlign: 'center', ...DECK_CARD_TYPOGRAPHY.title, paddingBottom: 1 },
+   sideTitleNarrow: { fontSize: 17, lineHeight: 20, letterSpacing: -0.35, paddingBottom: 0 },
+-  sideMeta: { textAlign: 'center', fontSize: 12, lineHeight: 16, fontWeight: '800' },
++  sideMeta: { textAlign: 'center', ...DECK_CARD_TYPOGRAPHY.meta },
+   sideMetaNarrow: { fontSize: 10.5, lineHeight: 13 },
+   exchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 1 },
+   exchangeRowNarrow: { gap: 10, marginVertical: 0 },
+diff --git a/apps/mobile/src/features/trade/components/tradeDeckGeometry.ts b/apps/mobile/src/features/trade/components/tradeDeckGeometry.ts
+index 0e30a33..a8973be 100644
+--- a/apps/mobile/src/features/trade/components/tradeDeckGeometry.ts
++++ b/apps/mobile/src/features/trade/components/tradeDeckGeometry.ts
+@@ -4,6 +4,7 @@ export const MOBILE_TRADE_DECK_AVAILABLE_HEIGHT = 404;
+ export const MOBILE_TRADE_DECK_MAX_CARD_SIZE = 348;
+ export const MOBILE_TRADE_DECK_VIEWPORT_HORIZONTAL_INSET = 36;
+ export const MOBILE_TRADE_DECK_COMPACT_CARD_SIZE = 318;
++export const MOBILE_DECK_FEED_GAP = 22;
+ 
+ export function getMobileTradeDeckCardSize(viewportWidth: number) {
+   return getSquareStackLayoutMetrics({

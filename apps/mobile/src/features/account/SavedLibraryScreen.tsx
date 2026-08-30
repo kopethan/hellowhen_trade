@@ -363,7 +363,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
   }
 
   return (
-    <AppFixedHeaderScreen header={<AppHeader title={headerTitle} onBack={() => navigation.goBack()} /> }>
+    <AppFixedHeaderScreen header={<AppHeader title={headerTitle} onBack={() => navigation.goBack()} titleOverflowBehavior="scroll" /> }>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
         <View style={styles.header}>
           <View style={styles.badgeRow}>
