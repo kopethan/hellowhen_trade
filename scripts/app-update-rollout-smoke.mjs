@@ -17,28 +17,46 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function normalizeLineEndings(value) {
+  return value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
 function assertContains(file, needle, message = `${file} must contain ${needle}`) {
-  assert(read(file).includes(needle), message);
+  const contents = normalizeLineEndings(read(file));
+  const expected = normalizeLineEndings(needle);
+  assert(contents.includes(expected), message);
 }
 
 function assertExists(relativePath, message = `${relativePath} must exist.`) {
   assert(existsSync(path.join(root, relativePath)), message);
 }
 
+function parseEnvAssignments(contents) {
+  const entries = new Map();
+  for (const rawLine of contents.split(/\r\n|\n|\r/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const separatorIndex = line.indexOf('=');
+    if (separatorIndex < 0) continue;
+    entries.set(line.slice(0, separatorIndex).trim(), line.slice(separatorIndex + 1).trim());
+  }
+  return entries;
+}
+
 function runServerSafetyChecks() {
-  const envExample = read('.env.example');
-  assert(envExample.includes('MOBILE_RELEASE_POLICY_ENABLED=false'), 'Release policy must remain disabled by default.');
+  const envExample = parseEnvAssignments(read('.env.example'));
+  assert(envExample.get('MOBILE_RELEASE_POLICY_ENABLED') === 'false', 'Release policy must remain disabled by default.');
   for (const key of [
-    'MOBILE_IOS_LATEST_VERSION=',
-    'MOBILE_IOS_LATEST_BUILD=',
-    'MOBILE_IOS_MIN_SUPPORTED_VERSION=',
-    'MOBILE_IOS_MIN_SUPPORTED_BUILD=',
-    'MOBILE_ANDROID_LATEST_VERSION=',
-    'MOBILE_ANDROID_LATEST_BUILD=',
-    'MOBILE_ANDROID_MIN_SUPPORTED_VERSION=',
-    'MOBILE_ANDROID_MIN_SUPPORTED_BUILD=',
+    'MOBILE_IOS_LATEST_VERSION',
+    'MOBILE_IOS_LATEST_BUILD',
+    'MOBILE_IOS_MIN_SUPPORTED_VERSION',
+    'MOBILE_IOS_MIN_SUPPORTED_BUILD',
+    'MOBILE_ANDROID_LATEST_VERSION',
+    'MOBILE_ANDROID_LATEST_BUILD',
+    'MOBILE_ANDROID_MIN_SUPPORTED_VERSION',
+    'MOBILE_ANDROID_MIN_SUPPORTED_BUILD',
   ]) {
-    assert(envExample.includes(`\n${key}\n`), `${key} must stay empty in .env.example so rollout cannot activate accidentally.`);
+    assert(envExample.has(key) && envExample.get(key) === '', `${key}= must stay empty in .env.example so rollout cannot activate accidentally.`);
   }
 
   assertContains('apps/api/src/routes.ts', "routes.use('/mobile', mobileReleaseRoutes);", 'Mobile release policy must stay on its public route without auth middleware.');
@@ -69,7 +87,18 @@ function runDismissalAndPromptChecks() {
   assertContains('apps/mobile/src/features/app-update/appUpdatePolicy.ts', "if (policy.status === 'mandatory') return Boolean(policy.minimumSupported);", 'Mandatory updates must ignore optional dismissal.');
   assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', 'onRequestClose={isMandatory ? () => undefined : dismiss}', 'Mandatory prompt must not close via Android Back.');
   assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', '{!isMandatory ? (', 'Mandatory prompt must not render the Later action.');
-  console.log('App update dismissal/mandatory prompt safety: PASS');
+  assertExists('apps/mobile/assets/app-update/light/update-available-light.png', 'Bundled light update illustration is missing.');
+  assertExists('apps/mobile/assets/app-update/dark/update-available-dark.png', 'Bundled dark update illustration is missing.');
+  assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', 'UPDATE_ILLUSTRATIONS[theme.mode]', 'Update artwork must follow the resolved app theme.');
+  assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', 'useAppSettings()', 'Update prompt appearance control must reuse the persisted app settings provider.');
+  assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', "{ value: 'system', labelKey: 'onboarding.preferences.appearanceOptions.system' }", 'Update prompt must retain the System appearance option.');
+  assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', 'transparent={false}', 'Update prompt must remain a full-screen modal rather than a translucent card overlay.');
+  assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', 'UPDATE_BACKGROUNDS[theme.mode]', 'Update prompt page background must follow the artwork-specific seamless light/dark background.');
+  assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', "light: '#FEFEFE'", 'Light update page background must stay aligned with the bundled light artwork edge color.');
+  assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', "dark: '#090E24'", 'Dark update page background must stay aligned with the bundled dark artwork edge color.');
+  assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', 'const illustrationSize = Math.max(180, Math.min(windowWidth - 56, compactHeight ? 220 : 280));', 'Update artwork must stay capped so the title and release details remain visible on standard phones.');
+  assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', "justifyContent: 'flex-start'", 'Full-screen update content must remain top-positioned instead of drifting behind the action dock.');
+  console.log('App update dismissal/mandatory prompt + artwork safety: PASS');
 }
 
 function runStoreTargetChecks() {

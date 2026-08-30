@@ -1,0 +1,48 @@
+diff --git a/scripts/app-update-rollout-smoke.mjs b/scripts/app-update-rollout-smoke.mjs
+index c037eef..952f10d 100644
+--- a/scripts/app-update-rollout-smoke.mjs
++++ b/scripts/app-update-rollout-smoke.mjs
+@@ -25,20 +25,32 @@ function assertExists(relativePath, message = `${relativePath} must exist.`) {
+   assert(existsSync(path.join(root, relativePath)), message);
+ }
+ 
++function parseEnvAssignments(contents) {
++  const entries = new Map();
++  for (const rawLine of contents.split(/\r\n|\n|\r/)) {
++    const line = rawLine.trim();
++    if (!line || line.startsWith('#')) continue;
++    const separatorIndex = line.indexOf('=');
++    if (separatorIndex < 0) continue;
++    entries.set(line.slice(0, separatorIndex).trim(), line.slice(separatorIndex + 1).trim());
++  }
++  return entries;
++}
++
+ function runServerSafetyChecks() {
+-  const envExample = read('.env.example');
+-  assert(envExample.includes('MOBILE_RELEASE_POLICY_ENABLED=false'), 'Release policy must remain disabled by default.');
++  const envExample = parseEnvAssignments(read('.env.example'));
++  assert(envExample.get('MOBILE_RELEASE_POLICY_ENABLED') === 'false', 'Release policy must remain disabled by default.');
+   for (const key of [
+-    'MOBILE_IOS_LATEST_VERSION=',
+-    'MOBILE_IOS_LATEST_BUILD=',
+-    'MOBILE_IOS_MIN_SUPPORTED_VERSION=',
+-    'MOBILE_IOS_MIN_SUPPORTED_BUILD=',
+-    'MOBILE_ANDROID_LATEST_VERSION=',
+-    'MOBILE_ANDROID_LATEST_BUILD=',
+-    'MOBILE_ANDROID_MIN_SUPPORTED_VERSION=',
+-    'MOBILE_ANDROID_MIN_SUPPORTED_BUILD=',
++    'MOBILE_IOS_LATEST_VERSION',
++    'MOBILE_IOS_LATEST_BUILD',
++    'MOBILE_IOS_MIN_SUPPORTED_VERSION',
++    'MOBILE_IOS_MIN_SUPPORTED_BUILD',
++    'MOBILE_ANDROID_LATEST_VERSION',
++    'MOBILE_ANDROID_LATEST_BUILD',
++    'MOBILE_ANDROID_MIN_SUPPORTED_VERSION',
++    'MOBILE_ANDROID_MIN_SUPPORTED_BUILD',
+   ]) {
+-    assert(envExample.includes(`\n${key}\n`), `${key} must stay empty in .env.example so rollout cannot activate accidentally.`);
++    assert(envExample.has(key) && envExample.get(key) === '', `${key}= must stay empty in .env.example so rollout cannot activate accidentally.`);
+   }
+ 
+   assertContains('apps/api/src/routes.ts', "routes.use('/mobile', mobileReleaseRoutes);", 'Mobile release policy must stay on its public route without auth middleware.');

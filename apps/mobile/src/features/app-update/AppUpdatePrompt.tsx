@@ -6,25 +6,53 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StatusBar,
   StyleSheet,
   useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import type { AppSettings } from '@hellowhen/contracts';
+
 import { AppText } from '../../components/AppText';
+import { useAppSettings } from '../../providers/AppSettingsProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useAppUpdatePolicy } from './AppUpdatePolicyProvider';
 import { openAppUpdateStore } from './appUpdateStore';
 
-const APP_ICON = require('../../../assets/icon.png');
+type AppearancePreference = AppSettings['appearance'];
+
+type AppearanceOption = {
+  value: AppearancePreference;
+  labelKey: string;
+};
+
+const UPDATE_ILLUSTRATIONS = {
+  light: require('../../../assets/app-update/light/update-available-light.png'),
+  dark: require('../../../assets/app-update/dark/update-available-dark.png'),
+} as const;
+
+// Match the sampled outer-edge colors of the bundled artwork so the square PNG
+// visually dissolves into the full-screen prompt instead of reading as a card.
+const UPDATE_BACKGROUNDS = {
+  light: '#FEFEFE',
+  dark: '#090E24',
+} as const;
+
+const APPEARANCE_OPTIONS: AppearanceOption[] = [
+  { value: 'system', labelKey: 'onboarding.preferences.appearanceOptions.system' },
+  { value: 'light', labelKey: 'onboarding.preferences.appearanceOptions.light' },
+  { value: 'dark', labelKey: 'onboarding.preferences.appearanceOptions.dark' },
+];
 
 export function AppUpdatePrompt() {
   const theme = useThemeTokens();
+  const { settings, setSettings } = useAppSettings();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const {
     policy,
     shouldPrompt,
@@ -33,11 +61,11 @@ export function AppUpdatePrompt() {
   } = useAppUpdatePolicy();
   const [openingStore, setOpeningStore] = useState(false);
   const [storeError, setStoreError] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
 
   const target = policy?.latest ?? policy?.minimumSupported ?? null;
   const targetKey = policy && target ? `${policy.platform}:${target.version}:${target.build}` : null;
   const visible = Boolean(shouldPrompt && policy && target);
-  const maxHeight = Math.max(360, windowHeight - insets.top - insets.bottom - 32);
 
   const title = isMandatory
     ? t('appUpdate.mandatory.title')
@@ -46,10 +74,20 @@ export function AppUpdatePrompt() {
     ? t('appUpdate.mandatory.body')
     : t('appUpdate.optional.body');
   const releaseNotes = policy?.releaseNotes?.trim() || null;
+  const updateIllustration = UPDATE_ILLUSTRATIONS[theme.mode];
+  const updateBackground = UPDATE_BACKGROUNDS[theme.mode];
+  const appearanceTitle = t('onboarding.preferences.appearanceTitle');
+  const currentAppearance = APPEARANCE_OPTIONS.find((option) => option.value === settings.appearance) ?? APPEARANCE_OPTIONS[0];
+  const currentAppearanceLabel = t(currentAppearance.labelKey);
+  const appearanceSummary = `${appearanceTitle} · ${currentAppearanceLabel}`;
+  const usableHeight = Math.max(0, windowHeight - insets.top - insets.bottom);
+  const compactHeight = usableHeight < 720;
+  const illustrationSize = Math.max(180, Math.min(windowWidth - 56, compactHeight ? 220 : 280));
 
   useEffect(() => {
     setOpeningStore(false);
     setStoreError(false);
+    setAppearanceOpen(false);
   }, [targetKey]);
 
   const versionLabel = useMemo(() => {
@@ -62,6 +100,11 @@ export function AppUpdatePrompt() {
     setStoreError(false);
     void dismissOptionalUpdate();
   }, [dismissOptionalUpdate, isMandatory, openingStore]);
+
+  const selectAppearance = useCallback((appearance: AppearancePreference) => {
+    setSettings({ ...settings, appearance });
+    setAppearanceOpen(false);
+  }, [setSettings, settings]);
 
   const openStore = useCallback(async () => {
     if (!policy || openingStore) return;
@@ -84,63 +127,41 @@ export function AppUpdatePrompt() {
       animationType="fade"
       onRequestClose={isMandatory ? () => undefined : dismiss}
       statusBarTranslucent
-      transparent
+      transparent={false}
       visible={visible}
     >
+      <StatusBar
+        backgroundColor={updateBackground}
+        barStyle={theme.mode === 'dark' ? 'light-content' : 'dark-content'}
+        translucent
+      />
       <View
         accessibilityViewIsModal
         style={[
-          styles.backdrop,
+          styles.screen,
           {
-            paddingTop: Math.max(16, insets.top + 8),
-            paddingBottom: Math.max(16, insets.bottom + (Platform.OS === 'android' ? 8 : 0)),
+            backgroundColor: updateBackground,
+            paddingTop: Math.max(insets.top, Platform.OS === 'android' ? 8 : 0),
           },
         ]}
       >
-        <View
-          accessibilityRole="alert"
-          style={[
-            styles.card,
-            {
-              maxHeight,
-              backgroundColor: theme.color.elevated,
-              borderColor: theme.color.border,
-            },
-          ]}
+        <ScrollView
+          bounces={false}
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          contentInsetAdjustmentBehavior="never"
+          showsVerticalScrollIndicator={false}
         >
-          <ScrollView
-            bounces={false}
-            style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            <View
-              style={[
-                styles.visual,
-                {
-                  backgroundColor: theme.semantic.info.softBg,
-                  borderColor: theme.semantic.info.border,
-                },
-              ]}
-            >
-              <View
-                style={[
-                  styles.iconFrame,
-                  {
-                    backgroundColor: theme.color.surface,
-                    borderColor: theme.color.border,
-                  },
-                ]}
-              >
-                <Image
-                  accessibilityIgnoresInvertColors
-                  accessible={false}
-                  importantForAccessibility="no"
-                  resizeMode="cover"
-                  source={APP_ICON}
-                  style={styles.icon}
-                />
-              </View>
+          <View accessibilityRole="alert" style={styles.content}>
+            <View style={styles.hero}>
+              <Image
+                accessibilityIgnoresInvertColors
+                accessible={false}
+                importantForAccessibility="no"
+                resizeMode="contain"
+                source={updateIllustration}
+                style={[styles.illustration, { height: illustrationSize, width: illustrationSize }]}
+              />
             </View>
 
             <View style={styles.copy}>
@@ -149,17 +170,87 @@ export function AppUpdatePrompt() {
                 <AppText style={[styles.body, { color: theme.color.muted }]}>{body}</AppText>
               </View>
 
-              <View
-                style={[
-                  styles.versionPill,
-                  {
-                    backgroundColor: theme.color.subtleSurface,
-                    borderColor: theme.color.border,
-                  },
-                ]}
-              >
-                <AppText style={[styles.versionText, { color: theme.color.text }]}>{versionLabel}</AppText>
+              <View style={styles.metaRow}>
+                <View
+                  style={[
+                    styles.versionPill,
+                    {
+                      backgroundColor: theme.color.subtleSurface,
+                      borderColor: theme.color.border,
+                    },
+                  ]}
+                >
+                  <AppText style={[styles.versionText, { color: theme.color.text }]}>{versionLabel}</AppText>
+                </View>
+
+                <Pressable
+                  accessibilityLabel={appearanceSummary}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: appearanceOpen }}
+                  onPress={() => setAppearanceOpen((value) => !value)}
+                  style={({ pressed }) => [
+                    styles.appearancePill,
+                    {
+                      backgroundColor: theme.color.subtleSurface,
+                      borderColor: theme.color.border,
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <AppText numberOfLines={1} style={[styles.appearancePillText, { color: theme.color.text }]}>
+                    {appearanceSummary}
+                  </AppText>
+                  <AppText style={[styles.appearanceChevron, { color: theme.color.muted }]}>
+                    {appearanceOpen ? '⌃' : '⌄'}
+                  </AppText>
+                </Pressable>
               </View>
+
+              {appearanceOpen ? (
+                <View
+                  style={[
+                    styles.appearancePanel,
+                    {
+                      backgroundColor: theme.color.subtleSurface,
+                      borderColor: theme.color.border,
+                    },
+                  ]}
+                >
+                  <AppText style={[styles.appearancePanelTitle, { color: theme.color.text }]}>
+                    {appearanceTitle}
+                  </AppText>
+                  <View style={styles.appearanceOptions}>
+                    {APPEARANCE_OPTIONS.map((option) => {
+                      const selected = settings.appearance === option.value;
+                      return (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                          key={option.value}
+                          onPress={() => selectAppearance(option.value)}
+                          style={({ pressed }) => [
+                            styles.appearanceOption,
+                            {
+                              backgroundColor: selected ? theme.color.text : theme.color.surface,
+                              borderColor: selected ? theme.color.text : theme.color.border,
+                            },
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <AppText
+                            style={[
+                              styles.appearanceOptionText,
+                              { color: selected ? theme.color.background : theme.color.text },
+                            ]}
+                          >
+                            {t(option.labelKey)}
+                          </AppText>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
 
               {releaseNotes ? (
                 <View
@@ -195,9 +286,20 @@ export function AppUpdatePrompt() {
                 </View>
               ) : null}
             </View>
-          </ScrollView>
+          </View>
+        </ScrollView>
 
-          <View style={[styles.actions, { borderTopColor: theme.color.border }]}>
+        <View
+          style={[
+            styles.actionsDock,
+            {
+              backgroundColor: updateBackground,
+              borderTopColor: theme.color.border,
+              paddingBottom: Math.max(16, insets.bottom + (Platform.OS === 'android' ? 8 : 0)),
+            },
+          ]}
+        >
+          <View style={styles.actions}>
             {!isMandatory ? (
               <Pressable
                 accessibilityRole="button"
@@ -244,51 +346,32 @@ export function AppUpdatePrompt() {
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  screen: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(2, 6, 23, 0.72)',
-    paddingHorizontal: 16,
-  },
-  card: {
-    width: '100%',
-    maxWidth: 430,
-    borderWidth: 1,
-    borderRadius: 30,
-    overflow: 'hidden',
   },
   scroll: {
-    flexShrink: 1,
+    flex: 1,
   },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 18,
-    gap: 18,
+    justifyContent: 'flex-start',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 32,
   },
-  visual: {
-    minHeight: 154,
-    borderWidth: 1,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconFrame: {
-    width: 94,
-    height: 94,
-    padding: 5,
-    borderWidth: 1,
-    borderRadius: 27,
-    shadowColor: '#000000',
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 5,
-  },
-  icon: {
+  content: {
     width: '100%',
-    height: '100%',
-    borderRadius: 21,
+    maxWidth: 560,
+    alignSelf: 'center',
+    gap: 16,
+  },
+  hero: {
+    width: '100%',
+    flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  illustration: {
+    flexShrink: 0,
   },
   copy: {
     gap: 14,
@@ -297,20 +380,26 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   title: {
-    fontSize: 24,
-    lineHeight: 30,
+    fontSize: 28,
+    lineHeight: 34,
     fontWeight: '900',
-    letterSpacing: -0.45,
+    letterSpacing: -0.55,
     textAlign: 'center',
   },
   body: {
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 15,
+    lineHeight: 22,
     fontWeight: '700',
     textAlign: 'center',
   },
+  metaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
   versionPill: {
-    alignSelf: 'center',
     borderWidth: 1,
     borderRadius: 999,
     paddingHorizontal: 12,
@@ -319,6 +408,57 @@ const styles = StyleSheet.create({
   versionText: {
     fontSize: 12,
     fontWeight: '900',
+  },
+  appearancePill: {
+    minHeight: 34,
+    maxWidth: '100%',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  appearancePillText: {
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  appearanceChevron: {
+    fontSize: 14,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  appearancePanel: {
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 12,
+  },
+  appearancePanelTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  appearanceOptions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  appearanceOption: {
+    flex: 1,
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 9,
+  },
+  appearanceOptionText: {
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'center',
   },
   notes: {
     gap: 6,
@@ -347,14 +487,21 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textAlign: 'center',
   },
+  actionsDock: {
+    width: '100%',
+    borderTopWidth: 1,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
   actions: {
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
     flexDirection: 'row',
     gap: 10,
-    borderTopWidth: 1,
-    padding: 16,
   },
   button: {
-    minHeight: 52,
+    minHeight: 54,
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',

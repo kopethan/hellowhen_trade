@@ -1,0 +1,257 @@
+diff --git a/apps/mobile/src/features/app-update/AppUpdatePrompt.tsx b/apps/mobile/src/features/app-update/AppUpdatePrompt.tsx
+index 7ec28b5..e861185 100644
+--- a/apps/mobile/src/features/app-update/AppUpdatePrompt.tsx
++++ b/apps/mobile/src/features/app-update/AppUpdatePrompt.tsx
+@@ -6,8 +6,8 @@ import {
+   Platform,
+   Pressable,
+   ScrollView,
++  StatusBar,
+   StyleSheet,
+-  useWindowDimensions,
+   View,
+ } from 'react-native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+@@ -33,6 +33,13 @@ const UPDATE_ILLUSTRATIONS = {
+   dark: require('../../../assets/app-update/dark/update-available-dark.png'),
+ } as const;
+ 
++// Match the sampled outer-edge colors of the bundled artwork so the square PNG
++// visually dissolves into the full-screen prompt instead of reading as a card.
++const UPDATE_BACKGROUNDS = {
++  light: '#FEFEFE',
++  dark: '#090E24',
++} as const;
++
+ const APPEARANCE_OPTIONS: AppearanceOption[] = [
+   { value: 'system', labelKey: 'onboarding.preferences.appearanceOptions.system' },
+   { value: 'light', labelKey: 'onboarding.preferences.appearanceOptions.light' },
+@@ -44,7 +51,6 @@ export function AppUpdatePrompt() {
+   const { settings, setSettings } = useAppSettings();
+   const { t } = useTranslation();
+   const insets = useSafeAreaInsets();
+-  const { height: windowHeight } = useWindowDimensions();
+   const {
+     policy,
+     shouldPrompt,
+@@ -58,7 +64,6 @@ export function AppUpdatePrompt() {
+   const target = policy?.latest ?? policy?.minimumSupported ?? null;
+   const targetKey = policy && target ? `${policy.platform}:${target.version}:${target.build}` : null;
+   const visible = Boolean(shouldPrompt && policy && target);
+-  const maxHeight = Math.max(360, windowHeight - insets.top - insets.bottom - 32);
+ 
+   const title = isMandatory
+     ? t('appUpdate.mandatory.title')
+@@ -68,6 +73,7 @@ export function AppUpdatePrompt() {
+     : t('appUpdate.optional.body');
+   const releaseNotes = policy?.releaseNotes?.trim() || null;
+   const updateIllustration = UPDATE_ILLUSTRATIONS[theme.mode];
++  const updateBackground = UPDATE_BACKGROUNDS[theme.mode];
+   const appearanceTitle = t('onboarding.preferences.appearanceTitle');
+   const currentAppearance = APPEARANCE_OPTIONS.find((option) => option.value === settings.appearance) ?? APPEARANCE_OPTIONS[0];
+   const currentAppearanceLabel = t(currentAppearance.labelKey);
+@@ -116,45 +122,32 @@ export function AppUpdatePrompt() {
+       animationType="fade"
+       onRequestClose={isMandatory ? () => undefined : dismiss}
+       statusBarTranslucent
+-      transparent
++      transparent={false}
+       visible={visible}
+     >
++      <StatusBar
++        backgroundColor={updateBackground}
++        barStyle={theme.mode === 'dark' ? 'light-content' : 'dark-content'}
++        translucent
++      />
+       <View
+         accessibilityViewIsModal
+         style={[
+-          styles.backdrop,
++          styles.screen,
+           {
+-            paddingTop: Math.max(16, insets.top + 8),
+-            paddingBottom: Math.max(16, insets.bottom + (Platform.OS === 'android' ? 8 : 0)),
++            backgroundColor: updateBackground,
++            paddingTop: Math.max(insets.top, Platform.OS === 'android' ? 8 : 0),
+           },
+         ]}
+       >
+-        <View
+-          accessibilityRole="alert"
+-          style={[
+-            styles.card,
+-            {
+-              maxHeight,
+-              backgroundColor: theme.color.elevated,
+-              borderColor: theme.color.border,
+-            },
+-          ]}
++        <ScrollView
++          bounces={false}
++          style={styles.scroll}
++          contentContainerStyle={styles.scrollContent}
++          showsVerticalScrollIndicator={false}
+         >
+-          <ScrollView
+-            bounces={false}
+-            style={styles.scroll}
+-            contentContainerStyle={styles.scrollContent}
+-            showsVerticalScrollIndicator={false}
+-          >
+-            <View
+-              style={[
+-                styles.visual,
+-                {
+-                  backgroundColor: theme.color.surface,
+-                  borderColor: theme.color.border,
+-                },
+-              ]}
+-            >
++          <View accessibilityRole="alert" style={styles.content}>
++            <View style={styles.hero}>
+               <Image
+                 accessibilityIgnoresInvertColors
+                 accessible={false}
+@@ -287,9 +280,20 @@ export function AppUpdatePrompt() {
+                 </View>
+               ) : null}
+             </View>
+-          </ScrollView>
++          </View>
++        </ScrollView>
+ 
+-          <View style={[styles.actions, { borderTopColor: theme.color.border }]}>
++        <View
++          style={[
++            styles.actionsDock,
++            {
++              backgroundColor: updateBackground,
++              borderTopColor: theme.color.border,
++              paddingBottom: Math.max(16, insets.bottom + (Platform.OS === 'android' ? 8 : 0)),
++            },
++          ]}
++        >
++          <View style={styles.actions}>
+             {!isMandatory ? (
+               <Pressable
+                 accessibilityRole="button"
+@@ -336,42 +340,33 @@ export function AppUpdatePrompt() {
+ }
+ 
+ const styles = StyleSheet.create({
+-  backdrop: {
++  screen: {
+     flex: 1,
+-    alignItems: 'center',
+-    justifyContent: 'center',
+-    backgroundColor: 'rgba(2, 6, 23, 0.72)',
+-    paddingHorizontal: 16,
+-  },
+-  card: {
+-    width: '100%',
+-    maxWidth: 430,
+-    borderWidth: 1,
+-    borderRadius: 30,
+-    overflow: 'hidden',
+   },
+   scroll: {
+-    flexShrink: 1,
++    flex: 1,
+   },
+   scrollContent: {
+-    padding: 16,
+-    paddingBottom: 18,
+-    gap: 18,
++    flexGrow: 1,
++    paddingHorizontal: 20,
++    paddingTop: 8,
++    paddingBottom: 24,
+   },
+-  visual: {
+-    width: '80%',
+-    maxWidth: 280,
+-    aspectRatio: 1,
++  content: {
++    width: '100%',
++    maxWidth: 560,
+     alignSelf: 'center',
+-    borderWidth: 1,
+-    borderRadius: 24,
++    gap: 20,
++  },
++  hero: {
++    width: '100%',
+     alignItems: 'center',
+     justifyContent: 'center',
+-    overflow: 'hidden',
+   },
+   illustration: {
+-    width: '100%',
+-    height: '100%',
++    width: '88%',
++    maxWidth: 360,
++    aspectRatio: 1,
+   },
+   copy: {
+     gap: 14,
+@@ -380,15 +375,15 @@ const styles = StyleSheet.create({
+     gap: 7,
+   },
+   title: {
+-    fontSize: 24,
+-    lineHeight: 30,
++    fontSize: 28,
++    lineHeight: 34,
+     fontWeight: '900',
+-    letterSpacing: -0.45,
++    letterSpacing: -0.55,
+     textAlign: 'center',
+   },
+   body: {
+-    fontSize: 14,
+-    lineHeight: 21,
++    fontSize: 15,
++    lineHeight: 22,
+     fontWeight: '700',
+     textAlign: 'center',
+   },
+@@ -487,14 +482,21 @@ const styles = StyleSheet.create({
+     fontWeight: '800',
+     textAlign: 'center',
+   },
++  actionsDock: {
++    width: '100%',
++    borderTopWidth: 1,
++    paddingHorizontal: 20,
++    paddingTop: 16,
++  },
+   actions: {
++    width: '100%',
++    maxWidth: 560,
++    alignSelf: 'center',
+     flexDirection: 'row',
+     gap: 10,
+-    borderTopWidth: 1,
+-    padding: 16,
+   },
+   button: {
+-    minHeight: 52,
++    minHeight: 54,
+     borderRadius: 18,
+     alignItems: 'center',
+     justifyContent: 'center',
+diff --git a/scripts/app-update-rollout-smoke.mjs b/scripts/app-update-rollout-smoke.mjs
+index 157a6a7..042e669 100644
+--- a/scripts/app-update-rollout-smoke.mjs
++++ b/scripts/app-update-rollout-smoke.mjs
+@@ -92,6 +92,10 @@ function runDismissalAndPromptChecks() {
+   assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', 'UPDATE_ILLUSTRATIONS[theme.mode]', 'Update artwork must follow the resolved app theme.');
+   assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', 'useAppSettings()', 'Update prompt appearance control must reuse the persisted app settings provider.');
+   assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', "{ value: 'system', labelKey: 'onboarding.preferences.appearanceOptions.system' }", 'Update prompt must retain the System appearance option.');
++  assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', 'transparent={false}', 'Update prompt must remain a full-screen modal rather than a translucent card overlay.');
++  assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', 'UPDATE_BACKGROUNDS[theme.mode]', 'Update prompt page background must follow the artwork-specific seamless light/dark background.');
++  assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', "light: '#FEFEFE'", 'Light update page background must stay aligned with the bundled light artwork edge color.');
++  assertContains('apps/mobile/src/features/app-update/AppUpdatePrompt.tsx', "dark: '#090E24'", 'Dark update page background must stay aligned with the bundled dark artwork edge color.');
+   console.log('App update dismissal/mandatory prompt + artwork safety: PASS');
+ }
+ 
