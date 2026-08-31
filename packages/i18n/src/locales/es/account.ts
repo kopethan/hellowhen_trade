@@ -9,7 +9,13 @@ export const account = {
   walletPageBody: 'Gestiona saldos opcionales de intercambio cuando esta función de hoja de ruta esté activada.',
   addBalanceTitle: 'Añadir saldo',
   addBalanceBody: 'Gestiona saldo de intercambio cuando esta función de hoja de ruta esté activada.',
-  headerBody: 'Perfil, ajustes y soporte viven aquí.',
+  headerBody: 'Tu perfil, actividad, herramientas y ajustes están reunidos aquí.',
+  hub: {
+    profile: 'Perfil',
+    publicProfile: 'Perfil público',
+    myPlaces: 'Mis lugares',
+    settingsSummary: 'Idioma, apariencia, notificaciones y seguridad.',
+  },
   sections: {
     ...enAccount.sections,
     activity: 'Actividad',

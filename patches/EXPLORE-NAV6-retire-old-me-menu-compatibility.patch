@@ -1,0 +1,306 @@
+diff --git a/apps/mobile/src/features/account/AccountScreen.tsx b/apps/mobile/src/features/account/AccountScreen.tsx
+index 14163d3..153904b 100644
+--- a/apps/mobile/src/features/account/AccountScreen.tsx
++++ b/apps/mobile/src/features/account/AccountScreen.tsx
+@@ -1,15 +1,11 @@
+ import React, { useCallback, useState } from 'react';
+ import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { AuthUser } from '@hellowhen/contracts';
+-import type { SemanticColorName } from '@hellowhen/theme';
+ import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
+-import { AppHeader } from '../../components/AppHeader';
+-import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+-import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
++import { MobileIcon } from '../../components/MobileIcon';
+ import { SemanticBadge } from '../../components/SemanticUI';
+ import { api } from '../../lib/api';
+ import { betaFeatures, mobileFeatureFlagDiagnostics } from '../../lib/betaFeatures';
+@@ -21,18 +17,6 @@ import { DetailInfoList, DetailSection } from '../../components/detail';
+ import { resolveMediaUrl } from '../trade/mediaUrls';
+ 
+ type AccountRoute = 'TradeActivityMine' | 'TradeActivityProposals' | 'MyNeeds' | 'MyOffers' | 'AccountProfile' | 'Notifications' | 'SavedLibrary' | 'Agenda' | 'MyPlans' | 'JoinedPlans' | 'MyPlaces' | 'OnboardingGuide' | 'Membership' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'SafetyCenter' | 'AccountDeletion';
+-type AccountGroupKey = 'activity' | 'plans' | 'settings' | 'future';
+-
+-type AccountAction = {
+-  titleKey: string;
+-  descriptionKey: string;
+-  badgeKey: string;
+-  tone: SemanticColorName;
+-  route: AccountRoute;
+-  icon: MobileIconName;
+-  group: AccountGroupKey;
+-};
+-
+ type AccountHubCounts = {
+   trades?: number;
+   needs?: number;
+@@ -80,21 +64,11 @@ function countCollection(response: unknown, key: string) {
+   return Array.isArray(value) ? value.length : undefined;
+ }
+ 
+-const accountActions: AccountAction[] = [
+-  { titleKey: 'account.items.profile.title', descriptionKey: 'account.items.profile.bodyNative', badgeKey: 'account.items.profile.badge', tone: 'info', route: 'AccountProfile', icon: 'profile', group: 'activity' },
+-  { titleKey: 'account.items.notifications.title', descriptionKey: 'account.items.notifications.bodyNative', badgeKey: 'account.items.notifications.badge', tone: 'muted', route: 'Notifications', icon: 'bell', group: 'activity' },
+-  ...(betaFeatures.savedLibraryEnabled ? [{ titleKey: 'account.items.saved.title', descriptionKey: 'account.items.saved.bodyNative', badgeKey: 'account.items.saved.badge', tone: 'proposal' as SemanticColorName, route: 'SavedLibrary' as AccountRoute, icon: 'save' as MobileIconName, group: 'activity' as AccountGroupKey }] : []),
+-  ...(betaFeatures.agendaEnabled ? [{ titleKey: 'account.items.agenda.title', descriptionKey: 'account.items.agenda.bodyNative', badgeKey: 'account.items.agenda.badge', tone: 'instruction' as SemanticColorName, route: 'Agenda' as AccountRoute, icon: 'calendar' as MobileIconName, group: 'activity' as AccountGroupKey }] : []),
+-  { titleKey: 'account.items.guide.title', descriptionKey: 'account.items.guide.bodyNative', badgeKey: 'account.items.guide.badge', tone: 'muted', route: 'OnboardingGuide', icon: 'help', group: 'activity' },
+-  { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'muted', route: 'SupportCenter', icon: 'help', group: 'activity' },
+-  { titleKey: 'account.items.safety.title', descriptionKey: 'account.items.safety.bodyNative', badgeKey: 'account.items.safety.badge', tone: 'warning', route: 'SafetyCenter', icon: 'report-flag', group: 'settings' },
+-  { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings', group: 'settings' },
+-  { titleKey: 'account.items.legal.title', descriptionKey: 'account.items.legal.bodyNative', badgeKey: 'account.items.legal.badge', tone: 'warning', route: 'LegalPolicy', icon: 'warning', group: 'settings' },
+-  { titleKey: 'account.items.delete.title', descriptionKey: 'account.items.delete.bodyNative', badgeKey: 'account.items.delete.badge', tone: 'danger', route: 'AccountDeletion', icon: 'warning', group: 'settings' },
+-  ...(betaFeatures.mobileMembershipVisible ? [{ titleKey: 'account.items.membership.title', descriptionKey: 'account.items.membership.bodyNative', badgeKey: 'account.items.membership.badge', tone: 'success' as SemanticColorName, route: 'Membership' as AccountRoute, icon: 'profile' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
+-  ...(betaFeatures.businessAccountsVisible ? [{ titleKey: 'account.items.business.title', descriptionKey: 'account.items.business.bodyNative', badgeKey: 'account.items.business.badge', tone: 'instruction' as SemanticColorName, route: 'BusinessAccounts' as AccountRoute, icon: 'business' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
+-  ...(betaFeatures.walletVisible ? [{ titleKey: 'account.items.wallet.title', descriptionKey: 'account.items.wallet.bodyNative', badgeKey: 'account.items.wallet.badge', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute, icon: 'wallet' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
+-  ...(betaFeatures.payoutsVisible ? [{ titleKey: 'account.items.payouts.title', descriptionKey: 'account.items.payouts.bodyNative', badgeKey: 'account.items.payouts.badge', tone: 'success' as SemanticColorName, route: 'Payouts' as AccountRoute, icon: 'payout' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
++const accountFutureActions: Array<{ titleKey: string; route: AccountRoute }> = [
++  ...(betaFeatures.mobileMembershipVisible ? [{ titleKey: 'account.items.membership.title', route: 'Membership' as AccountRoute }] : []),
++  ...(betaFeatures.businessAccountsVisible ? [{ titleKey: 'account.items.business.title', route: 'BusinessAccounts' as AccountRoute }] : []),
++  ...(betaFeatures.walletVisible ? [{ titleKey: 'account.items.wallet.title', route: 'Wallet' as AccountRoute }] : []),
++  ...(betaFeatures.payoutsVisible ? [{ titleKey: 'account.items.payouts.title', route: 'Payouts' as AccountRoute }] : []),
+ ];
+ 
+ function getDisplayName(user: AuthUser | null) {
+@@ -151,7 +125,7 @@ export function AccountScreen() {
+   const displayName = getDisplayName(auth.user);
+   const handle = auth.user?.profile?.handle ? `@${auth.user.profile.handle}` : t('account.addHandle');
+   const avatarUri = getAvatarUri(auth.user);
+-  const futureActions = accountActions.filter((action) => action.group === 'future');
++  const futureActions = accountFutureActions;
+   const showFlagDiagnostics = betaFeatures.mobileDiagnosticsVisible;
+ 
+   function navigate(route: AccountRoute) {
+@@ -309,74 +283,6 @@ function MobileFlagDiagnosticsCard() {
+   );
+ }
+ 
+-export function AccountMenuScreen() {
+-  const theme = useThemeTokens();
+-  const auth = useAuth();
+-  const { t } = useTranslation();
+-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+-  const insets = useSafeAreaInsets();
+-  const settingsActions = accountActions.filter((action) => action.group === 'settings' && action.route !== 'AccountDeletion');
+-  const accountActionsOnly = accountActions.filter((action) => action.route === 'AccountDeletion');
+-  const futureActions = accountActions.filter((action) => action.group === 'future');
+-  const helpActions = accountActions.filter((action) => action.route === 'OnboardingGuide' || action.route === 'SupportCenter');
+-
+-  function navigate(route: AccountRoute) {
+-    navigateToAccountRoute(navigation, route);
+-  }
+-
+-  return (
+-    <AppScreen>
+-      <ScrollView contentContainerStyle={[styles.menuPageContent, { paddingBottom: 34 + Math.max(insets.bottom, 0) }]} showsVerticalScrollIndicator={false}>
+-        <AppHeader title={t('account.menu.title')} onBack={() => navigation.goBack()} />
+-        <AppText style={[styles.menuPageBody, { color: theme.color.muted }]}>{t('account.menu.body')}</AppText>
+-        <AccountMenuSection title={t('account.menu.sections.settings')} actions={settingsActions} onNavigate={navigate} />
+-        <AccountMenuSection title={t('account.menu.sections.help')} actions={helpActions} onNavigate={navigate} />
+-        <AccountMenuSection title={t('account.menu.sections.future')} actions={futureActions} onNavigate={navigate} />
+-        <AccountMenuSection title={t('account.menu.sections.account')} actions={accountActionsOnly} onNavigate={navigate} />
+-        <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.logout')} onPress={() => { void auth.logout().finally(() => navigation.navigate('Login')); }} style={({ pressed }) => [styles.logoutButton, { borderColor: theme.semantic.danger.border, backgroundColor: theme.semantic.danger.softBg }, pressed && styles.pressed]}>
+-          <AppText style={[styles.logoutButtonText, { color: theme.semantic.danger.text }]}>{t('common.actions.logout')}</AppText>
+-        </Pressable>
+-      </ScrollView>
+-    </AppScreen>
+-  );
+-}
+-
+-function AccountMenuSection({ title, actions, onNavigate }: { title: string; actions: AccountAction[]; onNavigate: (route: AccountRoute) => void }) {
+-  const theme = useThemeTokens();
+-  if (actions.length === 0) return null;
+-  return (
+-    <View style={styles.menuSection}>
+-      <AppText style={[styles.menuSectionTitle, { color: theme.color.muted }]}>{title}</AppText>
+-      <View style={[styles.menuList, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-        {actions.map((action, index) => <AccountActionRow key={`${action.route}-${index}`} action={action} last={index === actions.length - 1} onPress={() => onNavigate(action.route)} />)}
+-      </View>
+-    </View>
+-  );
+-}
+-
+-function AccountActionRow({ action, unreadCount, last, onPress }: { action: AccountAction; unreadCount?: number; last?: boolean; onPress: () => void }) {
+-  const theme = useThemeTokens();
+-  const tone = theme.semantic[action.tone];
+-  const { t } = useTranslation();
+-  return (
+-    <Pressable accessibilityRole="button" accessibilityLabel={unreadCount && unreadCount > 0 ? `${t(action.titleKey)} · ${unreadCount}` : t(action.titleKey)} onPress={onPress} style={({ pressed }) => [styles.actionRow, !last && { borderBottomColor: theme.color.border, borderBottomWidth: StyleSheet.hairlineWidth }, pressed && styles.pressed]}>
+-      <View style={styles.actionContent}>
+-        <View style={[styles.actionIcon, { backgroundColor: tone.softBg, borderColor: tone.border }]}>
+-          <MobileIcon name={action.icon} size={18} color={tone.text} />
+-        </View>
+-        <View style={styles.actionTextWrap}>
+-          <View style={styles.actionTitleRow}>
+-            <AppText style={styles.actionTitle}>{t(action.titleKey)}</AppText>
+-            {unreadCount && unreadCount > 0 ? <SemanticBadge label={String(unreadCount)} tone={action.tone} size="sm" /> : null}
+-          </View>
+-          <AppText style={[styles.actionDescription, { color: theme.color.muted }]}>{t(action.descriptionKey)}</AppText>
+-        </View>
+-      </View>
+-      <MobileIcon name="chevron-right" size={22} color={theme.color.muted} />
+-    </Pressable>
+-  );
+-}
+-
+ 
+ const styles = StyleSheet.create({
+   content: { paddingBottom: 34, gap: 20 },
+@@ -401,19 +307,5 @@ const styles = StyleSheet.create({
+   hubRowEnd: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+   logoutRow: { minHeight: 56, justifyContent: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 4 },
+   logoutText: { fontSize: 16, fontWeight: '800' },
+-  menuPageContent: { paddingBottom: 34, gap: 16 },
+-  menuPageBody: { lineHeight: 21, fontWeight: '700', paddingHorizontal: 2 },
+-  menuSection: { gap: 8 },
+-  menuSectionTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9, textTransform: 'uppercase', paddingHorizontal: 4 },
+-  menuList: { borderRadius: 20, borderWidth: 1, overflow: 'hidden' },
+-  actionRow: { minHeight: 72, paddingVertical: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+-  actionContent: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
+-  actionIcon: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+-  actionTextWrap: { flex: 1, gap: 3 },
+-  actionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+-  actionTitle: { fontSize: 17, fontWeight: '900' },
+-  actionDescription: { lineHeight: 19, fontWeight: '600' },
+-  logoutButton: { marginTop: 4, borderRadius: 18, borderWidth: 1, paddingVertical: 14, alignItems: 'center' },
+-  logoutButtonText: { fontWeight: '900' },
+   pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
+ });
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index ac3e769..5431eb7 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -6,7 +6,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import type { PlaceDto, TradeExchangeMode, TradePostType, TradeSearchKeywordSource } from '@hellowhen/contracts';
+-import { AccountMenuScreen, AccountScreen } from '../features/account/AccountScreen';
++import { AccountScreen } from '../features/account/AccountScreen';
+ import { ExploreScreen } from '../features/explore/ExploreScreen';
+ import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen';
+ import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
+@@ -92,7 +92,6 @@ export type RootStackParamList = {
+   MyNeeds: undefined;
+   MyOffers: undefined;
+   AccountProfile: undefined;
+-  MeMenu: undefined;
+   Notifications: undefined;
+   SavedLibrary: undefined;
+   Agenda: undefined;
+@@ -185,7 +184,6 @@ function withAuth<P extends object>(Component: React.ComponentType<P>, titleKey?
+ const ProtectedMyNeedsScreen = withAuth(MyNeedsScreen, 'navigation.authRequired.manageNeeds.title', 'navigation.authRequired.manageNeeds.body');
+ const ProtectedMyOffersScreen = withAuth(MyOffersScreen, 'navigation.authRequired.manageOffers.title', 'navigation.authRequired.manageOffers.body');
+ const ProtectedAccountScreen = withAuth(AccountScreen, 'navigation.authRequired.account.title', 'navigation.authRequired.account.body');
+-const ProtectedAccountMenuScreen = withAuth(AccountMenuScreen, 'navigation.authRequired.account.title', 'navigation.authRequired.account.body');
+ const ProtectedProfileScreen = withAuth(ProfileScreen);
+ const ProtectedNotificationsScreen = withAuth(NotificationsScreen);
+ const ProtectedSavedLibraryScreen = withAuth(SavedLibraryScreen);
+@@ -313,7 +311,6 @@ export function RootNavigator() {
+       <Stack.Screen name="Login" component={LoginScreen} />
+       <Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />
+       <Stack.Screen name="AccountProfile" component={ProtectedProfileScreen} />
+-      <Stack.Screen name="MeMenu" component={ProtectedAccountMenuScreen} />
+       <Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />
+       {betaFeatures.savedLibraryEnabled ? <Stack.Screen name="SavedLibrary" component={ProtectedSavedLibraryScreen} /> : null}
+       {betaFeatures.agendaEnabled ? <Stack.Screen name="Agenda" component={ProtectedAgendaScreen} /> : null}
+diff --git a/scripts/mobile-app-review-smoke.mjs b/scripts/mobile-app-review-smoke.mjs
+index cc95b3f..114cf4d 100644
+--- a/scripts/mobile-app-review-smoke.mjs
++++ b/scripts/mobile-app-review-smoke.mjs
+@@ -80,8 +80,8 @@ function runFirstRejectionRegressionChecks() {
+   const accountScreen = 'apps/mobile/src/features/account/AccountScreen.tsx';
+   const plansScreen = 'apps/mobile/src/features/plans/PlansScreens.tsx';
+ 
+-  assertNotContains(accountScreen, "label={t('common.states.beta')}", 'The Me header must not restore the Beta badge shown in Apple review.');
+-  assertNotContains(accountScreen, 'web-header-beta-badge', 'Native Me must not contain a release-state badge borrowed from the web header.');
++  assertNotContains(accountScreen, "label={t('common.states.beta')}", 'The Account header must not restore the Beta badge shown in Apple review.');
++  assertNotContains(accountScreen, 'web-header-beta-badge', 'Native Account must not contain a release-state badge borrowed from the web header.');
+   assertContains(plansScreen, 'function showIosMapsProviderPicker', 'iOS must keep an explicit map-provider picker.');
+   assertContains(plansScreen, 'https://maps.apple.com/?q=', 'Individual offline Places must keep Apple Maps search links.');
+   assertContains(plansScreen, 'https://maps.apple.com/?daddr=', 'Plan route actions must keep Apple Maps directions links.');
+diff --git a/scripts/mobile-launch-smoke.mjs b/scripts/mobile-launch-smoke.mjs
+index 932f570..1df304c 100644
+--- a/scripts/mobile-launch-smoke.mjs
++++ b/scripts/mobile-launch-smoke.mjs
+@@ -136,19 +136,19 @@ function runNavigationChecks() {
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<TradeFeedIdeaCard', 'Explore must reuse the existing Trade starter-card visual system.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<PlanSquareDeck', 'Explore Plan ideas must reuse the existing Plan square-deck visual system.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('PlanIdeaDetail'", 'Explore Plan ideas must open the existing Plan idea detail flow.');
+-  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('Account')", 'Explore must expose Account after Me leaves primary navigation.');
+-  assertContains('apps/mobile/src/features/plans/PlansScreens.tsx', "navigation.navigate('Account')", 'Plans must expose Account after Me leaves primary navigation.');
+-  assertContains('apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx', "navigation.navigate('Account')", 'Trade must expose Account after Me leaves primary navigation.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('Account')", 'Explore must expose Account after Me is retired from primary navigation.');
++  assertContains('apps/mobile/src/features/plans/PlansScreens.tsx', "navigation.navigate('Account')", 'Plans must expose Account after Me is retired from primary navigation.');
++  assertContains('apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx', "navigation.navigate('Account')", 'Trade must expose Account after Me is retired from primary navigation.');
+   assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'api.notifications.unreadCount()', 'The shared Account header action must surface the unread notification count.');
+   assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', '<UserAvatar', 'The shared Account header action must reuse the real profile avatar when available.');
+-  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'badgeCount={unreadCount}', 'The Account header action must carry the unread indicator after Me leaves primary navigation.');
++  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'badgeCount={unreadCount}', 'The Account header action must carry the unread indicator after Me is retired from primary navigation.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<AccountHeaderActionButton', 'Explore must use the shared Account/profile header action.');
+   assertContains('apps/mobile/src/features/plans/PlansScreens.tsx', '<AccountHeaderActionButton', 'Plans must use the shared Account/profile header action.');
+   assertContains('apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx', '<AccountHeaderActionButton', 'Trade must use the shared Account/profile header action.');
+ 
+   console.log('Mobile primary-navigation regression guard: PASS');
+ 
+-  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', '<Stack.Screen name="Account" component={ProtectedAccountScreen} />', 'Account must be independently reachable before Me is removed from primary navigation.');
++  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', '<Stack.Screen name="Account" component={ProtectedAccountScreen} />', 'Account must remain independently reachable after Me is removed from primary navigation.');
+   assertContains('apps/mobile/src/features/trade/MyNeedsScreen.tsx', "navigation.replace('Account');", 'My Needs fallback navigation must return to Account without depending on MeTab.');
+   assertContains('apps/mobile/src/features/trade/MyOffersScreen.tsx', "navigation.replace('Account');", 'My Offers fallback navigation must return to Account without depending on MeTab.');
+   assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "auth.logout().finally(() => navigation.navigate('Login'))", 'Logout must not depend on the removable MeTab route.');
+@@ -212,9 +212,11 @@ function runScreenFoundationChecks() {
+   assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountHubRow', 'Account must keep simple row navigation instead of dashboard widgets.');
+   assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "navigate('TradeActivityProposals')", 'Account proposals must open the existing Trade proposal activity workspace.');
+   assertNotContains('apps/mobile/src/features/account/AccountScreen.tsx', 'MeWidgetSection', 'Account must not restore the old expandable Me widget dashboard.');
+-  assertNotContains('apps/mobile/src/features/account/AccountScreen.tsx', "navigation.navigate('MeMenu')", 'Consolidated Account must not expose the old secondary Me menu.');
+-  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountMenuSection', 'Legacy Account menu compatibility must remain until EXPLORE-NAV6 retires it safely.');
+-  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountActionRow', 'Legacy Account menu rows must remain until EXPLORE-NAV6 retires them safely.');
++  assertNotContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountMenuScreen', 'The retired secondary Me/Account menu screen must stay removed.');
++  assertNotContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountMenuSection', 'The retired secondary Me/Account menu sections must stay removed.');
++  assertNotContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountActionRow', 'The retired colored Me/Account action rows must stay removed.');
++  assertNotContains('apps/mobile/src/navigation/RootNavigator.tsx', 'MeMenu', 'The retired MeMenu route must stay unregistered.');
++  assertNotContains('apps/mobile/src/navigation/RootNavigator.tsx', 'ProtectedAccountMenuScreen', 'The retired MeMenu auth wrapper must stay removed.');
+   assertContains('apps/mobile/src/features/account/NotificationsScreen.tsx', 'groupNotifications', 'Notifications should keep dated grouping.');
+   console.log('Mobile UI foundation smoke: PASS');
+ }
+diff --git a/scripts/mobile-store-readiness.mjs b/scripts/mobile-store-readiness.mjs
+index 4f96f84..e23a068 100644
+--- a/scripts/mobile-store-readiness.mjs
++++ b/scripts/mobile-store-readiness.mjs
+@@ -106,7 +106,7 @@ function runPermissionAndSdkChecks() {
+ function runAccountDeletionAndLegalChecks() {
+   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', "AccountDeletion: undefined", 'Account deletion route type must stay defined.');
+   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', '<Stack.Screen name="AccountDeletion" component={ProtectedAccountDeletionScreen} />', 'Account deletion route must stay reachable for logged-in users.');
+-  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "route: 'AccountDeletion'", 'Account hub must link to account deletion.');
++  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "navigate('AccountDeletion')", 'Account hub must link to account deletion.');
+   assertContains('apps/mobile/src/features/account/AccountDeletionScreen.tsx', 'api.account.requestDeletion', 'Account deletion screen must let users request deletion in-app.');
+   assertContains('apps/mobile/src/features/account/AccountDeletionScreen.tsx', 'api.account.cancelDeletionRequest', 'Account deletion screen must let users cancel a pending request when supported.');
+   assertContains('apps/mobile/src/features/account/AccountDeletionScreen.tsx', "navigation.navigate('SupportCenter')", 'Account deletion screen must link to support for privacy/account questions.');
+diff --git a/scripts/mobile-store-release-smoke.mjs b/scripts/mobile-store-release-smoke.mjs
+index 7753bd5..18fbc1b 100644
+--- a/scripts/mobile-store-release-smoke.mjs
++++ b/scripts/mobile-store-release-smoke.mjs
+@@ -110,7 +110,7 @@ function runRuntimeGateChecks() {
+   assertContains('apps/mobile/src/lib/betaFeatures.ts', "const storeReleaseMode = enabled(process.env.EXPO_PUBLIC_STORE_RELEASE);", 'Native feature gates must read the explicit EAS store-release flag.');
+   assertContains('apps/mobile/src/lib/betaFeatures.ts', "const forceFirstLaunchSafeFlags = storeReleaseMode ||", 'Native store-release mode must force first-launch safety flags.');
+   assertContains('apps/mobile/src/lib/betaFeatures.ts', 'mobileDiagnosticsVisible', 'Native diagnostics must have a dedicated release-safe gate.');
+-  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'const showFlagDiagnostics = betaFeatures.mobileDiagnosticsVisible;', 'The Me screen must never auto-show diagnostics because a feature is hidden.');
++  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'const showFlagDiagnostics = betaFeatures.mobileDiagnosticsVisible;', 'The Account screen must never auto-show diagnostics because a feature is hidden.');
+   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.savedLibraryEnabled ? <Stack.Screen name="SavedLibrary"', 'Saved Library route must stay unregistered while hidden.');
+   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.savedCollectionsEnabled ? <Stack.Screen name="SavedLibraryCollection"', 'Saved collection routes must stay unregistered while hidden.');
+   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.agendaEnabled ? <Stack.Screen name="Agenda"', 'Agenda route must stay unregistered while hidden.');
+diff --git a/scripts/mobile-ugc-safety-smoke.mjs b/scripts/mobile-ugc-safety-smoke.mjs
+index 7374ef7..bd93774 100644
+--- a/scripts/mobile-ugc-safety-smoke.mjs
++++ b/scripts/mobile-ugc-safety-smoke.mjs
+@@ -116,7 +116,7 @@ function runBlockingChecks() {
+     'ProtectedSafetyCenterScreen',
+     '<Stack.Screen name="SafetyCenter" component={ProtectedSafetyCenterScreen} />',
+   ], 'Safety Center route');
+-  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "route: 'SafetyCenter'", 'Account must link to Safety Center.');
++  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "navigate('SafetyCenter')", 'Account must link to Safety Center from the consolidated hub.');
+   console.log('Mobile block/unblock and Safety Center: PASS');
+ }
+ 

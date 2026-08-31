@@ -6,7 +6,7 @@ import path from 'node:path';
 const root = process.cwd();
 
 function read(relativePath) {
-  return readFileSync(path.join(root, relativePath), 'utf8');
+  return readFileSync(path.join(root, relativePath), 'utf8').replace(/\r\n?/g, '\n');
 }
 
 function assert(condition, message) {
@@ -114,13 +114,13 @@ function runNavigationChecks() {
   );
 
   const configuredMobileTabNames = [...sharedNavigation.matchAll(/mobileTabName:\s*'([^']+)'/g)].map((match) => match[1]);
-  const expectedMobileTabNames = ['PlanTab', 'MeTab', 'TradeTab'];
+  const expectedMobileTabNames = ['PlanTab', 'ExploreTab', 'TradeTab'];
   assert(
     JSON.stringify(configuredMobileTabNames) === JSON.stringify(expectedMobileTabNames),
     `Shared mobile primary tabs must be exactly ${expectedMobileTabNames.join(' / ')}. Found: ${configuredMobileTabNames.join(', ') || '(none)'}.`,
   );
 
-  const forbiddenPrimaryTabNames = ['Need', 'Needs', 'Offer', 'Offers', 'Account', 'NeedTab', 'NeedsTab', 'OfferTab', 'OffersTab', 'AccountTab'];
+  const forbiddenPrimaryTabNames = ['Me', 'MeTab', 'Need', 'Needs', 'Offer', 'Offers', 'Account', 'NeedTab', 'NeedsTab', 'OfferTab', 'OffersTab', 'AccountTab'];
   const [{ file: bottomTabFile, variableName: bottomTabVariableName }] = bottomTabNavigatorDeclarations;
   const bottomTabSource = read(bottomTabFile);
   for (const tabName of forbiddenPrimaryTabNames) {
@@ -128,12 +128,52 @@ function runNavigationChecks() {
     assert(!configuredMobileTabNames.includes(tabName) && !literalPrimaryTabPattern.test(bottomTabSource), `Legacy primary tab ${tabName} must not be registered.`);
   }
 
-  assertContains('packages/shared/src/appNavigation.ts', "normalAppNavItemIds = ['plans', 'me', 'trade']", 'Shared public navigation must stay Plans / Me / Trade.');
-  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'normalAppNavItems.map((item)', 'Native bottom tabs must be generated from the shared Plans / Me / Trade navigation.');
-  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'initialRouteName={DEFAULT_NORMAL_APP_NAV_MOBILE_TAB_NAME}', 'Native public navigation must keep the shared default tab.');
+  assertContains('packages/shared/src/appNavigation.ts', "normalAppNavItemIds = ['plans', 'me', 'trade']", 'Web public navigation must stay Plans / Me / Trade during the mobile Explore migration.');
+  assertContains('packages/shared/src/appNavigation.ts', "normalMobileAppNavItemIds = ['plans', 'explore', 'trade']", 'Mobile primary navigation must be Plans / Explore / Trade.');
+  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'normalMobileAppNavItems.map((item)', 'Native bottom tabs must be generated from the mobile-specific navigation contract.');
+  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'initialRouteName={DEFAULT_NORMAL_MOBILE_APP_NAV_TAB_NAME}', 'Native public navigation must keep the mobile-specific default tab.');
+  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'explore: ExploreScreen', 'Explore must own the center mobile primary tab.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<TradeFeedIdeaCard', 'Explore must reuse the existing Trade starter-card visual system.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<PlanSquareDeck', 'Explore Plan ideas must reuse the existing Plan square-deck visual system.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('PlanIdeaDetail'", 'Explore Plan ideas must open the existing Plan idea detail flow.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('Account')", 'Explore must expose Account after Me is retired from primary navigation.');
+  assertContains('apps/mobile/src/features/plans/PlansScreens.tsx', "navigation.navigate('Account')", 'Plans must expose Account after Me is retired from primary navigation.');
+  assertContains('apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx', "navigation.navigate('Account')", 'Trade must expose Account after Me is retired from primary navigation.');
+  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'api.notifications.unreadCount()', 'The shared Account header action must surface the unread notification count.');
+  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', '<UserAvatar', 'The shared Account header action must reuse the real profile avatar when available.');
+  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'badgeCount={unreadCount}', 'The Account header action must carry the unread indicator after Me is retired from primary navigation.');
+  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'requestId === requestSequence', 'The Account unread badge refresh must ignore stale overlapping responses.');
+  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'Math.max(0, Math.trunc(response.unreadCount ?? 0))', 'The Account unread badge must normalize API counts before rendering.');
+  assertNotContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'if (active) setUnreadCount(0);', 'A transient unread-count refresh failure must not erase the last known Account badge.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<FlatList', 'Explore concepts must use a virtualized vertical feed instead of one global idea deck.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "kind: 'trade'", 'Explore must model each Trade idea as its own feed concept.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "kind: 'plan'", 'Explore must model each Plan idea as its own feed concept.');
+  assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'moveIdea(', 'Explore must not use global previous/next controls to switch Trade concepts.');
+  assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'movePlanIdea(', 'Explore must not use global previous/next controls to switch Plan concepts.');
+  assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'deckControls', 'Explore must not reintroduce global concept navigation buttons.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<AppText accessibilityRole="header" style={styles.title}>', 'Explore must keep a semantic page heading after discovery concepts are mixed.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'buildBalancedMixedFeed(', 'Explore must compose discovery concepts as one balanced mixed feed.');
+  assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'minHeight: MOBILE_TRADE_DECK_AVAILABLE_HEIGHT', 'Explore must not reserve an extra empty production deck stage around every mixed-feed concept.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<AppSmartHeaderScreen header={header} resetKey={typeFilter}>', 'Explore alone must use the direction-aware smart header shell.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '...scrollProps.scrollViewProps', 'Explore must connect its virtualized feed to the smart-header scroll events.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'icon="filter"', 'Explore must expose the circular type-filter affordance.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<LibraryFilterScreen', 'Explore type filtering must use the existing full-screen filter UI.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'nextConceptDeck: { marginTop: MOBILE_DECK_FEED_GAP }', 'Explore concepts must keep the shared mobile deck feed gap.');
+  assertContains('packages/shared/src/appNavigation.ts', "NormalMobileAppNavIcon = NormalAppNavIcon | 'search' | 'compass'", 'The mobile navigation contract must support the Explore compass icon without changing web navigation.');
+  assertContains('packages/shared/src/appNavigation.ts', "icon: 'compass',\n    mobileTabName: 'ExploreTab'", 'Explore must use the compass icon rather than the search icon.');
+  assertContains('apps/mobile/src/components/MobileIcon.tsx', "case 'compass':", 'The native icon system must provide a dedicated compass glyph for Explore.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<AccountHeaderActionButton', 'Explore must use the shared Account/profile header action.');
+  assertContains('apps/mobile/src/features/plans/PlansScreens.tsx', '<AccountHeaderActionButton', 'Plans must use the shared Account/profile header action.');
+  assertContains('apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx', '<AccountHeaderActionButton', 'Trade must use the shared Account/profile header action.');
 
   console.log('Mobile primary-navigation regression guard: PASS');
 
+  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', '<Stack.Screen name="Account" component={ProtectedAccountScreen} />', 'Account must remain independently reachable after Me is removed from primary navigation.');
+  assertContains('apps/mobile/src/features/trade/MyNeedsScreen.tsx', "navigation.replace('Account');", 'My Needs fallback navigation must return to Account without depending on MeTab.');
+  assertContains('apps/mobile/src/features/trade/MyOffersScreen.tsx', "navigation.replace('Account');", 'My Offers fallback navigation must return to Account without depending on MeTab.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "auth.logout().finally(() => navigation.navigate('Login'))", 'Logout must not depend on the removable MeTab route.');
+  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', "accountActivity?: 'mine' | 'involved'", 'Account must be able to open the existing Trade activity workspace directly.');
+  assertContains('apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx', 'setActivityTab(params.accountActivity);', 'Trade feed must honor Account activity deep links.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'const ProtectedProposalDetailScreen = withAuth(ProposalDetailScreen);', 'Proposal thread detail must stay auth-protected.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', "withAuth(TradePrivateProposalsScreen, 'navigation.authRequired.privateProposals.title'", 'Private proposals screen must stay auth-protected.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.walletVisible ? <Stack.Screen name="Wallet"', 'Wallet route must stay hidden behind walletVisible.');
@@ -144,7 +184,7 @@ function runNavigationChecks() {
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.savedLibraryEnabled ? <Stack.Screen name="SavedLibrary"', 'Saved Library route must stay hidden behind savedLibraryEnabled.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.savedCollectionsEnabled ? <Stack.Screen name="SavedLibraryCollection"', 'Saved collections route must stay hidden behind savedCollectionsEnabled.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.agendaEnabled ? <Stack.Screen name="Agenda"', 'Agenda route must stay hidden behind agendaEnabled.');
-  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'const showFlagDiagnostics = betaFeatures.mobileDiagnosticsVisible;', 'Production Me screen must not auto-show feature diagnostics.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'const showFlagDiagnostics = betaFeatures.mobileDiagnosticsVisible;', 'Production Account screen must not auto-show feature diagnostics.');
   assertNotContains('apps/mobile/src/navigation/RootNavigator.tsx', 'wallet, support, and beta account tools', 'Logged-out Account copy must not mention wallet while first-launch money UI is hidden.');
   console.log('Mobile navigation/privacy gates: PASS');
 }
@@ -188,10 +228,15 @@ function runScreenFoundationChecks() {
   assertContains('apps/mobile/src/features/trade/ProposalDetailScreen.tsx', 'ConversationComposerBar', 'Proposal thread should keep the modern composer foundation.');
   assertContains('apps/mobile/src/features/trade/ProposalDetailScreen.tsx', 'ProposalPackageThreadBlock', 'Proposal thread should keep the inline proposal package block.');
   assertContains('apps/mobile/src/features/trade/InventoryDetailScreen.tsx', 'DetailBottomActionBar', 'Need/Offer detail should keep the shared bottom action area.');
-  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'MeWidgetSection', 'Me hub should keep grouped expandable widget sections.');
-  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'MeHubWidgetRow', 'Me hub should keep grouped widget rows inside expandable sections.');
-  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountMenuSection', 'Account menu should keep grouped settings/help/account sections.');
-  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountActionRow', 'Account menu should keep grouped action rows.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountHubSection', 'Account must keep one consolidated grouped row hub.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountHubRow', 'Account must keep simple row navigation instead of dashboard widgets.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "navigate('TradeActivityProposals')", 'Account proposals must open the existing Trade proposal activity workspace.');
+  assertNotContains('apps/mobile/src/features/account/AccountScreen.tsx', 'MeWidgetSection', 'Account must not restore the old expandable Me widget dashboard.');
+  assertNotContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountMenuScreen', 'The retired secondary Me/Account menu screen must stay removed.');
+  assertNotContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountMenuSection', 'The retired secondary Me/Account menu sections must stay removed.');
+  assertNotContains('apps/mobile/src/features/account/AccountScreen.tsx', 'AccountActionRow', 'The retired colored Me/Account action rows must stay removed.');
+  assertNotContains('apps/mobile/src/navigation/RootNavigator.tsx', 'MeMenu', 'The retired MeMenu route must stay unregistered.');
+  assertNotContains('apps/mobile/src/navigation/RootNavigator.tsx', 'ProtectedAccountMenuScreen', 'The retired MeMenu auth wrapper must stay removed.');
   assertContains('apps/mobile/src/features/account/NotificationsScreen.tsx', 'groupNotifications', 'Notifications should keep dated grouping.');
   console.log('Mobile UI foundation smoke: PASS');
 }

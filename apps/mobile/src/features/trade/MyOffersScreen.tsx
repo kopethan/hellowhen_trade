@@ -105,7 +105,7 @@ export function MyOffersScreen() {
       navigation.goBack();
       return;
     }
-    navigation.replace('TradeTabs', { screen: 'MeTab' });
+    navigation.replace('Account');
   }, [navigation]);
   const header = (
     <AppHeader

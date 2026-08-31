@@ -1,12 +1,15 @@
-import React, { useCallback, useState } from 'react';
+import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { useFocusEffect, useNavigation, type NavigatorScreenParams } from '@react-navigation/native';
+import { useNavigation, type NavigatorScreenParams } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { PlaceDto, TradeExchangeMode, TradePostType, TradeSearchKeywordSource } from '@hellowhen/contracts';
-import { AccountMenuScreen, AccountScreen } from '../features/account/AccountScreen';
+import { AccountScreen } from '../features/account/AccountScreen';
+import { ExploreScreen } from '../features/explore/ExploreScreen';
+import { ExploreNeedIdeaDetailScreen, ExploreOfferIdeaDetailScreen } from '../features/explore/ExploreInventoryIdeaDetailScreen';
+import { HellowhenPlaceDetailScreen } from '../features/explore/HellowhenPlaceDetailScreen';
 import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen';
 import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
 import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
@@ -54,14 +57,13 @@ import { PayoutsScreen } from '../features/wallet/PayoutsScreen';
 import { useAuth } from '../providers/AuthProvider';
 import { useThemeTokens } from '../providers/ThemeProvider';
 import { MobileIcon, type MobileIconName } from '../components/MobileIcon';
-import { api } from '../lib/api';
 import { betaFeatures } from '../lib/betaFeatures';
 import { AppCard } from '../components/AppCard';
 import { AppScreen } from '../components/AppScreen';
 import { AppText } from '../components/AppText';
 import { useTranslation } from '../providers/MobileI18nProvider';
 import type { LegalPolicyKey } from '@hellowhen/i18n';
-import { DEFAULT_NORMAL_APP_NAV_MOBILE_TAB_NAME, getNormalAppNavItemByMobileTabName, normalAppNavItems, type NormalAppNavItemId } from '@hellowhen/shared';
+import { DEFAULT_NORMAL_MOBILE_APP_NAV_TAB_NAME, getNormalMobileAppNavItemByTabName, normalMobileAppNavItems, type NormalMobileAppNavItemId } from '@hellowhen/shared';
 import type { ThemeTokens } from '@hellowhen/theme';
 
 type InventoryCreateReturnTarget = 'createTrade' | 'createTradeFull' | 'tradeProposal' | 'proposalDetail';
@@ -77,19 +79,21 @@ export type TradeFilterRouteParams = {
   hasMoney?: boolean;
   applyKey?: number;
   searchSource?: TradeSearchKeywordSource;
+  accountActivity?: 'mine' | 'involved';
+  accountActivityKey?: number;
 };
 export type MainTabParamList = {
   PlanTab: PlanTabRouteParams | undefined;
-  MeTab: undefined;
+  ExploreTab: undefined;
   TradeTab: TradeFilterRouteParams | undefined;
 };
 
 export type RootStackParamList = {
   TradeTabs: NavigatorScreenParams<MainTabParamList> | undefined;
+  Account: undefined;
   MyNeeds: undefined;
   MyOffers: undefined;
   AccountProfile: undefined;
-  MeMenu: undefined;
   Notifications: undefined;
   SavedLibrary: undefined;
   Agenda: undefined;
@@ -102,6 +106,7 @@ export type RootStackParamList = {
   JoinedPlans: undefined;
   MyPlaces: undefined;
   PlaceLibrary: undefined;
+  HellowhenPlaceDetail: { placeId: string; title?: string };
   CreatePlan: { createdPlace?: PlaceDto; createdPlaceTargetIndex?: number; createdPlaceNonce?: number; updatedPlace?: PlaceDto; updatedPlaceTargetIndex?: number; updatedPlaceNonce?: number; updatedPlaceSelectAfterFix?: boolean; initialPlanIdeaKey?: string } | undefined;
   CreatePlace: { returnToCreatePlan?: boolean; editPlace?: PlaceDto; copyFromPlace?: PlaceDto; targetPlaceIndex?: number; selectPlaceAfterSave?: boolean } | undefined;
   SavedLibraryCollection: { collectionId: string; title?: string };
@@ -122,9 +127,11 @@ export type RootStackParamList = {
   CreateNeed: InventoryCreateParams;
   CreateNeedFull: InventoryCreateParams;
   NeedDetail: { needId: string; title?: string };
+  NeedIdeaDetail: { templateId: string; title?: string };
   CreateOffer: InventoryCreateParams;
   CreateOfferFull: InventoryCreateParams;
   OfferDetail: { offerId: string; title?: string };
+  OfferIdeaDetail: { templateId: string; title?: string };
   CreateTrade: TradeCreateReturnParams;
   CreateTradeFull: TradeCreateReturnParams;
   TradeSidePicker: TradeSidePickerParams;
@@ -182,7 +189,6 @@ function withAuth<P extends object>(Component: React.ComponentType<P>, titleKey?
 const ProtectedMyNeedsScreen = withAuth(MyNeedsScreen, 'navigation.authRequired.manageNeeds.title', 'navigation.authRequired.manageNeeds.body');
 const ProtectedMyOffersScreen = withAuth(MyOffersScreen, 'navigation.authRequired.manageOffers.title', 'navigation.authRequired.manageOffers.body');
 const ProtectedAccountScreen = withAuth(AccountScreen, 'navigation.authRequired.account.title', 'navigation.authRequired.account.body');
-const ProtectedAccountMenuScreen = withAuth(AccountMenuScreen, 'navigation.authRequired.account.title', 'navigation.authRequired.account.body');
 const ProtectedProfileScreen = withAuth(ProfileScreen);
 const ProtectedNotificationsScreen = withAuth(NotificationsScreen);
 const ProtectedSavedLibraryScreen = withAuth(SavedLibraryScreen);
@@ -222,17 +228,8 @@ const ProtectedProposalDetailScreen = withAuth(ProposalDetailScreen);
 const ProtectedTradePublicDiscussionScreen = withAuth(TradePublicDiscussionScreen, 'navigation.authRequired.tradeDiscussion.title', 'navigation.authRequired.tradeDiscussion.body');
 const ProtectedTradePrivateProposalsScreen = withAuth(TradePrivateProposalsScreen, 'navigation.authRequired.privateProposals.title', 'navigation.authRequired.privateProposals.body');
 
-function MeHomeScreen() {
-  const auth = useAuth();
-  return auth.isAuthenticated ? <AccountScreen /> : <LoginScreen />;
-}
-
 function getTabIconName(routeName: keyof MainTabParamList): MobileIconName {
-  return getNormalAppNavItemByMobileTabName(routeName)?.icon ?? 'profile';
-}
-
-function getTabBadge(count: number) {
-  return count > 0 ? Math.min(count, 99) : undefined;
+  return getNormalMobileAppNavItemByTabName(routeName)?.icon ?? 'profile';
 }
 
 function getNormalTabActiveTintColor(routeName: keyof MainTabParamList, theme: ThemeTokens) {
@@ -241,35 +238,21 @@ function getNormalTabActiveTintColor(routeName: keyof MainTabParamList, theme: T
   return theme.color.text;
 }
 
-const normalMobileTabScreenById: Record<NormalAppNavItemId, React.ComponentType<any>> = {
+const normalMobileTabScreenById: Record<NormalMobileAppNavItemId, React.ComponentType<any>> = {
   plans: PlansScreen,
-  me: MeHomeScreen,
+  explore: ExploreScreen,
   trade: TradeDeckFeedScreen,
 };
 
 function TradeTabs() {
   const insets = useSafeAreaInsets();
   const theme = useThemeTokens();
-  const auth = useAuth();
   const bottomInset = Math.max(insets.bottom, 0);
   const { t } = useTranslation();
-  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
-
-  const loadNotificationUnreadCount = useCallback(async () => {
-    if (!auth.isAuthenticated) { setNotificationUnreadCount(0); return; }
-    try {
-      const response = await api.notifications.unreadCount();
-      setNotificationUnreadCount(response.unreadCount ?? 0);
-    } catch {
-      setNotificationUnreadCount(0);
-    }
-  }, [auth.isAuthenticated]);
-
-  useFocusEffect(useCallback(() => { void loadNotificationUnreadCount(); }, [loadNotificationUnreadCount]));
 
   return (
     <Tabs.Navigator
-      initialRouteName={DEFAULT_NORMAL_APP_NAV_MOBILE_TAB_NAME}
+      initialRouteName={DEFAULT_NORMAL_MOBILE_APP_NAV_TAB_NAME}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: true,
@@ -296,14 +279,13 @@ function TradeTabs() {
         tabBarBadgeStyle: styles.tabBadge,
       })}
     >
-      {normalAppNavItems.map((item) => (
+      {normalMobileAppNavItems.map((item) => (
         <Tabs.Screen
           key={item.id}
           name={item.mobileTabName}
           component={normalMobileTabScreenById[item.id]}
           options={{
             tabBarLabel: t(item.labelKey),
-            tabBarBadge: item.id === 'me' ? getTabBadge(notificationUnreadCount) : undefined,
           }}
         />
       ))}
@@ -322,18 +304,21 @@ export function RootNavigator() {
   return (
     <Stack.Navigator initialRouteName="TradeTabs" screenOptions={{ headerShown: false }}>
       <Stack.Screen name="TradeTabs" component={TradeTabs} />
+      <Stack.Screen name="Account" component={ProtectedAccountScreen} />
       <Stack.Screen name="TradeDetail" component={TradeDetailScreen} />
       <Stack.Screen name="TradeFilters" component={TradeFiltersScreen} />
       <Stack.Screen name="MyNeeds" component={ProtectedMyNeedsScreen} />
       <Stack.Screen name="MyOffers" component={ProtectedMyOffersScreen} />
       <Stack.Screen name="TradeIdeaDetail" component={TradeIdeaDetailScreen} />
+      <Stack.Screen name="NeedIdeaDetail" component={ExploreNeedIdeaDetailScreen} />
+      <Stack.Screen name="OfferIdeaDetail" component={ExploreOfferIdeaDetailScreen} />
+      {betaFeatures.plansEnabled ? <Stack.Screen name="HellowhenPlaceDetail" component={HellowhenPlaceDetailScreen} /> : null}
       <Stack.Screen name="UserProfile" component={PublicUserProfileScreen} />
       <Stack.Screen name="GuideHub" component={GuideHubScreen} />
       <Stack.Screen name="OnboardingGuide" component={OnboardingGuideScreen} initialParams={{ replay: false }} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />
       <Stack.Screen name="AccountProfile" component={ProtectedProfileScreen} />
-      <Stack.Screen name="MeMenu" component={ProtectedAccountMenuScreen} />
       <Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />
       {betaFeatures.savedLibraryEnabled ? <Stack.Screen name="SavedLibrary" component={ProtectedSavedLibraryScreen} /> : null}
       {betaFeatures.agendaEnabled ? <Stack.Screen name="Agenda" component={ProtectedAgendaScreen} /> : null}

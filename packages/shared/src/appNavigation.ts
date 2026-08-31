@@ -2,7 +2,6 @@ export const normalAppNavItemIds = ['plans', 'me', 'trade'] as const;
 export type NormalAppNavItemId = typeof normalAppNavItemIds[number];
 
 export type NormalAppNavIcon = 'plan' | 'profile' | 'trade';
-export type NormalAppMobileTabName = 'PlanTab' | 'MeTab' | 'TradeTab';
 
 export type NormalAppNavItem = {
   id: NormalAppNavItemId;
@@ -10,9 +9,10 @@ export type NormalAppNavItem = {
   routeTitleKey: string;
   icon: NormalAppNavIcon;
   webHref: string;
-  mobileTabName: NormalAppMobileTabName;
 };
 
+// Web keeps the existing Plans / Me / Trade contract while mobile now uses
+// its independent Plans / Explore / Trade contract.
 export const normalAppNavItems = [
   {
     id: 'plans',
@@ -20,7 +20,6 @@ export const normalAppNavItems = [
     routeTitleKey: 'navigation.routes.plans',
     icon: 'plan',
     webHref: '/plans',
-    mobileTabName: 'PlanTab',
   },
   {
     id: 'me',
@@ -28,7 +27,6 @@ export const normalAppNavItems = [
     routeTitleKey: 'navigation.routes.me',
     icon: 'profile',
     webHref: '/account',
-    mobileTabName: 'MeTab',
   },
   {
     id: 'trade',
@@ -36,13 +34,53 @@ export const normalAppNavItems = [
     routeTitleKey: 'navigation.routes.trade',
     icon: 'trade',
     webHref: '/trades',
-    mobileTabName: 'TradeTab',
   },
 ] as const satisfies readonly NormalAppNavItem[];
 
+export const normalMobileAppNavItemIds = ['plans', 'explore', 'trade'] as const;
+export type NormalMobileAppNavItemId = typeof normalMobileAppNavItemIds[number];
+export type NormalMobileAppNavIcon = NormalAppNavIcon | 'search' | 'compass';
+export type NormalMobileAppTabName = 'PlanTab' | 'ExploreTab' | 'TradeTab';
+
+export type NormalMobileAppNavItem = {
+  id: NormalMobileAppNavItemId;
+  labelKey: string;
+  routeTitleKey: string;
+  icon: NormalMobileAppNavIcon;
+  mobileTabName: NormalMobileAppTabName;
+};
+
+export const normalMobileAppNavItems = [
+  {
+    id: 'plans',
+    labelKey: 'navigation.tabs.plans',
+    routeTitleKey: 'navigation.routes.plans',
+    icon: 'plan',
+    mobileTabName: 'PlanTab',
+  },
+  {
+    id: 'explore',
+    labelKey: 'navigation.tabs.explore',
+    routeTitleKey: 'navigation.routes.explore',
+    icon: 'compass',
+    mobileTabName: 'ExploreTab',
+  },
+  {
+    id: 'trade',
+    labelKey: 'navigation.tabs.trade',
+    routeTitleKey: 'navigation.routes.trade',
+    icon: 'trade',
+    mobileTabName: 'TradeTab',
+  },
+] as const satisfies readonly NormalMobileAppNavItem[];
+
 export const DEFAULT_NORMAL_APP_NAV_ITEM_ID: NormalAppNavItemId = 'me';
-export const DEFAULT_NORMAL_APP_NAV_MOBILE_TAB_NAME: NormalAppMobileTabName = 'MeTab';
 export const DEFAULT_NORMAL_APP_NAV_WEB_HREF = '/account';
+export const DEFAULT_NORMAL_MOBILE_APP_NAV_ITEM_ID: NormalMobileAppNavItemId = 'explore';
+export const DEFAULT_NORMAL_MOBILE_APP_NAV_TAB_NAME: NormalMobileAppTabName = 'ExploreTab';
+
+// Backward-compatible alias for callers that have not moved to the mobile-specific name yet.
+export const DEFAULT_NORMAL_APP_NAV_MOBILE_TAB_NAME = DEFAULT_NORMAL_MOBILE_APP_NAV_TAB_NAME;
 
 export function isNormalAppNavItemId(value: string | null | undefined): value is NormalAppNavItemId {
   return normalAppNavItemIds.includes(value as NormalAppNavItemId);
@@ -52,9 +90,12 @@ export function getNormalAppNavItem(id: NormalAppNavItemId): NormalAppNavItem {
   return normalAppNavItems.find((item) => item.id === id) ?? normalAppNavItems[1];
 }
 
-export function getNormalAppNavItemByMobileTabName(tabName: string | null | undefined): NormalAppNavItem | null {
-  return normalAppNavItems.find((item) => item.mobileTabName === tabName) ?? null;
+export function getNormalMobileAppNavItemByTabName(tabName: string | null | undefined): NormalMobileAppNavItem | null {
+  return normalMobileAppNavItems.find((item) => item.mobileTabName === tabName) ?? null;
 }
+
+// Backward-compatible alias for callers that have not moved to the mobile-specific helper yet.
+export const getNormalAppNavItemByMobileTabName = getNormalMobileAppNavItemByTabName;
 
 export type NormalWorkspaceMenuId = 'plans' | 'trade';
 export type NormalWorkspaceMenuIcon = 'activity' | 'help' | 'location-on' | 'need' | 'offer' | 'plan' | 'proposal-accepted' | 'save' | 'search' | 'trade';

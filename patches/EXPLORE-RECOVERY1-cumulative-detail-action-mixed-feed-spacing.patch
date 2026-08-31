@@ -1,0 +1,1362 @@
+diff --git a/apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx b/apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..7b6861f83c8c963dc4a8b8cd1f67f91b08e3b839
+--- /dev/null
++++ b/apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx
+@@ -0,0 +1,316 @@
++import React, { useMemo } from 'react';
++import { Image, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
++import type { MediaAssetDto, PlaceStaticMapDto } from '@hellowhen/contracts';
++import type { SemanticColorName } from '@hellowhen/theme';
++import { AppText } from '../../components/AppText';
++import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
++import { DECK_CARD_TYPOGRAPHY, POSTER_CARD_GEOMETRY } from '../../components/PosterCardGeometry';
++import { PosterCardFooter } from '../../components/PosterCardFooter';
++import { SemanticBadge } from '../../components/SemanticUI';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++import { ContinuousSquareStackDeck, type SquareStackDeckCard } from '../trade/deck';
++import { resolveMediaVariantUrl } from '../trade/mediaUrls';
++import { MOBILE_TRADE_DECK_AVAILABLE_HEIGHT, MOBILE_TRADE_DECK_MAX_CARD_SIZE } from '../trade/components/tradeDeckGeometry';
++
++type ExploreConceptTone = Extract<SemanticColorName, 'need' | 'offer' | 'place'>;
++
++type ExploreConceptCard = SquareStackDeckCard & {
++  media?: MediaAssetDto;
++  useStaticMap?: boolean;
++};
++
++type ExploreConceptSquareDeckProps = {
++  conceptId: string;
++  title: string;
++  description?: string | null;
++  meta?: string | null;
++  badgeLabel: string;
++  tone: ExploreConceptTone;
++  media?: MediaAssetDto[];
++  staticMap?: PlaceStaticMapDto | null;
++  accessibilityLabel: string;
++  onOpen: () => void;
++  style?: StyleProp<ViewStyle>;
++};
++
++function activeConceptMedia(media: MediaAssetDto[] | undefined) {
++  return (media ?? []).filter((asset) => asset.status === 'active' && Boolean(asset.url));
++}
++
++function buildConceptCards(conceptId: string, media: MediaAssetDto[] | undefined, staticMap: PlaceStaticMapDto | null | undefined): ExploreConceptCard[] {
++  const activeMedia = activeConceptMedia(media);
++  if (activeMedia.length > 0) {
++    return activeMedia.map((asset) => ({ id: `${conceptId}:media:${asset.id}`, media: asset }));
++  }
++  if (staticMap) return [{ id: `${conceptId}:static-map`, useStaticMap: true }];
++  return [{ id: `${conceptId}:fallback` }];
++}
++
++function staticMapUrlForTheme(staticMap: PlaceStaticMapDto | null | undefined, themeMode: 'light' | 'dark') {
++  if (!staticMap) return null;
++  return themeMode === 'dark'
++    ? staticMap.darkUrl || staticMap.lightUrl || null
++    : staticMap.lightUrl || staticMap.darkUrl || null;
++}
++
++function conceptIcon(tone: ExploreConceptTone): MobileIconName {
++  if (tone === 'need') return 'need';
++  if (tone === 'offer') return 'offer';
++  return 'location-on';
++}
++
++function ConceptCardView({
++  card,
++  cardIndex,
++  cardTotal,
++  title,
++  description,
++  meta,
++  badgeLabel,
++  tone,
++  staticMap,
++  accessibilityLabel,
++  onOpen,
++}: {
++  card: ExploreConceptCard;
++  cardIndex: number;
++  cardTotal: number;
++  title: string;
++  description?: string | null;
++  meta?: string | null;
++  badgeLabel: string;
++  tone: ExploreConceptTone;
++  staticMap?: PlaceStaticMapDto | null;
++  accessibilityLabel: string;
++  onOpen: () => void;
++}) {
++  const theme = useThemeTokens();
++  const imageUrl = card.media
++    ? resolveMediaVariantUrl(card.media, 'card')
++    : card.useStaticMap
++      ? staticMapUrlForTheme(staticMap, theme.mode)
++      : null;
++  const semantic = theme.semantic[tone];
++  const hasImage = Boolean(imageUrl);
++  const posterTitleColor = hasImage ? '#FFFFFF' : theme.color.text;
++  const posterBodyColor = hasImage ? 'rgba(255,255,255,0.88)' : theme.color.muted;
++  const pillBackground = hasImage ? 'rgba(8,12,18,0.28)' : undefined;
++  const pillBorder = hasImage ? 'rgba(255,255,255,0.12)' : undefined;
++  const mediaCounter = cardTotal > 1 ? `${String(cardIndex + 1).padStart(2, '0')}/${String(cardTotal).padStart(2, '0')}` : null;
++
++  return (
++    <Pressable
++      accessibilityRole="button"
++      accessibilityLabel={accessibilityLabel}
++      onPress={onOpen}
++      style={({ pressed }) => [
++        styles.card,
++        {
++          backgroundColor: hasImage ? '#0B1016' : semantic.softBg,
++          borderColor: hasImage ? 'transparent' : semantic.border,
++          borderWidth: hasImage ? 0 : StyleSheet.hairlineWidth,
++        },
++        pressed && styles.pressed,
++      ]}
++    >
++      {imageUrl ? <Image source={{ uri: imageUrl }} resizeMode="cover" style={styles.image} /> : null}
++      {hasImage ? <View pointerEvents="none" style={styles.imageScrim} /> : null}
++      {!hasImage ? (
++        <View pointerEvents="none" style={styles.fallbackVisual}>
++          <View style={[styles.fallbackIcon, { backgroundColor: semantic.bg, borderColor: semantic.border }]}>
++            <MobileIcon name={conceptIcon(tone)} size={34} color={semantic.onBg} decorative />
++          </View>
++          <View style={[styles.fallbackLine, styles.fallbackLineWide, { backgroundColor: semantic.border }]} />
++          <View style={[styles.fallbackLine, { backgroundColor: semantic.border }]} />
++        </View>
++      ) : null}
++
++      <View style={styles.topRow}>
++        {hasImage ? (
++          <View style={[styles.posterPill, { backgroundColor: pillBackground, borderColor: pillBorder }]}>
++            <AppText style={styles.posterPillText} numberOfLines={1}>{badgeLabel}</AppText>
++          </View>
++        ) : (
++          <SemanticBadge label={badgeLabel} tone={tone} size="sm" />
++        )}
++        {mediaCounter ? (
++          <View style={[styles.counterPill, hasImage ? { backgroundColor: pillBackground, borderColor: pillBorder } : { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++            <AppText style={[styles.counterText, { color: hasImage ? '#FFFFFF' : theme.color.muted }]}>{mediaCounter}</AppText>
++          </View>
++        ) : null}
++      </View>
++
++      <PosterCardFooter
++        enabled={hasImage}
++        style={[styles.copy, hasImage && styles.posterCopy]}
++        surfaceStyle={styles.posterFooterSurface}
++        contentStyle={styles.posterFooterContent}
++      >
++        <AppText style={[styles.title, { color: posterTitleColor }]} numberOfLines={3}>{title}</AppText>
++        {description ? <AppText style={[styles.description, { color: posterBodyColor }]} numberOfLines={3}>{description}</AppText> : null}
++        {meta ? <AppText style={[styles.meta, { color: posterBodyColor }]} numberOfLines={2}>{meta}</AppText> : null}
++      </PosterCardFooter>
++    </Pressable>
++  );
++}
++
++export function ExploreConceptSquareDeck({
++  conceptId,
++  title,
++  description,
++  meta,
++  badgeLabel,
++  tone,
++  media,
++  staticMap,
++  accessibilityLabel,
++  onOpen,
++  style,
++}: ExploreConceptSquareDeckProps) {
++  const cards = useMemo(() => buildConceptCards(conceptId, media, staticMap), [conceptId, media, staticMap]);
++
++  return (
++    <View style={[styles.container, style]}>
++      <ContinuousSquareStackDeck<ExploreConceptCard>
++        cards={cards}
++        renderCard={({ card, index, total }) => (
++          <ConceptCardView
++            card={card}
++            cardIndex={index}
++            cardTotal={total}
++            title={title}
++            description={description}
++            meta={meta}
++            badgeLabel={badgeLabel}
++            tone={tone}
++            staticMap={staticMap}
++            accessibilityLabel={accessibilityLabel}
++            onOpen={onOpen}
++          />
++        )}
++        renderWindow="visible"
++        showDebugBadge={false}
++        depthEffect="motionOnly"
++        availableHeight={MOBILE_TRADE_DECK_AVAILABLE_HEIGHT}
++        maxCardSize={MOBILE_TRADE_DECK_MAX_CARD_SIZE}
++      />
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  container: {
++    alignItems: 'center',
++    justifyContent: 'center',
++    overflow: 'visible',
++    zIndex: 2,
++    elevation: 2,
++  },
++  card: {
++    flex: 1,
++    alignSelf: 'stretch',
++    borderRadius: POSTER_CARD_GEOMETRY.cardRadius,
++    overflow: 'hidden',
++    padding: POSTER_CARD_GEOMETRY.contentInset,
++    justifyContent: 'space-between',
++  },
++  image: {
++    ...StyleSheet.absoluteFillObject,
++  },
++  imageScrim: {
++    ...StyleSheet.absoluteFillObject,
++    backgroundColor: 'rgba(0,0,0,0.16)',
++  },
++  fallbackVisual: {
++    ...StyleSheet.absoluteFillObject,
++    alignItems: 'center',
++    justifyContent: 'center',
++    gap: 18,
++    opacity: 0.88,
++  },
++  fallbackIcon: {
++    width: 82,
++    height: 82,
++    borderRadius: 999,
++    borderWidth: StyleSheet.hairlineWidth,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  fallbackLine: {
++    width: '34%',
++    height: 10,
++    borderRadius: 999,
++    opacity: 0.65,
++  },
++  fallbackLineWide: {
++    width: '56%',
++  },
++  topRow: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'space-between',
++    gap: 8,
++  },
++  posterPill: {
++    minHeight: POSTER_CARD_GEOMETRY.topPillMinHeight,
++    maxWidth: POSTER_CARD_GEOMETRY.topPillMaxWidth,
++    borderRadius: 999,
++    borderWidth: StyleSheet.hairlineWidth,
++    paddingHorizontal: POSTER_CARD_GEOMETRY.topPillPaddingHorizontal,
++    paddingVertical: POSTER_CARD_GEOMETRY.topPillPaddingVertical,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  posterPillText: {
++    color: '#FFFFFF',
++    fontSize: POSTER_CARD_GEOMETRY.topPillFontSize,
++    lineHeight: POSTER_CARD_GEOMETRY.topPillLineHeight,
++    fontWeight: '900',
++    letterSpacing: POSTER_CARD_GEOMETRY.topPillLetterSpacing,
++  },
++  counterPill: {
++    minHeight: POSTER_CARD_GEOMETRY.topPillMinHeight,
++    borderRadius: 999,
++    borderWidth: StyleSheet.hairlineWidth,
++    paddingHorizontal: 9,
++    paddingVertical: 4,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  counterText: {
++    fontSize: 10.5,
++    lineHeight: 13,
++    fontWeight: '900',
++    letterSpacing: 0.55,
++  },
++  copy: {
++    gap: 5,
++  },
++  posterCopy: {
++    marginHorizontal: POSTER_CARD_GEOMETRY.footerBleed,
++    marginBottom: POSTER_CARD_GEOMETRY.footerBleed,
++  },
++  posterFooterSurface: {
++    borderRadius: POSTER_CARD_GEOMETRY.footerRadius,
++  },
++  posterFooterContent: {
++    paddingHorizontal: POSTER_CARD_GEOMETRY.footerContentPaddingHorizontal,
++    paddingTop: POSTER_CARD_GEOMETRY.footerContentPaddingTop,
++    paddingBottom: POSTER_CARD_GEOMETRY.footerContentPaddingBottom,
++    gap: POSTER_CARD_GEOMETRY.footerContentGap,
++  },
++  title: {
++    ...DECK_CARD_TYPOGRAPHY.title,
++  },
++  description: {
++    fontSize: 13,
++    lineHeight: 18,
++    fontWeight: '600',
++  },
++  meta: {
++    ...DECK_CARD_TYPOGRAPHY.meta,
++  },
++  pressed: {
++    opacity: 0.92,
++  },
++});
+diff --git a/apps/mobile/src/features/explore/ExploreInventoryIdeaDetailScreen.tsx b/apps/mobile/src/features/explore/ExploreInventoryIdeaDetailScreen.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..68284e89ac6ff9d6f395d2d2334333b2cb7a9f1b
+--- /dev/null
++++ b/apps/mobile/src/features/explore/ExploreInventoryIdeaDetailScreen.tsx
+@@ -0,0 +1,286 @@
++import React, { useCallback, useEffect, useMemo, useState } from 'react';
++import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
++import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
++import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
++import type { InventoryTemplateDto } from '@hellowhen/contracts';
++import type { RootStackParamList } from '../../navigation/RootNavigator';
++import { api } from '../../lib/api';
++import { getFriendlyApiErrorMessage } from '../../lib/errors';
++import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
++import { AppHeader } from '../../components/AppHeader';
++import { AppText } from '../../components/AppText';
++import {
++  DetailBottomActionBar,
++  DetailEmptyState,
++  DetailHero,
++  DetailImageGrid,
++  DetailInfoList,
++  DetailMetadataChips,
++  DetailSection,
++} from '../../components/detail';
++import { useAuth } from '../../providers/AuthProvider';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++import { useTranslation } from '../../providers/MobileI18nProvider';
++import {
++  availabilityPresetLabel,
++  categoryLabel,
++  durationPresetLabel,
++  itemTypeLabel,
++  modeLabel,
++} from '../trade/components/InventoryFormFields';
++import { resolveMediaVariantUrl } from '../trade/mediaUrls';
++
++type InventoryIdeaKind = 'need' | 'offer';
++type TemplateResponse = InventoryTemplateDto | { template?: InventoryTemplateDto };
++type CloneTemplateResponse = { need?: { id?: string }; offer?: { id?: string } };
++type ExploreInventoryAction = 'add' | 'trade' | null;
++type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
++
++function unwrapTemplate(response: TemplateResponse): InventoryTemplateDto | null {
++  if ('template' in response) return response.template ?? null;
++  return response;
++}
++
++function sourceLabel(template: InventoryTemplateDto, t: TFunction) {
++  if (template.businessProfile?.displayName) {
++    return t('inventory.sourceLabels.fromBusiness', { name: template.businessProfile.displayName });
++  }
++  if (template.sourceType === 'brand') return t('inventory.sourceLabels.brandLibrary');
++  if (template.sourceType === 'business') return t('inventory.sourceLabels.companyLibrary');
++  if (template.sourceType === 'partner') return t('inventory.sourceLabels.partnerLibrary');
++  return t('inventory.sourceLabels.hellowhenLibrary');
++}
++
++function templateImages(template: InventoryTemplateDto | null) {
++  return (template?.media ?? [])
++    .filter((media) => media.status === undefined || media.status === 'active')
++    .map((media, index) => ({
++      id: media.id,
++      uri: resolveMediaVariantUrl(media, 'full'),
++      accessibilityLabel: `${template?.title ?? ''} ${index + 1}`.trim(),
++    }))
++    .filter((image) => Boolean(image.uri));
++}
++
++function ExploreInventoryIdeaDetailScreen({
++  kind,
++  templateId,
++  fallbackTitle,
++}: {
++  kind: InventoryIdeaKind;
++  templateId: string;
++  fallbackTitle?: string;
++}) {
++  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
++  const theme = useThemeTokens();
++  const auth = useAuth();
++  const { t } = useTranslation();
++  const [template, setTemplate] = useState<InventoryTemplateDto | null>(null);
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState<string | null>(null);
++  const [copiedItemId, setCopiedItemId] = useState<string | null>(null);
++  const [action, setAction] = useState<ExploreInventoryAction>(null);
++  const [actionError, setActionError] = useState<string | null>(null);
++
++  const label = kind === 'need' ? t('inventory.labels.need') : t('inventory.labels.offer');
++  const headerTitle = `${t('common.librarySegments.explore')} · ${label}`;
++
++  const loadTemplate = useCallback(async () => {
++    setLoading(true);
++    setError(null);
++    try {
++      const response = await api.inventoryTemplates.get(templateId) as TemplateResponse;
++      const nextTemplate = unwrapTemplate(response);
++      if (!nextTemplate || nextTemplate.kind !== kind || nextTemplate.status !== 'active') {
++        throw new Error(t('inventory.errors.apiMissingItem', { item: label }));
++      }
++      setTemplate(nextTemplate);
++    } catch (caughtError) {
++      setTemplate(null);
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setLoading(false);
++    }
++  }, [kind, label, t, templateId]);
++
++  useEffect(() => {
++    void loadTemplate();
++  }, [loadTemplate]);
++
++  useEffect(() => {
++    setCopiedItemId(null);
++    setActionError(null);
++  }, [kind, templateId]);
++
++  const ensureUserCopy = useCallback(async () => {
++    if (copiedItemId) return copiedItemId;
++    if (!template) throw new Error(t('inventory.errors.starterLibraryCouldNotLoad'));
++
++    const response = await api.inventoryTemplates.clone(template.id, { status: 'active' }) as CloneTemplateResponse;
++    const nextId = kind === 'need' ? response.need?.id : response.offer?.id;
++    if (!nextId) throw new Error(t('inventory.errors.apiMissingItem', { item: label }));
++    setCopiedItemId(nextId);
++    return nextId;
++  }, [copiedItemId, kind, label, t, template]);
++
++  const requireSignedIn = useCallback(() => {
++    if (auth.isAuthenticated) return true;
++    navigation.navigate('Login');
++    return false;
++  }, [auth.isAuthenticated, navigation]);
++
++  const addToMine = useCallback(async () => {
++    if (!requireSignedIn() || copiedItemId || action) return;
++    setAction('add');
++    setActionError(null);
++    try {
++      await ensureUserCopy();
++    } catch (caughtError) {
++      setActionError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setAction(null);
++    }
++  }, [action, copiedItemId, ensureUserCopy, requireSignedIn]);
++
++  const startTrade = useCallback(async () => {
++    if (!requireSignedIn() || action) return;
++    setAction('trade');
++    setActionError(null);
++    try {
++      const itemId = await ensureUserCopy();
++      navigation.navigate('CreateTrade', kind === 'need'
++        ? { initialPostType: 'need_offer', initialNeedSelection: { side: 'need', kind: 'need', id: itemId } }
++        : { initialPostType: 'need_offer', initialOfferSelection: { side: 'offer', kind: 'offer', id: itemId } });
++    } catch (caughtError) {
++      setActionError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setAction(null);
++    }
++  }, [action, ensureUserCopy, kind, navigation, requireSignedIn]);
++
++  const images = useMemo(() => templateImages(template), [template]);
++  const detailChips = useMemo(() => {
++    if (!template) return [];
++    return [
++      itemTypeLabel(template.itemType ?? 'service', t),
++      categoryLabel(template.category, t),
++      template.mode ? modeLabel(template.mode, t) : '',
++    ].filter(Boolean);
++  }, [t, template]);
++  const timing = template
++    ? (kind === 'need' ? template.timing : template.availability)
++    : null;
++  const availability = template ? availabilityPresetLabel(template.availabilityPreset, t) : '';
++  const duration = template ? durationPresetLabel(template.durationPreset, t) : '';
++
++  return (
++    <AppFixedHeaderScreen
++      header={<AppHeader title={headerTitle} onBack={() => navigation.goBack()} />}
++      bodyStyle={styles.body}
++    >
++      {loading ? (
++        <View style={styles.centered} accessibilityRole="progressbar">
++          <ActivityIndicator color={theme.color.text} />
++          <AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('common.states.loading')}</AppText>
++        </View>
++      ) : error || !template ? (
++        <View style={styles.stateWrap}>
++          <DetailEmptyState
++            icon={kind === 'need' ? 'need' : 'offer'}
++            title={t('inventory.errors.unavailable', { item: label })}
++            body={error ?? t('inventory.errors.starterLibraryCouldNotLoad')}
++            actionLabel={t('common.actions.tryAgain')}
++            onAction={() => { void loadTemplate(); }}
++          />
++        </View>
++      ) : (
++        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
++          <DetailHero
++            eyebrow={`${t('common.librarySegments.explore')} · ${label}`}
++            title={template.title || fallbackTitle || label}
++            subtitle={template.description}
++            meta={sourceLabel(template, t)}
++          >
++            <DetailMetadataChips chips={detailChips} compact />
++          </DetailHero>
++
++          <DetailSection title={t('inventory.labels.details')}>
++            <DetailInfoList
++              rows={[
++                {
++                  label: kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability'),
++                  value: timing || availability,
++                },
++                ...(timing && availability ? [{ label: t('inventory.libraryFilters.availability'), value: availability }] : []),
++                { label: t('inventory.libraryFilters.duration'), value: duration },
++                { label: t('inventory.labels.location'), value: template.locationLabel },
++              ]}
++            />
++          </DetailSection>
++
++          {template.tags?.length ? (
++            <DetailSection title={t('inventory.labels.tags')}>
++              <DetailMetadataChips chips={template.tags} compact />
++            </DetailSection>
++          ) : null}
++
++          {kind === 'offer' && template.includes?.length ? (
++            <DetailSection title={t('inventory.labels.includes')}>
++              <View style={styles.list}>
++                {template.includes.map((item, index) => (
++                  <AppText key={`${template.id}-include-${index}`} style={styles.listItem}>• {item}</AppText>
++                ))}
++              </View>
++            </DetailSection>
++          ) : null}
++
++          {images.length ? (
++            <DetailSection title={t('inventory.labels.images')}>
++              <DetailImageGrid images={images} maxVisible={5} />
++            </DetailSection>
++          ) : null}
++
++          <DetailBottomActionBar
++            layout="primaryBelow"
++            helper={actionError ?? (copiedItemId ? t('common.exploreActions.addedHelper') : t('common.exploreActions.helper'))}
++            secondary={[{
++              label: copiedItemId
++                ? t(kind === 'need' ? 'common.exploreActions.addedNeed' : 'common.exploreActions.addedOffer')
++                : action === 'add'
++                  ? t('common.states.saving')
++                  : t(kind === 'need' ? 'common.exploreActions.addNeed' : 'common.exploreActions.addOffer'),
++              disabled: Boolean(copiedItemId || action),
++              onPress: () => { void addToMine(); },
++            }]}
++            primary={{
++              label: t('common.exploreActions.startTrade'),
++              loading: action === 'trade',
++              disabled: Boolean(action === 'add'),
++              onPress: () => { void startTrade(); },
++            }}
++          />
++        </ScrollView>
++      )}
++    </AppFixedHeaderScreen>
++  );
++}
++
++export function ExploreNeedIdeaDetailScreen() {
++  const route = useRoute<RouteProp<RootStackParamList, 'NeedIdeaDetail'>>();
++  return <ExploreInventoryIdeaDetailScreen kind="need" templateId={route.params.templateId} fallbackTitle={route.params.title} />;
++}
++
++export function ExploreOfferIdeaDetailScreen() {
++  const route = useRoute<RouteProp<RootStackParamList, 'OfferIdeaDetail'>>();
++  return <ExploreInventoryIdeaDetailScreen kind="offer" templateId={route.params.templateId} fallbackTitle={route.params.title} />;
++}
++
++const styles = StyleSheet.create({
++  body: { minHeight: 0 },
++  content: { paddingBottom: 36 },
++  centered: { flex: 1, minHeight: 220, alignItems: 'center', justifyContent: 'center', gap: 10 },
++  loadingText: { fontSize: 14, fontWeight: '700' },
++  stateWrap: { flex: 1, justifyContent: 'center', paddingVertical: 24 },
++  list: { gap: 8 },
++  listItem: { fontSize: 15, lineHeight: 21, fontWeight: '600' },
++});
+diff --git a/apps/mobile/src/features/explore/ExploreScreen.tsx b/apps/mobile/src/features/explore/ExploreScreen.tsx
+index 733027ea24876c760e17ac35f736e0d60788668c..2e4032793f921e9faf0c6e520dcf540fdcc495b0 100644
+--- a/apps/mobile/src/features/explore/ExploreScreen.tsx
++++ b/apps/mobile/src/features/explore/ExploreScreen.tsx
+@@ -1,5 +1,5 @@
+-import React, { useMemo } from 'react';
+-import { FlatList, StyleSheet, View } from 'react-native';
++import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
++import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-native';
+ import { useNavigation } from '@react-navigation/native';
+-import type { PlanDto } from '@hellowhen/contracts';
++import type { InventoryTemplateDto, PlaceDto, PlanDto } from '@hellowhen/contracts';
+ import { starterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type StarterPlanIdea } from '@hellowhen/shared';
+@@ -9,2 +9,3 @@ import { AccountHeaderActionButton } from '../../components/AccountHeaderActionB
+ import { AppText } from '../../components/AppText';
++import { api } from '../../lib/api';
+ import { betaFeatures } from '../../lib/betaFeatures';
+@@ -16,10 +17,72 @@ import { TradeFeedIdeaCard } from '../trade/TradeDeckFeedScreen';
+ import { feedTradeIdeaKeys, feedTradeIdeas, type FeedTradeIdeaKey } from '../trade/tradeFeedIdeas';
+-import { MOBILE_DECK_FEED_GAP } from '../trade/components/tradeDeckGeometry';
++import { MOBILE_DECK_FEED_GAP, MOBILE_TRADE_DECK_AVAILABLE_HEIGHT } from '../trade/components/tradeDeckGeometry';
++import { categoryLabel, itemTypeLabel, modeLabel } from '../trade/components/InventoryFormFields';
++import { ExploreConceptSquareDeck } from './ExploreConceptSquareDeck';
+ 
++const EXPLORE_DISCOVERY_LIMIT = 12;
+ const tradeExploreIdeaKeys = feedTradeIdeaKeys.filter((ideaKey) => feedTradeIdeas[ideaKey].type === 'trade') as readonly FeedTradeIdeaKey[];
+ 
++type ExploreConceptKind = 'trade' | 'plan' | 'need' | 'offer' | 'place';
++type InventoryTemplatesResponse = { templates?: InventoryTemplateDto[] };
++type PlacesResponse = { places?: PlaceDto[] };
++type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
++
+ type ExploreFeedItem =
+-  | { kind: 'section'; key: string; section: 'trade' | 'plan'; count: number }
+-  | { kind: 'trade'; key: string; ideaKey: FeedTradeIdeaKey; index: number; total: number }
+-  | { kind: 'plan'; key: string; ideaKey: (typeof starterPlanIdeaKeys)[number]; idea: StarterPlanIdea; preview: PlanDto; index: number; total: number };
++  | { kind: 'trade'; key: string; ideaKey: FeedTradeIdeaKey }
++  | { kind: 'plan'; key: string; ideaKey: (typeof starterPlanIdeaKeys)[number]; idea: StarterPlanIdea; preview: PlanDto }
++  | { kind: 'need'; key: string; template: InventoryTemplateDto }
++  | { kind: 'offer'; key: string; template: InventoryTemplateDto }
++  | { kind: 'place'; key: string; place: PlaceDto };
++
++const EXPLORE_MIX_KIND_ORDER: readonly ExploreConceptKind[] = ['trade', 'place', 'need', 'plan', 'offer'];
++
++function hashExploreMixValue(value: string) {
++  let hash = 2166136261;
++  for (let index = 0; index < value.length; index += 1) {
++    hash ^= value.charCodeAt(index);
++    hash = Math.imul(hash, 16777619);
++  }
++  return hash >>> 0;
++}
++
++function orderExploreQueue(items: readonly ExploreFeedItem[], kind: ExploreConceptKind, seed: number) {
++  return [...items].sort((left, right) => {
++    const rankDelta = hashExploreMixValue(`${seed}:${kind}:${left.key}`) - hashExploreMixValue(`${seed}:${kind}:${right.key}`);
++    return rankDelta || left.key.localeCompare(right.key);
++  });
++}
++
++function buildBalancedMixedFeed(groups: Record<ExploreConceptKind, ExploreFeedItem[]>, seed: number) {
++  const queues = Object.fromEntries(EXPLORE_MIX_KIND_ORDER.map((kind) => (
++    [kind, orderExploreQueue(groups[kind], kind, seed)]
++  ))) as Record<ExploreConceptKind, ExploreFeedItem[]>;
++  const mixed: ExploreFeedItem[] = [];
++  let cycle = 0;
++  let previousKind: ExploreConceptKind | null = null;
++
++  while (EXPLORE_MIX_KIND_ORDER.some((kind) => queues[kind].length > 0)) {
++    const availableKinds = EXPLORE_MIX_KIND_ORDER.filter((kind) => queues[kind].length > 0);
++    const cycleKinds = [...availableKinds].sort((left, right) => (
++      hashExploreMixValue(`${seed}:${cycle}:${left}`) - hashExploreMixValue(`${seed}:${cycle}:${right}`)
++    ));
++
++    if (previousKind && cycleKinds.length > 1 && cycleKinds[0] === previousKind) {
++      const alternateIndex = cycleKinds.findIndex((kind) => kind !== previousKind);
++      if (alternateIndex > 0) {
++        const [alternate] = cycleKinds.splice(alternateIndex, 1);
++        if (alternate) cycleKinds.unshift(alternate);
++      }
++    }
++
++    for (const kind of cycleKinds) {
++      const item = queues[kind].shift();
++      if (!item) continue;
++      mixed.push(item);
++      previousKind = kind;
++    }
++    cycle += 1;
++  }
++
++  return mixed;
++}
+ 
+@@ -66,2 +129,34 @@ function planIdeaPreviewPlan(idea: StarterPlanIdea): PlanDto {
+ 
++function normalizeTemplates(value: unknown, kind: 'need' | 'offer') {
++  const templates = value && typeof value === 'object' && Array.isArray((value as InventoryTemplatesResponse).templates)
++    ? (value as InventoryTemplatesResponse).templates ?? []
++    : [];
++  return templates.filter((template) => template.kind === kind && template.sourceType === 'hellowhen' && template.status === 'active');
++}
++
++function normalizePlaces(value: unknown) {
++  const places = value && typeof value === 'object' && Array.isArray((value as PlacesResponse).places)
++    ? (value as PlacesResponse).places ?? []
++    : [];
++  return places.filter((place) => place.source === 'hellowhen_library' && place.visibility === 'library' && place.status === 'active');
++}
++
++function inventoryMeta(template: InventoryTemplateDto, t: TFunction) {
++  return [
++    itemTypeLabel(template.itemType ?? 'service', t),
++    categoryLabel(template.category, t),
++    template.kind === 'need' ? template.timing : template.availability,
++    template.mode ? modeLabel(template.mode, t) : null,
++    template.locationLabel,
++  ].filter(Boolean).join(' · ');
++}
++
++function placeMeta(place: PlaceDto, t: TFunction) {
++  const mode = place.mode === 'remote' ? t('plans.deck.online') : t('plans.deck.offline');
++  const location = place.mode === 'remote'
++    ? place.onlineLabel || place.onlineUrl
++    : place.areaLabel || place.addressPublicText || place.formattedAddress;
++  return [mode, place.category, location].filter(Boolean).join(' · ');
++}
++
+ export function ExploreScreen() {
+@@ -69,22 +164,52 @@ export function ExploreScreen() {
+   const theme = useThemeTokens();
+-  const { t } = useTranslation();
+-
+-  const feedItems = useMemo<ExploreFeedItem[]>(() => {
+-    const items: ExploreFeedItem[] = [
+-      { kind: 'section', key: 'trade-ideas-section', section: 'trade', count: tradeExploreIdeaKeys.length },
+-      ...tradeExploreIdeaKeys.map((ideaKey, index) => ({
+-        kind: 'trade' as const,
+-        key: `trade-idea-${ideaKey}`,
+-        ideaKey,
+-        index,
+-        total: tradeExploreIdeaKeys.length,
+-      })),
+-    ];
++  const { t, language } = useTranslation();
++  const [needTemplates, setNeedTemplates] = useState<InventoryTemplateDto[]>([]);
++  const [offerTemplates, setOfferTemplates] = useState<InventoryTemplateDto[]>([]);
++  const [hellowhenPlaces, setHellowhenPlaces] = useState<PlaceDto[]>([]);
++  const [discoveryLoading, setDiscoveryLoading] = useState(true);
++  const [discoveryLoaded, setDiscoveryLoaded] = useState(false);
++  const [discoveryHasError, setDiscoveryHasError] = useState(false);
++  const discoveryRequestSequence = useRef(0);
++  const discoveryMixSeed = useRef(Date.now()).current;
++
++  const loadDiscovery = useCallback(async () => {
++    const requestId = ++discoveryRequestSequence.current;
++    setDiscoveryLoading(true);
++    setDiscoveryHasError(false);
++    const placeRequest = betaFeatures.plansEnabled && betaFeatures.plansVisible
++      ? api.places.library({ take: EXPLORE_DISCOVERY_LIMIT })
++      : Promise.resolve({ places: [] });
++    const [needsResult, offersResult, placesResult] = await Promise.allSettled([
++      api.inventoryTemplates.list({ kind: 'need', sourceType: 'hellowhen', language, take: EXPLORE_DISCOVERY_LIMIT }),
++      api.inventoryTemplates.list({ kind: 'offer', sourceType: 'hellowhen', language, take: EXPLORE_DISCOVERY_LIMIT }),
++      placeRequest,
++    ]);
++
++    if (requestId !== discoveryRequestSequence.current) return;
++    if (needsResult.status === 'fulfilled') setNeedTemplates(normalizeTemplates(needsResult.value, 'need'));
++    if (offersResult.status === 'fulfilled') setOfferTemplates(normalizeTemplates(offersResult.value, 'offer'));
++    if (placesResult.status === 'fulfilled') setHellowhenPlaces(normalizePlaces(placesResult.value));
++    setDiscoveryHasError([needsResult, offersResult, placesResult].some((result) => result.status === 'rejected'));
++    setDiscoveryLoaded(true);
++    setDiscoveryLoading(false);
++  }, [language]);
++
++  useEffect(() => {
++    void loadDiscovery();
++    return () => { discoveryRequestSequence.current += 1; };
++  }, [loadDiscovery]);
++
++  const staticConceptGroups = useMemo(() => {
++    const tradeItems: ExploreFeedItem[] = tradeExploreIdeaKeys.map((ideaKey) => ({
++      kind: 'trade',
++      key: `trade-idea-${ideaKey}`,
++      ideaKey,
++    }));
++    const planItems: ExploreFeedItem[] = [];
+ 
+     if (betaFeatures.plansEnabled && betaFeatures.plansVisible) {
+-      items.push({ kind: 'section', key: 'plan-ideas-section', section: 'plan', count: starterPlanIdeaKeys.length });
+-      starterPlanIdeaKeys.forEach((ideaKey, index) => {
++      starterPlanIdeaKeys.forEach((ideaKey) => {
+         const idea = starterPlanIdeas[ideaKey];
+         if (!idea) return;
+-        items.push({
++        planItems.push({
+           kind: 'plan',
+@@ -94,4 +219,2 @@ export function ExploreScreen() {
+           preview: planIdeaPreviewPlan(idea),
+-          index,
+-          total: starterPlanIdeaKeys.length,
+         });
+@@ -100,5 +223,17 @@ export function ExploreScreen() {
+ 
+-    return items;
++    return { trade: tradeItems, plan: planItems };
+   }, []);
+ 
++  const mixedFeedItems = useMemo<ExploreFeedItem[]>(() => buildBalancedMixedFeed({
++    trade: staticConceptGroups.trade,
++    plan: staticConceptGroups.plan,
++    need: needTemplates.map((template) => ({ kind: 'need' as const, key: `need-idea-${template.id}`, template })),
++    offer: offerTemplates.map((template) => ({ kind: 'offer' as const, key: `offer-idea-${template.id}`, template })),
++    place: betaFeatures.plansEnabled && betaFeatures.plansVisible
++      ? hellowhenPlaces.map((place) => ({ kind: 'place' as const, key: `hellowhen-place-${place.id}`, place }))
++      : [],
++  }, discoveryMixSeed), [discoveryMixSeed, hellowhenPlaces, needTemplates, offerTemplates, staticConceptGroups]);
++  const feedItems = discoveryLoaded ? mixedFeedItems : [];
++
++  const discoveryItemCount = needTemplates.length + offerTemplates.length + hellowhenPlaces.length;
+   const header = (
+@@ -110,2 +245,24 @@ export function ExploreScreen() {
+ 
++  const footer = discoveryLoading ? (
++    <View style={styles.discoveryState}>
++      <ActivityIndicator />
++      <AppText style={[styles.discoveryStateText, { color: theme.color.muted }]}>{t('common.exploreDiscovery.loading')}</AppText>
++    </View>
++  ) : discoveryHasError ? (
++    <View style={styles.discoveryState}>
++      <AppText style={[styles.discoveryStateText, { color: theme.color.muted }]}>{t('common.exploreDiscovery.partialError')}</AppText>
++      <Pressable
++        accessibilityRole="button"
++        onPress={() => void loadDiscovery()}
++        style={({ pressed }) => [styles.retryButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}
++      >
++        <AppText style={styles.retryButtonText}>{t('common.actions.tryAgain')}</AppText>
++      </Pressable>
++    </View>
++  ) : discoveryLoaded && discoveryItemCount === 0 ? (
++    <View style={styles.discoveryState}>
++      <AppText style={[styles.discoveryStateText, { color: theme.color.muted }]}>{t('common.exploreDiscovery.empty')}</AppText>
++    </View>
++  ) : null;
++
+   return (
+@@ -121,11 +278,11 @@ export function ExploreScreen() {
+         removeClippedSubviews={false}
+-        renderItem={({ item }) => {
+-          if (item.kind === 'section') {
+-            const isPlanSection = item.section === 'plan';
++        ListFooterComponent={footer}
++        renderItem={({ item, index: feedIndex }) => {
++          if (item.kind === 'trade') {
+             return (
+-              <View style={[styles.sectionHeader, isPlanSection && styles.followingSectionHeader]}>
+-                <AppText accessibilityRole="header" style={styles.sectionTitle}>
+-                  {isPlanSection ? t('plans.workspace.planIdeas.title') : t('trade.feedIdeas.badge')}
+-                </AppText>
+-                <AppText style={[styles.sectionCount, { color: theme.color.muted }]}>{item.count}</AppText>
++              <View style={[styles.conceptDeck, feedIndex === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
++                <TradeFeedIdeaCard
++                  ideaKey={item.ideaKey}
++                  onOpenIdea={(ideaKey) => navigation.navigate('TradeIdeaDetail', { ideaId: ideaKey })}
++                />
+               </View>
+@@ -134,8 +291,34 @@ export function ExploreScreen() {
+ 
+-          if (item.kind === 'trade') {
++          if (item.kind === 'plan') {
+             return (
+-              <View style={[styles.conceptDeck, item.index === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
+-                <TradeFeedIdeaCard
+-                  ideaKey={item.ideaKey}
+-                  onOpenIdea={(ideaKey) => navigation.navigate('TradeIdeaDetail', { ideaId: ideaKey })}
++              <View style={[styles.conceptDeck, feedIndex === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
++                <PlanSquareDeck
++                  plan={item.preview}
++                  index={0}
++                  total={1}
++                  onOpen={() => navigation.navigate('PlanIdeaDetail', { ideaId: item.ideaKey })}
++                  topBadgeLabel={t('plans.deck.ideaBadge', { pack: item.idea.pack })}
++                  topBadgeTone="plan"
++                  showModeBadge={false}
++                />
++              </View>
++            );
++          }
++
++          if (item.kind === 'need' || item.kind === 'offer') {
++            const isNeed = item.kind === 'need';
++            const template = item.template;
++            const badgeLabel = t(isNeed ? 'common.exploreDiscovery.needBadge' : 'common.exploreDiscovery.offerBadge');
++            return (
++              <View style={[styles.conceptDeck, feedIndex === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
++                <ExploreConceptSquareDeck
++                  conceptId={`inventory-template-${template.id}`}
++                  title={template.title}
++                  description={template.description}
++                  meta={inventoryMeta(template, t)}
++                  badgeLabel={badgeLabel}
++                  tone={isNeed ? 'need' : 'offer'}
++                  media={template.media}
++                  accessibilityLabel={`${badgeLabel}: ${template.title}`}
++                  onOpen={() => navigation.navigate(isNeed ? 'NeedIdeaDetail' : 'OfferIdeaDetail', { templateId: template.id, title: template.title })}
+                 />
+@@ -145,12 +328,16 @@ export function ExploreScreen() {
+ 
++          const badgeLabel = t('common.exploreDiscovery.placeBadge');
+           return (
+-            <View style={[styles.conceptDeck, item.index === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
+-              <PlanSquareDeck
+-                plan={item.preview}
+-                index={item.index}
+-                total={item.total}
+-                onOpen={() => navigation.navigate('PlanIdeaDetail', { ideaId: item.ideaKey })}
+-                topBadgeLabel={t('plans.deck.ideaBadge', { pack: item.idea.pack })}
+-                topBadgeTone="plan"
+-                showModeBadge={false}
++            <View style={[styles.conceptDeck, feedIndex === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
++              <ExploreConceptSquareDeck
++                conceptId={`hellowhen-place-${item.place.id}`}
++                title={item.place.title}
++                description={item.place.description}
++                meta={placeMeta(item.place, t)}
++                badgeLabel={badgeLabel}
++                tone="place"
++                media={item.place.media}
++                staticMap={item.place.staticMap}
++                accessibilityLabel={`${badgeLabel}: ${item.place.title}`}
++                onOpen={() => navigation.navigate('HellowhenPlaceDetail', { placeId: item.place.id, title: item.place.title })}
+               />
+@@ -168,9 +355,10 @@ const styles = StyleSheet.create({
+   content: { paddingTop: 8, paddingBottom: 44 },
+-  sectionHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
+-  followingSectionHeader: { marginTop: 36 },
+-  sectionTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900', letterSpacing: -0.25 },
+-  sectionCount: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
+-  conceptDeck: { alignItems: 'center', justifyContent: 'center', overflow: 'visible' },
++  conceptDeck: { minHeight: MOBILE_TRADE_DECK_AVAILABLE_HEIGHT, alignItems: 'center', justifyContent: 'center', overflow: 'visible' },
+   firstConceptDeck: { marginTop: 14 },
+   nextConceptDeck: { marginTop: MOBILE_DECK_FEED_GAP },
++  discoveryState: { alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 24, paddingTop: 28 },
++  discoveryStateText: { textAlign: 'center', fontSize: 13, lineHeight: 18, fontWeight: '700' },
++  retryButton: { minHeight: 40, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
++  retryButtonText: { fontSize: 13, lineHeight: 17, fontWeight: '900' },
++  pressed: { opacity: 0.88 },
+ });
+diff --git a/apps/mobile/src/features/explore/HellowhenPlaceDetailScreen.tsx b/apps/mobile/src/features/explore/HellowhenPlaceDetailScreen.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..457773ffb5b15584c05cebca70270a6ab0cbb7bd
+--- /dev/null
++++ b/apps/mobile/src/features/explore/HellowhenPlaceDetailScreen.tsx
+@@ -0,0 +1,275 @@
++import React, { useCallback, useEffect, useMemo, useState } from 'react';
++import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
++import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
++import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
++import type { CreatePlaceRequest, DiscoveryLanguage, PlaceDto, PlaceResponse } from '@hellowhen/contracts';
++import { resolveInventoryOriginalCopy } from '@hellowhen/shared';
++import type { RootStackParamList } from '../../navigation/RootNavigator';
++import { api } from '../../lib/api';
++import { getFriendlyApiErrorMessage } from '../../lib/errors';
++import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
++import { AppHeader } from '../../components/AppHeader';
++import { AppText } from '../../components/AppText';
++import {
++  DetailBottomActionBar,
++  DetailEmptyState,
++  DetailHero,
++  DetailImageGrid,
++  DetailInfoList,
++  DetailMetadataChips,
++  DetailSection,
++} from '../../components/detail';
++import { useAuth } from '../../providers/AuthProvider';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++import { useTranslation } from '../../providers/MobileI18nProvider';
++import { resolveMediaVariantUrl } from '../trade/mediaUrls';
++
++
++function normalizeDiscoveryLanguage(value?: string | null): DiscoveryLanguage {
++  if (value === 'fr' || value === 'es') return value;
++  return 'en';
++}
++
++function buildPrivatePlaceCopyRequest(place: PlaceDto): CreatePlaceRequest {
++  const mode = place.mode === 'remote' ? 'remote' : 'local';
++  const original = resolveInventoryOriginalCopy(place);
++  const defaultLanguage = normalizeDiscoveryLanguage(original.defaultLanguage);
++  const translations = (original.translations ?? []).flatMap((translation) => {
++    const languageCode = translation.languageCode === 'en' || translation.languageCode === 'fr' || translation.languageCode === 'es'
++      ? translation.languageCode
++      : null;
++    const title = translation.title?.trim();
++    const description = translation.description?.trim();
++    if (!languageCode || languageCode === defaultLanguage || !title || !description) return [];
++    return [{ languageCode, title, description }];
++  });
++
++  return {
++    source: 'user',
++    visibility: 'private',
++    status: 'active',
++    mode,
++    title: original.title,
++    description: original.description?.trim() || undefined,
++    defaultLanguage,
++    translations,
++    category: place.category ?? undefined,
++    tags: place.tags ?? undefined,
++    defaultDurationMinutes: place.defaultDurationMinutes ?? undefined,
++    defaultNote: place.defaultNote ?? undefined,
++    ...(mode === 'remote' ? {
++      onlineLabel: place.onlineLabel ?? undefined,
++      onlineUrl: place.onlineUrl ?? undefined,
++    } : {
++      areaLabel: place.areaLabel ?? undefined,
++      addressPublicText: place.formattedAddress ?? place.addressPublicText ?? undefined,
++      googlePlaceId: place.googlePlaceId ?? undefined,
++      googlePlaceName: place.googlePlaceName ?? undefined,
++      formattedAddress: place.formattedAddress ?? undefined,
++      googleMapsUri: place.googleMapsUri ?? undefined,
++      latitude: place.latitude ?? undefined,
++      longitude: place.longitude ?? undefined,
++      locationSource: place.locationSource ?? undefined,
++      addressValidationStatus: place.addressValidationStatus ?? undefined,
++    }),
++  };
++}
++
++function placeImages(place: PlaceDto | null) {
++  return (place?.media ?? [])
++    .filter((media) => media.status === undefined || media.status === 'active')
++    .map((media, index) => ({
++      id: media.id,
++      uri: resolveMediaVariantUrl(media, 'full'),
++      accessibilityLabel: `${place?.title ?? ''} ${index + 1}`.trim(),
++    }))
++    .filter((image) => Boolean(image.uri));
++}
++
++export function HellowhenPlaceDetailScreen() {
++  const route = useRoute<RouteProp<RootStackParamList, 'HellowhenPlaceDetail'>>();
++  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
++  const theme = useThemeTokens();
++  const auth = useAuth();
++  const { t } = useTranslation();
++  const [place, setPlace] = useState<PlaceDto | null>(null);
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState<string | null>(null);
++  const [copiedPlace, setCopiedPlace] = useState<PlaceDto | null>(null);
++  const [action, setAction] = useState<'add' | 'plan' | null>(null);
++  const [actionError, setActionError] = useState<string | null>(null);
++
++  const loadPlace = useCallback(async () => {
++    setLoading(true);
++    setError(null);
++    try {
++      const response = await api.places.get(route.params.placeId) as PlaceResponse;
++      const nextPlace = response.place;
++      if (!nextPlace || nextPlace.source !== 'hellowhen_library' || nextPlace.visibility !== 'library' || nextPlace.status !== 'active') {
++        throw new Error(t('places.list.errors.load'));
++      }
++      setPlace(nextPlace);
++    } catch (caughtError) {
++      setPlace(null);
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setLoading(false);
++    }
++  }, [route.params.placeId, t]);
++
++  useEffect(() => {
++    void loadPlace();
++  }, [loadPlace]);
++
++  useEffect(() => {
++    setCopiedPlace(null);
++    setActionError(null);
++  }, [route.params.placeId]);
++
++  const ensurePrivateCopy = useCallback(async () => {
++    if (copiedPlace) return copiedPlace;
++    if (!place) throw new Error(t('places.list.errors.load'));
++
++    const response = await api.places.create(buildPrivatePlaceCopyRequest(place)) as PlaceResponse;
++    const nextPlace = response.place;
++    if (!nextPlace || nextPlace.source !== 'user' || nextPlace.visibility !== 'private') {
++      throw new Error(t('places.list.errors.load'));
++    }
++    setCopiedPlace(nextPlace);
++    return nextPlace;
++  }, [copiedPlace, place, t]);
++
++  const requireSignedIn = useCallback(() => {
++    if (auth.isAuthenticated) return true;
++    navigation.navigate('Login');
++    return false;
++  }, [auth.isAuthenticated, navigation]);
++
++  const addToMyPlaces = useCallback(async () => {
++    if (!requireSignedIn() || copiedPlace || action) return;
++    setAction('add');
++    setActionError(null);
++    try {
++      await ensurePrivateCopy();
++    } catch (caughtError) {
++      setActionError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setAction(null);
++    }
++  }, [action, copiedPlace, ensurePrivateCopy, requireSignedIn]);
++
++  const startPlan = useCallback(async () => {
++    if (!requireSignedIn() || action) return;
++    setAction('plan');
++    setActionError(null);
++    try {
++      const privatePlace = await ensurePrivateCopy();
++      navigation.navigate('CreatePlan', { createdPlace: privatePlace, createdPlaceNonce: Date.now() });
++    } catch (caughtError) {
++      setActionError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setAction(null);
++    }
++  }, [action, ensurePrivateCopy, navigation, requireSignedIn]);
++
++  const images = useMemo(() => placeImages(place), [place]);
++  const modeLabel = place?.mode === 'remote' ? t('places.list.badges.online') : t('places.list.badges.offline');
++  const publicAddress = place?.addressPublicText || place?.formattedAddress || place?.areaLabel || '';
++
++  return (
++    <AppFixedHeaderScreen
++      header={<AppHeader title={t('places.list.segments.library')} onBack={() => navigation.goBack()} />}
++      bodyStyle={styles.body}
++    >
++      {loading ? (
++        <View style={styles.centered} accessibilityRole="progressbar">
++          <ActivityIndicator color={theme.color.text} />
++          <AppText style={[styles.loadingText, { color: theme.color.muted }]}>{t('common.states.loading')}</AppText>
++        </View>
++      ) : error || !place ? (
++        <View style={styles.stateWrap}>
++          <DetailEmptyState
++            icon="location-on"
++            title={t('places.list.empty.libraryTitle')}
++            body={error ?? t('places.list.errors.load')}
++            actionLabel={t('common.actions.tryAgain')}
++            onAction={() => { void loadPlace(); }}
++          />
++        </View>
++      ) : (
++        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
++          <DetailHero
++            eyebrow={t('places.list.segments.library')}
++            title={place.title || route.params.title || t('places.list.badges.library')}
++            subtitle={place.description || t('places.list.fallback.description')}
++            meta={t('places.list.badges.library')}
++          >
++            <DetailMetadataChips
++              compact
++              chips={[
++                modeLabel,
++                place.category ?? '',
++                place.areaLabel ?? '',
++              ].filter(Boolean)}
++            />
++          </DetailHero>
++
++          <DetailSection title={t('inventory.labels.details')}>
++            <DetailInfoList
++              rows={[
++                { label: t('inventory.labels.category'), value: place.category },
++                { label: t('places.editor.fields.address'), value: place.mode === 'remote' ? null : publicAddress },
++                { label: t('places.editor.fields.onlineLabel'), value: place.mode === 'remote' ? (place.onlineLabel || place.onlineUrl) : null },
++                { label: t('inventory.libraryFilters.duration'), value: place.defaultDurationMinutes ? `${place.defaultDurationMinutes} min` : null },
++              ]}
++            />
++          </DetailSection>
++
++          {place.tags?.length ? (
++            <DetailSection title={t('inventory.labels.tags')}>
++              <DetailMetadataChips chips={place.tags} compact />
++            </DetailSection>
++          ) : null}
++
++          {place.defaultMeetingInstructions ? (
++            <DetailSection title={t('places.editor.fields.description')} description={place.defaultMeetingInstructions} />
++          ) : null}
++
++          {images.length ? (
++            <DetailSection title={t('places.editor.image.title')}>
++              <DetailImageGrid images={images} maxVisible={6} />
++            </DetailSection>
++          ) : null}
++
++          <DetailBottomActionBar
++            layout="primaryBelow"
++            helper={actionError ?? (copiedPlace ? t('common.exploreActions.addedHelper') : t('common.exploreActions.helper'))}
++            secondary={[{
++              label: copiedPlace
++                ? t('common.exploreActions.addedPlace')
++                : action === 'add'
++                  ? t('common.states.saving')
++                  : t('common.exploreActions.addPlace'),
++              disabled: Boolean(copiedPlace || action),
++              onPress: () => { void addToMyPlaces(); },
++            }]}
++            primary={{
++              label: t('common.exploreActions.startPlan'),
++              loading: action === 'plan',
++              disabled: Boolean(action === 'add'),
++              onPress: () => { void startPlan(); },
++            }}
++          />
++        </ScrollView>
++      )}
++    </AppFixedHeaderScreen>
++  );
++}
++
++const styles = StyleSheet.create({
++  body: { minHeight: 0 },
++  content: { paddingBottom: 36 },
++  centered: { flex: 1, minHeight: 220, alignItems: 'center', justifyContent: 'center', gap: 10 },
++  loadingText: { fontSize: 14, fontWeight: '700' },
++  stateWrap: { flex: 1, justifyContent: 'center', paddingVertical: 24 },
++});
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index 93683a072f38b95ddc63ae6876c168870af07e36..730098b8786d8d6d0496be57dceb0cde7a0c9bf9 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -5,2 +5,4 @@ import { AccountScreen } from '../features/account/AccountScreen';
+ import { ExploreScreen } from '../features/explore/ExploreScreen';
++import { ExploreNeedIdeaDetailScreen, ExploreOfferIdeaDetailScreen } from '../features/explore/ExploreInventoryIdeaDetailScreen';
++import { HellowhenPlaceDetailScreen } from '../features/explore/HellowhenPlaceDetailScreen';
+ import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen';
+@@ -34,2 +36,3 @@ export type RootStackParamList = {
+   PlaceLibrary: undefined;
++  HellowhenPlaceDetail: { placeId: string; title?: string };
+   CreatePlan: { createdPlace?: PlaceDto; createdPlaceTargetIndex?: number; createdPlaceNonce?: number; updatedPlace?: PlaceDto; updatedPlaceTargetIndex?: number; updatedPlaceNonce?: number; updatedPlaceSelectAfterFix?: boolean; initialPlanIdeaKey?: string } | undefined;
+@@ -54,2 +57,3 @@ export type RootStackParamList = {
+   NeedDetail: { needId: string; title?: string };
++  NeedIdeaDetail: { templateId: string; title?: string };
+   CreateOffer: InventoryCreateParams;
+@@ -57,2 +61,3 @@ export type RootStackParamList = {
+   OfferDetail: { offerId: string; title?: string };
++  OfferIdeaDetail: { templateId: string; title?: string };
+   CreateTrade: TradeCreateReturnParams;
+@@ -78,2 +83,5 @@ export function RootNavigator() {
+       <Stack.Screen name="TradeIdeaDetail" component={TradeIdeaDetailScreen} />
++      <Stack.Screen name="NeedIdeaDetail" component={ExploreNeedIdeaDetailScreen} />
++      <Stack.Screen name="OfferIdeaDetail" component={ExploreOfferIdeaDetailScreen} />
++      {betaFeatures.plansEnabled ? <Stack.Screen name="HellowhenPlaceDetail" component={HellowhenPlaceDetailScreen} /> : null}
+       <Stack.Screen name="UserProfile" component={PublicUserProfileScreen} />
+diff --git a/packages/i18n/src/locales/en/common.ts b/packages/i18n/src/locales/en/common.ts
+index 1e78368f66ec4a101a11f730effc6b36a760e8db..2b77fba6c3a4aa9b9a1387072297002546485717 100644
+--- a/packages/i18n/src/locales/en/common.ts
++++ b/packages/i18n/src/locales/en/common.ts
+@@ -5,2 +5,25 @@ export const common = {
+   },
++  exploreActions: {
++    addNeed: 'Add to My Needs',
++    addOffer: 'Add to My Offers',
++    addPlace: 'Add to My Places',
++    addedNeed: 'Added to My Needs',
++    addedOffer: 'Added to My Offers',
++    addedPlace: 'Added to My Places',
++    startTrade: 'Start a Trade',
++    startPlan: 'Start a Plan',
++    helper: 'Creates an editable copy in Mine first. Nothing is published automatically.',
++    addedHelper: 'Saved to Mine. The direct create action will reuse this copy.',
++  },
++  exploreDiscovery: {
++    needSection: 'Need ideas',
++    offerSection: 'Offer ideas',
++    placeSection: 'Hellowhen Places',
++    needBadge: 'NEED IDEA',
++    offerBadge: 'OFFER IDEA',
++    placeBadge: 'HELLOWHEN PLACE',
++    loading: 'Loading Need, Offer, and Place ideas...',
++    partialError: 'Some Hellowhen discovery content could not be loaded.',
++    empty: 'More Need, Offer, and Place ideas are coming soon.',
++  },
+   actions: {
+diff --git a/packages/i18n/src/locales/es/common.ts b/packages/i18n/src/locales/es/common.ts
+index f39c2adaed3e309ad5fdeac2100ee043d785d0ae..fc4462fc44af69d070621bed8de3cbab56b4ab4a 100644
+--- a/packages/i18n/src/locales/es/common.ts
++++ b/packages/i18n/src/locales/es/common.ts
+@@ -8,2 +8,26 @@ export const common = {
+   },
++  exploreActions: {
++    ...enCommon.exploreActions,
++    addNeed: 'Añadir a Mis necesidades',
++    addOffer: 'Añadir a Mis ofertas',
++    addPlace: 'Añadir a Mis lugares',
++    addedNeed: 'Añadido a Mis necesidades',
++    addedOffer: 'Añadido a Mis ofertas',
++    addedPlace: 'Añadido a Mis lugares',
++    startTrade: 'Iniciar un intercambio',
++    startPlan: 'Iniciar un plan',
++    helper: 'Primero crea una copia editable en tu espacio personal. Nada se publica automáticamente.',
++    addedHelper: 'Guardado en tu espacio personal. La acción directa reutilizará esta copia.',
++  },
++  exploreDiscovery: {
++    needSection: 'Ideas de necesidad',
++    offerSection: 'Ideas de oferta',
++    placeSection: 'Lugares Hellowhen',
++    needBadge: 'IDEA DE NECESIDAD',
++    offerBadge: 'IDEA DE OFERTA',
++    placeBadge: 'LUGAR HELLOWHEN',
++    loading: 'Cargando ideas de necesidades, ofertas y lugares...',
++    partialError: 'No se pudo cargar parte del contenido de descubrimiento de Hellowhen.',
++    empty: 'Pronto habrá más ideas de necesidades, ofertas y lugares.',
++  },
+   actions: {
+diff --git a/packages/i18n/src/locales/fr/common.ts b/packages/i18n/src/locales/fr/common.ts
+index b00ca2141abba5fda84220de2fddce12f25349da..3ed80caa6618e5ea8bb7c9137f6a392ce43ff0c3 100644
+--- a/packages/i18n/src/locales/fr/common.ts
++++ b/packages/i18n/src/locales/fr/common.ts
+@@ -5,2 +5,25 @@ export const common = {
+   },
++  exploreActions: {
++    addNeed: 'Ajouter à mes besoins',
++    addOffer: 'Ajouter à mes offres',
++    addPlace: 'Ajouter à mes lieux',
++    addedNeed: 'Ajouté à mes besoins',
++    addedOffer: 'Ajouté à mes offres',
++    addedPlace: 'Ajouté à mes lieux',
++    startTrade: 'Démarrer un échange',
++    startPlan: 'Démarrer un plan',
++    helper: 'Crée d’abord une copie modifiable dans votre espace personnel. Rien n’est publié automatiquement.',
++    addedHelper: 'Enregistré dans votre espace personnel. L’action directe réutilisera cette copie.',
++  },
++  exploreDiscovery: {
++    needSection: 'Idées de besoin',
++    offerSection: 'Idées d’offre',
++    placeSection: 'Lieux Hellowhen',
++    needBadge: 'IDÉE BESOIN',
++    offerBadge: 'IDÉE OFFRE',
++    placeBadge: 'LIEU HELLOWHEN',
++    loading: 'Chargement des idées de besoins, d’offres et de lieux...',
++    partialError: 'Une partie du contenu de découverte Hellowhen n’a pas pu être chargée.',
++    empty: 'D’autres idées de besoins, d’offres et de lieux arrivent bientôt.',
++  },
+   actions: {

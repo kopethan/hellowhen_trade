@@ -14,7 +14,7 @@ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import type { AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
 import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
-import { AppHeaderActionButton } from '../../components/AppHeaderActionButton';
+import { AccountHeaderActionButton } from '../../components/AccountHeaderActionButton';
 import { AppText } from '../../components/AppText';
 import { EMPTY_LIBRARY_HEADER_CONTROLS_STATE, LibraryActiveFilterChips, LibraryFilterGroup, LibraryFilterOption, LibraryFilterScreen, LibraryHeaderActions, LibraryInlineSearch, LibrarySearchFilterRow, SlidingSegmentedControl, useScopedLibraryState, type LibraryHeaderControlsHandle, type LibraryHeaderControlsState } from '../../components/library';
 import { AppConfirmSheet } from '../../components/AppConfirmSheet';
@@ -1931,13 +1931,8 @@ function PlanList({ scope, navigation, filters = [], searchQuery = '', focusStar
 
   const isDeckFeed = scope === 'feed';
   const hasActiveSearchOrFilters = Boolean(activeFilters.length || activeSearchQuery);
-  const starterIdeas = useMemo(() => selectStarterPlanIdeaKeys({
-    realPlanCount: plans.length,
-    hasActiveSearchOrFilters: !isDeckFeed || hasActiveSearchOrFilters,
-    userKey: auth.user?.id ?? anonymousStarterKey,
-    refreshKey: starterRefreshKey,
-    recentIdeaIds: recentStarterIdeaIds,
-  }), [anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, isDeckFeed, plans.length, recentStarterIdeaIds.join('|'), starterRefreshKey]);
+  // Hellowhen starter Plan concepts remain available in Explore, not mixed into the real Plans feed.
+  const starterIdeas = useMemo<StarterPlanIdeaKey[]>(() => [], []);
   const feedItems = useMemo(() => buildPlanFeedItems(plans.length, starterIdeas), [plans.length, starterIdeas.join('|')]);
   const hasPreservedContent = hasSuccessfulLoad && (plans.length > 0 || starterIdeas.length > 0);
 
@@ -2575,6 +2570,7 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
         <HeaderAction icon="filter" label={activeFilterCount ? t('plans.feed.actions.filterActive', { count: activeFilterCount }) : t('plans.feed.actions.filter')} badgeCount={activeFilterCount} onPress={() => { setMenuOpen(false); navigation.navigate('PlanFilters', { filters: activeFilters, q: activeSearchQuery || undefined }); }} />
         <HeaderAction icon="activity" label={t('plans.feed.actions.menu')} onPress={() => setMenuOpen(true)} />
         <HeaderAction icon="add" label={t('plans.feed.actions.create')} primaryTone="plan" iconSize={23} onPress={() => navigation.navigate('CreatePlan')} />
+        <AccountHeaderActionButton onPress={() => { setMenuOpen(false); navigation.navigate('Account'); }} />
       </View>
     </View>
   );

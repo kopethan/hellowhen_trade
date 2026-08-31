@@ -1,0 +1,715 @@
+diff --git a/apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx b/apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx
+new file mode 100644
+index 0000000..7b6861f
+--- /dev/null
++++ b/apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx
+@@ -0,0 +1,316 @@
++import React, { useMemo } from 'react';
++import { Image, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
++import type { MediaAssetDto, PlaceStaticMapDto } from '@hellowhen/contracts';
++import type { SemanticColorName } from '@hellowhen/theme';
++import { AppText } from '../../components/AppText';
++import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
++import { DECK_CARD_TYPOGRAPHY, POSTER_CARD_GEOMETRY } from '../../components/PosterCardGeometry';
++import { PosterCardFooter } from '../../components/PosterCardFooter';
++import { SemanticBadge } from '../../components/SemanticUI';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++import { ContinuousSquareStackDeck, type SquareStackDeckCard } from '../trade/deck';
++import { resolveMediaVariantUrl } from '../trade/mediaUrls';
++import { MOBILE_TRADE_DECK_AVAILABLE_HEIGHT, MOBILE_TRADE_DECK_MAX_CARD_SIZE } from '../trade/components/tradeDeckGeometry';
++
++type ExploreConceptTone = Extract<SemanticColorName, 'need' | 'offer' | 'place'>;
++
++type ExploreConceptCard = SquareStackDeckCard & {
++  media?: MediaAssetDto;
++  useStaticMap?: boolean;
++};
++
++type ExploreConceptSquareDeckProps = {
++  conceptId: string;
++  title: string;
++  description?: string | null;
++  meta?: string | null;
++  badgeLabel: string;
++  tone: ExploreConceptTone;
++  media?: MediaAssetDto[];
++  staticMap?: PlaceStaticMapDto | null;
++  accessibilityLabel: string;
++  onOpen: () => void;
++  style?: StyleProp<ViewStyle>;
++};
++
++function activeConceptMedia(media: MediaAssetDto[] | undefined) {
++  return (media ?? []).filter((asset) => asset.status === 'active' && Boolean(asset.url));
++}
++
++function buildConceptCards(conceptId: string, media: MediaAssetDto[] | undefined, staticMap: PlaceStaticMapDto | null | undefined): ExploreConceptCard[] {
++  const activeMedia = activeConceptMedia(media);
++  if (activeMedia.length > 0) {
++    return activeMedia.map((asset) => ({ id: `${conceptId}:media:${asset.id}`, media: asset }));
++  }
++  if (staticMap) return [{ id: `${conceptId}:static-map`, useStaticMap: true }];
++  return [{ id: `${conceptId}:fallback` }];
++}
++
++function staticMapUrlForTheme(staticMap: PlaceStaticMapDto | null | undefined, themeMode: 'light' | 'dark') {
++  if (!staticMap) return null;
++  return themeMode === 'dark'
++    ? staticMap.darkUrl || staticMap.lightUrl || null
++    : staticMap.lightUrl || staticMap.darkUrl || null;
++}
++
++function conceptIcon(tone: ExploreConceptTone): MobileIconName {
++  if (tone === 'need') return 'need';
++  if (tone === 'offer') return 'offer';
++  return 'location-on';
++}
++
++function ConceptCardView({
++  card,
++  cardIndex,
++  cardTotal,
++  title,
++  description,
++  meta,
++  badgeLabel,
++  tone,
++  staticMap,
++  accessibilityLabel,
++  onOpen,
++}: {
++  card: ExploreConceptCard;
++  cardIndex: number;
++  cardTotal: number;
++  title: string;
++  description?: string | null;
++  meta?: string | null;
++  badgeLabel: string;
++  tone: ExploreConceptTone;
++  staticMap?: PlaceStaticMapDto | null;
++  accessibilityLabel: string;
++  onOpen: () => void;
++}) {
++  const theme = useThemeTokens();
++  const imageUrl = card.media
++    ? resolveMediaVariantUrl(card.media, 'card')
++    : card.useStaticMap
++      ? staticMapUrlForTheme(staticMap, theme.mode)
++      : null;
++  const semantic = theme.semantic[tone];
++  const hasImage = Boolean(imageUrl);
++  const posterTitleColor = hasImage ? '#FFFFFF' : theme.color.text;
++  const posterBodyColor = hasImage ? 'rgba(255,255,255,0.88)' : theme.color.muted;
++  const pillBackground = hasImage ? 'rgba(8,12,18,0.28)' : undefined;
++  const pillBorder = hasImage ? 'rgba(255,255,255,0.12)' : undefined;
++  const mediaCounter = cardTotal > 1 ? `${String(cardIndex + 1).padStart(2, '0')}/${String(cardTotal).padStart(2, '0')}` : null;
++
++  return (
++    <Pressable
++      accessibilityRole="button"
++      accessibilityLabel={accessibilityLabel}
++      onPress={onOpen}
++      style={({ pressed }) => [
++        styles.card,
++        {
++          backgroundColor: hasImage ? '#0B1016' : semantic.softBg,
++          borderColor: hasImage ? 'transparent' : semantic.border,
++          borderWidth: hasImage ? 0 : StyleSheet.hairlineWidth,
++        },
++        pressed && styles.pressed,
++      ]}
++    >
++      {imageUrl ? <Image source={{ uri: imageUrl }} resizeMode="cover" style={styles.image} /> : null}
++      {hasImage ? <View pointerEvents="none" style={styles.imageScrim} /> : null}
++      {!hasImage ? (
++        <View pointerEvents="none" style={styles.fallbackVisual}>
++          <View style={[styles.fallbackIcon, { backgroundColor: semantic.bg, borderColor: semantic.border }]}>
++            <MobileIcon name={conceptIcon(tone)} size={34} color={semantic.onBg} decorative />
++          </View>
++          <View style={[styles.fallbackLine, styles.fallbackLineWide, { backgroundColor: semantic.border }]} />
++          <View style={[styles.fallbackLine, { backgroundColor: semantic.border }]} />
++        </View>
++      ) : null}
++
++      <View style={styles.topRow}>
++        {hasImage ? (
++          <View style={[styles.posterPill, { backgroundColor: pillBackground, borderColor: pillBorder }]}>
++            <AppText style={styles.posterPillText} numberOfLines={1}>{badgeLabel}</AppText>
++          </View>
++        ) : (
++          <SemanticBadge label={badgeLabel} tone={tone} size="sm" />
++        )}
++        {mediaCounter ? (
++          <View style={[styles.counterPill, hasImage ? { backgroundColor: pillBackground, borderColor: pillBorder } : { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++            <AppText style={[styles.counterText, { color: hasImage ? '#FFFFFF' : theme.color.muted }]}>{mediaCounter}</AppText>
++          </View>
++        ) : null}
++      </View>
++
++      <PosterCardFooter
++        enabled={hasImage}
++        style={[styles.copy, hasImage && styles.posterCopy]}
++        surfaceStyle={styles.posterFooterSurface}
++        contentStyle={styles.posterFooterContent}
++      >
++        <AppText style={[styles.title, { color: posterTitleColor }]} numberOfLines={3}>{title}</AppText>
++        {description ? <AppText style={[styles.description, { color: posterBodyColor }]} numberOfLines={3}>{description}</AppText> : null}
++        {meta ? <AppText style={[styles.meta, { color: posterBodyColor }]} numberOfLines={2}>{meta}</AppText> : null}
++      </PosterCardFooter>
++    </Pressable>
++  );
++}
++
++export function ExploreConceptSquareDeck({
++  conceptId,
++  title,
++  description,
++  meta,
++  badgeLabel,
++  tone,
++  media,
++  staticMap,
++  accessibilityLabel,
++  onOpen,
++  style,
++}: ExploreConceptSquareDeckProps) {
++  const cards = useMemo(() => buildConceptCards(conceptId, media, staticMap), [conceptId, media, staticMap]);
++
++  return (
++    <View style={[styles.container, style]}>
++      <ContinuousSquareStackDeck<ExploreConceptCard>
++        cards={cards}
++        renderCard={({ card, index, total }) => (
++          <ConceptCardView
++            card={card}
++            cardIndex={index}
++            cardTotal={total}
++            title={title}
++            description={description}
++            meta={meta}
++            badgeLabel={badgeLabel}
++            tone={tone}
++            staticMap={staticMap}
++            accessibilityLabel={accessibilityLabel}
++            onOpen={onOpen}
++          />
++        )}
++        renderWindow="visible"
++        showDebugBadge={false}
++        depthEffect="motionOnly"
++        availableHeight={MOBILE_TRADE_DECK_AVAILABLE_HEIGHT}
++        maxCardSize={MOBILE_TRADE_DECK_MAX_CARD_SIZE}
++      />
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  container: {
++    alignItems: 'center',
++    justifyContent: 'center',
++    overflow: 'visible',
++    zIndex: 2,
++    elevation: 2,
++  },
++  card: {
++    flex: 1,
++    alignSelf: 'stretch',
++    borderRadius: POSTER_CARD_GEOMETRY.cardRadius,
++    overflow: 'hidden',
++    padding: POSTER_CARD_GEOMETRY.contentInset,
++    justifyContent: 'space-between',
++  },
++  image: {
++    ...StyleSheet.absoluteFillObject,
++  },
++  imageScrim: {
++    ...StyleSheet.absoluteFillObject,
++    backgroundColor: 'rgba(0,0,0,0.16)',
++  },
++  fallbackVisual: {
++    ...StyleSheet.absoluteFillObject,
++    alignItems: 'center',
++    justifyContent: 'center',
++    gap: 18,
++    opacity: 0.88,
++  },
++  fallbackIcon: {
++    width: 82,
++    height: 82,
++    borderRadius: 999,
++    borderWidth: StyleSheet.hairlineWidth,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  fallbackLine: {
++    width: '34%',
++    height: 10,
++    borderRadius: 999,
++    opacity: 0.65,
++  },
++  fallbackLineWide: {
++    width: '56%',
++  },
++  topRow: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'space-between',
++    gap: 8,
++  },
++  posterPill: {
++    minHeight: POSTER_CARD_GEOMETRY.topPillMinHeight,
++    maxWidth: POSTER_CARD_GEOMETRY.topPillMaxWidth,
++    borderRadius: 999,
++    borderWidth: StyleSheet.hairlineWidth,
++    paddingHorizontal: POSTER_CARD_GEOMETRY.topPillPaddingHorizontal,
++    paddingVertical: POSTER_CARD_GEOMETRY.topPillPaddingVertical,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  posterPillText: {
++    color: '#FFFFFF',
++    fontSize: POSTER_CARD_GEOMETRY.topPillFontSize,
++    lineHeight: POSTER_CARD_GEOMETRY.topPillLineHeight,
++    fontWeight: '900',
++    letterSpacing: POSTER_CARD_GEOMETRY.topPillLetterSpacing,
++  },
++  counterPill: {
++    minHeight: POSTER_CARD_GEOMETRY.topPillMinHeight,
++    borderRadius: 999,
++    borderWidth: StyleSheet.hairlineWidth,
++    paddingHorizontal: 9,
++    paddingVertical: 4,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  counterText: {
++    fontSize: 10.5,
++    lineHeight: 13,
++    fontWeight: '900',
++    letterSpacing: 0.55,
++  },
++  copy: {
++    gap: 5,
++  },
++  posterCopy: {
++    marginHorizontal: POSTER_CARD_GEOMETRY.footerBleed,
++    marginBottom: POSTER_CARD_GEOMETRY.footerBleed,
++  },
++  posterFooterSurface: {
++    borderRadius: POSTER_CARD_GEOMETRY.footerRadius,
++  },
++  posterFooterContent: {
++    paddingHorizontal: POSTER_CARD_GEOMETRY.footerContentPaddingHorizontal,
++    paddingTop: POSTER_CARD_GEOMETRY.footerContentPaddingTop,
++    paddingBottom: POSTER_CARD_GEOMETRY.footerContentPaddingBottom,
++    gap: POSTER_CARD_GEOMETRY.footerContentGap,
++  },
++  title: {
++    ...DECK_CARD_TYPOGRAPHY.title,
++  },
++  description: {
++    fontSize: 13,
++    lineHeight: 18,
++    fontWeight: '600',
++  },
++  meta: {
++    ...DECK_CARD_TYPOGRAPHY.meta,
++  },
++  pressed: {
++    opacity: 0.92,
++  },
++});
+diff --git a/apps/mobile/src/features/explore/ExploreScreen.tsx b/apps/mobile/src/features/explore/ExploreScreen.tsx
+index 733027e..576b455 100644
+--- a/apps/mobile/src/features/explore/ExploreScreen.tsx
++++ b/apps/mobile/src/features/explore/ExploreScreen.tsx
+@@ -1,12 +1,13 @@
+-import React, { useMemo } from 'react';
+-import { FlatList, StyleSheet, View } from 'react-native';
++import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
++import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-native';
+ import { useNavigation } from '@react-navigation/native';
+-import type { PlanDto } from '@hellowhen/contracts';
++import type { InventoryTemplateDto, PlaceDto, PlanDto } from '@hellowhen/contracts';
+ import { starterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type StarterPlanIdea } from '@hellowhen/shared';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AccountHeaderActionButton } from '../../components/AccountHeaderActionButton';
+ import { AppText } from '../../components/AppText';
++import { api } from '../../lib/api';
+ import { betaFeatures } from '../../lib/betaFeatures';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+@@ -15,13 +16,24 @@ import { PlanSquareDeck } from '../plans/components/PlanSquareDeck';
+ import { TradeFeedIdeaCard } from '../trade/TradeDeckFeedScreen';
+ import { feedTradeIdeaKeys, feedTradeIdeas, type FeedTradeIdeaKey } from '../trade/tradeFeedIdeas';
+ import { MOBILE_DECK_FEED_GAP } from '../trade/components/tradeDeckGeometry';
++import { categoryLabel, itemTypeLabel, modeLabel } from '../trade/components/InventoryFormFields';
++import { ExploreConceptSquareDeck } from './ExploreConceptSquareDeck';
+ 
++const EXPLORE_DISCOVERY_LIMIT = 12;
+ const tradeExploreIdeaKeys = feedTradeIdeaKeys.filter((ideaKey) => feedTradeIdeas[ideaKey].type === 'trade') as readonly FeedTradeIdeaKey[];
+ 
++type ExploreSection = 'trade' | 'plan' | 'need' | 'offer' | 'place';
++type InventoryTemplatesResponse = { templates?: InventoryTemplateDto[] };
++type PlacesResponse = { places?: PlaceDto[] };
++type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
++
+ type ExploreFeedItem =
+-  | { kind: 'section'; key: string; section: 'trade' | 'plan'; count: number }
++  | { kind: 'section'; key: string; section: ExploreSection; count: number }
+   | { kind: 'trade'; key: string; ideaKey: FeedTradeIdeaKey; index: number; total: number }
+-  | { kind: 'plan'; key: string; ideaKey: (typeof starterPlanIdeaKeys)[number]; idea: StarterPlanIdea; preview: PlanDto; index: number; total: number };
++  | { kind: 'plan'; key: string; ideaKey: (typeof starterPlanIdeaKeys)[number]; idea: StarterPlanIdea; preview: PlanDto; index: number; total: number }
++  | { kind: 'need'; key: string; template: InventoryTemplateDto; index: number; total: number }
++  | { kind: 'offer'; key: string; template: InventoryTemplateDto; index: number; total: number }
++  | { kind: 'place'; key: string; place: PlaceDto; index: number; total: number };
+ 
+ function planIdeaPreviewPlan(idea: StarterPlanIdea): PlanDto {
+   const createdAt = new Date().toISOString();
+@@ -64,12 +76,86 @@ function planIdeaPreviewPlan(idea: StarterPlanIdea): PlanDto {
+   } as PlanDto;
+ }
+ 
++function normalizeTemplates(value: unknown, kind: 'need' | 'offer') {
++  const templates = value && typeof value === 'object' && Array.isArray((value as InventoryTemplatesResponse).templates)
++    ? (value as InventoryTemplatesResponse).templates ?? []
++    : [];
++  return templates.filter((template) => template.kind === kind && template.sourceType === 'hellowhen' && template.status === 'active');
++}
++
++function normalizePlaces(value: unknown) {
++  const places = value && typeof value === 'object' && Array.isArray((value as PlacesResponse).places)
++    ? (value as PlacesResponse).places ?? []
++    : [];
++  return places.filter((place) => place.source === 'hellowhen_library' && place.visibility === 'library' && place.status === 'active');
++}
++
++function inventoryMeta(template: InventoryTemplateDto, t: TFunction) {
++  return [
++    itemTypeLabel(template.itemType ?? 'service', t),
++    categoryLabel(template.category, t),
++    template.kind === 'need' ? template.timing : template.availability,
++    template.mode ? modeLabel(template.mode, t) : null,
++    template.locationLabel,
++  ].filter(Boolean).join(' · ');
++}
++
++function placeMeta(place: PlaceDto, t: TFunction) {
++  const mode = place.mode === 'remote' ? t('plans.deck.online') : t('plans.deck.offline');
++  const location = place.mode === 'remote'
++    ? place.onlineLabel || place.onlineUrl
++    : place.areaLabel || place.addressPublicText || place.formattedAddress;
++  return [mode, place.category, location].filter(Boolean).join(' · ');
++}
++
++function sectionTitle(section: ExploreSection, t: TFunction) {
++  if (section === 'trade') return t('trade.feedIdeas.badge');
++  if (section === 'plan') return t('plans.workspace.planIdeas.title');
++  if (section === 'need') return t('common.exploreDiscovery.needSection');
++  if (section === 'offer') return t('common.exploreDiscovery.offerSection');
++  return t('common.exploreDiscovery.placeSection');
++}
++
+ export function ExploreScreen() {
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const theme = useThemeTokens();
+-  const { t } = useTranslation();
++  const { t, language } = useTranslation();
++  const [needTemplates, setNeedTemplates] = useState<InventoryTemplateDto[]>([]);
++  const [offerTemplates, setOfferTemplates] = useState<InventoryTemplateDto[]>([]);
++  const [hellowhenPlaces, setHellowhenPlaces] = useState<PlaceDto[]>([]);
++  const [discoveryLoading, setDiscoveryLoading] = useState(true);
++  const [discoveryLoaded, setDiscoveryLoaded] = useState(false);
++  const [discoveryHasError, setDiscoveryHasError] = useState(false);
++  const discoveryRequestSequence = useRef(0);
+ 
+-  const feedItems = useMemo<ExploreFeedItem[]>(() => {
++  const loadDiscovery = useCallback(async () => {
++    const requestId = ++discoveryRequestSequence.current;
++    setDiscoveryLoading(true);
++    setDiscoveryHasError(false);
++    const placeRequest = betaFeatures.plansEnabled && betaFeatures.plansVisible
++      ? api.places.library({ take: EXPLORE_DISCOVERY_LIMIT })
++      : Promise.resolve({ places: [] });
++    const [needsResult, offersResult, placesResult] = await Promise.allSettled([
++      api.inventoryTemplates.list({ kind: 'need', sourceType: 'hellowhen', language, take: EXPLORE_DISCOVERY_LIMIT }),
++      api.inventoryTemplates.list({ kind: 'offer', sourceType: 'hellowhen', language, take: EXPLORE_DISCOVERY_LIMIT }),
++      placeRequest,
++    ]);
++
++    if (requestId !== discoveryRequestSequence.current) return;
++    if (needsResult.status === 'fulfilled') setNeedTemplates(normalizeTemplates(needsResult.value, 'need'));
++    if (offersResult.status === 'fulfilled') setOfferTemplates(normalizeTemplates(offersResult.value, 'offer'));
++    if (placesResult.status === 'fulfilled') setHellowhenPlaces(normalizePlaces(placesResult.value));
++    setDiscoveryHasError([needsResult, offersResult, placesResult].some((result) => result.status === 'rejected'));
++    setDiscoveryLoaded(true);
++    setDiscoveryLoading(false);
++  }, [language]);
++
++  useEffect(() => {
++    void loadDiscovery();
++    return () => { discoveryRequestSequence.current += 1; };
++  }, [loadDiscovery]);
++
++  const staticFeedItems = useMemo<ExploreFeedItem[]>(() => {
+     const items: ExploreFeedItem[] = [
+       { kind: 'section', key: 'trade-ideas-section', section: 'trade', count: tradeExploreIdeaKeys.length },
+       ...tradeExploreIdeaKeys.map((ideaKey, index) => ({
+@@ -101,6 +187,28 @@ export function ExploreScreen() {
+     return items;
+   }, []);
+ 
++  const feedItems = useMemo<ExploreFeedItem[]>(() => {
++    const items = [...staticFeedItems];
++
++    if (needTemplates.length > 0) {
++      items.push({ kind: 'section', key: 'need-ideas-section', section: 'need', count: needTemplates.length });
++      needTemplates.forEach((template, index) => items.push({ kind: 'need', key: `need-idea-${template.id}`, template, index, total: needTemplates.length }));
++    }
++
++    if (offerTemplates.length > 0) {
++      items.push({ kind: 'section', key: 'offer-ideas-section', section: 'offer', count: offerTemplates.length });
++      offerTemplates.forEach((template, index) => items.push({ kind: 'offer', key: `offer-idea-${template.id}`, template, index, total: offerTemplates.length }));
++    }
++
++    if (betaFeatures.plansEnabled && betaFeatures.plansVisible && hellowhenPlaces.length > 0) {
++      items.push({ kind: 'section', key: 'hellowhen-places-section', section: 'place', count: hellowhenPlaces.length });
++      hellowhenPlaces.forEach((place, index) => items.push({ kind: 'place', key: `hellowhen-place-${place.id}`, place, index, total: hellowhenPlaces.length }));
++    }
++
++    return items;
++  }, [hellowhenPlaces, needTemplates, offerTemplates, staticFeedItems]);
++
++  const discoveryItemCount = needTemplates.length + offerTemplates.length + hellowhenPlaces.length;
+   const header = (
+     <View style={styles.headerRow}>
+       <AppText accessibilityRole="header" style={styles.title}>{t('navigation.tabs.explore')}</AppText>
+@@ -108,6 +216,28 @@ export function ExploreScreen() {
+     </View>
+   );
+ 
++  const footer = discoveryLoading ? (
++    <View style={styles.discoveryState}>
++      <ActivityIndicator />
++      <AppText style={[styles.discoveryStateText, { color: theme.color.muted }]}>{t('common.exploreDiscovery.loading')}</AppText>
++    </View>
++  ) : discoveryHasError ? (
++    <View style={styles.discoveryState}>
++      <AppText style={[styles.discoveryStateText, { color: theme.color.muted }]}>{t('common.exploreDiscovery.partialError')}</AppText>
++      <Pressable
++        accessibilityRole="button"
++        onPress={() => void loadDiscovery()}
++        style={({ pressed }) => [styles.retryButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}
++      >
++        <AppText style={styles.retryButtonText}>{t('common.actions.tryAgain')}</AppText>
++      </Pressable>
++    </View>
++  ) : discoveryLoaded && discoveryItemCount === 0 ? (
++    <View style={styles.discoveryState}>
++      <AppText style={[styles.discoveryStateText, { color: theme.color.muted }]}>{t('common.exploreDiscovery.empty')}</AppText>
++    </View>
++  ) : null;
++
+   return (
+     <AppFixedHeaderScreen header={header}>
+       <FlatList
+@@ -119,14 +249,13 @@ export function ExploreScreen() {
+         maxToRenderPerBatch={4}
+         windowSize={5}
+         removeClippedSubviews={false}
++        ListFooterComponent={footer}
+         renderItem={({ item }) => {
+           if (item.kind === 'section') {
+-            const isPlanSection = item.section === 'plan';
++            const isFirstSection = item.section === 'trade';
+             return (
+-              <View style={[styles.sectionHeader, isPlanSection && styles.followingSectionHeader]}>
+-                <AppText accessibilityRole="header" style={styles.sectionTitle}>
+-                  {isPlanSection ? t('plans.workspace.planIdeas.title') : t('trade.feedIdeas.badge')}
+-                </AppText>
++              <View style={[styles.sectionHeader, !isFirstSection && styles.followingSectionHeader]}>
++                <AppText accessibilityRole="header" style={styles.sectionTitle}>{sectionTitle(item.section, t)}</AppText>
+                 <AppText style={[styles.sectionCount, { color: theme.color.muted }]}>{item.count}</AppText>
+               </View>
+             );
+@@ -143,16 +272,57 @@ export function ExploreScreen() {
+             );
+           }
+ 
++          if (item.kind === 'plan') {
++            return (
++              <View style={[styles.conceptDeck, item.index === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
++                <PlanSquareDeck
++                  plan={item.preview}
++                  index={item.index}
++                  total={item.total}
++                  onOpen={() => navigation.navigate('PlanIdeaDetail', { ideaId: item.ideaKey })}
++                  topBadgeLabel={t('plans.deck.ideaBadge', { pack: item.idea.pack })}
++                  topBadgeTone="plan"
++                  showModeBadge={false}
++                />
++              </View>
++            );
++          }
++
++          if (item.kind === 'need' || item.kind === 'offer') {
++            const isNeed = item.kind === 'need';
++            const template = item.template;
++            const badgeLabel = t(isNeed ? 'common.exploreDiscovery.needBadge' : 'common.exploreDiscovery.offerBadge');
++            return (
++              <View style={[styles.conceptDeck, item.index === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
++                <ExploreConceptSquareDeck
++                  conceptId={`inventory-template-${template.id}`}
++                  title={template.title}
++                  description={template.description}
++                  meta={inventoryMeta(template, t)}
++                  badgeLabel={badgeLabel}
++                  tone={isNeed ? 'need' : 'offer'}
++                  media={template.media}
++                  accessibilityLabel={`${badgeLabel}: ${template.title}`}
++                  onOpen={() => navigation.navigate(isNeed ? 'NeedIdeaDetail' : 'OfferIdeaDetail', { templateId: template.id, title: template.title })}
++                />
++              </View>
++            );
++          }
++
++          const badgeLabel = t('common.exploreDiscovery.placeBadge');
+           return (
+             <View style={[styles.conceptDeck, item.index === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
+-              <PlanSquareDeck
+-                plan={item.preview}
+-                index={item.index}
+-                total={item.total}
+-                onOpen={() => navigation.navigate('PlanIdeaDetail', { ideaId: item.ideaKey })}
+-                topBadgeLabel={t('plans.deck.ideaBadge', { pack: item.idea.pack })}
+-                topBadgeTone="plan"
+-                showModeBadge={false}
++              <ExploreConceptSquareDeck
++                conceptId={`hellowhen-place-${item.place.id}`}
++                title={item.place.title}
++                description={item.place.description}
++                meta={placeMeta(item.place, t)}
++                badgeLabel={badgeLabel}
++                tone="place"
++                media={item.place.media}
++                staticMap={item.place.staticMap}
++                accessibilityLabel={`${badgeLabel}: ${item.place.title}`}
++                onOpen={() => navigation.navigate('HellowhenPlaceDetail', { placeId: item.place.id, title: item.place.title })}
+               />
+             </View>
+           );
+@@ -173,4 +343,9 @@ const styles = StyleSheet.create({
+   conceptDeck: { alignItems: 'center', justifyContent: 'center', overflow: 'visible' },
+   firstConceptDeck: { marginTop: 14 },
+   nextConceptDeck: { marginTop: MOBILE_DECK_FEED_GAP },
++  discoveryState: { alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 24, paddingTop: 28 },
++  discoveryStateText: { textAlign: 'center', fontSize: 13, lineHeight: 18, fontWeight: '700' },
++  retryButton: { minHeight: 40, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
++  retryButtonText: { fontSize: 13, lineHeight: 17, fontWeight: '900' },
++  pressed: { opacity: 0.88 },
+ });
+diff --git a/packages/i18n/src/locales/en/common.ts b/packages/i18n/src/locales/en/common.ts
+index 943ac10..2b77fba 100644
+--- a/packages/i18n/src/locales/en/common.ts
++++ b/packages/i18n/src/locales/en/common.ts
+@@ -15,4 +15,15 @@ export const common = {
+     helper: 'Creates an editable copy in Mine first. Nothing is published automatically.',
+     addedHelper: 'Saved to Mine. The direct create action will reuse this copy.',
+   },
++  exploreDiscovery: {
++    needSection: 'Need ideas',
++    offerSection: 'Offer ideas',
++    placeSection: 'Hellowhen Places',
++    needBadge: 'NEED IDEA',
++    offerBadge: 'OFFER IDEA',
++    placeBadge: 'HELLOWHEN PLACE',
++    loading: 'Loading Need, Offer, and Place ideas...',
++    partialError: 'Some Hellowhen discovery content could not be loaded.',
++    empty: 'More Need, Offer, and Place ideas are coming soon.',
++  },
+   actions: {
+diff --git a/packages/i18n/src/locales/es/common.ts b/packages/i18n/src/locales/es/common.ts
+index c042116..fc4462f 100644
+--- a/packages/i18n/src/locales/es/common.ts
++++ b/packages/i18n/src/locales/es/common.ts
+@@ -19,4 +19,15 @@ export const common = {
+     helper: 'Primero crea una copia editable en tu espacio personal. Nada se publica automáticamente.',
+     addedHelper: 'Guardado en tu espacio personal. La acción directa reutilizará esta copia.',
+   },
++  exploreDiscovery: {
++    needSection: 'Ideas de necesidad',
++    offerSection: 'Ideas de oferta',
++    placeSection: 'Lugares Hellowhen',
++    needBadge: 'IDEA DE NECESIDAD',
++    offerBadge: 'IDEA DE OFERTA',
++    placeBadge: 'LUGAR HELLOWHEN',
++    loading: 'Cargando ideas de necesidades, ofertas y lugares...',
++    partialError: 'No se pudo cargar parte del contenido de descubrimiento de Hellowhen.',
++    empty: 'Pronto habrá más ideas de necesidades, ofertas y lugares.',
++  },
+   actions: {
+diff --git a/packages/i18n/src/locales/fr/common.ts b/packages/i18n/src/locales/fr/common.ts
+index 790d551..3ed80ca 100644
+--- a/packages/i18n/src/locales/fr/common.ts
++++ b/packages/i18n/src/locales/fr/common.ts
+@@ -15,4 +15,15 @@ export const common = {
+     helper: 'Crée d’abord une copie modifiable dans votre espace personnel. Rien n’est publié automatiquement.',
+     addedHelper: 'Enregistré dans votre espace personnel. L’action directe réutilisera cette copie.',
+   },
++  exploreDiscovery: {
++    needSection: 'Idées de besoin',
++    offerSection: 'Idées d’offre',
++    placeSection: 'Lieux Hellowhen',
++    needBadge: 'IDÉE BESOIN',
++    offerBadge: 'IDÉE OFFRE',
++    placeBadge: 'LIEU HELLOWHEN',
++    loading: 'Chargement des idées de besoins, d’offres et de lieux...',
++    partialError: 'Une partie du contenu de découverte Hellowhen n’a pas pu être chargée.',
++    empty: 'D’autres idées de besoins, d’offres et de lieux arrivent bientôt.',
++  },
+   actions: {
+diff --git a/scripts/mobile-app-review-smoke.mjs b/scripts/mobile-app-review-smoke.mjs
+index 01713b6..d37e42c 100644
+--- a/scripts/mobile-app-review-smoke.mjs
++++ b/scripts/mobile-app-review-smoke.mjs
+@@ -19,4 +19,15 @@ function runIphoneAndIpadShellChecks() {
+   assertContains('apps/mobile/src/features/explore/HellowhenPlaceDetailScreen.tsx', "visibility: 'private'", 'The submitted Explore Place action must save only a private user-owned copy.');
+   assertContains('apps/mobile/src/features/explore/HellowhenPlaceDetailScreen.tsx', "navigation.navigate('CreatePlan'", 'The submitted Explore Place action must enter the existing Plan create flow with the copied Place.');
+   assertNotContains('apps/mobile/src/features/explore/HellowhenPlaceDetailScreen.tsx', 'api.plans.create(', 'The submitted Explore Place detail must never auto-publish a Plan.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "kind: 'need'", 'The submitted Explore surface must expose independent Need idea concepts.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "kind: 'offer'", 'The submitted Explore surface must expose independent Offer idea concepts.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "kind: 'place'", 'The submitted Explore surface must expose independent Hellowhen Place concepts.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<ExploreConceptSquareDeck', 'The submitted Explore surface must use square decks for Need, Offer, and Place discovery.');
++  assertContains('apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx', '<ContinuousSquareStackDeck<ExploreConceptCard>', 'The submitted discovery decks must reuse the production square-stack interaction system.');
++  assertContains('apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx', "resolveMediaVariantUrl(card.media, 'card')", 'The submitted discovery decks must render only media owned by the underlying concept.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate(isNeed ? 'NeedIdeaDetail' : 'OfferIdeaDetail'", 'The submitted Need/Offer discovery cards must open the public detail/action flows.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('HellowhenPlaceDetail'", 'The submitted Place discovery cards must open the Hellowhen Place detail/action flow.');
++  assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'api.trades.create(', 'The submitted Explore feed must never auto-publish Trades.');
++  assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'api.plans.create(', 'The submitted Explore feed must never auto-publish Plans.');
++
+ }
+diff --git a/scripts/mobile-launch-smoke.mjs b/scripts/mobile-launch-smoke.mjs
+index 607b341..6574692 100644
+--- a/scripts/mobile-launch-smoke.mjs
++++ b/scripts/mobile-launch-smoke.mjs
+@@ -22,4 +22,18 @@ function runNavigationChecks() {
+   assertContains('apps/mobile/src/features/explore/HellowhenPlaceDetailScreen.tsx', 'api.places.create(buildPrivatePlaceCopyRequest(place))', 'Explore Place actions must create a private user-owned copy through the existing Place create API.');
+   assertContains('apps/mobile/src/features/explore/HellowhenPlaceDetailScreen.tsx', "navigation.navigate('CreatePlan'", 'Explore Place detail must support direct Start Plan with the private copy selected.');
+   assertNotContains('apps/mobile/src/features/explore/HellowhenPlaceDetailScreen.tsx', 'api.plans.create(', 'Explore direct Plan actions must stay in the normal Create Plan review flow and never auto-publish.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "kind: 'need'", 'Explore must model Hellowhen Need templates as independent discovery concepts.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "kind: 'offer'", 'Explore must model Hellowhen Offer templates as independent discovery concepts.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "kind: 'place'", 'Explore must model Hellowhen Places as independent discovery concepts.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "api.inventoryTemplates.list({ kind: 'need', sourceType: 'hellowhen'", 'Explore Need discovery must come from the live Hellowhen inventory-template library.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "api.inventoryTemplates.list({ kind: 'offer', sourceType: 'hellowhen'", 'Explore Offer discovery must come from the live Hellowhen inventory-template library.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'api.places.library({ take: EXPLORE_DISCOVERY_LIMIT })', 'Explore Place discovery must reuse the Hellowhen Places library endpoint.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate(isNeed ? 'NeedIdeaDetail' : 'OfferIdeaDetail'", 'Explore Need and Offer decks must open the dedicated public detail flows.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('HellowhenPlaceDetail'", 'Explore Place decks must open the dedicated Hellowhen Place detail flow.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<ExploreConceptSquareDeck', 'Explore Need, Offer, and Place concepts must use their own square deck surface.');
++  assertContains('apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx', '<ContinuousSquareStackDeck<ExploreConceptCard>', 'Explore concept decks must reuse the production square-stack deck system.');
++  assertContains('apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx', "resolveMediaVariantUrl(card.media, 'card')", 'Explore concept decks must render concept-owned media rather than unrelated placeholder imagery.');
++  assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'api.inventoryTemplates.clone(', 'Explore feed cards must remain discovery-only; Add to Mine belongs on detail pages.');
++  assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'api.places.create(', 'Explore feed cards must not create private Places before the user chooses an action on detail.');
++
+ }

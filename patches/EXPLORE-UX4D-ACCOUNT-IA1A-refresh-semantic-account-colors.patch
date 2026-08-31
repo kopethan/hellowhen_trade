@@ -1,0 +1,142 @@
+diff --git a/apps/mobile/src/features/account/AccountScreen.tsx b/apps/mobile/src/features/account/AccountScreen.tsx
+index bb3534c..ad0cc32 100644
+--- a/apps/mobile/src/features/account/AccountScreen.tsx
++++ b/apps/mobile/src/features/account/AccountScreen.tsx
+@@ -3,6 +3,7 @@ import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from '
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { AuthUser } from '@hellowhen/contracts';
++import type { SemanticColorName } from '@hellowhen/theme';
+ import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
+ import { AppText } from '../../components/AppText';
+ import { MobileIcon } from '../../components/MobileIcon';
+@@ -170,18 +171,18 @@ export function AccountScreen() {
+           {showFlagDiagnostics ? <MobileFlagDiagnosticsCard /> : null}
+ 
+           {betaFeatures.plansVisible ? (
+-            <AccountHubSection title={t('account.sections.plans')}>
+-              <AccountHubRow title={t('account.items.myPlansFeature.title')} count={counts.myPlans} onPress={() => navigate('MyPlans')} />
+-              <AccountHubRow title={t('account.items.joinedPlansFeature.title')} count={counts.joinedPlans} onPress={() => navigate('JoinedPlans')} />
+-              <AccountHubRow title={t('account.hub.myPlaces')} count={counts.places} onPress={() => navigate('MyPlaces')} />
++            <AccountHubSection title={t('account.sections.plans')} titleTone="plan">
++              <AccountHubRow title={t('account.items.myPlansFeature.title')} count={counts.myPlans} countTone="plan" onPress={() => navigate('MyPlans')} />
++              <AccountHubRow title={t('account.items.joinedPlansFeature.title')} count={counts.joinedPlans} countTone="plan" onPress={() => navigate('JoinedPlans')} />
++              <AccountHubRow title={t('account.hub.myPlaces')} count={counts.places} countTone="place" onPress={() => navigate('MyPlaces')} />
+             </AccountHubSection>
+           ) : null}
+ 
+-          <AccountHubSection title={t('navigation.tabs.trade')}>
+-            <AccountHubRow title={t('trade.wizard.actions.myTrades.title')} count={counts.trades} onPress={() => navigate('TradeActivityMine')} />
++          <AccountHubSection title={t('navigation.tabs.trade')} titleTone="trade">
++            <AccountHubRow title={t('trade.wizard.actions.myTrades.title')} count={counts.trades} countTone="trade" onPress={() => navigate('TradeActivityMine')} />
+             <AccountHubRow title={t('trade.wizard.actions.proposals.title')} onPress={() => navigate('TradeActivityProposals')} />
+-            <AccountHubRow title={t('trade.wizard.actions.myNeeds.title')} count={counts.needs} onPress={() => navigate('MyNeeds')} />
+-            <AccountHubRow title={t('trade.wizard.actions.myOffers.title')} count={counts.offers} onPress={() => navigate('MyOffers')} />
++            <AccountHubRow title={t('trade.wizard.actions.myNeeds.title')} count={counts.needs} countTone="need" onPress={() => navigate('MyNeeds')} />
++            <AccountHubRow title={t('trade.wizard.actions.myOffers.title')} count={counts.offers} countTone="offer" onPress={() => navigate('MyOffers')} />
+           </AccountHubSection>
+ 
+           <AccountHubSection title={t('account.sections.tools')}>
+@@ -219,18 +220,20 @@ export function AccountScreen() {
+   );
+ }
+ 
+-function AccountHubSection({ title, children }: { title: string; children: React.ReactNode }) {
++function AccountHubSection({ title, titleTone, children }: { title: string; titleTone?: SemanticColorName; children: React.ReactNode }) {
+   const theme = useThemeTokens();
++  const titleColor = titleTone ? theme.semantic[titleTone].text : theme.color.muted;
+   return (
+     <View style={styles.hubSection}>
+-      <AppText style={[styles.hubSectionTitle, { color: theme.color.muted }]}>{title}</AppText>
++      <AppText style={[styles.hubSectionTitle, { color: titleColor }]}>{title}</AppText>
+       <View style={[styles.hubList, { borderColor: theme.color.border }]}>{children}</View>
+     </View>
+   );
+ }
+ 
+-function AccountHubRow({ title, description, count, danger = false, onPress }: { title: string; description?: string; count?: number; danger?: boolean; onPress: () => void }) {
++function AccountHubRow({ title, description, count, countTone, danger = false, onPress }: { title: string; description?: string; count?: number; countTone?: SemanticColorName; danger?: boolean; onPress: () => void }) {
+   const theme = useThemeTokens();
++  const countTextColor = countTone ? theme.semantic[countTone].text : theme.semantic.muted.text;
+   return (
+     <Pressable
+       accessibilityRole="button"
+@@ -243,7 +246,7 @@ function AccountHubRow({ title, description, count, danger = false, onPress }: {
+         {description ? <AppText style={[styles.hubRowDescription, { color: theme.color.muted }]}>{description}</AppText> : null}
+       </View>
+       <View style={styles.hubRowEnd}>
+-        {typeof count === 'number' ? <SemanticBadge label={String(Math.min(count, 99))} tone="muted" size="sm" /> : null}
++        {typeof count === 'number' ? <SemanticBadge label={String(Math.min(count, 99))} tone="muted" size="sm" textStyle={{ color: countTextColor }} /> : null}
+         <MobileIcon name="chevron-right" size={20} color={danger ? theme.semantic.danger.text : theme.color.muted} />
+       </View>
+     </Pressable>
+diff --git a/apps/mobile/src/features/explore/ExploreScreen.tsx b/apps/mobile/src/features/explore/ExploreScreen.tsx
+index 586e40b..15834b4 100644
+--- a/apps/mobile/src/features/explore/ExploreScreen.tsx
++++ b/apps/mobile/src/features/explore/ExploreScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+-import { ActivityIndicator, FlatList, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
++import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View, useWindowDimensions } from 'react-native';
+ import { useNavigation } from '@react-navigation/native';
+ import type { InventoryTemplateDto, PlaceDto, PlanDto } from '@hellowhen/contracts';
+ import { starterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type StarterPlanIdea } from '@hellowhen/shared';
+@@ -40,6 +40,10 @@ type ExploreFeedItem =
+ 
+ const EXPLORE_MIX_KIND_ORDER: readonly ExploreConceptKind[] = ['trade', 'place', 'need', 'plan', 'offer'];
+ 
++function createExploreMixSeed() {
++  return (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
++}
++
+ function hashExploreMixValue(value: string) {
+   let hash = 2166136261;
+   for (let index = 0; index < value.length; index += 1) {
+@@ -246,6 +250,7 @@ export function ExploreScreen() {
+   const [offerTemplates, setOfferTemplates] = useState<InventoryTemplateDto[]>([]);
+   const [hellowhenPlaces, setHellowhenPlaces] = useState<PlaceDto[]>([]);
+   const [discoveryLoading, setDiscoveryLoading] = useState(true);
++  const [discoveryRefreshing, setDiscoveryRefreshing] = useState(false);
+   const [discoveryLoaded, setDiscoveryLoaded] = useState(false);
+   const [discoveryHasError, setDiscoveryHasError] = useState(false);
+   const [typeFilter, setTypeFilter] = useState<ExploreTypeFilter>('all');
+@@ -254,11 +259,11 @@ export function ExploreScreen() {
+   const [draftSearchQuery, setDraftSearchQuery] = useState('');
+   const [filterVisible, setFilterVisible] = useState(false);
+   const discoveryRequestSequence = useRef(0);
+-  const discoveryMixSeed = useRef(Date.now()).current;
++  const [discoveryMixSeed, setDiscoveryMixSeed] = useState(createExploreMixSeed);
+ 
+-  const loadDiscovery = useCallback(async () => {
++  const loadDiscovery = useCallback(async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
+     const requestId = ++discoveryRequestSequence.current;
+-    setDiscoveryLoading(true);
++    if (showLoading) setDiscoveryLoading(true);
+     setDiscoveryHasError(false);
+     const placeRequest = betaFeatures.plansEnabled && betaFeatures.plansVisible
+       ? api.places.library({ take: EXPLORE_DISCOVERY_LIMIT })
+@@ -278,6 +283,16 @@ export function ExploreScreen() {
+     setDiscoveryLoading(false);
+   }, [language]);
+ 
++  const refreshDiscovery = useCallback(async () => {
++    setDiscoveryRefreshing(true);
++    try {
++      await loadDiscovery({ showLoading: false });
++      setDiscoveryMixSeed(createExploreMixSeed());
++    } finally {
++      setDiscoveryRefreshing(false);
++    }
++  }, [loadDiscovery]);
++
+   useEffect(() => {
+     void loadDiscovery();
+     return () => { discoveryRequestSequence.current += 1; };
+@@ -404,6 +419,7 @@ export function ExploreScreen() {
+             keyExtractor={(item) => item.key}
+             contentContainerStyle={[styles.content, scrollProps.contentInsetStyle]}
+             showsVerticalScrollIndicator={false}
++            refreshControl={<RefreshControl refreshing={discoveryRefreshing} onRefresh={() => { void refreshDiscovery(); }} />}
+             initialNumToRender={4}
+             maxToRenderPerBatch={4}
+             windowSize={5}

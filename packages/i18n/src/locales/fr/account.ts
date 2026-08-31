@@ -6,7 +6,13 @@ export const account = {
   walletPageBody: 'Gérez les soldes d’échange optionnels lorsque cette fonctionnalité planifiée est activée.',
   addBalanceTitle: 'Ajouter du solde',
   addBalanceBody: 'Gérez le solde d’échange lorsque cette fonctionnalité planifiée est activée.',
-  headerBody: 'Profil, paramètres et assistance sont regroupés ici.',
+  headerBody: 'Votre profil, votre activité, vos outils et vos paramètres sont regroupés ici.',
+  hub: {
+    profile: 'Profil',
+    publicProfile: 'Profil public',
+    myPlaces: 'Mes lieux',
+    settingsSummary: 'Langue, apparence, notifications et sécurité.',
+  },
   sections: {
     activity: 'Activité',
     plans: 'Plans',

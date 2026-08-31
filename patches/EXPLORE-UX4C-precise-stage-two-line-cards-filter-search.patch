@@ -1,0 +1,305 @@
+diff --git a/apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx b/apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx
+index 7b6861f..9bf3538 100644
+--- a/apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx
++++ b/apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx
+@@ -146,9 +146,9 @@ function ConceptCardView({
+         surfaceStyle={styles.posterFooterSurface}
+         contentStyle={styles.posterFooterContent}
+       >
+-        <AppText style={[styles.title, { color: posterTitleColor }]} numberOfLines={3}>{title}</AppText>
+-        {description ? <AppText style={[styles.description, { color: posterBodyColor }]} numberOfLines={3}>{description}</AppText> : null}
+-        {meta ? <AppText style={[styles.meta, { color: posterBodyColor }]} numberOfLines={2}>{meta}</AppText> : null}
++        <AppText style={[styles.title, { color: posterTitleColor }]} numberOfLines={2} ellipsizeMode="tail">{title}</AppText>
++        {description ? <AppText style={[styles.description, { color: posterBodyColor }]} numberOfLines={2} ellipsizeMode="tail">{description}</AppText> : null}
++        {meta ? <AppText style={[styles.meta, { color: posterBodyColor }]} numberOfLines={1} ellipsizeMode="tail">{meta}</AppText> : null}
+       </PosterCardFooter>
+     </Pressable>
+   );
+diff --git a/apps/mobile/src/features/explore/ExploreScreen.tsx b/apps/mobile/src/features/explore/ExploreScreen.tsx
+index e2090df..586e40b 100644
+--- a/apps/mobile/src/features/explore/ExploreScreen.tsx
++++ b/apps/mobile/src/features/explore/ExploreScreen.tsx
+@@ -1,12 +1,12 @@
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+-import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-native';
++import { ActivityIndicator, FlatList, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+ import { useNavigation } from '@react-navigation/native';
+ import type { InventoryTemplateDto, PlaceDto, PlanDto } from '@hellowhen/contracts';
+ import { starterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type StarterPlanIdea } from '@hellowhen/shared';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
+ import { AppHeaderActionButton } from '../../components/AppHeaderActionButton';
+-import { LibraryFilterGroup, LibraryFilterOption, LibraryFilterScreen } from '../../components/library';
++import { LibraryFilterGroup, LibraryFilterOption, LibraryFilterScreen, LibraryInlineSearch } from '../../components/library';
+ import { AccountHeaderActionButton } from '../../components/AccountHeaderActionButton';
+ import { AppText } from '../../components/AppText';
+ import { api } from '../../lib/api';
+@@ -16,8 +16,9 @@ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { PlanSquareDeck } from '../plans/components/PlanSquareDeck';
+ import { TradeFeedIdeaCard } from '../trade/TradeDeckFeedScreen';
+-import { feedTradeIdeaKeys, feedTradeIdeas, type FeedTradeIdeaKey } from '../trade/tradeFeedIdeas';
+-import { MOBILE_DECK_FEED_GAP } from '../trade/components/tradeDeckGeometry';
++import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeaKeys, feedTradeIdeas, type FeedTradeIdeaKey } from '../trade/tradeFeedIdeas';
++import { getMobileTradeDeckCardSize, MOBILE_DECK_FEED_GAP } from '../trade/components/tradeDeckGeometry';
++import { SQUARE_STACK_DEPTH_ALLOWANCE_Y } from '../trade/deck/squareStackDeck.model';
+ import { categoryLabel, itemTypeLabel, modeLabel } from '../trade/components/InventoryFormFields';
+ import { ExploreConceptSquareDeck } from './ExploreConceptSquareDeck';
+ 
+@@ -89,6 +90,80 @@ function buildBalancedMixedFeed(groups: Record<ExploreConceptKind, ExploreFeedIt
+   return mixed;
+ }
+ 
++
++function normalizeExploreSearchQuery(value: string | null | undefined) {
++  return (value ?? '').trim().replace(/\s+/g, ' ').slice(0, 120);
++}
++
++function joinExploreSearchValues(values: unknown[]) {
++  return values.flatMap((value) => Array.isArray(value) ? value : [value])
++    .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
++    .join(' ');
++}
++
++function exploreSearchText(item: ExploreFeedItem, t: TFunction) {
++  if (item.kind === 'trade') {
++    const idea = feedTradeIdeas[item.ideaKey];
++    return joinExploreSearchValues([
++      t('trade.feedIdeas.badge'),
++      t(`trade.feedIdeas.items.${item.ideaKey}.pack`),
++      feedTradeIdeaHasNeed(idea) ? t(`trade.feedIdeas.items.${item.ideaKey}.need`) : null,
++      feedTradeIdeaHasNeed(idea) ? t(`trade.feedIdeas.items.${item.ideaKey}.needMeta`) : null,
++      feedTradeIdeaHasOffer(idea) ? t(`trade.feedIdeas.items.${item.ideaKey}.offer`) : null,
++      feedTradeIdeaHasOffer(idea) ? t(`trade.feedIdeas.items.${item.ideaKey}.offerMeta`) : null,
++    ]);
++  }
++
++  if (item.kind === 'plan') {
++    return joinExploreSearchValues([
++      t('plans.workspace.planIdeas.title'),
++      item.idea.pack,
++      item.idea.title,
++      item.idea.description,
++      item.idea.category,
++      item.idea.tags,
++      item.idea.stops.flatMap((stop) => [stop.title, stop.onlineLabel, stop.onlineUrl]),
++    ]);
++  }
++
++  if (item.kind === 'need' || item.kind === 'offer') {
++    const template = item.template;
++    return joinExploreSearchValues([
++      t(item.kind === 'need' ? 'common.exploreDiscovery.needSection' : 'common.exploreDiscovery.offerSection'),
++      template.title,
++      template.description,
++      template.itemType,
++      template.category,
++      template.tags,
++      template.kind === 'need' ? template.timing : template.availability,
++      template.mode,
++      template.locationLabel,
++    ]);
++  }
++
++  return joinExploreSearchValues([
++    t('common.exploreDiscovery.placeSection'),
++    item.place.title,
++    item.place.description,
++    item.place.category,
++    item.place.mode,
++    item.place.areaLabel,
++    item.place.addressPublicText,
++    item.place.formattedAddress,
++    item.place.onlineLabel,
++    item.place.onlineUrl,
++  ]);
++}
++
++function filterExploreItems(items: ExploreFeedItem[], typeFilter: ExploreTypeFilter, query: string, t: TFunction) {
++  const normalizedQuery = normalizeExploreSearchQuery(query).toLocaleLowerCase();
++  return items.filter((item) => {
++    if (typeFilter !== 'all' && item.kind !== typeFilter) return false;
++    if (!normalizedQuery) return true;
++    return exploreSearchText(item, t).toLocaleLowerCase().includes(normalizedQuery);
++  });
++}
++
+ function planIdeaPreviewPlan(idea: StarterPlanIdea): PlanDto {
+   const createdAt = new Date().toISOString();
+   return {
+@@ -165,6 +240,7 @@ function placeMeta(place: PlaceDto, t: TFunction) {
+ export function ExploreScreen() {
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const theme = useThemeTokens();
++  const { width } = useWindowDimensions();
+   const { t, language } = useTranslation();
+   const [needTemplates, setNeedTemplates] = useState<InventoryTemplateDto[]>([]);
+   const [offerTemplates, setOfferTemplates] = useState<InventoryTemplateDto[]>([]);
+@@ -173,7 +249,9 @@ export function ExploreScreen() {
+   const [discoveryLoaded, setDiscoveryLoaded] = useState(false);
+   const [discoveryHasError, setDiscoveryHasError] = useState(false);
+   const [typeFilter, setTypeFilter] = useState<ExploreTypeFilter>('all');
++  const [searchQuery, setSearchQuery] = useState('');
+   const [draftTypeFilter, setDraftTypeFilter] = useState<ExploreTypeFilter>('all');
++  const [draftSearchQuery, setDraftSearchQuery] = useState('');
+   const [filterVisible, setFilterVisible] = useState(false);
+   const discoveryRequestSequence = useRef(0);
+   const discoveryMixSeed = useRef(Date.now()).current;
+@@ -241,21 +319,30 @@ export function ExploreScreen() {
+   }, discoveryMixSeed), [discoveryMixSeed, hellowhenPlaces, needTemplates, offerTemplates, staticConceptGroups]);
+   const feedItems = discoveryLoaded ? mixedFeedItems : [];
+   const filteredFeedItems = useMemo(
+-    () => typeFilter === 'all' ? feedItems : feedItems.filter((item) => item.kind === typeFilter),
+-    [feedItems, typeFilter],
++    () => filterExploreItems(feedItems, typeFilter, searchQuery, t),
++    [feedItems, searchQuery, t, typeFilter],
+   );
+   const draftFilteredCount = useMemo(
+-    () => draftTypeFilter === 'all' ? feedItems.length : feedItems.filter((item) => item.kind === draftTypeFilter).length,
+-    [draftTypeFilter, feedItems],
++    () => filterExploreItems(feedItems, draftTypeFilter, draftSearchQuery, t).length,
++    [draftSearchQuery, draftTypeFilter, feedItems, t],
+   );
++  const activeExploreFilterCount = Number(typeFilter !== 'all') + Number(Boolean(normalizeExploreSearchQuery(searchQuery)));
++  const conceptStageHeight = getMobileTradeDeckCardSize(width) + SQUARE_STACK_DEPTH_ALLOWANCE_Y;
+ 
+   const discoveryItemCount = needTemplates.length + offerTemplates.length + hellowhenPlaces.length;
+   const openTypeFilters = () => {
+     setDraftTypeFilter(typeFilter);
++    setDraftSearchQuery(searchQuery);
+     setFilterVisible(true);
+   };
+-  const resetTypeFilters = () => setDraftTypeFilter('all');
++  const resetTypeFilters = () => {
++    setDraftTypeFilter('all');
++    setDraftSearchQuery('');
++  };
+   const applyTypeFilters = () => {
++    const nextSearchQuery = normalizeExploreSearchQuery(draftSearchQuery);
++    setDraftSearchQuery(nextSearchQuery);
++    setSearchQuery(nextSearchQuery);
+     setTypeFilter(draftTypeFilter);
+     setFilterVisible(false);
+   };
+@@ -277,7 +364,7 @@ export function ExploreScreen() {
+           icon="filter"
+           accessibilityLabel={t('common.exploreDiscovery.filterOpen')}
+           onPress={openTypeFilters}
+-          badgeCount={typeFilter === 'all' ? 0 : 1}
++          badgeCount={activeExploreFilterCount}
+         />
+         <AccountHeaderActionButton onPress={() => navigation.navigate('Account')} />
+       </View>
+@@ -312,7 +399,7 @@ export function ExploreScreen() {
+         {(scrollProps) => (
+           <FlatList
+             {...scrollProps.scrollViewProps}
+-            key={typeFilter}
++            key={`${typeFilter}:${searchQuery}`}
+             data={filteredFeedItems}
+             keyExtractor={(item) => item.key}
+             contentContainerStyle={[styles.content, scrollProps.contentInsetStyle]}
+@@ -323,14 +410,14 @@ export function ExploreScreen() {
+             removeClippedSubviews={false}
+             ListEmptyComponent={discoveryLoaded && !discoveryLoading ? (
+               <View style={styles.discoveryState}>
+-                <AppText style={[styles.discoveryStateText, { color: theme.color.muted }]}>{t('common.exploreDiscovery.empty')}</AppText>
++                <AppText style={[styles.discoveryStateText, { color: theme.color.muted }]}>{t(activeExploreFilterCount > 0 ? 'common.exploreDiscovery.noResults' : 'common.exploreDiscovery.empty')}</AppText>
+               </View>
+             ) : null}
+             ListFooterComponent={footer}
+             renderItem={({ item, index: feedIndex }) => {
+           if (item.kind === 'trade') {
+             return (
+-              <View style={[styles.conceptDeck, feedIndex === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
++              <View style={[styles.conceptDeck, { minHeight: conceptStageHeight }, feedIndex === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
+                 <TradeFeedIdeaCard
+                   ideaKey={item.ideaKey}
+                   onOpenIdea={(ideaKey) => navigation.navigate('TradeIdeaDetail', { ideaId: ideaKey })}
+@@ -341,7 +428,7 @@ export function ExploreScreen() {
+ 
+           if (item.kind === 'plan') {
+             return (
+-              <View style={[styles.conceptDeck, feedIndex === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
++              <View style={[styles.conceptDeck, { minHeight: conceptStageHeight }, feedIndex === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
+                 <PlanSquareDeck
+                   plan={item.preview}
+                   index={0}
+@@ -360,7 +447,7 @@ export function ExploreScreen() {
+             const template = item.template;
+             const badgeLabel = t(isNeed ? 'common.exploreDiscovery.needBadge' : 'common.exploreDiscovery.offerBadge');
+             return (
+-              <View style={[styles.conceptDeck, feedIndex === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
++              <View style={[styles.conceptDeck, { minHeight: conceptStageHeight }, feedIndex === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
+                 <ExploreConceptSquareDeck
+                   conceptId={`inventory-template-${template.id}`}
+                   title={template.title}
+@@ -378,7 +465,7 @@ export function ExploreScreen() {
+ 
+           const badgeLabel = t('common.exploreDiscovery.placeBadge');
+           return (
+-            <View style={[styles.conceptDeck, feedIndex === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
++            <View style={[styles.conceptDeck, { minHeight: conceptStageHeight }, feedIndex === 0 ? styles.firstConceptDeck : styles.nextConceptDeck]}>
+               <ExploreConceptSquareDeck
+                 conceptId={`hellowhen-place-${item.place.id}`}
+                 title={item.place.title}
+@@ -408,8 +495,16 @@ export function ExploreScreen() {
+         onClose={() => setFilterVisible(false)}
+         onReset={resetTypeFilters}
+         onApply={applyTypeFilters}
+-        resetDisabled={draftTypeFilter === 'all'}
++        resetDisabled={draftTypeFilter === 'all' && !normalizeExploreSearchQuery(draftSearchQuery)}
+       >
++        <LibraryInlineSearch
++          query={draftSearchQuery}
++          onQueryChange={setDraftSearchQuery}
++          placeholder={t('common.exploreDiscovery.searchPlaceholder')}
++          accessibilityLabel={t('common.exploreDiscovery.searchPlaceholder')}
++          clearAccessibilityLabel={t('common.exploreDiscovery.clearSearch')}
++          autoFocus={false}
++        />
+         <LibraryFilterGroup title={t('inventory.libraryFilters.type')}>
+           {filterOptions.map((option) => (
+             <LibraryFilterOption
+diff --git a/packages/i18n/src/locales/en/common.ts b/packages/i18n/src/locales/en/common.ts
+index 3deec75..578407e 100644
+--- a/packages/i18n/src/locales/en/common.ts
++++ b/packages/i18n/src/locales/en/common.ts
+@@ -8,6 +8,9 @@ export const common = {
+     placeBadge: 'HELLOWHEN PLACE',
+     filterOpen: 'Filter Explore',
+     filterBody: 'Choose the kinds of ideas and places you want to see.',
++    searchPlaceholder: 'Search Explore',
++    clearSearch: 'Clear Explore search',
++    noResults: 'No Explore ideas or places match this search and filter.',
+     loading: 'Loading Need, Offer, and Place ideas...',
+     partialError: 'Some Hellowhen discovery content could not be loaded.',
+     empty: 'More Need, Offer, and Place ideas are coming soon.',
+diff --git a/packages/i18n/src/locales/es/common.ts b/packages/i18n/src/locales/es/common.ts
+index 5740b72..e24ea01 100644
+--- a/packages/i18n/src/locales/es/common.ts
++++ b/packages/i18n/src/locales/es/common.ts
+@@ -8,6 +8,9 @@ export const common = {
+     placeBadge: 'LUGAR HELLOWHEN',
+     filterOpen: 'Filtrar Explorar',
+     filterBody: 'Elige los tipos de ideas y lugares que quieres ver.',
++    searchPlaceholder: 'Buscar en Explorar',
++    clearSearch: 'Borrar búsqueda de Explorar',
++    noResults: 'Ninguna idea ni lugar coincide con esta búsqueda y este filtro.',
+     loading: 'Cargando ideas de necesidades, ofertas y lugares...',
+     partialError: 'No se pudo cargar parte del contenido de descubrimiento de Hellowhen.',
+     empty: 'Pronto habrá más ideas de necesidades, ofertas y lugares.',
+diff --git a/packages/i18n/src/locales/fr/common.ts b/packages/i18n/src/locales/fr/common.ts
+index 857a0a5..46f4833 100644
+--- a/packages/i18n/src/locales/fr/common.ts
++++ b/packages/i18n/src/locales/fr/common.ts
+@@ -8,6 +8,9 @@ export const common = {
+     placeBadge: 'LIEU HELLOWHEN',
+     filterOpen: 'Filtrer Explorer',
+     filterBody: 'Choisissez les types d’idées et de lieux que vous souhaitez voir.',
++    searchPlaceholder: 'Rechercher dans Explorer',
++    clearSearch: 'Effacer la recherche Explorer',
++    noResults: 'Aucune idée ni aucun lieu ne correspond à cette recherche et à ce filtre.',
+     loading: 'Chargement des idées de besoins, d’offres et de lieux...',
+     partialError: 'Une partie du contenu de découverte Hellowhen n’a pas pu être chargée.',
+     empty: 'D’autres idées de besoins, d’offres et de lieux arrivent bientôt.',

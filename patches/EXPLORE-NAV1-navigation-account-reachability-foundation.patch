@@ -1,0 +1,322 @@
+diff --git a/apps/mobile/src/features/account/AccountScreen.tsx b/apps/mobile/src/features/account/AccountScreen.tsx
+index ea7d5c4..6db163b 100644
+--- a/apps/mobile/src/features/account/AccountScreen.tsx
++++ b/apps/mobile/src/features/account/AccountScreen.tsx
+@@ -453,7 +453,7 @@ export function AccountMenuScreen() {
+         <AccountMenuSection title={t('account.menu.sections.help')} actions={helpActions} onNavigate={navigate} />
+         <AccountMenuSection title={t('account.menu.sections.future')} actions={futureActions} onNavigate={navigate} />
+         <AccountMenuSection title={t('account.menu.sections.account')} actions={accountActionsOnly} onNavigate={navigate} />
+-        <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.logout')} onPress={() => { void auth.logout().finally(() => navigation.navigate('TradeTabs', { screen: 'MeTab' })); }} style={({ pressed }) => [styles.logoutButton, { borderColor: theme.semantic.danger.border, backgroundColor: theme.semantic.danger.softBg }, pressed && styles.pressed]}>
++        <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.logout')} onPress={() => { void auth.logout().finally(() => navigation.navigate('Login')); }} style={({ pressed }) => [styles.logoutButton, { borderColor: theme.semantic.danger.border, backgroundColor: theme.semantic.danger.softBg }, pressed && styles.pressed]}>
+           <AppText style={[styles.logoutButtonText, { color: theme.semantic.danger.text }]}>{t('common.actions.logout')}</AppText>
+         </Pressable>
+       </ScrollView>
+diff --git a/apps/mobile/src/features/trade/MyNeedsScreen.tsx b/apps/mobile/src/features/trade/MyNeedsScreen.tsx
+index 4522037..249abc0 100644
+--- a/apps/mobile/src/features/trade/MyNeedsScreen.tsx
++++ b/apps/mobile/src/features/trade/MyNeedsScreen.tsx
+@@ -105,7 +105,7 @@ export function MyNeedsScreen() {
+       navigation.goBack();
+       return;
+     }
+-    navigation.replace('TradeTabs', { screen: 'MeTab' });
++    navigation.replace('Account');
+   }, [navigation]);
+   const header = (
+     <AppHeader
+diff --git a/apps/mobile/src/features/trade/MyOffersScreen.tsx b/apps/mobile/src/features/trade/MyOffersScreen.tsx
+index decb0d4..2de6627 100644
+--- a/apps/mobile/src/features/trade/MyOffersScreen.tsx
++++ b/apps/mobile/src/features/trade/MyOffersScreen.tsx
+@@ -105,7 +105,7 @@ export function MyOffersScreen() {
+       navigation.goBack();
+       return;
+     }
+-    navigation.replace('TradeTabs', { screen: 'MeTab' });
++    navigation.replace('Account');
+   }, [navigation]);
+   const header = (
+     <AppHeader
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index 94a5866..e9497bb 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -61,7 +61,7 @@ import { AppScreen } from '../components/AppScreen';
+ import { AppText } from '../components/AppText';
+ import { useTranslation } from '../providers/MobileI18nProvider';
+ import type { LegalPolicyKey } from '@hellowhen/i18n';
+-import { DEFAULT_NORMAL_APP_NAV_MOBILE_TAB_NAME, getNormalAppNavItemByMobileTabName, normalAppNavItems, type NormalAppNavItemId } from '@hellowhen/shared';
++import { DEFAULT_NORMAL_MOBILE_APP_NAV_TAB_NAME, getNormalMobileAppNavItemByTabName, normalMobileAppNavItems, type NormalMobileAppNavItemId } from '@hellowhen/shared';
+ import type { ThemeTokens } from '@hellowhen/theme';
+ 
+ type InventoryCreateReturnTarget = 'createTrade' | 'createTradeFull' | 'tradeProposal' | 'proposalDetail';
+@@ -86,6 +86,7 @@ export type MainTabParamList = {
+ 
+ export type RootStackParamList = {
+   TradeTabs: NavigatorScreenParams<MainTabParamList> | undefined;
++  Account: undefined;
+   MyNeeds: undefined;
+   MyOffers: undefined;
+   AccountProfile: undefined;
+@@ -228,7 +229,7 @@ function MeHomeScreen() {
+ }
+ 
+ function getTabIconName(routeName: keyof MainTabParamList): MobileIconName {
+-  return getNormalAppNavItemByMobileTabName(routeName)?.icon ?? 'profile';
++  return getNormalMobileAppNavItemByTabName(routeName)?.icon ?? 'profile';
+ }
+ 
+ function getTabBadge(count: number) {
+@@ -241,7 +242,7 @@ function getNormalTabActiveTintColor(routeName: keyof MainTabParamList, theme: T
+   return theme.color.text;
+ }
+ 
+-const normalMobileTabScreenById: Record<NormalAppNavItemId, React.ComponentType<any>> = {
++const normalMobileTabScreenById: Record<NormalMobileAppNavItemId, React.ComponentType<any>> = {
+   plans: PlansScreen,
+   me: MeHomeScreen,
+   trade: TradeDeckFeedScreen,
+@@ -269,7 +270,7 @@ function TradeTabs() {
+ 
+   return (
+     <Tabs.Navigator
+-      initialRouteName={DEFAULT_NORMAL_APP_NAV_MOBILE_TAB_NAME}
++      initialRouteName={DEFAULT_NORMAL_MOBILE_APP_NAV_TAB_NAME}
+       screenOptions={({ route }) => ({
+         headerShown: false,
+         tabBarShowLabel: true,
+@@ -296,7 +297,7 @@ function TradeTabs() {
+         tabBarBadgeStyle: styles.tabBadge,
+       })}
+     >
+-      {normalAppNavItems.map((item) => (
++      {normalMobileAppNavItems.map((item) => (
+         <Tabs.Screen
+           key={item.id}
+           name={item.mobileTabName}
+@@ -322,6 +323,7 @@ export function RootNavigator() {
+   return (
+     <Stack.Navigator initialRouteName="TradeTabs" screenOptions={{ headerShown: false }}>
+       <Stack.Screen name="TradeTabs" component={TradeTabs} />
++      <Stack.Screen name="Account" component={ProtectedAccountScreen} />
+       <Stack.Screen name="TradeDetail" component={TradeDetailScreen} />
+       <Stack.Screen name="TradeFilters" component={TradeFiltersScreen} />
+       <Stack.Screen name="MyNeeds" component={ProtectedMyNeedsScreen} />
+diff --git a/packages/i18n/src/locales/en/navigation.ts b/packages/i18n/src/locales/en/navigation.ts
+index 12fe1ba..920bf3d 100644
+--- a/packages/i18n/src/locales/en/navigation.ts
++++ b/packages/i18n/src/locales/en/navigation.ts
+@@ -63,6 +63,7 @@ export const navigation = {
+     account: 'Account',
+     plans: 'Plans',
+     me: 'Me',
++    explore: 'Explore',
+     trade: 'Trade',
+   },
+   workspace: {
+@@ -76,6 +77,7 @@ export const navigation = {
+     offers: 'Offers',
+     account: 'Account',
+     me: 'Me',
++    explore: 'Explore',
+     membership: 'Membership',
+     createTrade: 'Create trade',
+     plan: 'Plan',
+diff --git a/packages/i18n/src/locales/es/navigation.ts b/packages/i18n/src/locales/es/navigation.ts
+index d4ae24f..96f0d28 100644
+--- a/packages/i18n/src/locales/es/navigation.ts
++++ b/packages/i18n/src/locales/es/navigation.ts
+@@ -67,6 +67,7 @@ export const navigation = {
+     account: 'Cuenta',
+     plans: 'Planes',
+     me: 'Yo',
++    explore: 'Explorar',
+     trade: 'Intercambio',
+   },
+   workspace: {
+@@ -83,6 +84,7 @@ export const navigation = {
+     offers: 'Ofertas',
+     account: 'Cuenta',
+     me: 'Yo',
++    explore: 'Explorar',
+     membership: 'Membresía',
+     createTrade: 'Crear intercambio',
+     plan: 'Plan',
+diff --git a/packages/i18n/src/locales/fr/navigation.ts b/packages/i18n/src/locales/fr/navigation.ts
+index aa2da96..563d82d 100644
+--- a/packages/i18n/src/locales/fr/navigation.ts
++++ b/packages/i18n/src/locales/fr/navigation.ts
+@@ -63,6 +63,7 @@ export const navigation = {
+     account: 'Compte',
+     plans: 'Plans',
+     me: 'Moi',
++    explore: 'Explorer',
+     trade: 'Échange',
+   },
+   workspace: {
+@@ -76,6 +77,7 @@ export const navigation = {
+     offers: 'Offres',
+     account: 'Compte',
+     me: 'Moi',
++    explore: 'Explorer',
+     membership: 'Membership',
+     createTrade: 'Créer un échange',
+     plan: 'Plan',
+diff --git a/packages/shared/src/appNavigation.ts b/packages/shared/src/appNavigation.ts
+index 7e5c1e9..f8077bf 100644
+--- a/packages/shared/src/appNavigation.ts
++++ b/packages/shared/src/appNavigation.ts
+@@ -2,7 +2,6 @@ export const normalAppNavItemIds = ['plans', 'me', 'trade'] as const;
+ export type NormalAppNavItemId = typeof normalAppNavItemIds[number];
+ 
+ export type NormalAppNavIcon = 'plan' | 'profile' | 'trade';
+-export type NormalAppMobileTabName = 'PlanTab' | 'MeTab' | 'TradeTab';
+ 
+ export type NormalAppNavItem = {
+   id: NormalAppNavItemId;
+@@ -10,9 +9,10 @@ export type NormalAppNavItem = {
+   routeTitleKey: string;
+   icon: NormalAppNavIcon;
+   webHref: string;
+-  mobileTabName: NormalAppMobileTabName;
+ };
+ 
++// Web keeps the existing Plans / Me / Trade contract while mobile can evolve
++// independently toward Plans / Explore / Trade in a later patch.
+ export const normalAppNavItems = [
+   {
+     id: 'plans',
+@@ -20,7 +20,6 @@ export const normalAppNavItems = [
+     routeTitleKey: 'navigation.routes.plans',
+     icon: 'plan',
+     webHref: '/plans',
+-    mobileTabName: 'PlanTab',
+   },
+   {
+     id: 'me',
+@@ -28,7 +27,6 @@ export const normalAppNavItems = [
+     routeTitleKey: 'navigation.routes.me',
+     icon: 'profile',
+     webHref: '/account',
+-    mobileTabName: 'MeTab',
+   },
+   {
+     id: 'trade',
+@@ -36,13 +34,53 @@ export const normalAppNavItems = [
+     routeTitleKey: 'navigation.routes.trade',
+     icon: 'trade',
+     webHref: '/trades',
+-    mobileTabName: 'TradeTab',
+   },
+ ] as const satisfies readonly NormalAppNavItem[];
+ 
++export const normalMobileAppNavItemIds = ['plans', 'me', 'trade'] as const;
++export type NormalMobileAppNavItemId = typeof normalMobileAppNavItemIds[number];
++export type NormalMobileAppNavIcon = NormalAppNavIcon | 'search';
++export type NormalMobileAppTabName = 'PlanTab' | 'MeTab' | 'TradeTab';
++
++export type NormalMobileAppNavItem = {
++  id: NormalMobileAppNavItemId;
++  labelKey: string;
++  routeTitleKey: string;
++  icon: NormalMobileAppNavIcon;
++  mobileTabName: NormalMobileAppTabName;
++};
++
++export const normalMobileAppNavItems = [
++  {
++    id: 'plans',
++    labelKey: 'navigation.tabs.plans',
++    routeTitleKey: 'navigation.routes.plans',
++    icon: 'plan',
++    mobileTabName: 'PlanTab',
++  },
++  {
++    id: 'me',
++    labelKey: 'navigation.tabs.me',
++    routeTitleKey: 'navigation.routes.me',
++    icon: 'profile',
++    mobileTabName: 'MeTab',
++  },
++  {
++    id: 'trade',
++    labelKey: 'navigation.tabs.trade',
++    routeTitleKey: 'navigation.routes.trade',
++    icon: 'trade',
++    mobileTabName: 'TradeTab',
++  },
++] as const satisfies readonly NormalMobileAppNavItem[];
++
+ export const DEFAULT_NORMAL_APP_NAV_ITEM_ID: NormalAppNavItemId = 'me';
+-export const DEFAULT_NORMAL_APP_NAV_MOBILE_TAB_NAME: NormalAppMobileTabName = 'MeTab';
+ export const DEFAULT_NORMAL_APP_NAV_WEB_HREF = '/account';
++export const DEFAULT_NORMAL_MOBILE_APP_NAV_ITEM_ID: NormalMobileAppNavItemId = 'me';
++export const DEFAULT_NORMAL_MOBILE_APP_NAV_TAB_NAME: NormalMobileAppTabName = 'MeTab';
++
++// Backward-compatible alias for callers that have not moved to the mobile-specific name yet.
++export const DEFAULT_NORMAL_APP_NAV_MOBILE_TAB_NAME = DEFAULT_NORMAL_MOBILE_APP_NAV_TAB_NAME;
+ 
+ export function isNormalAppNavItemId(value: string | null | undefined): value is NormalAppNavItemId {
+   return normalAppNavItemIds.includes(value as NormalAppNavItemId);
+@@ -52,10 +90,13 @@ export function getNormalAppNavItem(id: NormalAppNavItemId): NormalAppNavItem {
+   return normalAppNavItems.find((item) => item.id === id) ?? normalAppNavItems[1];
+ }
+ 
+-export function getNormalAppNavItemByMobileTabName(tabName: string | null | undefined): NormalAppNavItem | null {
+-  return normalAppNavItems.find((item) => item.mobileTabName === tabName) ?? null;
++export function getNormalMobileAppNavItemByTabName(tabName: string | null | undefined): NormalMobileAppNavItem | null {
++  return normalMobileAppNavItems.find((item) => item.mobileTabName === tabName) ?? null;
+ }
+ 
++// Backward-compatible alias for callers that have not moved to the mobile-specific helper yet.
++export const getNormalAppNavItemByMobileTabName = getNormalMobileAppNavItemByTabName;
++
+ export type NormalWorkspaceMenuId = 'plans' | 'trade';
+ export type NormalWorkspaceMenuIcon = 'activity' | 'help' | 'location-on' | 'need' | 'offer' | 'plan' | 'proposal-accepted' | 'save' | 'search' | 'trade';
+ export type NormalWorkspaceMenuTone = 'info' | 'muted' | 'need' | 'offer' | 'plan' | 'place' | 'proposal' | 'trade';
+diff --git a/scripts/mobile-app-review-smoke.mjs b/scripts/mobile-app-review-smoke.mjs
+index 53a26d7..b91eeab 100644
+--- a/scripts/mobile-app-review-smoke.mjs
++++ b/scripts/mobile-app-review-smoke.mjs
+@@ -107,7 +107,7 @@ function runIphoneAndIpadShellChecks() {
+   assertContains(navigator, 'height: 70 + bottomInset', 'The bottom navigation must reserve the home-indicator inset.');
+   assertContains(navigator, 'paddingBottom: bottomInset || 8', 'The bottom navigation must remain usable on devices with and without a home indicator.');
+   assertContains(navigator, 'return auth.isAuthenticated ? <AccountScreen /> : <LoginScreen />;', 'The Me tab must open authentication directly for logged-out reviewers.');
+-  assertContains(navigator, 'normalAppNavItems.map', 'The submitted Plans / Me / Trade navigation must stay generated from the shared production nav definition.');
++  assertContains(navigator, 'normalMobileAppNavItems.map', 'The submitted mobile navigation must stay generated from the mobile-specific production nav definition.');
+   console.log('iPhone / iPad compatibility shell: PASS');
+ }
+ 
+@@ -115,6 +115,7 @@ function runReviewerJourneyRouteChecks() {
+   const navigator = 'apps/mobile/src/navigation/RootNavigator.tsx';
+   const requiredScreens = [
+     '<Stack.Screen name="TradeTabs" component={TradeTabs} />',
++    '<Stack.Screen name="Account" component={ProtectedAccountScreen} />',
+     '<Stack.Screen name="TradeDetail" component={TradeDetailScreen} />',
+     '<Stack.Screen name="Login" component={LoginScreen} />',
+     '<Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />',
+diff --git a/scripts/mobile-launch-smoke.mjs b/scripts/mobile-launch-smoke.mjs
+index 024f623..c8283c2 100644
+--- a/scripts/mobile-launch-smoke.mjs
++++ b/scripts/mobile-launch-smoke.mjs
+@@ -128,12 +128,17 @@ function runNavigationChecks() {
+     assert(!configuredMobileTabNames.includes(tabName) && !literalPrimaryTabPattern.test(bottomTabSource), `Legacy primary tab ${tabName} must not be registered.`);
+   }
+ 
+-  assertContains('packages/shared/src/appNavigation.ts', "normalAppNavItemIds = ['plans', 'me', 'trade']", 'Shared public navigation must stay Plans / Me / Trade.');
+-  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'normalAppNavItems.map((item)', 'Native bottom tabs must be generated from the shared Plans / Me / Trade navigation.');
+-  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'initialRouteName={DEFAULT_NORMAL_APP_NAV_MOBILE_TAB_NAME}', 'Native public navigation must keep the shared default tab.');
++  assertContains('packages/shared/src/appNavigation.ts', "normalAppNavItemIds = ['plans', 'me', 'trade']", 'Web public navigation must stay Plans / Me / Trade during the mobile Explore migration.');
++  assertContains('packages/shared/src/appNavigation.ts', "normalMobileAppNavItemIds = ['plans', 'me', 'trade']", 'Mobile primary navigation must keep its own compatibility contract until Explore is activated.');
++  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'normalMobileAppNavItems.map((item)', 'Native bottom tabs must be generated from the mobile-specific navigation contract.');
++  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'initialRouteName={DEFAULT_NORMAL_MOBILE_APP_NAV_TAB_NAME}', 'Native public navigation must keep the mobile-specific default tab.');
+ 
+   console.log('Mobile primary-navigation regression guard: PASS');
+ 
++  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', '<Stack.Screen name="Account" component={ProtectedAccountScreen} />', 'Account must be independently reachable before Me is removed from primary navigation.');
++  assertContains('apps/mobile/src/features/trade/MyNeedsScreen.tsx', "navigation.replace('Account');", 'My Needs fallback navigation must return to Account without depending on MeTab.');
++  assertContains('apps/mobile/src/features/trade/MyOffersScreen.tsx', "navigation.replace('Account');", 'My Offers fallback navigation must return to Account without depending on MeTab.');
++  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "auth.logout().finally(() => navigation.navigate('Login'))", 'Logout must not depend on the removable MeTab route.');
+   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'const ProtectedProposalDetailScreen = withAuth(ProposalDetailScreen);', 'Proposal thread detail must stay auth-protected.');
+   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', "withAuth(TradePrivateProposalsScreen, 'navigation.authRequired.privateProposals.title'", 'Private proposals screen must stay auth-protected.');
+   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.walletVisible ? <Stack.Screen name="Wallet"', 'Wallet route must stay hidden behind walletVisible.');

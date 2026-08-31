@@ -6,7 +6,7 @@ import path from 'node:path';
 const root = process.cwd();
 
 function read(relativePath) {
-  return readFileSync(path.join(root, relativePath), 'utf8');
+  return readFileSync(path.join(root, relativePath), 'utf8').replace(/\r\n?/g, '\n');
 }
 
 function readJson(relativePath) {
@@ -80,8 +80,8 @@ function runFirstRejectionRegressionChecks() {
   const accountScreen = 'apps/mobile/src/features/account/AccountScreen.tsx';
   const plansScreen = 'apps/mobile/src/features/plans/PlansScreens.tsx';
 
-  assertNotContains(accountScreen, "label={t('common.states.beta')}", 'The Me header must not restore the Beta badge shown in Apple review.');
-  assertNotContains(accountScreen, 'web-header-beta-badge', 'Native Me must not contain a release-state badge borrowed from the web header.');
+  assertNotContains(accountScreen, "label={t('common.states.beta')}", 'The Account header must not restore the Beta badge shown in Apple review.');
+  assertNotContains(accountScreen, 'web-header-beta-badge', 'Native Account must not contain a release-state badge borrowed from the web header.');
   assertContains(plansScreen, 'function showIosMapsProviderPicker', 'iOS must keep an explicit map-provider picker.');
   assertContains(plansScreen, 'https://maps.apple.com/?q=', 'Individual offline Places must keep Apple Maps search links.');
   assertContains(plansScreen, 'https://maps.apple.com/?daddr=', 'Plan route actions must keep Apple Maps directions links.');
@@ -106,8 +106,35 @@ function runIphoneAndIpadShellChecks() {
   assertContains(navigator, 'const insets = useSafeAreaInsets();', 'The bottom navigation must read device safe-area insets.');
   assertContains(navigator, 'height: 70 + bottomInset', 'The bottom navigation must reserve the home-indicator inset.');
   assertContains(navigator, 'paddingBottom: bottomInset || 8', 'The bottom navigation must remain usable on devices with and without a home indicator.');
-  assertContains(navigator, 'return auth.isAuthenticated ? <AccountScreen /> : <LoginScreen />;', 'The Me tab must open authentication directly for logged-out reviewers.');
-  assertContains(navigator, 'normalAppNavItems.map', 'The submitted Plans / Me / Trade navigation must stay generated from the shared production nav definition.');
+  assertContains(navigator, 'explore: ExploreScreen', 'The center mobile tab must open the public Explore surface.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('Account')", 'Explore must keep Account/login reachable from the primary header.');
+  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'api.notifications.unreadCount()', 'The submitted primary Account control must retain its unread notification indicator.');
+  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', '<UserAvatar', 'The submitted primary Account control must reuse the authenticated profile avatar when available.');
+  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'requestId === requestSequence', 'The Account unread badge refresh must ignore stale overlapping responses.');
+  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'Math.max(0, Math.trunc(response.unreadCount ?? 0))', 'The Account unread badge must normalize API counts before rendering.');
+  assertNotContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'if (active) setUnreadCount(0);', 'A transient unread-count refresh failure must not erase the last known Account badge.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<FlatList', 'The submitted Explore surface must render independent concepts as a virtualized vertical feed.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "kind: 'trade'", 'The submitted Explore surface must keep Trade ideas as independent concepts.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "kind: 'plan'", 'The submitted Explore surface must keep Plan ideas as independent concepts.');
+  assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'moveIdea(', 'The submitted Explore surface must not use global previous/next Trade idea controls.');
+  assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'movePlanIdea(', 'The submitted Explore surface must not use global previous/next Plan idea controls.');
+  assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'deckControls', 'The submitted Explore surface must not restore global concept navigation buttons.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<AppText accessibilityRole="header" style={styles.title}>', 'The submitted Explore surface must keep a semantic page heading after discovery concepts are mixed.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'buildBalancedMixedFeed(', 'The submitted Explore surface must keep the balanced mixed discovery feed.');
+  assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'minHeight: MOBILE_TRADE_DECK_AVAILABLE_HEIGHT', 'The submitted Explore surface must not reserve an extra empty deck stage around every concept.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<AppSmartHeaderScreen header={header} resetKey={typeFilter}>', 'The submitted Explore surface must restore its header on upward scrolling without changing other primary headers.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '...scrollProps.scrollViewProps', 'The submitted Explore feed must drive the direction-aware header from its FlatList scroll events.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'icon="filter"', 'The submitted Explore header must keep its dedicated filter control.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<LibraryFilterScreen', 'The submitted Explore filter must reuse the production full-screen filter UI.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'nextConceptDeck: { marginTop: MOBILE_DECK_FEED_GAP }', 'The submitted Explore surface must keep the shared mobile deck feed gap.');
+  assertContains('packages/shared/src/appNavigation.ts', "icon: 'compass',\n    mobileTabName: 'ExploreTab'", 'The submitted Explore tab must use the dedicated compass icon.');
+  assertContains('apps/mobile/src/components/MobileIcon.tsx', "case 'compass':", 'The submitted binary must keep the dedicated Explore compass glyph.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<AccountHeaderActionButton', 'Explore must use the shared primary Account control.');
+  assertContains('apps/mobile/src/features/plans/PlansScreens.tsx', '<AccountHeaderActionButton', 'Plans must use the shared primary Account control.');
+  assertContains('apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx', '<AccountHeaderActionButton', 'Trade must use the shared primary Account control.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<PlanSquareDeck', 'The submitted Explore surface must keep Plan ideas on the production Plan deck system.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('PlanIdeaDetail'", 'The submitted Explore Plan ideas must keep their review/customize detail route.');
+  assertContains(navigator, 'normalMobileAppNavItems.map', 'The submitted mobile navigation must stay generated from the mobile-specific production nav definition.');
   console.log('iPhone / iPad compatibility shell: PASS');
 }
 
@@ -115,6 +142,7 @@ function runReviewerJourneyRouteChecks() {
   const navigator = 'apps/mobile/src/navigation/RootNavigator.tsx';
   const requiredScreens = [
     '<Stack.Screen name="TradeTabs" component={TradeTabs} />',
+    '<Stack.Screen name="Account" component={ProtectedAccountScreen} />',
     '<Stack.Screen name="TradeDetail" component={TradeDetailScreen} />',
     '<Stack.Screen name="Login" component={LoginScreen} />',
     '<Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />',

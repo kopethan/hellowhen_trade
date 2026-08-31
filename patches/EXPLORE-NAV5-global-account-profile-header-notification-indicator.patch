@@ -1,0 +1,208 @@
+diff --git a/apps/mobile/src/components/AccountHeaderActionButton.tsx b/apps/mobile/src/components/AccountHeaderActionButton.tsx
+new file mode 100644
+index 0000000..2662f57
+--- /dev/null
++++ b/apps/mobile/src/components/AccountHeaderActionButton.tsx
+@@ -0,0 +1,70 @@
++import React, { useCallback, useState } from 'react';
++import { AppState } from 'react-native';
++import { useFocusEffect } from '@react-navigation/native';
++import { AppHeaderActionButton } from './AppHeaderActionButton';
++import { api } from '../lib/api';
++import { useAuth } from '../providers/AuthProvider';
++import { useTranslation } from '../providers/MobileI18nProvider';
++import { UserAvatar } from '../features/users/UserAvatar';
++
++type AccountHeaderActionButtonProps = {
++  onPress: () => void;
++};
++
++export function AccountHeaderActionButton({ onPress }: AccountHeaderActionButtonProps) {
++  const auth = useAuth();
++  const { t } = useTranslation();
++  const [unreadCount, setUnreadCount] = useState(0);
++
++  useFocusEffect(useCallback(() => {
++    let active = true;
++
++    if (!auth.isAuthenticated) {
++      setUnreadCount(0);
++      return () => { active = false; };
++    }
++
++    const loadUnreadCount = async () => {
++      try {
++        const response = await api.notifications.unreadCount();
++        if (active) setUnreadCount(response.unreadCount ?? 0);
++      } catch {
++        if (active) setUnreadCount(0);
++      }
++    };
++
++    void loadUnreadCount();
++    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
++      if (nextState === 'active') void loadUnreadCount();
++    });
++
++    return () => {
++      active = false;
++      appStateSubscription.remove();
++    };
++  }, [auth.isAuthenticated, auth.user?.id]));
++
++  const profile = auth.user?.profile;
++  const hasAvatar = Boolean(profile?.avatarUrl);
++  const accessibilityLabel = unreadCount > 0
++    ? `${t('navigation.routes.account')} · ${t('account.notifications.unreadCount', { count: unreadCount })}`
++    : t('navigation.routes.account');
++
++  return (
++    <AppHeaderActionButton
++      icon="profile"
++      accessibilityLabel={accessibilityLabel}
++      onPress={onPress}
++      badgeCount={unreadCount}
++      content={hasAvatar ? (
++        <UserAvatar
++          src={profile?.avatarUrl}
++          displayName={profile?.displayName}
++          handle={profile?.handle}
++          size="sm"
++          decorative
++        />
++      ) : undefined}
++    />
++  );
++}
+diff --git a/apps/mobile/src/components/AppHeaderActionButton.tsx b/apps/mobile/src/components/AppHeaderActionButton.tsx
+index f79d1ba..7bb5075 100644
+--- a/apps/mobile/src/components/AppHeaderActionButton.tsx
++++ b/apps/mobile/src/components/AppHeaderActionButton.tsx
+@@ -14,6 +14,7 @@ type AppHeaderActionButtonProps = {
+   badgeCount?: number;
+   badgeTone?: SemanticColorName;
+   disabled?: boolean;
++  content?: React.ReactNode;
+ };
+ 
+ export function AppHeaderActionButton({
+@@ -25,6 +26,7 @@ export function AppHeaderActionButton({
+   badgeCount = 0,
+   badgeTone = tone ?? 'info',
+   disabled = false,
++  content,
+ }: AppHeaderActionButtonProps) {
+   const theme = useThemeTokens();
+   const semantic = tone ? theme.semantic[tone] : null;
+@@ -47,7 +49,7 @@ export function AppHeaderActionButton({
+         disabled && styles.disabled,
+       ]}
+     >
+-      <MobileIcon name={icon} size={iconSize} color={semantic?.onBg ?? theme.color.text} decorative />
++      {content ?? <MobileIcon name={icon} size={iconSize} color={semantic?.onBg ?? theme.color.text} decorative />}
+       {badgeCount > 0 ? (
+         <View style={[styles.badge, { backgroundColor: badgeSemantic.bg, borderColor: theme.color.surface }]}>
+           <AppText style={[styles.badgeText, { color: badgeSemantic.onBg }]}>
+diff --git a/apps/mobile/src/features/explore/ExploreScreen.tsx b/apps/mobile/src/features/explore/ExploreScreen.tsx
+index 4718b8f..cf5bc15 100644
+--- a/apps/mobile/src/features/explore/ExploreScreen.tsx
++++ b/apps/mobile/src/features/explore/ExploreScreen.tsx
+@@ -5,7 +5,7 @@ import type { PlanDto } from '@hellowhen/contracts';
+ import { starterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type StarterPlanIdea } from '@hellowhen/shared';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+-import { AppHeaderActionButton } from '../../components/AppHeaderActionButton';
++import { AccountHeaderActionButton } from '../../components/AccountHeaderActionButton';
+ import { AppText } from '../../components/AppText';
+ import { betaFeatures } from '../../lib/betaFeatures';
+ import { MobileIcon } from '../../components/MobileIcon';
+@@ -92,11 +92,7 @@ export function ExploreScreen() {
+   const header = (
+     <View style={styles.headerRow}>
+       <AppText accessibilityRole="header" style={styles.title}>{t('navigation.tabs.explore')}</AppText>
+-      <AppHeaderActionButton
+-        icon="profile"
+-        accessibilityLabel={t('navigation.routes.account')}
+-        onPress={() => navigation.navigate('Account')}
+-      />
++      <AccountHeaderActionButton onPress={() => navigation.navigate('Account')} />
+     </View>
+   );
+ 
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 3129bff..e1926bb 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -14,7 +14,7 @@ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import type { AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
+ import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+-import { AppHeaderActionButton } from '../../components/AppHeaderActionButton';
++import { AccountHeaderActionButton } from '../../components/AccountHeaderActionButton';
+ import { AppText } from '../../components/AppText';
+ import { EMPTY_LIBRARY_HEADER_CONTROLS_STATE, LibraryActiveFilterChips, LibraryFilterGroup, LibraryFilterOption, LibraryFilterScreen, LibraryHeaderActions, LibraryInlineSearch, LibrarySearchFilterRow, SlidingSegmentedControl, useScopedLibraryState, type LibraryHeaderControlsHandle, type LibraryHeaderControlsState } from '../../components/library';
+ import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+@@ -2575,7 +2575,7 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
+         <HeaderAction icon="filter" label={activeFilterCount ? t('plans.feed.actions.filterActive', { count: activeFilterCount }) : t('plans.feed.actions.filter')} badgeCount={activeFilterCount} onPress={() => { setMenuOpen(false); navigation.navigate('PlanFilters', { filters: activeFilters, q: activeSearchQuery || undefined }); }} />
+         <HeaderAction icon="activity" label={t('plans.feed.actions.menu')} onPress={() => setMenuOpen(true)} />
+         <HeaderAction icon="add" label={t('plans.feed.actions.create')} primaryTone="plan" iconSize={23} onPress={() => navigation.navigate('CreatePlan')} />
+-        <AppHeaderActionButton icon="profile" accessibilityLabel={t('navigation.routes.account')} onPress={() => { setMenuOpen(false); navigation.navigate('Account'); }} />
++        <AccountHeaderActionButton onPress={() => { setMenuOpen(false); navigation.navigate('Account'); }} />
+       </View>
+     </View>
+   );
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index 7ab7d67..b7ea664 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -13,7 +13,7 @@ import { betaFeatures } from '../../lib/betaFeatures';
+ import { AppCard } from '../../components/AppCard';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+-import { AppHeaderActionButton } from '../../components/AppHeaderActionButton';
++import { AccountHeaderActionButton } from '../../components/AccountHeaderActionButton';
+ import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+ import { type AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
+ import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
+@@ -376,7 +376,7 @@ export function TradeDeckFeedScreen() {
+           <Pressable accessibilityRole="button" accessibilityLabel={t('trade.create.title')} onPress={() => createTrade()} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.semantic.trade.bg, borderColor: theme.semantic.trade.bg }, pressed && styles.pressed]}>
+             <MobileIcon name="add" size={23} color={theme.semantic.trade.onBg} />
+           </Pressable>
+-          <AppHeaderActionButton icon="profile" accessibilityLabel={t('navigation.routes.account')} onPress={() => { setWizardModalVisible(false); navigation.navigate('Account'); }} />
++          <AccountHeaderActionButton onPress={() => { setWizardModalVisible(false); navigation.navigate('Account'); }} />
+         </View>
+       </View>
+     </View>
+diff --git a/scripts/mobile-app-review-smoke.mjs b/scripts/mobile-app-review-smoke.mjs
+index 5a67df9..cc95b3f 100644
+--- a/scripts/mobile-app-review-smoke.mjs
++++ b/scripts/mobile-app-review-smoke.mjs
+@@ -108,6 +108,11 @@ function runIphoneAndIpadShellChecks() {
+   assertContains(navigator, 'paddingBottom: bottomInset || 8', 'The bottom navigation must remain usable on devices with and without a home indicator.');
+   assertContains(navigator, 'explore: ExploreScreen', 'The center mobile tab must open the public Explore surface.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('Account')", 'Explore must keep Account/login reachable from the primary header.');
++  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'api.notifications.unreadCount()', 'The submitted primary Account control must retain its unread notification indicator.');
++  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', '<UserAvatar', 'The submitted primary Account control must reuse the authenticated profile avatar when available.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<AccountHeaderActionButton', 'Explore must use the shared primary Account control.');
++  assertContains('apps/mobile/src/features/plans/PlansScreens.tsx', '<AccountHeaderActionButton', 'Plans must use the shared primary Account control.');
++  assertContains('apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx', '<AccountHeaderActionButton', 'Trade must use the shared primary Account control.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<PlanSquareDeck', 'The submitted Explore surface must keep Plan ideas on the production Plan deck system.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('PlanIdeaDetail'", 'The submitted Explore Plan ideas must keep their review/customize detail route.');
+   assertContains(navigator, 'normalMobileAppNavItems.map', 'The submitted mobile navigation must stay generated from the mobile-specific production nav definition.');
+diff --git a/scripts/mobile-launch-smoke.mjs b/scripts/mobile-launch-smoke.mjs
+index 645f66a..932f570 100644
+--- a/scripts/mobile-launch-smoke.mjs
++++ b/scripts/mobile-launch-smoke.mjs
+@@ -139,6 +139,12 @@ function runNavigationChecks() {
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('Account')", 'Explore must expose Account after Me leaves primary navigation.');
+   assertContains('apps/mobile/src/features/plans/PlansScreens.tsx', "navigation.navigate('Account')", 'Plans must expose Account after Me leaves primary navigation.');
+   assertContains('apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx', "navigation.navigate('Account')", 'Trade must expose Account after Me leaves primary navigation.');
++  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'api.notifications.unreadCount()', 'The shared Account header action must surface the unread notification count.');
++  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', '<UserAvatar', 'The shared Account header action must reuse the real profile avatar when available.');
++  assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'badgeCount={unreadCount}', 'The Account header action must carry the unread indicator after Me leaves primary navigation.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<AccountHeaderActionButton', 'Explore must use the shared Account/profile header action.');
++  assertContains('apps/mobile/src/features/plans/PlansScreens.tsx', '<AccountHeaderActionButton', 'Plans must use the shared Account/profile header action.');
++  assertContains('apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx', '<AccountHeaderActionButton', 'Trade must use the shared Account/profile header action.');
+ 
+   console.log('Mobile primary-navigation regression guard: PASS');
+ 

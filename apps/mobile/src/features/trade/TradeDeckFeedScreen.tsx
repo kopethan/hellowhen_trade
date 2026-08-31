@@ -13,6 +13,7 @@ import { betaFeatures } from '../../lib/betaFeatures';
 import { AppCard } from '../../components/AppCard';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
+import { AccountHeaderActionButton } from '../../components/AccountHeaderActionButton';
 import { AppConfirmSheet } from '../../components/AppConfirmSheet';
 import { type AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
 import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
@@ -130,6 +131,7 @@ export function TradeDeckFeedScreen() {
   const immediateQueryLoadRef = useRef(false);
   const pendingSearchRecordRef = useRef<{ q: string; source: TradeSearchKeywordSource } | null>(null);
   const appliedFilterRouteKeyRef = useRef<number | null>(null);
+  const appliedAccountActivityKeyRef = useRef<number | null>(null);
 
   const feedQuery = useMemo(() => buildFeedQuery(query, modeFilter, postTypeFilter, category, imagesOnly, moneyOnly, refreshSeed, seenTradeIds, language, auth.user?.profile?.countryCode), [auth.user?.profile?.countryCode, category, imagesOnly, language, modeFilter, moneyOnly, postTypeFilter, query, refreshSeed, seenTradeIds]);
   const activeFilterCount = useMemo(() => [feedQuery.q, feedQuery.mode, feedQuery.postType, feedQuery.category, feedQuery.hasImages, betaFeatures.moneyTradesEnabled ? feedQuery.hasMoney : undefined].filter(Boolean).length, [feedQuery]);
@@ -139,6 +141,15 @@ export function TradeDeckFeedScreen() {
     if (!canUseSearchSuggestions(normalized)) return;
     pendingSearchRecordRef.current = { q: normalized, source };
   }, []);
+
+  useEffect(() => {
+    const params = route.params;
+    if (!params?.accountActivity || !params.accountActivityKey || appliedAccountActivityKeyRef.current === params.accountActivityKey) return;
+    appliedAccountActivityKeyRef.current = params.accountActivityKey;
+    setActivityTab(params.accountActivity);
+    setWizardModalVisible(false);
+    setActivityModalVisible(true);
+  }, [route.params?.accountActivity, route.params?.accountActivityKey]);
 
   useEffect(() => {
     const params = route.params;
@@ -309,24 +320,16 @@ export function TradeDeckFeedScreen() {
 
   const hasTrades = trades.length > 0;
   const hasFilters = activeFilterCount > 0;
-  const randomizedFeedIdeaKeys = useMemo(() => getRandomizedFeedIdeaKeys(refreshSeed), [refreshSeed]);
-  const starterIdeaPlacement = useMemo(() => (
-    (!error || hasSuccessfulFeed) && !hasFilters && hasLoadedFeed
-      ? getFeedStarterIdeaPlacement(visibleTrades.length, randomizedFeedIdeaKeys)
-      : emptyFeedStarterIdeaPlacement
-  ), [error, hasFilters, hasLoadedFeed, hasSuccessfulFeed, randomizedFeedIdeaKeys, visibleTrades.length]);
-  const feedItems = useMemo<TradeFeedListItem[]>(() => {
-    const items: TradeFeedListItem[] = [];
-    visibleTrades.forEach((trade, index) => {
-      items.push({ type: 'trade', key: `trade-${trade.id}`, trade, index, total: visibleTrades.length });
-      const ideaKey = getInlineFeedIdeaKey(index, starterIdeaPlacement);
-      if (ideaKey) items.push({ type: 'idea', key: `starter-inline-${index}-${ideaKey}`, ideaKey });
-    });
-    if (starterIdeaPlacement.appendedIdeaKeys.length) {
-      items.push({ type: 'ideaGroup', key: `starter-appended-${starterIdeaPlacement.appendedIdeaKeys.join('-')}`, ideaKeys: starterIdeaPlacement.appendedIdeaKeys });
-    }
-    return items;
-  }, [starterIdeaPlacement, visibleTrades]);
+  // Hellowhen starter concepts now live exclusively in Explore. Keep the Trade feed real-activity only.
+  const feedItems = useMemo<TradeFeedListItem[]>(() => (
+    visibleTrades.map((trade, index) => ({
+      type: 'trade',
+      key: `trade-${trade.id}`,
+      trade,
+      index,
+      total: visibleTrades.length,
+    }))
+  ), [visibleTrades]);
 
   const renderFeedItem = useCallback(({ item }: { item: TradeFeedListItem }) => {
     if (item.type === 'trade') return <TradeDeckSection trade={item.trade} index={item.index} total={item.total} onOpenTrade={openTrade} />;
@@ -365,6 +368,7 @@ export function TradeDeckFeedScreen() {
           <Pressable accessibilityRole="button" accessibilityLabel={t('trade.create.title')} onPress={() => createTrade()} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.semantic.trade.bg, borderColor: theme.semantic.trade.bg }, pressed && styles.pressed]}>
             <MobileIcon name="add" size={23} color={theme.semantic.trade.onBg} />
           </Pressable>
+          <AccountHeaderActionButton onPress={() => { setWizardModalVisible(false); navigation.navigate('Account'); }} />
         </View>
       </View>
     </View>
@@ -468,7 +472,7 @@ function splitFeedIdeaChips(value: string) {
   return value.split('·').map((part) => part.trim()).filter(Boolean).slice(0, 3);
 }
 
-function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: FeedTradeIdeaKey; onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void; inline?: boolean }) {
+export function TradeFeedIdeaCard({ ideaKey, onOpenIdea, inline = false }: { ideaKey: FeedTradeIdeaKey; onOpenIdea: (ideaKey: FeedTradeIdeaKey) => void; inline?: boolean }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
   const { width } = useWindowDimensions();

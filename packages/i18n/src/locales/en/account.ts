@@ -6,7 +6,13 @@ export const account = {
   walletPageBody: 'Manage optional exchange balances when this roadmap feature is enabled.',
   addBalanceTitle: 'Add balance',
   addBalanceBody: 'Manage exchange balance when this roadmap feature is enabled.',
-  headerBody: 'Profile, settings, and support live here.',
+  headerBody: 'Your profile, activity, tools, and settings live here.',
+  hub: {
+    profile: 'Profile',
+    publicProfile: 'Public profile',
+    myPlaces: 'My places',
+    settingsSummary: 'Language, appearance, notifications, and security.',
+  },
   sections: {
     activity: 'Activity',
     plans: 'Plans',

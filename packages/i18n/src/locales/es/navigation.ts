@@ -67,6 +67,7 @@ export const navigation = {
     account: 'Cuenta',
     plans: 'Planes',
     me: 'Yo',
+    explore: 'Explorar',
     trade: 'Intercambio',
   },
   workspace: {
@@ -83,6 +84,7 @@ export const navigation = {
     offers: 'Ofertas',
     account: 'Cuenta',
     me: 'Yo',
+    explore: 'Explorar',
     membership: 'Membresía',
     createTrade: 'Crear intercambio',
     plan: 'Plan',

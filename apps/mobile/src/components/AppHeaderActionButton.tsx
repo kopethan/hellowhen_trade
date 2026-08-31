@@ -14,6 +14,7 @@ type AppHeaderActionButtonProps = {
   badgeCount?: number;
   badgeTone?: SemanticColorName;
   disabled?: boolean;
+  content?: React.ReactNode;
 };
 
 export function AppHeaderActionButton({
@@ -25,6 +26,7 @@ export function AppHeaderActionButton({
   badgeCount = 0,
   badgeTone = tone ?? 'info',
   disabled = false,
+  content,
 }: AppHeaderActionButtonProps) {
   const theme = useThemeTokens();
   const semantic = tone ? theme.semantic[tone] : null;
@@ -47,7 +49,7 @@ export function AppHeaderActionButton({
         disabled && styles.disabled,
       ]}
     >
-      <MobileIcon name={icon} size={iconSize} color={semantic?.onBg ?? theme.color.text} decorative />
+      {content ?? <MobileIcon name={icon} size={iconSize} color={semantic?.onBg ?? theme.color.text} decorative />}
       {badgeCount > 0 ? (
         <View style={[styles.badge, { backgroundColor: badgeSemantic.bg, borderColor: theme.color.surface }]}>
           <AppText style={[styles.badgeText, { color: badgeSemantic.onBg }]}>

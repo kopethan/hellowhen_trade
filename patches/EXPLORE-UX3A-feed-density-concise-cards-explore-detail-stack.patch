@@ -1,0 +1,293 @@
+diff --git a/apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx b/apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx
+index 7b6861f..9bf3538 100644
+--- a/apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx
++++ b/apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx
+@@ -146,9 +146,9 @@ function ConceptCardView({
+         surfaceStyle={styles.posterFooterSurface}
+         contentStyle={styles.posterFooterContent}
+       >
+-        <AppText style={[styles.title, { color: posterTitleColor }]} numberOfLines={3}>{title}</AppText>
+-        {description ? <AppText style={[styles.description, { color: posterBodyColor }]} numberOfLines={3}>{description}</AppText> : null}
+-        {meta ? <AppText style={[styles.meta, { color: posterBodyColor }]} numberOfLines={2}>{meta}</AppText> : null}
++        <AppText style={[styles.title, { color: posterTitleColor }]} numberOfLines={2} ellipsizeMode="tail">{title}</AppText>
++        {description ? <AppText style={[styles.description, { color: posterBodyColor }]} numberOfLines={2} ellipsizeMode="tail">{description}</AppText> : null}
++        {meta ? <AppText style={[styles.meta, { color: posterBodyColor }]} numberOfLines={1} ellipsizeMode="tail">{meta}</AppText> : null}
+       </PosterCardFooter>
+     </Pressable>
+   );
+diff --git a/apps/mobile/src/features/explore/ExploreInventoryIdeaDetailScreen.tsx b/apps/mobile/src/features/explore/ExploreInventoryIdeaDetailScreen.tsx
+index 68284e8..cede04c 100644
+--- a/apps/mobile/src/features/explore/ExploreInventoryIdeaDetailScreen.tsx
++++ b/apps/mobile/src/features/explore/ExploreInventoryIdeaDetailScreen.tsx
+@@ -1,9 +1,10 @@
+ import React, { useCallback, useEffect, useMemo, useState } from 'react';
+ import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+-import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
++import { useNavigation, useRoute, type CompositeNavigationProp, type RouteProp } from '@react-navigation/native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { InventoryTemplateDto } from '@hellowhen/contracts';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
++import type { ExploreStackParamList } from './ExploreNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+@@ -30,6 +31,11 @@ import {
+ } from '../trade/components/InventoryFormFields';
+ import { resolveMediaVariantUrl } from '../trade/mediaUrls';
+ 
++type ExploreDetailNavigationProp = CompositeNavigationProp<
++  NativeStackNavigationProp<ExploreStackParamList>,
++  NativeStackNavigationProp<RootStackParamList>
++>;
++
+ type InventoryIdeaKind = 'need' | 'offer';
+ type TemplateResponse = InventoryTemplateDto | { template?: InventoryTemplateDto };
+ type CloneTemplateResponse = { need?: { id?: string }; offer?: { id?: string } };
+@@ -71,7 +77,7 @@ function ExploreInventoryIdeaDetailScreen({
+   templateId: string;
+   fallbackTitle?: string;
+ }) {
+-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
++  const navigation = useNavigation<ExploreDetailNavigationProp>();
+   const theme = useThemeTokens();
+   const auth = useAuth();
+   const { t } = useTranslation();
+@@ -266,12 +272,12 @@ function ExploreInventoryIdeaDetailScreen({
+ }
+ 
+ export function ExploreNeedIdeaDetailScreen() {
+-  const route = useRoute<RouteProp<RootStackParamList, 'NeedIdeaDetail'>>();
++  const route = useRoute<RouteProp<ExploreStackParamList, 'NeedIdeaDetail'>>();
+   return <ExploreInventoryIdeaDetailScreen kind="need" templateId={route.params.templateId} fallbackTitle={route.params.title} />;
+ }
+ 
+ export function ExploreOfferIdeaDetailScreen() {
+-  const route = useRoute<RouteProp<RootStackParamList, 'OfferIdeaDetail'>>();
++  const route = useRoute<RouteProp<ExploreStackParamList, 'OfferIdeaDetail'>>();
+   return <ExploreInventoryIdeaDetailScreen kind="offer" templateId={route.params.templateId} fallbackTitle={route.params.title} />;
+ }
+ 
+diff --git a/apps/mobile/src/features/explore/ExploreNavigator.tsx b/apps/mobile/src/features/explore/ExploreNavigator.tsx
+new file mode 100644
+index 0000000..06b3ecb
+--- /dev/null
++++ b/apps/mobile/src/features/explore/ExploreNavigator.tsx
+@@ -0,0 +1,26 @@
++import React from 'react';
++import { createNativeStackNavigator } from '@react-navigation/native-stack';
++import { betaFeatures } from '../../lib/betaFeatures';
++import { ExploreNeedIdeaDetailScreen, ExploreOfferIdeaDetailScreen } from './ExploreInventoryIdeaDetailScreen';
++import { ExploreScreen } from './ExploreScreen';
++import { HellowhenPlaceDetailScreen } from './HellowhenPlaceDetailScreen';
++
++export type ExploreStackParamList = {
++  ExploreHome: undefined;
++  NeedIdeaDetail: { templateId: string; title?: string };
++  OfferIdeaDetail: { templateId: string; title?: string };
++  HellowhenPlaceDetail: { placeId: string; title?: string };
++};
++
++const ExploreStack = createNativeStackNavigator<ExploreStackParamList>();
++
++export function ExploreNavigator() {
++  return (
++    <ExploreStack.Navigator initialRouteName="ExploreHome" screenOptions={{ headerShown: false }}>
++      <ExploreStack.Screen name="ExploreHome" component={ExploreScreen} />
++      <ExploreStack.Screen name="NeedIdeaDetail" component={ExploreNeedIdeaDetailScreen} />
++      <ExploreStack.Screen name="OfferIdeaDetail" component={ExploreOfferIdeaDetailScreen} />
++      {betaFeatures.plansEnabled ? <ExploreStack.Screen name="HellowhenPlaceDetail" component={HellowhenPlaceDetailScreen} /> : null}
++    </ExploreStack.Navigator>
++  );
++}
+diff --git a/apps/mobile/src/features/explore/ExploreScreen.tsx b/apps/mobile/src/features/explore/ExploreScreen.tsx
+index 2e40327..f25327c 100644
+--- a/apps/mobile/src/features/explore/ExploreScreen.tsx
++++ b/apps/mobile/src/features/explore/ExploreScreen.tsx
+@@ -1,6 +1,6 @@
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+ import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-native';
+-import { useNavigation } from '@react-navigation/native';
++import { useNavigation, type CompositeNavigationProp } from '@react-navigation/native';
+ import type { InventoryTemplateDto, PlaceDto, PlanDto } from '@hellowhen/contracts';
+ import { starterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type StarterPlanIdea } from '@hellowhen/shared';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+@@ -15,9 +15,15 @@ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { PlanSquareDeck } from '../plans/components/PlanSquareDeck';
+ import { TradeFeedIdeaCard } from '../trade/TradeDeckFeedScreen';
+ import { feedTradeIdeaKeys, feedTradeIdeas, type FeedTradeIdeaKey } from '../trade/tradeFeedIdeas';
+-import { MOBILE_DECK_FEED_GAP, MOBILE_TRADE_DECK_AVAILABLE_HEIGHT } from '../trade/components/tradeDeckGeometry';
++import { MOBILE_DECK_FEED_GAP } from '../trade/components/tradeDeckGeometry';
+ import { categoryLabel, itemTypeLabel, modeLabel } from '../trade/components/InventoryFormFields';
+ import { ExploreConceptSquareDeck } from './ExploreConceptSquareDeck';
++import type { ExploreStackParamList } from './ExploreNavigator';
++
++type ExploreNavigationProp = CompositeNavigationProp<
++  NativeStackNavigationProp<ExploreStackParamList>,
++  NativeStackNavigationProp<RootStackParamList>
++>;
+ 
+ const EXPLORE_DISCOVERY_LIMIT = 12;
+ const tradeExploreIdeaKeys = feedTradeIdeaKeys.filter((ideaKey) => feedTradeIdeas[ideaKey].type === 'trade') as readonly FeedTradeIdeaKey[];
+@@ -160,7 +166,7 @@ function placeMeta(place: PlaceDto, t: TFunction) {
+ }
+ 
+ export function ExploreScreen() {
+-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
++  const navigation = useNavigation<ExploreNavigationProp>();
+   const theme = useThemeTokens();
+   const { t, language } = useTranslation();
+   const [needTemplates, setNeedTemplates] = useState<InventoryTemplateDto[]>([]);
+@@ -353,7 +359,7 @@ const styles = StyleSheet.create({
+   headerRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+   title: { flex: 1, minWidth: 0, fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 },
+   content: { paddingTop: 8, paddingBottom: 44 },
+-  conceptDeck: { minHeight: MOBILE_TRADE_DECK_AVAILABLE_HEIGHT, alignItems: 'center', justifyContent: 'center', overflow: 'visible' },
++  conceptDeck: { alignItems: 'center', justifyContent: 'center', overflow: 'visible' },
+   firstConceptDeck: { marginTop: 14 },
+   nextConceptDeck: { marginTop: MOBILE_DECK_FEED_GAP },
+   discoveryState: { alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 24, paddingTop: 28 },
+diff --git a/apps/mobile/src/features/explore/HellowhenPlaceDetailScreen.tsx b/apps/mobile/src/features/explore/HellowhenPlaceDetailScreen.tsx
+index 457773f..ffaa65b 100644
+--- a/apps/mobile/src/features/explore/HellowhenPlaceDetailScreen.tsx
++++ b/apps/mobile/src/features/explore/HellowhenPlaceDetailScreen.tsx
+@@ -1,10 +1,11 @@
+ import React, { useCallback, useEffect, useMemo, useState } from 'react';
+ import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+-import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
++import { useNavigation, useRoute, type CompositeNavigationProp, type RouteProp } from '@react-navigation/native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { CreatePlaceRequest, DiscoveryLanguage, PlaceDto, PlaceResponse } from '@hellowhen/contracts';
+ import { resolveInventoryOriginalCopy } from '@hellowhen/shared';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
++import type { ExploreStackParamList } from './ExploreNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+@@ -25,6 +26,11 @@ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { resolveMediaVariantUrl } from '../trade/mediaUrls';
+ 
+ 
++type ExploreDetailNavigationProp = CompositeNavigationProp<
++  NativeStackNavigationProp<ExploreStackParamList>,
++  NativeStackNavigationProp<RootStackParamList>
++>;
++
+ function normalizeDiscoveryLanguage(value?: string | null): DiscoveryLanguage {
+   if (value === 'fr' || value === 'es') return value;
+   return 'en';
+@@ -87,8 +93,8 @@ function placeImages(place: PlaceDto | null) {
+ }
+ 
+ export function HellowhenPlaceDetailScreen() {
+-  const route = useRoute<RouteProp<RootStackParamList, 'HellowhenPlaceDetail'>>();
+-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
++  const route = useRoute<RouteProp<ExploreStackParamList, 'HellowhenPlaceDetail'>>();
++  const navigation = useNavigation<ExploreDetailNavigationProp>();
+   const theme = useThemeTokens();
+   const auth = useAuth();
+   const { t } = useTranslation();
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index a21bf3c..9dd0ccd 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -2,9 +2,7 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import type { PlaceDto, TradeExchangeMode, TradePostType, TradeSearchKeywordSource } from '@hellowhen/contracts';
+ import { AccountScreen } from '../features/account/AccountScreen';
+-import { ExploreScreen } from '../features/explore/ExploreScreen';
+-import { ExploreNeedIdeaDetailScreen, ExploreOfferIdeaDetailScreen } from '../features/explore/ExploreInventoryIdeaDetailScreen';
+-import { HellowhenPlaceDetailScreen } from '../features/explore/HellowhenPlaceDetailScreen';
++import { ExploreNavigator } from '../features/explore/ExploreNavigator';
+ import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen';
+ import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
+ 
+@@ -34,7 +32,6 @@ export type RootStackParamList = {
+   JoinedPlans: undefined;
+   MyPlaces: undefined;
+   PlaceLibrary: undefined;
+-  HellowhenPlaceDetail: { placeId: string; title?: string };
+   CreatePlan: { createdPlace?: PlaceDto; createdPlaceTargetIndex?: number; createdPlaceNonce?: number; updatedPlace?: PlaceDto; updatedPlaceTargetIndex?: number; updatedPlaceNonce?: number; updatedPlaceSelectAfterFix?: boolean; initialPlanIdeaKey?: string } | undefined;
+   CreatePlace: { returnToCreatePlan?: boolean; editPlace?: PlaceDto; copyFromPlace?: PlaceDto; targetPlaceIndex?: number; selectPlaceAfterSave?: boolean } | undefined;
+   SavedLibraryCollection: { collectionId: string; title?: string };
+@@ -55,11 +52,9 @@ export type RootStackParamList = {
+   CreateNeed: InventoryCreateParams;
+   CreateNeedFull: InventoryCreateParams;
+   NeedDetail: { needId: string; title?: string };
+-  NeedIdeaDetail: { templateId: string; title?: string };
+   CreateOffer: InventoryCreateParams;
+   CreateOfferFull: InventoryCreateParams;
+   OfferDetail: { offerId: string; title?: string };
+-  OfferIdeaDetail: { templateId: string; title?: string };
+   CreateTrade: TradeCreateReturnParams;
+ };
+ 
+@@ -73,7 +68,7 @@ export type RootStackParamList = {
+ 
+ const normalMobileTabScreenById: Record<NormalMobileAppNavItemId, React.ComponentType<any>> = {
+   plans: PlansScreen,
+-  explore: ExploreScreen,
++  explore: ExploreNavigator,
+   trade: TradeDeckFeedScreen,
+ };
+ 
+@@ -87,9 +82,6 @@ export function RootNavigator() {
+       <Stack.Screen name="MyNeeds" component={ProtectedMyNeedsScreen} />
+       <Stack.Screen name="MyOffers" component={ProtectedMyOffersScreen} />
+       <Stack.Screen name="TradeIdeaDetail" component={TradeIdeaDetailScreen} />
+-      <Stack.Screen name="NeedIdeaDetail" component={ExploreNeedIdeaDetailScreen} />
+-      <Stack.Screen name="OfferIdeaDetail" component={ExploreOfferIdeaDetailScreen} />
+-      {betaFeatures.plansEnabled ? <Stack.Screen name="HellowhenPlaceDetail" component={HellowhenPlaceDetailScreen} /> : null}
+       <Stack.Screen name="UserProfile" component={PublicUserProfileScreen} />
+       <Stack.Screen name="GuideHub" component={GuideHubScreen} />
+       <Stack.Screen name="OnboardingGuide" component={OnboardingGuideScreen} initialParams={{ replay: false }} />
+diff --git a/scripts/mobile-app-review-smoke.mjs b/scripts/mobile-app-review-smoke.mjs
+index 923b861..045fb29 100644
+--- a/scripts/mobile-app-review-smoke.mjs
++++ b/scripts/mobile-app-review-smoke.mjs
+@@ -1,5 +1,5 @@
+   assertContains(navigator, 'paddingBottom: bottomInset || 8', 'The bottom navigation must remain usable on devices with and without a home indicator.');
+-  assertContains(navigator, 'explore: ExploreScreen', 'The center mobile tab must open the public Explore surface.');
++  assertContains(navigator, 'explore: ExploreNavigator', 'The center mobile tab must own the Explore stack so detail screens keep the Explore tab selected.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('Account')", 'Explore must keep Account/login reachable from the primary header.');
+   assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', 'api.notifications.unreadCount()', 'The submitted primary Account control must retain its unread notification indicator.');
+   assertContains('apps/mobile/src/components/AccountHeaderActionButton.tsx', '<UserAvatar', 'The submitted primary Account control must reuse the authenticated profile avatar when available.');
+@@ -14,8 +14,13 @@
+   assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'deckControls', 'The submitted Explore surface must not restore global concept navigation buttons.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<AppText accessibilityRole="header" style={styles.title}>', 'The submitted Explore surface must keep a semantic page heading after discovery concepts are mixed.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'buildBalancedMixedFeed(', 'The submitted Explore surface must keep the balanced mixed discovery feed.');
+-  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'conceptDeck: { minHeight: MOBILE_TRADE_DECK_AVAILABLE_HEIGHT', 'The submitted Explore surface must reserve the production deck stage height.');
++  assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'minHeight: MOBILE_TRADE_DECK_AVAILABLE_HEIGHT', 'The submitted Explore surface must not reserve an extra ad-sized stage around each concept deck.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'nextConceptDeck: { marginTop: MOBILE_DECK_FEED_GAP }', 'The submitted Explore surface must keep the shared mobile deck feed gap.');
++  assertContains('apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx', 'numberOfLines={2} ellipsizeMode="tail">{description}', 'The submitted Need, Offer, and Place discovery descriptions must stay concise at two lines.');
++  assertContains('apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx', 'numberOfLines={1} ellipsizeMode="tail">{meta}', 'The submitted Explore discovery metadata must stay compact on one line.');
++  assertContains('apps/mobile/src/features/explore/ExploreNavigator.tsx', '<ExploreStack.Screen name="NeedIdeaDetail"', 'The submitted Need idea detail must remain inside the Explore tab stack.');
++  assertContains('apps/mobile/src/features/explore/ExploreNavigator.tsx', '<ExploreStack.Screen name="OfferIdeaDetail"', 'The submitted Offer idea detail must remain inside the Explore tab stack.');
++  assertContains('apps/mobile/src/features/explore/ExploreNavigator.tsx', '<ExploreStack.Screen name="HellowhenPlaceDetail"', 'The submitted Hellowhen Place detail must remain inside the Explore tab stack while Plans are enabled.');
+   assertContains('packages/shared/src/appNavigation.ts', "icon: 'compass',\n    mobileTabName: 'ExploreTab'", 'The submitted Explore tab must use the dedicated compass icon.');
+   assertContains('apps/mobile/src/components/MobileIcon.tsx', "case 'compass':", 'The submitted binary must keep the dedicated Explore compass glyph.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<AccountHeaderActionButton', 'Explore must use the shared primary Account control.');
+diff --git a/scripts/mobile-launch-smoke.mjs b/scripts/mobile-launch-smoke.mjs
+index fa9a337..9d0ebee 100644
+--- a/scripts/mobile-launch-smoke.mjs
++++ b/scripts/mobile-launch-smoke.mjs
+@@ -1,4 +1,4 @@
+-  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'explore: ExploreScreen', 'Explore must own the center mobile primary tab.');
++  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'explore: ExploreNavigator', 'Explore must own the center mobile stack so Need, Offer, and Place details keep the Explore tab selected.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('Account')", 'Explore must expose Account after Me is retired from primary navigation.');
+   assertContains('apps/mobile/src/features/plans/PlansScreens.tsx', "navigation.navigate('Account')", 'Plans must expose Account after Me is retired from primary navigation.');
+   assertContains('apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx', "navigation.navigate('Account')", 'Trade must expose Account after Me is retired from primary navigation.');
+@@ -16,8 +16,13 @@
+   assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'deckControls', 'Explore must not reintroduce global concept navigation buttons.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<AppText accessibilityRole="header" style={styles.title}>', 'Explore must keep a semantic page heading after discovery concepts are mixed.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'buildBalancedMixedFeed(', 'Explore must compose discovery concepts as one balanced mixed feed.');
+-  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'conceptDeck: { minHeight: MOBILE_TRADE_DECK_AVAILABLE_HEIGHT', 'Explore concepts must reserve the production deck stage height.');
++  assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'minHeight: MOBILE_TRADE_DECK_AVAILABLE_HEIGHT', 'Explore must not reserve an extra ad-sized stage around each concept deck.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'nextConceptDeck: { marginTop: MOBILE_DECK_FEED_GAP }', 'Explore concepts must keep the shared mobile deck feed gap.');
++  assertContains('apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx', 'numberOfLines={2} ellipsizeMode="tail">{description}', 'Need, Offer, and Place discovery descriptions must stay concise at two lines.');
++  assertContains('apps/mobile/src/features/explore/ExploreConceptSquareDeck.tsx', 'numberOfLines={1} ellipsizeMode="tail">{meta}', 'Explore discovery metadata must stay compact on one line.');
++  assertContains('apps/mobile/src/features/explore/ExploreNavigator.tsx', '<ExploreStack.Screen name="NeedIdeaDetail"', 'Need idea detail must stay inside the Explore tab stack.');
++  assertContains('apps/mobile/src/features/explore/ExploreNavigator.tsx', '<ExploreStack.Screen name="OfferIdeaDetail"', 'Offer idea detail must stay inside the Explore tab stack.');
++  assertContains('apps/mobile/src/features/explore/ExploreNavigator.tsx', '<ExploreStack.Screen name="HellowhenPlaceDetail"', 'Hellowhen Place detail must stay inside the Explore tab stack while Plans are enabled.');
+   assertContains('packages/shared/src/appNavigation.ts', "NormalMobileAppNavIcon = NormalAppNavIcon | 'search' | 'compass'", 'The mobile navigation contract must support the Explore compass icon without changing web navigation.');
+   assertContains('packages/shared/src/appNavigation.ts', "icon: 'compass',\n    mobileTabName: 'ExploreTab'", 'Explore must use the compass icon rather than the search icon.');
+   assertContains('apps/mobile/src/components/MobileIcon.tsx', "case 'compass':", 'The native icon system must provide a dedicated compass glyph for Explore.');

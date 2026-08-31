@@ -1,0 +1,186 @@
+diff --git a/apps/mobile/src/features/explore/ExploreScreen.tsx b/apps/mobile/src/features/explore/ExploreScreen.tsx
+index b6e44fb..4718b8f 100644
+--- a/apps/mobile/src/features/explore/ExploreScreen.tsx
++++ b/apps/mobile/src/features/explore/ExploreScreen.tsx
+@@ -1,29 +1,79 @@
+ import React, { useMemo, useState } from 'react';
+ import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+ import { useNavigation } from '@react-navigation/native';
++import type { PlanDto } from '@hellowhen/contracts';
++import { starterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type StarterPlanIdea } from '@hellowhen/shared';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeaderActionButton } from '../../components/AppHeaderActionButton';
+ import { AppText } from '../../components/AppText';
++import { betaFeatures } from '../../lib/betaFeatures';
+ import { MobileIcon } from '../../components/MobileIcon';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
++import { PlanSquareDeck } from '../plans/components/PlanSquareDeck';
+ import { TradeFeedIdeaCard } from '../trade/TradeDeckFeedScreen';
+ import { feedTradeIdeaKeys, feedTradeIdeas, type FeedTradeIdeaKey } from '../trade/tradeFeedIdeas';
+ import { getMobileTradeDeckCardSize } from '../trade/components/tradeDeckGeometry';
+ 
+ const tradeExploreIdeaKeys = feedTradeIdeaKeys.filter((ideaKey) => feedTradeIdeas[ideaKey].type === 'trade') as readonly FeedTradeIdeaKey[];
+ 
++function planIdeaPreviewPlan(idea: StarterPlanIdea): PlanDto {
++  const createdAt = new Date().toISOString();
++  return {
++    id: `starter-plan-idea-${idea.id}`,
++    ownerId: 'starter-plan-idea',
++    title: idea.title,
++    description: idea.description,
++    category: idea.category,
++    tags: idea.tags,
++    mode: starterPlanIdeaMode(idea),
++    locationLabel: `${idea.stops.length} starter stops`,
++    startsAt: createdAt,
++    endsAt: null,
++    maxParticipants: null,
++    joinApprovalMode: 'automatic',
++    status: 'open',
++    createdAt,
++    updatedAt: createdAt,
++    participantCount: 0,
++    places: idea.stops.map((stop, index) => ({
++      id: `starter-plan-idea-${idea.id}-place-${index}`,
++      planId: `starter-plan-idea-${idea.id}`,
++      placeId: null,
++      source: 'custom',
++      order: index,
++      mode: stop.mode,
++      title: stop.title,
++      note: null,
++      addressPublicText: null,
++      addressPrivateText: null,
++      onlineLabel: stop.mode === 'remote' ? stop.onlineLabel ?? null : null,
++      onlineUrl: stop.mode === 'remote' ? stop.onlineUrl ?? null : null,
++      startsAt: null,
++      endsAt: null,
++      createdAt,
++      updatedAt: createdAt,
++      media: [],
++    })),
++  } as PlanDto;
++}
++
+ export function ExploreScreen() {
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+   const { width } = useWindowDimensions();
+   const [activeIdeaIndex, setActiveIdeaIndex] = useState(0);
++  const [activePlanIdeaIndex, setActivePlanIdeaIndex] = useState(0);
+   const cardSize = getMobileTradeDeckCardSize(width);
+   const ideaKeys = useMemo(() => tradeExploreIdeaKeys, []);
+   const activeIdeaKey = ideaKeys[activeIdeaIndex] ?? ideaKeys[0];
++  const planIdeaKeys = useMemo(() => starterPlanIdeaKeys, []);
++  const activePlanIdeaKey = planIdeaKeys[activePlanIdeaIndex] ?? planIdeaKeys[0];
++  const activePlanIdea = activePlanIdeaKey ? starterPlanIdeas[activePlanIdeaKey] : null;
++  const activePlanPreview = useMemo(() => activePlanIdea ? planIdeaPreviewPlan(activePlanIdea) : null, [activePlanIdea]);
+ 
+   function moveIdea(direction: -1 | 1) {
+     setActiveIdeaIndex((current) => {
+@@ -32,6 +82,13 @@ export function ExploreScreen() {
+     });
+   }
+ 
++  function movePlanIdea(direction: -1 | 1) {
++    setActivePlanIdeaIndex((current) => {
++      if (!planIdeaKeys.length) return 0;
++      return (current + direction + planIdeaKeys.length) % planIdeaKeys.length;
++    });
++  }
++
+   const header = (
+     <View style={styles.headerRow}>
+       <AppText accessibilityRole="header" style={styles.title}>{t('navigation.tabs.explore')}</AppText>
+@@ -101,6 +158,46 @@ export function ExploreScreen() {
+             </>
+           ) : null}
+         </View>
++
++        {betaFeatures.plansEnabled && betaFeatures.plansVisible && activePlanIdea && activePlanPreview ? (
++          <View style={[styles.section, styles.followingSection]}>
++            <View style={styles.sectionHeader}>
++              <AppText style={styles.sectionTitle}>{t('plans.workspace.planIdeas.title')}</AppText>
++              <AppText style={[styles.sectionCount, { color: theme.color.muted }]}>{planIdeaKeys.length}</AppText>
++            </View>
++
++            <PlanSquareDeck
++              key={activePlanIdeaKey}
++              plan={activePlanPreview}
++              index={activePlanIdeaIndex}
++              total={planIdeaKeys.length}
++              onOpen={() => navigation.navigate('PlanIdeaDetail', { ideaId: activePlanIdeaKey })}
++              topBadgeLabel={t('plans.deck.ideaBadge', { pack: activePlanIdea.pack })}
++              topBadgeTone="plan"
++              showModeBadge={false}
++            />
++
++            <View style={styles.planDeckControls}>
++              <Pressable
++                accessibilityRole="button"
++                accessibilityLabel={t('common.actions.previousCard')}
++                onPress={() => movePlanIdea(-1)}
++                style={({ pressed }) => [styles.deckButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
++              >
++                <MobileIcon name="deck-back" size={18} color={theme.color.text} decorative />
++              </Pressable>
++              <AppText style={[styles.deckPosition, { color: theme.color.muted }]}>{activePlanIdeaIndex + 1} / {planIdeaKeys.length}</AppText>
++              <Pressable
++                accessibilityRole="button"
++                accessibilityLabel={t('common.actions.nextCard')}
++                onPress={() => movePlanIdea(1)}
++                style={({ pressed }) => [styles.deckButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
++              >
++                <MobileIcon name="deck-advance" size={18} color={theme.color.text} decorative />
++              </Pressable>
++            </View>
++          </View>
++        ) : null}
+       </ScrollView>
+     </AppFixedHeaderScreen>
+   );
+@@ -111,6 +208,7 @@ const styles = StyleSheet.create({
+   title: { flex: 1, minWidth: 0, fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 },
+   content: { paddingTop: 8, paddingBottom: 34 },
+   section: { gap: 14 },
++  followingSection: { marginTop: 32 },
+   sectionHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
+   sectionTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900', letterSpacing: -0.25 },
+   sectionCount: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
+@@ -122,5 +220,6 @@ const styles = StyleSheet.create({
+   deckControls: { alignSelf: 'center', minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4 },
+   deckButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+   deckPosition: { fontSize: 12, lineHeight: 16, fontWeight: '800', fontVariant: ['tabular-nums'] },
++  planDeckControls: { alignSelf: 'center', width: '100%', maxWidth: 348, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4 },
+   pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },
+ });
+diff --git a/scripts/mobile-app-review-smoke.mjs b/scripts/mobile-app-review-smoke.mjs
+index c79ce01..5a67df9 100644
+--- a/scripts/mobile-app-review-smoke.mjs
++++ b/scripts/mobile-app-review-smoke.mjs
+@@ -108,6 +108,8 @@ function runIphoneAndIpadShellChecks() {
+   assertContains(navigator, 'paddingBottom: bottomInset || 8', 'The bottom navigation must remain usable on devices with and without a home indicator.');
+   assertContains(navigator, 'explore: ExploreScreen', 'The center mobile tab must open the public Explore surface.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('Account')", 'Explore must keep Account/login reachable from the primary header.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<PlanSquareDeck', 'The submitted Explore surface must keep Plan ideas on the production Plan deck system.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('PlanIdeaDetail'", 'The submitted Explore Plan ideas must keep their review/customize detail route.');
+   assertContains(navigator, 'normalMobileAppNavItems.map', 'The submitted mobile navigation must stay generated from the mobile-specific production nav definition.');
+   console.log('iPhone / iPad compatibility shell: PASS');
+ }
+diff --git a/scripts/mobile-launch-smoke.mjs b/scripts/mobile-launch-smoke.mjs
+index f93053e..e9c482c 100644
+--- a/scripts/mobile-launch-smoke.mjs
++++ b/scripts/mobile-launch-smoke.mjs
+@@ -134,6 +134,8 @@ function runNavigationChecks() {
+   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'initialRouteName={DEFAULT_NORMAL_MOBILE_APP_NAV_TAB_NAME}', 'Native public navigation must keep the mobile-specific default tab.');
+   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'explore: ExploreScreen', 'Explore must own the center mobile primary tab.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<TradeFeedIdeaCard', 'Explore must reuse the existing Trade starter-card visual system.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<PlanSquareDeck', 'Explore Plan ideas must reuse the existing Plan square-deck visual system.');
++  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('PlanIdeaDetail'", 'Explore Plan ideas must open the existing Plan idea detail flow.');
+   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', "navigation.navigate('Account')", 'Explore must expose Account after Me leaves primary navigation.');
+   assertContains('apps/mobile/src/features/plans/PlansScreens.tsx', "navigation.navigate('Account')", 'Plans must expose Account after Me leaves primary navigation.');
+   assertContains('apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx', "navigation.navigate('Account')", 'Trade must expose Account after Me leaves primary navigation.');

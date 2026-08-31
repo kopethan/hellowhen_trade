@@ -106,7 +106,7 @@ function runPermissionAndSdkChecks() {
 function runAccountDeletionAndLegalChecks() {
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', "AccountDeletion: undefined", 'Account deletion route type must stay defined.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', '<Stack.Screen name="AccountDeletion" component={ProtectedAccountDeletionScreen} />', 'Account deletion route must stay reachable for logged-in users.');
-  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "route: 'AccountDeletion'", 'Account hub must link to account deletion.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "navigate('AccountDeletion')", 'Account hub must link to account deletion.');
   assertContains('apps/mobile/src/features/account/AccountDeletionScreen.tsx', 'api.account.requestDeletion', 'Account deletion screen must let users request deletion in-app.');
   assertContains('apps/mobile/src/features/account/AccountDeletionScreen.tsx', 'api.account.cancelDeletionRequest', 'Account deletion screen must let users cancel a pending request when supported.');
   assertContains('apps/mobile/src/features/account/AccountDeletionScreen.tsx', "navigation.navigate('SupportCenter')", 'Account deletion screen must link to support for privacy/account questions.');

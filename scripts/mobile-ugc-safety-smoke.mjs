@@ -116,7 +116,7 @@ function runBlockingChecks() {
     'ProtectedSafetyCenterScreen',
     '<Stack.Screen name="SafetyCenter" component={ProtectedSafetyCenterScreen} />',
   ], 'Safety Center route');
-  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "route: 'SafetyCenter'", 'Account must link to Safety Center.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "navigate('SafetyCenter')", 'Account must link to Safety Center from the consolidated hub.');
   console.log('Mobile block/unblock and Safety Center: PASS');
 }
 

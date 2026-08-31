@@ -1,0 +1,58 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 09a89e9..00e8e14 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -2,13 +2,8 @@
+ 
+   const isDeckFeed = scope === 'feed';
+   const hasActiveSearchOrFilters = Boolean(activeFilters.length || activeSearchQuery);
+-  const starterIdeas = useMemo(() => selectStarterPlanIdeaKeys({
+-    realPlanCount: plans.length,
+-    hasActiveSearchOrFilters: !isDeckFeed || hasActiveSearchOrFilters,
+-    userKey: auth.user?.id ?? anonymousStarterKey,
+-    refreshKey: starterRefreshKey,
+-    recentIdeaIds: recentStarterIdeaIds,
+-  }), [anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, isDeckFeed, plans.length, recentStarterIdeaIds.join('|'), starterRefreshKey]);
++  // Hellowhen starter Plan concepts remain available in Explore, not mixed into the real Plans feed.
++  const starterIdeas = useMemo<StarterPlanIdeaKey[]>(() => [], []);
+   const feedItems = useMemo(() => buildPlanFeedItems(plans.length, starterIdeas), [plans.length, starterIdeas.join('|')]);
+   const hasPreservedContent = hasSuccessfulLoad && (plans.length > 0 || starterIdeas.length > 0);
+ 
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index 25468ac..5d80c2d 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -2,23 +2,15 @@
+ 
+   const hasTrades = trades.length > 0;
+   const hasFilters = activeFilterCount > 0;
+-  const randomizedFeedIdeaKeys = useMemo(() => getRandomizedFeedIdeaKeys(refreshSeed), [refreshSeed]);
+-  const starterIdeaPlacement = useMemo(() => (
+-    (!error || hasSuccessfulFeed) && !hasFilters && hasLoadedFeed
+-      ? getFeedStarterIdeaPlacement(visibleTrades.length, randomizedFeedIdeaKeys)
+-      : emptyFeedStarterIdeaPlacement
+-  ), [error, hasFilters, hasLoadedFeed, hasSuccessfulFeed, randomizedFeedIdeaKeys, visibleTrades.length]);
+-  const feedItems = useMemo<TradeFeedListItem[]>(() => {
+-    const items: TradeFeedListItem[] = [];
+-    visibleTrades.forEach((trade, index) => {
+-      items.push({ type: 'trade', key: `trade-${trade.id}`, trade, index, total: visibleTrades.length });
+-      const ideaKey = getInlineFeedIdeaKey(index, starterIdeaPlacement);
+-      if (ideaKey) items.push({ type: 'idea', key: `starter-inline-${index}-${ideaKey}`, ideaKey });
+-    });
+-    if (starterIdeaPlacement.appendedIdeaKeys.length) {
+-      items.push({ type: 'ideaGroup', key: `starter-appended-${starterIdeaPlacement.appendedIdeaKeys.join('-')}`, ideaKeys: starterIdeaPlacement.appendedIdeaKeys });
+-    }
+-    return items;
+-  }, [starterIdeaPlacement, visibleTrades]);
++  // Hellowhen starter concepts now live exclusively in Explore. Keep the Trade feed real-activity only.
++  const feedItems = useMemo<TradeFeedListItem[]>(() => (
++    visibleTrades.map((trade, index) => ({
++      type: 'trade',
++      key: `trade-${trade.id}`,
++      trade,
++      index,
++      total: visibleTrades.length,
++    }))
++  ), [visibleTrades]);
+ 
+   const renderFeedItem = useCallback(({ item }: { item: TradeFeedListItem }) => {

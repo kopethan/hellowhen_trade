@@ -110,7 +110,7 @@ function runRuntimeGateChecks() {
   assertContains('apps/mobile/src/lib/betaFeatures.ts', "const storeReleaseMode = enabled(process.env.EXPO_PUBLIC_STORE_RELEASE);", 'Native feature gates must read the explicit EAS store-release flag.');
   assertContains('apps/mobile/src/lib/betaFeatures.ts', "const forceFirstLaunchSafeFlags = storeReleaseMode ||", 'Native store-release mode must force first-launch safety flags.');
   assertContains('apps/mobile/src/lib/betaFeatures.ts', 'mobileDiagnosticsVisible', 'Native diagnostics must have a dedicated release-safe gate.');
-  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'const showFlagDiagnostics = betaFeatures.mobileDiagnosticsVisible;', 'The Me screen must never auto-show diagnostics because a feature is hidden.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'const showFlagDiagnostics = betaFeatures.mobileDiagnosticsVisible;', 'The Account screen must never auto-show diagnostics because a feature is hidden.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.savedLibraryEnabled ? <Stack.Screen name="SavedLibrary"', 'Saved Library route must stay unregistered while hidden.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.savedCollectionsEnabled ? <Stack.Screen name="SavedLibraryCollection"', 'Saved collection routes must stay unregistered while hidden.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'betaFeatures.agendaEnabled ? <Stack.Screen name="Agenda"', 'Agenda route must stay unregistered while hidden.');
