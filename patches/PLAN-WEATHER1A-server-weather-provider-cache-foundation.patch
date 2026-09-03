@@ -1,0 +1,641 @@
+diff --git a/.env.example b/.env.example
+--- a/.env.example
++++ b/.env.example
+@@ -2,6 +2,21 @@ MEDIA_PUBLIC_BASE_URL=
+ # Backend-only AWS credentials. Never expose these through NEXT_PUBLIC_* or EXPO_PUBLIC_*.
+ AWS_ACCESS_KEY_ID=
+ AWS_SECRET_ACCESS_KEY=
++
++# Optional Plan Place weather foundation. Server-side only: never expose WeatherKit credentials through NEXT_PUBLIC_* or EXPO_PUBLIC_*.
++# Keep disabled until a WeatherKit key + Service ID are configured on the API host.
++WEATHER_ENABLED=false
++WEATHER_PROVIDER=none
++WEATHER_REQUEST_TIMEOUT_MS=4500
++# Forecasts are temporary metadata. Cache briefly to reduce provider calls; do not persist them as a weather database.
++WEATHER_CACHE_TTL_SECONDS=900
++WEATHER_CACHE_MAX_ENTRIES=500
++# Apple WeatherKit REST credentials. WEATHER_PROVIDER=weatherkit uses these only on the Hellowhen API server.
++WEATHERKIT_TEAM_ID=
++WEATHERKIT_SERVICE_ID=
++WEATHERKIT_KEY_ID=
++WEATHERKIT_PRIVATE_KEY=
++
+ NEXT_PUBLIC_API_URL=http://localhost:4000
+ NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED=true
+ EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED=true
+diff --git a/apps/api/package.json b/apps/api/package.json
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -3,6 +3,7 @@
+     "places:address-cleanup": "tsx src/scripts/cleanupInvalidOfflinePlaces.ts",
+     "test:plans": "tsx --test src/modules/plans/__tests__/plans.safety.test.ts",
+     "test:places": "tsx --test src/modules/places/__tests__/placeUpdatePolicy.test.ts src/modules/places/__tests__/placeOwnershipPolicy.test.ts src/modules/places/__tests__/hellowhenPlaceLibrarySeed.test.ts",
++    "test:weather": "tsx --test src/modules/weather/__tests__/weatherService.test.ts src/modules/weather/__tests__/weatherKitProvider.test.ts",
+     "test:inventory-original": "tsx --test src/modules/__tests__/inventoryOriginalCopy.test.ts",
+     "test:mobile-release": "tsx --test src/modules/mobile-release/__tests__/mobileReleasePolicy.test.ts",
+     "places:library-seed": "tsx src/scripts/seedHellowhenPlaceLibrary.ts"
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -1,6 +1,7 @@
+ const aiProviders = new Set(['none', 'openai', 'gemini', 'groq']);
+ const moderationProviders = new Set(['none', 'mock', 'openai', 'aws_rekognition', 'google_vision', 'azure_content_safety', 'human_review']);
+ const mediaStorageDrivers = new Set(['local', 's3']);
++const weatherProviders = new Set(['none', 'weatherkit']);
+ const airwallexEnvironments = new Set(['demo', 'production']);
+ 
+ function parseMoneyProvider(value: string | undefined) {
+@@ -12,6 +13,11 @@ function parseMediaStorageDriver(value: string | undefined) {
+   return mediaStorageDrivers.has(raw) ? raw as 'local' | 's3' : 'local';
+ }
+ 
++function parseWeatherProvider(value: string | undefined) {
++  const raw = String(value ?? 'none').trim().toLowerCase();
++  return weatherProviders.has(raw) ? raw as 'none' | 'weatherkit' : 'none';
++}
++
+ function parseModerationTextFailMode(value: string | undefined) {
+   const raw = String(value ?? 'allow_with_case').trim().toLowerCase();
+   if (raw === 'hold_pending' || raw === 'reject') return raw as 'hold_pending' | 'reject';
+@@ -22,6 +28,15 @@ export const env = {
+   mediaS3Bucket: process.env.MEDIA_S3_BUCKET ?? '',
+   mediaS3Prefix: process.env.MEDIA_S3_PREFIX ?? 'uploads',
+   mediaPublicBaseUrl: (process.env.MEDIA_PUBLIC_BASE_URL ?? '').replace(/\/+$/, ''),
++  weatherEnabled: enabled(process.env.WEATHER_ENABLED),
++  weatherProvider: parseWeatherProvider(process.env.WEATHER_PROVIDER),
++  weatherRequestTimeoutMs: boundedInt(process.env.WEATHER_REQUEST_TIMEOUT_MS, 4500, 1000, 15000),
++  weatherCacheTtlSeconds: boundedInt(process.env.WEATHER_CACHE_TTL_SECONDS, 900, 60, 3600),
++  weatherCacheMaxEntries: boundedInt(process.env.WEATHER_CACHE_MAX_ENTRIES, 500, 10, 10_000),
++  weatherKitTeamId: process.env.WEATHERKIT_TEAM_ID ?? '',
++  weatherKitServiceId: process.env.WEATHERKIT_SERVICE_ID ?? '',
++  weatherKitKeyId: process.env.WEATHERKIT_KEY_ID ?? '',
++  weatherKitPrivateKey: process.env.WEATHERKIT_PRIVATE_KEY ?? '',
+   moneyProvider: parseMoneyProvider(process.env.MONEY_PROVIDER),
+   moneyProviderSandboxOnly: (process.env.MONEY_PROVIDER_SANDBOX_ONLY ?? 'true').toLowerCase() !== 'false',
+   moneyProviderAccountCreationEnabled: (process.env.MONEY_PROVIDER_ACCOUNT_CREATION_ENABLED ?? 'false').toLowerCase() === 'true',
+@@ -35,6 +50,11 @@ export function validateProductionEnv() {
+     if (!env.mediaPublicBaseUrl) errors.push('MEDIA_STORAGE_DRIVER=s3 requires MEDIA_PUBLIC_BASE_URL.');
+     if (env.mediaPublicBaseUrl && !isHttpsUrl(env.mediaPublicBaseUrl)) errors.push('MEDIA_PUBLIC_BASE_URL must use https:// in production.');
+   }
++  if (env.weatherEnabled && env.weatherProvider === 'none') errors.push('WEATHER_ENABLED=true requires WEATHER_PROVIDER=weatherkit.');
++  if (env.weatherEnabled && env.weatherProvider === 'weatherkit'
++    && (!env.weatherKitTeamId || !env.weatherKitServiceId || !env.weatherKitKeyId || !env.weatherKitPrivateKey)) {
++    errors.push('WEATHER_PROVIDER=weatherkit requires WEATHERKIT_TEAM_ID, WEATHERKIT_SERVICE_ID, WEATHERKIT_KEY_ID, and WEATHERKIT_PRIVATE_KEY.');
++  }
+ 
+   const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.plusAiAssistEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiModerationSuggestionsEnabled || env.aiDebugPlaceholders;
+   const aiSecretsConfigured = hasConfiguredValue(env.openaiApiKey) || hasConfiguredValue(env.geminiApiKey) || hasConfiguredValue(env.groqApiKey);
+diff --git a/apps/api/src/modules/weather/__tests__/weatherKitProvider.test.ts b/apps/api/src/modules/weather/__tests__/weatherKitProvider.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..fdd4f965ce0dbfd1f525367341925a734a26f142
+--- /dev/null
++++ b/apps/api/src/modules/weather/__tests__/weatherKitProvider.test.ts
+@@ -0,0 +1,73 @@
++import assert from 'node:assert/strict';
++import { generateKeyPairSync } from 'node:crypto';
++import test from 'node:test';
++import { WeatherKitProvider, createWeatherKitDeveloperToken } from '../weatherKitProvider.js';
++
++function testCredentials() {
++  const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
++  return {
++    teamId: 'TEAM123456',
++    serviceId: 'com.hellowhen.weather',
++    keyId: 'KEY1234567',
++    privateKey: privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
++  };
++}
++
++function decodeSegment(token: string, index: number) {
++  const segment = token.split('.')[index];
++  assert.ok(segment);
++  return JSON.parse(Buffer.from(segment, 'base64url').toString('utf8')) as Record<string, unknown>;
++}
++
++test('WeatherKit token contains only the documented WeatherKit claims', () => {
++  const credentials = testCredentials();
++  const token = createWeatherKitDeveloperToken(credentials, new Date('2026-09-02T12:00:00.000Z'));
++  const header = decodeSegment(token, 0);
++  const payload = decodeSegment(token, 1);
++
++  assert.deepEqual(Object.keys(header).sort(), ['alg', 'id', 'kid']);
++  assert.equal(header.alg, 'ES256');
++  assert.equal(header.kid, credentials.keyId);
++  assert.equal(header.id, `${credentials.teamId}.${credentials.serviceId}`);
++  assert.deepEqual(Object.keys(payload).sort(), ['exp', 'iat', 'iss', 'sub']);
++  assert.equal(payload.iss, credentials.teamId);
++  assert.equal(payload.sub, credentials.serviceId);
++});
++
++test('WeatherKit adapter requests hourly-only data and normalizes Celsius points', async () => {
++  const requests: URL[] = [];
++  const provider = new WeatherKitProvider({
++    credentials: testCredentials(),
++    requestTimeoutMs: 2_000,
++    now: () => new Date('2026-09-02T12:00:00.000Z'),
++    fetchImpl: async (input) => {
++      const url = new URL(String(input));
++      requests.push(url);
++      return new Response(JSON.stringify({
++        forecastHourly: {
++          hours: [
++            { forecastStart: '2026-09-02T12:00:00Z', temperature: 18.25 },
++            { forecastStart: 'invalid', temperature: 99 },
++          ],
++        },
++      }), { status: 200, headers: { 'content-type': 'application/json' } });
++    },
++  });
++
++  const result = await provider.getHourlyForecast({
++    latitude: 48.8566,
++    longitude: 2.3522,
++    hourlyStart: new Date('2026-09-02T12:00:00.000Z'),
++    hourlyEnd: new Date('2026-09-09T12:00:00.000Z'),
++    timezone: 'UTC',
++    language: 'en',
++  });
++
++  assert.equal(requests.length, 1);
++  assert.equal(requests[0]?.origin, 'https://weatherkit.apple.com');
++  assert.equal(requests[0]?.searchParams.get('dataSets'), 'forecastHourly');
++  assert.equal(requests[0]?.searchParams.get('timezone'), 'UTC');
++  assert.equal(result?.provider, 'weatherkit');
++  assert.equal(result?.attributionRequired, true);
++  assert.deepEqual(result?.hours, [{ forecastStart: '2026-09-02T12:00:00Z', temperatureC: 18.25 }]);
++});
+diff --git a/apps/api/src/modules/weather/__tests__/weatherService.test.ts b/apps/api/src/modules/weather/__tests__/weatherService.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7e9b4ca7b96b87d7e5aea87a79c553eb755c2ec3
+--- /dev/null
++++ b/apps/api/src/modules/weather/__tests__/weatherService.test.ts
+@@ -0,0 +1,76 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { WeatherService } from '../weatherService.js';
++import { WEATHER_FORECAST_HORIZON_MS, convertTemperatureFromCelsius, type WeatherProvider } from '../weatherTypes.js';
++
++function makeProvider(handler?: WeatherProvider['getHourlyForecast']) {
++  let calls = 0;
++  const provider: WeatherProvider = {
++    id: 'weatherkit',
++    async getHourlyForecast(input) {
++      calls += 1;
++      if (handler) return handler(input);
++      return {
++        provider: 'weatherkit',
++        providerName: 'Apple Weather',
++        attributionRequired: true,
++        latitude: input.latitude,
++        longitude: input.longitude,
++        fetchedAt: input.hourlyStart.toISOString(),
++        hours: [{ forecastStart: input.hourlyStart.toISOString(), temperatureC: 18 }],
++      };
++    },
++  };
++  return { provider, calls: () => calls };
++}
++
++test('weather stays gracefully unavailable when no provider is configured', async () => {
++  const service = new WeatherService({ provider: null, cacheTtlMs: 60_000, cacheMaxEntries: 10 });
++  assert.equal(service.isAvailable(), false);
++  assert.equal(await service.getHourlyForecast({ latitude: 48.8566, longitude: 2.3522 }), null);
++});
++
++test('weather service requests only the next seven days and caches nearby coordinates', async () => {
++  const fixedNow = new Date('2026-09-02T12:00:00.000Z');
++  const { provider, calls } = makeProvider(async (input) => {
++    assert.equal(input.hourlyEnd.getTime() - input.hourlyStart.getTime(), WEATHER_FORECAST_HORIZON_MS);
++    assert.equal(input.timezone, 'UTC');
++    assert.equal(input.language, 'en');
++    return {
++      provider: 'weatherkit',
++      providerName: 'Apple Weather',
++      attributionRequired: true,
++      latitude: input.latitude,
++      longitude: input.longitude,
++      fetchedAt: fixedNow.toISOString(),
++      hours: [{ forecastStart: fixedNow.toISOString(), temperatureC: 14 }],
++    };
++  });
++  const service = new WeatherService({
++    provider,
++    cacheTtlMs: 15 * 60_000,
++    cacheMaxEntries: 20,
++    now: () => fixedNow,
++  });
++
++  const first = await service.getHourlyForecast({ latitude: 48.85661, longitude: 2.35221 });
++  const second = await service.getHourlyForecast({ latitude: 48.85664, longitude: 2.35224 });
++  assert.equal(first?.hours[0]?.temperatureC, 14);
++  assert.equal(second?.hours[0]?.temperatureC, 14);
++  assert.equal(calls(), 1);
++});
++
++test('provider failures return null and are not cached', async () => {
++  const { provider, calls } = makeProvider(async () => { throw new Error('provider unavailable'); });
++  const service = new WeatherService({ provider, cacheTtlMs: 60_000, cacheMaxEntries: 10 });
++
++  assert.equal(await service.getHourlyForecast({ latitude: 40.7128, longitude: -74.006 }), null);
++  assert.equal(await service.getHourlyForecast({ latitude: 40.7128, longitude: -74.006 }), null);
++  assert.equal(calls(), 2);
++});
++
++test('temperature conversion keeps Celsius canonical and supports Fahrenheit', () => {
++  assert.equal(convertTemperatureFromCelsius(20, 'celsius'), 20);
++  assert.equal(convertTemperatureFromCelsius(20, 'fahrenheit'), 68);
++  assert.equal(convertTemperatureFromCelsius(Number.NaN, 'fahrenheit'), null);
++});
+diff --git a/apps/api/src/modules/weather/index.ts b/apps/api/src/modules/weather/index.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..6d8af3574ac434f8e534b0cbab6f390ea7e0893f
+--- /dev/null
++++ b/apps/api/src/modules/weather/index.ts
+@@ -0,0 +1,9 @@
++export { weatherService } from './weatherFactory.js';
++export { WeatherService, type HourlyWeatherLookup } from './weatherService.js';
++export {
++  WEATHER_FORECAST_HORIZON_DAYS,
++  type TemperatureUnit,
++  type WeatherHourlyForecast,
++  type WeatherHourlyPoint,
++  convertTemperatureFromCelsius,
++} from './weatherTypes.js';
+diff --git a/apps/api/src/modules/weather/weatherFactory.ts b/apps/api/src/modules/weather/weatherFactory.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..4cef6bffa804c3940c95cee923644b9dd084d078
+--- /dev/null
++++ b/apps/api/src/modules/weather/weatherFactory.ts
+@@ -0,0 +1,29 @@
++import { env } from '../../config/env.js';
++import { WeatherKitProvider } from './weatherKitProvider.js';
++import { WeatherService } from './weatherService.js';
++import type { WeatherProvider } from './weatherTypes.js';
++
++function createWeatherProvider(): WeatherProvider | null {
++  if (!env.weatherEnabled || env.weatherProvider === 'none') return null;
++
++  if (env.weatherProvider === 'weatherkit') {
++    if (!env.weatherKitTeamId || !env.weatherKitServiceId || !env.weatherKitKeyId || !env.weatherKitPrivateKey) return null;
++    return new WeatherKitProvider({
++      credentials: {
++        teamId: env.weatherKitTeamId,
++        serviceId: env.weatherKitServiceId,
++        keyId: env.weatherKitKeyId,
++        privateKey: env.weatherKitPrivateKey,
++      },
++      requestTimeoutMs: env.weatherRequestTimeoutMs,
++    });
++  }
++
++  return null;
++}
++
++export const weatherService = new WeatherService({
++  provider: createWeatherProvider(),
++  cacheTtlMs: env.weatherCacheTtlSeconds * 1000,
++  cacheMaxEntries: env.weatherCacheMaxEntries,
++});
+diff --git a/apps/api/src/modules/weather/weatherKitProvider.ts b/apps/api/src/modules/weather/weatherKitProvider.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a605e0ffded9c1d5159c4aa8432a400023d197b1
+--- /dev/null
++++ b/apps/api/src/modules/weather/weatherKitProvider.ts
+@@ -0,0 +1,145 @@
++import { createPrivateKey, sign as signPayload } from 'node:crypto';
++import type {
++  WeatherHourlyForecast,
++  WeatherHourlyPoint,
++  WeatherProvider,
++  WeatherProviderHourlyRequest,
++} from './weatherTypes.js';
++
++const WEATHERKIT_BASE_URL = 'https://weatherkit.apple.com';
++const WEATHERKIT_TOKEN_TTL_SECONDS = 45 * 60;
++const WEATHERKIT_TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
++
++type WeatherKitCredentials = {
++  teamId: string;
++  serviceId: string;
++  keyId: string;
++  privateKey: string;
++};
++
++type WeatherKitProviderOptions = {
++  credentials: WeatherKitCredentials;
++  requestTimeoutMs: number;
++  fetchImpl?: typeof fetch;
++  now?: () => Date;
++};
++
++type WeatherKitHourlyResponse = {
++  forecastHourly?: {
++    hours?: Array<{
++      forecastStart?: unknown;
++      temperature?: unknown;
++    }>;
++  };
++};
++
++function base64UrlJson(value: unknown) {
++  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
++}
++
++export function normalizeWeatherKitPrivateKey(value: string) {
++  return value.trim().replace(/\\n/g, '\n');
++}
++
++export function createWeatherKitDeveloperToken(credentials: WeatherKitCredentials, now = new Date()) {
++  const issuedAt = Math.floor(now.getTime() / 1000);
++  const header = {
++    alg: 'ES256',
++    kid: credentials.keyId,
++    id: `${credentials.teamId}.${credentials.serviceId}`,
++  };
++  const payload = {
++    iss: credentials.teamId,
++    iat: issuedAt,
++    exp: issuedAt + WEATHERKIT_TOKEN_TTL_SECONDS,
++    sub: credentials.serviceId,
++  };
++  const signingInput = `${base64UrlJson(header)}.${base64UrlJson(payload)}`;
++  const privateKey = createPrivateKey(normalizeWeatherKitPrivateKey(credentials.privateKey));
++  const signature = signPayload('sha256', Buffer.from(signingInput, 'utf8'), {
++    key: privateKey,
++    dsaEncoding: 'ieee-p1363',
++  });
++  return `${signingInput}.${signature.toString('base64url')}`;
++}
++
++function parseHourlyPoints(response: WeatherKitHourlyResponse): WeatherHourlyPoint[] {
++  const hours = response.forecastHourly?.hours;
++  if (!Array.isArray(hours)) return [];
++
++  return hours.flatMap((hour) => {
++    const forecastStart = typeof hour.forecastStart === 'string' ? hour.forecastStart : '';
++    const temperatureC = typeof hour.temperature === 'number' ? hour.temperature : Number.NaN;
++    if (!forecastStart || !Number.isFinite(Date.parse(forecastStart)) || !Number.isFinite(temperatureC)) return [];
++    return [{ forecastStart, temperatureC }];
++  });
++}
++
++export class WeatherKitProvider implements WeatherProvider {
++  readonly id = 'weatherkit' as const;
++  private readonly credentials: WeatherKitCredentials;
++  private readonly requestTimeoutMs: number;
++  private readonly fetchImpl: typeof fetch;
++  private readonly now: () => Date;
++  private cachedToken: { value: string; refreshAfterMs: number } | null = null;
++
++  constructor(options: WeatherKitProviderOptions) {
++    this.credentials = options.credentials;
++    this.requestTimeoutMs = options.requestTimeoutMs;
++    this.fetchImpl = options.fetchImpl ?? fetch;
++    this.now = options.now ?? (() => new Date());
++  }
++
++  private getDeveloperToken() {
++    const now = this.now();
++    if (this.cachedToken && now.getTime() < this.cachedToken.refreshAfterMs) return this.cachedToken.value;
++
++    const value = createWeatherKitDeveloperToken(this.credentials, now);
++    this.cachedToken = {
++      value,
++      refreshAfterMs: now.getTime() + WEATHERKIT_TOKEN_TTL_SECONDS * 1000 - WEATHERKIT_TOKEN_REFRESH_SKEW_MS,
++    };
++    return value;
++  }
++
++  async getHourlyForecast(input: WeatherProviderHourlyRequest): Promise<WeatherHourlyForecast | null> {
++    const url = new URL(
++      `/api/v1/weather/${encodeURIComponent(input.language)}/${input.latitude}/${input.longitude}`,
++      WEATHERKIT_BASE_URL,
++    );
++    url.searchParams.set('dataSets', 'forecastHourly');
++    url.searchParams.set('timezone', input.timezone);
++    url.searchParams.set('hourlyStart', input.hourlyStart.toISOString());
++    url.searchParams.set('hourlyEnd', input.hourlyEnd.toISOString());
++
++    const controller = new AbortController();
++    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
++    try {
++      const response = await this.fetchImpl(url, {
++        method: 'GET',
++        headers: {
++          accept: 'application/json',
++          authorization: `Bearer ${this.getDeveloperToken()}`,
++        },
++        signal: controller.signal,
++      });
++      if (!response.ok) throw new Error(`WeatherKit request failed with status ${response.status}.`);
++
++      const body = await response.json() as WeatherKitHourlyResponse;
++      const hours = parseHourlyPoints(body);
++      if (hours.length === 0) return null;
++
++      return {
++        provider: this.id,
++        providerName: 'Apple Weather',
++        attributionRequired: true,
++        latitude: input.latitude,
++        longitude: input.longitude,
++        fetchedAt: this.now().toISOString(),
++        hours,
++      };
++    } finally {
++      clearTimeout(timeout);
++    }
++  }
++}
+diff --git a/apps/api/src/modules/weather/weatherService.ts b/apps/api/src/modules/weather/weatherService.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ff791b2f8eb94c9f5c832ec0052ba85077254fdd
+--- /dev/null
++++ b/apps/api/src/modules/weather/weatherService.ts
+@@ -0,0 +1,139 @@
++import {
++  WEATHER_FORECAST_HORIZON_MS,
++  type WeatherHourlyForecast,
++  type WeatherProvider,
++} from './weatherTypes.js';
++
++type WeatherServiceOptions = {
++  provider: WeatherProvider | null;
++  cacheTtlMs: number;
++  cacheMaxEntries: number;
++  now?: () => Date;
++};
++
++export type HourlyWeatherLookup = {
++  latitude: number;
++  longitude: number;
++  timezone?: string;
++  language?: string;
++};
++
++type CacheEntry = {
++  value: WeatherHourlyForecast;
++  expiresAtMs: number;
++};
++
++function isValidCoordinate(latitude: number, longitude: number) {
++  return Number.isFinite(latitude)
++    && Number.isFinite(longitude)
++    && latitude >= -90
++    && latitude <= 90
++    && longitude >= -180
++    && longitude <= 180;
++}
++
++function normalizeLanguage(value: string | undefined) {
++  const language = (value ?? 'en').trim();
++  return /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(language) ? language : 'en';
++}
++
++function normalizeTimezone(value: string | undefined) {
++  const timezone = (value ?? 'UTC').trim();
++  return timezone.length > 0 && timezone.length <= 100 ? timezone : 'UTC';
++}
++
++function cacheCoordinate(value: number) {
++  return value.toFixed(3);
++}
++
++export class WeatherService {
++  private readonly provider: WeatherProvider | null;
++  private readonly cacheTtlMs: number;
++  private readonly cacheMaxEntries: number;
++  private readonly now: () => Date;
++  private readonly cache = new Map<string, CacheEntry>();
++  private readonly inFlight = new Map<string, Promise<WeatherHourlyForecast | null>>();
++
++  constructor(options: WeatherServiceOptions) {
++    this.provider = options.provider;
++    this.cacheTtlMs = Math.max(0, options.cacheTtlMs);
++    this.cacheMaxEntries = Math.max(1, Math.trunc(options.cacheMaxEntries));
++    this.now = options.now ?? (() => new Date());
++  }
++
++  isAvailable() {
++    return this.provider !== null;
++  }
++
++  async getHourlyForecast(input: HourlyWeatherLookup): Promise<WeatherHourlyForecast | null> {
++    if (!this.provider || !isValidCoordinate(input.latitude, input.longitude)) return null;
++
++    const language = normalizeLanguage(input.language);
++    const timezone = normalizeTimezone(input.timezone);
++    const key = [
++      this.provider.id,
++      cacheCoordinate(input.latitude),
++      cacheCoordinate(input.longitude),
++      timezone,
++      language,
++    ].join(':');
++    const now = this.now();
++    const cached = this.cache.get(key);
++    if (cached && cached.expiresAtMs > now.getTime()) return cached.value;
++    if (cached) this.cache.delete(key);
++
++    const existingRequest = this.inFlight.get(key);
++    if (existingRequest) return existingRequest;
++
++    const request = this.loadForecast({ ...input, timezone, language }, now)
++      .finally(() => this.inFlight.delete(key));
++    this.inFlight.set(key, request);
++    return request;
++  }
++
++  private async loadForecast(
++    input: HourlyWeatherLookup & { timezone: string; language: string },
++    now: Date,
++  ): Promise<WeatherHourlyForecast | null> {
++    try {
++      const forecast = await this.provider!.getHourlyForecast({
++        latitude: input.latitude,
++        longitude: input.longitude,
++        hourlyStart: now,
++        hourlyEnd: new Date(now.getTime() + WEATHER_FORECAST_HORIZON_MS),
++        timezone: input.timezone,
++        language: input.language,
++      });
++      if (!forecast) return null;
++      this.writeCache(this.makeCacheKey(input), forecast, now.getTime());
++      return forecast;
++    } catch {
++      // Weather is optional Plan metadata. Provider failures must never make a
++      // Plan or Place fail to load; callers receive no weather instead.
++      return null;
++    }
++  }
++
++  private makeCacheKey(input: HourlyWeatherLookup & { timezone: string; language: string }) {
++    return [
++      this.provider!.id,
++      cacheCoordinate(input.latitude),
++      cacheCoordinate(input.longitude),
++      input.timezone,
++      input.language,
++    ].join(':');
++  }
++
++  private writeCache(key: string, value: WeatherHourlyForecast, nowMs: number) {
++    if (this.cacheTtlMs <= 0) return;
++    for (const [existingKey, entry] of this.cache) {
++      if (entry.expiresAtMs <= nowMs) this.cache.delete(existingKey);
++    }
++    while (this.cache.size >= this.cacheMaxEntries) {
++      const oldestKey = this.cache.keys().next().value as string | undefined;
++      if (!oldestKey) break;
++      this.cache.delete(oldestKey);
++    }
++    this.cache.set(key, { value, expiresAtMs: nowMs + this.cacheTtlMs });
++  }
++}
+diff --git a/apps/api/src/modules/weather/weatherTypes.ts b/apps/api/src/modules/weather/weatherTypes.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2d41104a3482c08bc10869d6d0fad344dc6ce389
+--- /dev/null
++++ b/apps/api/src/modules/weather/weatherTypes.ts
+@@ -0,0 +1,41 @@
++export const WEATHER_FORECAST_HORIZON_DAYS = 7;
++export const WEATHER_FORECAST_HORIZON_MS = WEATHER_FORECAST_HORIZON_DAYS * 24 * 60 * 60 * 1000;
++
++export type WeatherProviderId = 'weatherkit';
++
++export type WeatherHourlyPoint = {
++  forecastStart: string;
++  temperatureC: number;
++};
++
++export type WeatherHourlyForecast = {
++  provider: WeatherProviderId;
++  providerName: string;
++  attributionRequired: boolean;
++  latitude: number;
++  longitude: number;
++  fetchedAt: string;
++  hours: WeatherHourlyPoint[];
++};
++
++export type WeatherProviderHourlyRequest = {
++  latitude: number;
++  longitude: number;
++  hourlyStart: Date;
++  hourlyEnd: Date;
++  timezone: string;
++  language: string;
++};
++
++export interface WeatherProvider {
++  readonly id: WeatherProviderId;
++  getHourlyForecast(input: WeatherProviderHourlyRequest): Promise<WeatherHourlyForecast | null>;
++}
++
++export type TemperatureUnit = 'celsius' | 'fahrenheit';
++
++export function convertTemperatureFromCelsius(valueC: number, unit: TemperatureUnit) {
++  if (!Number.isFinite(valueC)) return null;
++  if (unit === 'fahrenheit') return (valueC * 9) / 5 + 32;
++  return valueC;
++}

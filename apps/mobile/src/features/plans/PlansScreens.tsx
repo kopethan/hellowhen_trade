@@ -51,6 +51,7 @@ import {
 } from '../localizedContentTranslations';
 import { FeatureGuidePromptCard } from '../onboarding-guide/FeatureGuidePromptCard';
 import { useFeatureGuidePrompt } from '../onboarding-guide/onboardingGuideStorage';
+import { PlanPlaceWeatherDetail } from './components/PlanPlaceWeatherDetail';
 import { PlanSquareDeck } from './components/PlanSquareDeck';
 
 type PlansScreenProps = { navigation?: NativeStackNavigationProp<RootStackParamList>; route?: { params?: PlanTabRouteParams } };
@@ -2876,8 +2877,8 @@ function PlanPlaceLocationSheet({ location, visible, onClose }: { location: Plan
 }
 
 function PlanPlaceTimelineCard({
+  planId,
   place,
-  index,
   isLast,
   planStartsAt,
   showReport,
@@ -2886,8 +2887,8 @@ function PlanPlaceTimelineCard({
   presenceNotice,
   onVerifyPresence,
 }: {
+  planId: string;
   place: PlanPlaceDto;
-  index: number;
   isLast: boolean;
   planStartsAt: string;
   showReport: boolean;
@@ -2925,13 +2926,6 @@ function PlanPlaceTimelineCard({
   return (
     <View style={styles.planRouteStop}>
       <View style={styles.planRouteStopTop}>
-        <View style={styles.planRouteTimeline}>
-          <View style={[styles.planRouteNumber, { backgroundColor: theme.color.background, borderColor: theme.semantic.place.border }]}>
-            <AppText style={[styles.planRouteNumberText, { color: theme.semantic.place.text }]}>{index + 1}</AppText>
-          </View>
-          {!isLast ? <View style={[styles.planRouteLine, { backgroundColor: theme.color.border }]} /> : null}
-        </View>
-
         <View style={styles.planRouteCopy}>
           <View style={styles.planRouteTimeRow}>
             <AppText style={[styles.planRouteTime, { color: theme.semantic.time.text }]}>{getPlanPlaceTimeLabel(place, planStartsAt, language, t)}</AppText>
@@ -2981,6 +2975,8 @@ function PlanPlaceTimelineCard({
               <Image source={{ uri: mediaUrl }} resizeMode="cover" style={styles.planRouteImage as ImageStyle} />
             </View>
           ) : null}
+
+          <PlanPlaceWeatherDetail planId={planId} place={place} />
 
           {showPresenceVerification ? (
             <View style={[styles.planPresenceCompactRow, { borderColor: theme.color.border, backgroundColor: theme.color.surface }]}>
@@ -3299,7 +3295,6 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
             <View style={styles.planRouteSectionHeader}>
               <View style={styles.sectionTitleRow}>
                 <AppText style={styles.sectionTitle}>{t('plans.detail.sections.route')}</AppText>
-                <SemanticBadge label={`${places.length}`} tone="place" size="sm" />
               </View>
               {routeMaps ? (
                 <Pressable
@@ -3319,8 +3314,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
             {places.map((place, index) => (
               <PlanPlaceTimelineCard
                 key={place.id}
+                planId={plan.id}
                 place={place}
-                index={index}
                 isLast={index === places.length - 1}
                 planStartsAt={plan.startsAt}
                 showReport={showReportActions}
@@ -5999,12 +5994,8 @@ const styles = StyleSheet.create({
   planRouteMapsButtonText: { fontSize: 13, lineHeight: 17, fontWeight: '900' },
   planRouteMapsHint: { marginTop: -4, fontSize: 12, lineHeight: 17, fontWeight: '800' },
   planRouteStop: { gap: 12 },
-  planRouteStopTop: { flexDirection: 'row', alignItems: 'stretch', gap: 12 },
-  planRouteTimeline: { width: 34, alignItems: 'center' },
-  planRouteNumber: { width: 31, height: 31, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
-  planRouteNumberText: { fontSize: 13, fontWeight: '900' },
-  planRouteLine: { flex: 1, width: 2, marginTop: 7, borderRadius: 999 },
-  planRouteCopy: { flex: 1, minWidth: 0, gap: 8, paddingBottom: 2 },
+  planRouteStopTop: { alignItems: 'stretch' },
+  planRouteCopy: { minWidth: 0, gap: 8, paddingBottom: 2 },
   planRouteTimeRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 },
   planRouteTime: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 17, fontWeight: '900', letterSpacing: 0.3, textTransform: 'uppercase' },
   planRouteSource: { flexShrink: 0, fontSize: 11, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase' },
@@ -6026,7 +6017,7 @@ const styles = StyleSheet.create({
   planRouteDescriptionToggleText: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
   planRouteImageWrap: { width: '100%', aspectRatio: 16 / 10, borderRadius: 24, overflow: 'hidden' },
   planRouteImage: { width: '100%', height: '100%' },
-  planRouteDivider: { height: StyleSheet.hairlineWidth, marginLeft: 46 },
+  planRouteDivider: { height: StyleSheet.hairlineWidth },
   locationSheetRoot: { flex: 1, justifyContent: 'flex-end' },
   locationSheetBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(2,6,23,0.34)' },
   locationSheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, borderWidth: 1, borderBottomWidth: 0, padding: 16, paddingBottom: 24, gap: 14 },

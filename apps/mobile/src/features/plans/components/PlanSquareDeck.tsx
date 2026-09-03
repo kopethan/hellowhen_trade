@@ -269,7 +269,14 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
         <AppText style={[styles.placeTitle, { color: posterTitleColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{placeTitle}</AppText>
         {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{t('plans.deck.addFirstStop')}</AppText> : null}
         {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{locationLabel}</AppText> : null}
-        <AppText style={[styles.placeTimeText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{timeLabel}</AppText>
+        <AppText
+          style={[
+            styles.placeTimeText,
+            weatherCandidate && attributionLogoUrl && !attributionLogoFailed && styles.placeTimeTextWithWeatherAttribution,
+            { color: posterMutedColor, textShadowColor: posterTextShadow },
+          ]}
+          numberOfLines={1}
+        >{timeLabel}</AppText>
         {weatherCandidate && attributionLogoUrl ? (
           <Pressable
             accessibilityRole="link"
@@ -295,7 +302,6 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
                 setAttributionLogoFailed(true);
               }}
             />
-            {!attributionLogoFailed ? <AppText style={[styles.weatherAttributionText, { color: theme.color.muted }]}>{t('plans.deck.weather.sources')}</AppText> : null}
           </Pressable>
         ) : null}
       </PosterCardFooter>
@@ -452,6 +458,9 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4.5,
   },
+  placeTimeTextWithWeatherAttribution: {
+    paddingRight: 78,
+  },
   weatherToggle: {
     borderRadius: 999,
   },
@@ -459,29 +468,25 @@ const styles = StyleSheet.create({
     opacity: 0.72,
   },
   weatherAttribution: {
-    alignSelf: 'flex-start',
-    minHeight: 24,
-    maxWidth: 148,
-    flexDirection: 'row',
+    position: 'absolute',
+    right: POSTER_CARD_GEOMETRY.footerContentPaddingHorizontal,
+    bottom: POSTER_CARD_GEOMETRY.footerContentPaddingBottom,
+    minHeight: 18,
+    maxWidth: 72,
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
   weatherAttributionLogo: {
-    width: 76,
-    height: 14,
+    width: 56,
+    height: 10,
   },
   weatherAttributionLogoHidden: {
     width: 0,
     height: 0,
-  },
-  weatherAttributionText: {
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: '700',
   },
   pressed: {
     opacity: 0.76,

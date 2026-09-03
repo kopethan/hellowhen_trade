@@ -1,0 +1,277 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 4b3319bf875fe72806ba96672b2d6b3f4deba0a1..74a9c2e93f55b41e16312c074ab7cbd3b2ba4fa1 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -51,6 +51,7 @@ import {
+ } from '../localizedContentTranslations';
+ import { FeatureGuidePromptCard } from '../onboarding-guide/FeatureGuidePromptCard';
+ import { useFeatureGuidePrompt } from '../onboarding-guide/onboardingGuideStorage';
++import { PlanPlaceWeatherDetail } from './components/PlanPlaceWeatherDetail';
+ import { PlanSquareDeck } from './components/PlanSquareDeck';
+ 
+ type PlansScreenProps = { navigation?: NativeStackNavigationProp<RootStackParamList>; route?: { params?: PlanTabRouteParams } };
+@@ -2876,8 +2877,8 @@ type PlanListScope = 'feed' | 'mine' | 'joined';
+ }
+ 
+ function PlanPlaceTimelineCard({
++  planId,
+   place,
+-  index,
+   isLast,
+   planStartsAt,
+   showReport,
+@@ -2886,8 +2887,8 @@ function PlanPlaceTimelineCard({
+   presenceNotice,
+   onVerifyPresence,
+ }: {
++  planId: string;
+   place: PlanPlaceDto;
+-  index: number;
+   isLast: boolean;
+   planStartsAt: string;
+   showReport: boolean;
+@@ -2925,13 +2926,6 @@ function PlanPlaceTimelineCard({
+   return (
+     <View style={styles.planRouteStop}>
+       <View style={styles.planRouteStopTop}>
+-        <View style={styles.planRouteTimeline}>
+-          <View style={[styles.planRouteNumber, { backgroundColor: theme.color.background, borderColor: theme.semantic.place.border }]}>
+-            <AppText style={[styles.planRouteNumberText, { color: theme.semantic.place.text }]}>{index + 1}</AppText>
+-          </View>
+-          {!isLast ? <View style={[styles.planRouteLine, { backgroundColor: theme.color.border }]} /> : null}
+-        </View>
+-
+         <View style={styles.planRouteCopy}>
+           <View style={styles.planRouteTimeRow}>
+             <AppText style={[styles.planRouteTime, { color: theme.semantic.time.text }]}>{getPlanPlaceTimeLabel(place, planStartsAt, language, t)}</AppText>
+@@ -2982,6 +2976,8 @@ function PlanPlaceTimelineCard({
+             </View>
+           ) : null}
+ 
++          <PlanPlaceWeatherDetail planId={planId} place={place} />
++
+           {showPresenceVerification ? (
+             <View style={[styles.planPresenceCompactRow, { borderColor: theme.color.border, backgroundColor: theme.color.surface }]}>
+               <View style={styles.planPresenceCopy}>
+@@ -3299,7 +3295,6 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+             <View style={styles.planRouteSectionHeader}>
+               <View style={styles.sectionTitleRow}>
+                 <AppText style={styles.sectionTitle}>{t('plans.detail.sections.route')}</AppText>
+-                <SemanticBadge label={`${places.length}`} tone="place" size="sm" />
+               </View>
+               {routeMaps ? (
+                 <Pressable
+@@ -3319,8 +3314,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+             {places.map((place, index) => (
+               <PlanPlaceTimelineCard
+                 key={place.id}
++                planId={plan.id}
+                 place={place}
+-                index={index}
+                 isLast={index === places.length - 1}
+                 planStartsAt={plan.startsAt}
+                 showReport={showReportActions}
+@@ -5999,12 +5994,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   planRouteMapsButtonText: { fontSize: 13, lineHeight: 17, fontWeight: '900' },
+   planRouteMapsHint: { marginTop: -4, fontSize: 12, lineHeight: 17, fontWeight: '800' },
+   planRouteStop: { gap: 12 },
+-  planRouteStopTop: { flexDirection: 'row', alignItems: 'stretch', gap: 12 },
+-  planRouteTimeline: { width: 34, alignItems: 'center' },
+-  planRouteNumber: { width: 31, height: 31, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
+-  planRouteNumberText: { fontSize: 13, fontWeight: '900' },
+-  planRouteLine: { flex: 1, width: 2, marginTop: 7, borderRadius: 999 },
+-  planRouteCopy: { flex: 1, minWidth: 0, gap: 8, paddingBottom: 2 },
++  planRouteStopTop: { alignItems: 'stretch' },
++  planRouteCopy: { minWidth: 0, gap: 8, paddingBottom: 2 },
+   planRouteTimeRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 },
+   planRouteTime: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 17, fontWeight: '900', letterSpacing: 0.3, textTransform: 'uppercase' },
+   planRouteSource: { flexShrink: 0, fontSize: 11, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase' },
+@@ -6026,7 +6017,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   planRouteDescriptionToggleText: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+   planRouteImageWrap: { width: '100%', aspectRatio: 16 / 10, borderRadius: 24, overflow: 'hidden' },
+   planRouteImage: { width: '100%', height: '100%' },
+-  planRouteDivider: { height: StyleSheet.hairlineWidth, marginLeft: 46 },
++  planRouteDivider: { height: StyleSheet.hairlineWidth },
+   locationSheetRoot: { flex: 1, justifyContent: 'flex-end' },
+   locationSheetBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(2,6,23,0.34)' },
+   locationSheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, borderWidth: 1, borderBottomWidth: 0, padding: 16, paddingBottom: 24, gap: 14 },
+diff --git a/apps/mobile/src/features/plans/components/PlanPlaceWeatherDetail.tsx b/apps/mobile/src/features/plans/components/PlanPlaceWeatherDetail.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..ff017d5f325d58e03d47b4359d9dfa452b4e69b7
+--- /dev/null
++++ b/apps/mobile/src/features/plans/components/PlanPlaceWeatherDetail.tsx
+@@ -0,0 +1,95 @@
++import React, { useEffect, useState } from 'react';
++import { Image, Linking, Pressable, StyleSheet, View } from 'react-native';
++import type { PlanPlaceDto } from '@hellowhen/contracts';
++import { AppText } from '../../../components/AppText';
++import { useAuth } from '../../../providers/AuthProvider';
++import { useThemeTokens } from '../../../providers/ThemeProvider';
++import { useTranslation } from '../../../providers/MobileI18nProvider';
++import { formatPlanTemperature, isSyntheticPlanWeatherPlanId } from '../planWeatherModel';
++import { usePlanPlaceWeather, useTemperatureUnitPreference } from '../planWeatherMobile';
++
++type PlanPlaceWeatherDetailProps = {
++  planId: string;
++  place: PlanPlaceDto;
++};
++
++export function PlanPlaceWeatherDetail({ planId, place }: PlanPlaceWeatherDetailProps) {
++  const auth = useAuth();
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  const { unit: temperatureUnit, toggleUnit: toggleTemperatureUnit } = useTemperatureUnitPreference();
++  const weatherCandidate = usePlanPlaceWeather(
++    planId,
++    place,
++    auth.user?.id,
++    Boolean(auth.user && !isSyntheticPlanWeatherPlanId(planId)),
++  );
++  const attributionLogoUrl = weatherCandidate
++    ? (theme.mode === 'dark' ? weatherCandidate.attribution.logoDarkUrl : weatherCandidate.attribution.logoLightUrl)
++    : null;
++  const [attributionLogoReady, setAttributionLogoReady] = useState(false);
++  const [attributionLogoFailed, setAttributionLogoFailed] = useState(false);
++
++  useEffect(() => {
++    setAttributionLogoReady(false);
++    setAttributionLogoFailed(false);
++  }, [attributionLogoUrl]);
++
++  if (!weatherCandidate || !attributionLogoUrl || attributionLogoFailed) return null;
++
++  if (!attributionLogoReady) {
++    return (
++      <Image
++        source={{ uri: attributionLogoUrl }}
++        resizeMode="contain"
++        style={styles.attributionProbe}
++        onLoad={() => setAttributionLogoReady(true)}
++        onError={() => setAttributionLogoFailed(true)}
++      />
++    );
++  }
++
++  const temperatureLabel = formatPlanTemperature(weatherCandidate.temperatureC, temperatureUnit);
++
++  return (
++    <View style={[styles.row, { borderColor: theme.color.border, backgroundColor: theme.color.surface }]}>
++      <Pressable
++        accessibilityRole="button"
++        accessibilityLabel={t('plans.deck.weather.temperatureAccessibility', { temperature: temperatureLabel })}
++        accessibilityHint={t(temperatureUnit === 'celsius' ? 'plans.deck.weather.switchToFahrenheit' : 'plans.deck.weather.switchToCelsius')}
++        onPress={() => { void toggleTemperatureUnit(); }}
++        style={({ pressed }) => [styles.temperatureButton, pressed && styles.pressed]}
++      >
++        <AppText style={styles.temperature}>{temperatureLabel}</AppText>
++        <AppText style={[styles.provider, { color: theme.color.muted }]}>{weatherCandidate.attribution.serviceName}</AppText>
++      </Pressable>
++      <Pressable
++        accessibilityRole="link"
++        accessibilityLabel={t('plans.deck.weather.openAttribution')}
++        hitSlop={6}
++        onPress={() => { void Linking.openURL(weatherCandidate.attribution.legalUrl).catch(() => undefined); }}
++        style={({ pressed }) => [styles.attribution, pressed && styles.pressed]}
++      >
++        <Image
++          source={{ uri: attributionLogoUrl }}
++          resizeMode="contain"
++          style={styles.attributionLogo}
++          onError={() => setAttributionLogoFailed(true)}
++        />
++        <AppText style={[styles.sources, { color: theme.color.muted }]}>{t('plans.deck.weather.sources')}</AppText>
++      </Pressable>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  attributionProbe: { position: 'absolute', width: 1, height: 1, opacity: 0 },
++  row: { minHeight: 54, borderRadius: 18, borderWidth: 1, paddingHorizontal: 11, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
++  temperatureButton: { flex: 1, minWidth: 0, gap: 1 },
++  temperature: { fontSize: 18, lineHeight: 22, fontWeight: '900', letterSpacing: -0.2 },
++  provider: { fontSize: 11, lineHeight: 15, fontWeight: '800' },
++  attribution: { minHeight: 34, flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 8 },
++  attributionLogo: { width: 82, height: 15 },
++  sources: { fontSize: 10, lineHeight: 13, fontWeight: '800' },
++  pressed: { opacity: 0.72 },
++});
+diff --git a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+index e9fec62a8703866e2e471d21243577f8c9a853f2..691923900560672aa504e93bc5f53a17cdbce142 100644
+--- a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
++++ b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+@@ -269,7 +269,14 @@
+         <AppText style={[styles.placeTitle, { color: posterTitleColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{placeTitle}</AppText>
+         {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{t('plans.deck.addFirstStop')}</AppText> : null}
+         {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{locationLabel}</AppText> : null}
+-        <AppText style={[styles.placeTimeText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{timeLabel}</AppText>
++        <AppText
++          style={[
++            styles.placeTimeText,
++            weatherCandidate && attributionLogoUrl && !attributionLogoFailed && styles.placeTimeTextWithWeatherAttribution,
++            { color: posterMutedColor, textShadowColor: posterTextShadow },
++          ]}
++          numberOfLines={1}
++        >{timeLabel}</AppText>
+         {weatherCandidate && attributionLogoUrl ? (
+           <Pressable
+             accessibilityRole="link"
+@@ -295,7 +302,6 @@
+                 setAttributionLogoFailed(true);
+               }}
+             />
+-            {!attributionLogoFailed ? <AppText style={[styles.weatherAttributionText, { color: theme.color.muted }]}>{t('plans.deck.weather.sources')}</AppText> : null}
+           </Pressable>
+         ) : null}
+       </PosterCardFooter>
+@@ -452,6 +458,9 @@ const styles = StyleSheet.create({
+     textShadowOffset: { width: 0, height: 1 },
+     textShadowRadius: 4.5,
+   },
++  placeTimeTextWithWeatherAttribution: {
++    paddingRight: 78,
++  },
+   weatherToggle: {
+     borderRadius: 999,
+   },
+@@ -459,30 +468,26 @@ const styles = StyleSheet.create({
+     opacity: 0.72,
+   },
+   weatherAttribution: {
+-    alignSelf: 'flex-start',
+-    minHeight: 24,
+-    maxWidth: 148,
+-    flexDirection: 'row',
++    position: 'absolute',
++    right: POSTER_CARD_GEOMETRY.footerContentPaddingHorizontal,
++    bottom: POSTER_CARD_GEOMETRY.footerContentPaddingBottom,
++    minHeight: 18,
++    maxWidth: 72,
+     alignItems: 'center',
+-    gap: 6,
++    justifyContent: 'center',
+     borderRadius: 999,
+     borderWidth: StyleSheet.hairlineWidth,
+-    paddingHorizontal: 8,
+-    paddingVertical: 4,
++    paddingHorizontal: 6,
++    paddingVertical: 2,
+   },
+   weatherAttributionLogo: {
+-    width: 76,
+-    height: 14,
++    width: 56,
++    height: 10,
+   },
+   weatherAttributionLogoHidden: {
+     width: 0,
+     height: 0,
+   },
+-  weatherAttributionText: {
+-    fontSize: 10,
+-    lineHeight: 12,
+-    fontWeight: '700',
+-  },
+   pressed: {
+     opacity: 0.76,
+     transform: [{ scale: 0.99 }],

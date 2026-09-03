@@ -1,0 +1,249 @@
+diff --git a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+--- a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
++++ b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+@@ -280,2 +280,9 @@
+-        <AppText style={[styles.placeTimeText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{timeLabel}</AppText>
++        <AppText
++          style={[
++            styles.placeTimeText,
++            weatherCandidate && attributionLogoUrl && !attributionLogoFailed && styles.placeTimeTextWithWeatherAttribution,
++            { color: posterMutedColor, textShadowColor: posterTextShadow },
++          ]}
++          numberOfLines={1}
++        >{timeLabel}</AppText>
+         {weatherCandidate && attributionLogoUrl ? (
+@@ -451,6 +451,9 @@
+     ...DECK_CARD_TYPOGRAPHY.status,
+     textShadowOffset: { width: 0, height: 1 },
+     textShadowRadius: 4.5,
++  },
++  placeTimeTextWithWeatherAttribution: {
++    paddingRight: 112,
+   },
+   weatherToggle: {
+     borderRadius: 999,
+@@ -459,18 +462,20 @@
+     opacity: 0.72,
+   },
+   weatherAttribution: {
+-    alignSelf: 'flex-start',
+-    minHeight: 24,
+-    maxWidth: 148,
++    position: 'absolute',
++    right: POSTER_CARD_GEOMETRY.footerContentPaddingHorizontal,
++    bottom: POSTER_CARD_GEOMETRY.footerContentPaddingBottom,
++    minHeight: 18,
++    maxWidth: 108,
+     flexDirection: 'row',
+     alignItems: 'center',
+-    gap: 6,
++    gap: 4,
+     borderRadius: 999,
+     borderWidth: StyleSheet.hairlineWidth,
+-    paddingHorizontal: 8,
+-    paddingVertical: 4,
++    paddingHorizontal: 6,
++    paddingVertical: 2,
+   },
+   weatherAttributionLogo: {
+-    width: 76,
+-    height: 14,
++    width: 56,
++    height: 10,
+   },
+@@ -500,5 +500,5 @@
+   weatherAttributionText: {
+-    fontSize: 10,
+-    lineHeight: 12,
+-    fontWeight: '700',
++    fontSize: 9,
++    lineHeight: 11,
++    fontWeight: '800',
+   },
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -48,3 +48,5 @@
+ import { PlanSquareDeck } from './components/PlanSquareDeck';
++import { formatPlanTemperature, isSyntheticPlanWeatherPlanId } from './planWeatherModel';
++import { usePlanPlaceWeather, useTemperatureUnitPreference } from './planWeatherMobile';
+ 
+ type PlansScreenProps = { navigation?: NativeStackNavigationProp<RootStackParamList>; route?: { params?: PlanTabRouteParams } };
+@@ -2870 +2870,69 @@
++function PlanPlaceWeatherDetail({ planId, place }: { planId: string; place: PlanPlaceDto }) {
++  const auth = useAuth();
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  const { unit: temperatureUnit, toggleUnit: toggleTemperatureUnit } = useTemperatureUnitPreference();
++  const weatherCandidate = usePlanPlaceWeather(
++    planId,
++    place,
++    auth.user?.id,
++    Boolean(auth.user && !isSyntheticPlanWeatherPlanId(planId)),
++  );
++  const attributionLogoUrl = weatherCandidate
++    ? (theme.mode === 'dark' ? weatherCandidate.attribution.logoDarkUrl : weatherCandidate.attribution.logoLightUrl)
++    : null;
++  const [attributionLogoReady, setAttributionLogoReady] = useState(false);
++  const [attributionLogoFailed, setAttributionLogoFailed] = useState(false);
++
++  useEffect(() => {
++    setAttributionLogoReady(false);
++    setAttributionLogoFailed(false);
++  }, [attributionLogoUrl]);
++
++  if (!weatherCandidate || !attributionLogoUrl || attributionLogoFailed) return null;
++
++  if (!attributionLogoReady) {
++    return (
++      <Image
++        source={{ uri: attributionLogoUrl }}
++        resizeMode="contain"
++        style={styles.planWeatherAttributionProbe as ImageStyle}
++        onLoad={() => setAttributionLogoReady(true)}
++        onError={() => setAttributionLogoFailed(true)}
++      />
++    );
++  }
++
++  const temperatureLabel = formatPlanTemperature(weatherCandidate.temperatureC, temperatureUnit);
++
++  return (
++    <View style={[styles.planWeatherDetailRow, { borderColor: theme.color.border, backgroundColor: theme.color.surface }]}>
++      <Pressable
++        accessibilityRole="button"
++        accessibilityLabel={t('plans.deck.weather.temperatureAccessibility', { temperature: temperatureLabel })}
++        accessibilityHint={t(temperatureUnit === 'celsius' ? 'plans.deck.weather.switchToFahrenheit' : 'plans.deck.weather.switchToCelsius')}
++        onPress={() => { void toggleTemperatureUnit(); }}
++        style={({ pressed }) => [styles.planWeatherDetailTemperatureButton, pressed && styles.pressed]}
++      >
++        <AppText style={styles.planWeatherDetailTemperature}>{temperatureLabel}</AppText>
++        <AppText style={[styles.planWeatherDetailProvider, { color: theme.color.muted }]}>{weatherCandidate.attribution.serviceName}</AppText>
++      </Pressable>
++      <Pressable
++        accessibilityRole="link"
++        accessibilityLabel={t('plans.deck.weather.openAttribution')}
++        onPress={() => { void Linking.openURL(weatherCandidate.attribution.legalUrl).catch(() => undefined); }}
++        style={({ pressed }) => [styles.planWeatherDetailAttribution, pressed && styles.pressed]}
++      >
++        <Image
++          source={{ uri: attributionLogoUrl }}
++          resizeMode="contain"
++          style={styles.planWeatherDetailAttributionLogo as ImageStyle}
++          onError={() => setAttributionLogoFailed(true)}
++        />
++        <AppText style={[styles.planWeatherDetailSources, { color: theme.color.muted }]}>{t('plans.deck.weather.sources')}</AppText>
++      </Pressable>
++    </View>
++  );
++}
++
+ function PlanPlaceTimelineCard({
+@@ -2880,6 +2880,8 @@
+ function PlanPlaceTimelineCard({
++  planId,
+   place,
+   index,
++  placeTotal,
+   isLast,
+   planStartsAt,
+   showReport,
+@@ -2895,5 +2895,7 @@
+ }: {
++  planId: string;
+   place: PlanPlaceDto;
+   index: number;
++  placeTotal: number;
+   isLast: boolean;
+   planStartsAt: string;
+@@ -2925,3 +2925,4 @@
+   const presenceBody = presenceNotice?.body ?? (hasVerificationCoordinates ? t('plans.detail.presence.readyBody') : t('plans.detail.presence.unavailableBody'));
++  const showSequenceLabel = placeTotal > 1;
+ 
+   useEffect(() => {
+@@ -2940,12 +2940,10 @@
+   return (
+     <View style={styles.planRouteStop}>
+       <View style={styles.planRouteStopTop}>
+-        <View style={styles.planRouteTimeline}>
+-          <View style={[styles.planRouteNumber, { backgroundColor: theme.color.background, borderColor: theme.semantic.place.border }]}>
+-            <AppText style={[styles.planRouteNumberText, { color: theme.semantic.place.text }]}>{index + 1}</AppText>
+-          </View>
+-          {!isLast ? <View style={[styles.planRouteLine, { backgroundColor: theme.color.border }]} /> : null}
+-        </View>
+-
+         <View style={styles.planRouteCopy}>
++          {showSequenceLabel ? (
++            <AppText style={[styles.planRouteSequenceLabel, { color: theme.semantic.place.text }]}>
++              {t('plans.detail.route.stopLabel', { count: index + 1 })}
++            </AppText>
++          ) : null}
+           <View style={styles.planRouteTimeRow}>
+@@ -3003,4 +3003,6 @@
+             </View>
+           ) : null}
+ 
++          <PlanPlaceWeatherDetail planId={planId} place={place} />
++
+           {showPresenceVerification ? (
+@@ -3275,4 +3275,3 @@
+               <View style={styles.sectionTitleRow}>
+                 <AppText style={styles.sectionTitle}>{t('plans.detail.sections.route')}</AppText>
+-                <SemanticBadge label={`${places.length}`} tone="place" size="sm" />
+               </View>
+@@ -3310,5 +3310,7 @@
+               <PlanPlaceTimelineCard
+                 key={place.id}
++                planId={plan.id}
+                 place={place}
+                 index={index}
++                placeTotal={places.length}
+                 isLast={index === places.length - 1}
+@@ -6000,9 +6000,6 @@
+   planRouteMapsHint: { marginTop: -4, fontSize: 12, lineHeight: 17, fontWeight: '800' },
+   planRouteStop: { gap: 12 },
+-  planRouteStopTop: { flexDirection: 'row', alignItems: 'stretch', gap: 12 },
+-  planRouteTimeline: { width: 34, alignItems: 'center' },
+-  planRouteNumber: { width: 31, height: 31, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
+-  planRouteNumberText: { fontSize: 13, fontWeight: '900' },
+-  planRouteLine: { flex: 1, width: 2, marginTop: 7, borderRadius: 999 },
+-  planRouteCopy: { flex: 1, minWidth: 0, gap: 8, paddingBottom: 2 },
++  planRouteStopTop: { alignItems: 'stretch' },
++  planRouteCopy: { minWidth: 0, gap: 8, paddingBottom: 2 },
++  planRouteSequenceLabel: { alignSelf: 'flex-start', fontSize: 10.5, lineHeight: 14, fontWeight: '900', letterSpacing: 0.65, textTransform: 'uppercase' },
+   planRouteTimeRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 },
+@@ -6030,4 +6030,12 @@
+   planRouteImageWrap: { width: '100%', aspectRatio: 16 / 10, borderRadius: 24, overflow: 'hidden' },
+   planRouteImage: { width: '100%', height: '100%' },
+-  planRouteDivider: { height: StyleSheet.hairlineWidth, marginLeft: 46 },
++  planWeatherAttributionProbe: { position: 'absolute', width: 1, height: 1, opacity: 0 },
++  planWeatherDetailRow: { minHeight: 54, borderRadius: 18, borderWidth: 1, paddingHorizontal: 11, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
++  planWeatherDetailTemperatureButton: { flex: 1, minWidth: 0, gap: 1 },
++  planWeatherDetailTemperature: { fontSize: 18, lineHeight: 22, fontWeight: '900', letterSpacing: -0.2 },
++  planWeatherDetailProvider: { fontSize: 11, lineHeight: 15, fontWeight: '800' },
++  planWeatherDetailAttribution: { minHeight: 34, flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 8 },
++  planWeatherDetailAttributionLogo: { width: 82, height: 15 },
++  planWeatherDetailSources: { fontSize: 10, lineHeight: 13, fontWeight: '800' },
++  planRouteDivider: { height: StyleSheet.hairlineWidth },
+   locationSheetRoot: { flex: 1, justifyContent: 'flex-end' },
+diff --git a/packages/i18n/src/locales/en/plans.ts b/packages/i18n/src/locales/en/plans.ts
+--- a/packages/i18n/src/locales/en/plans.ts
++++ b/packages/i18n/src/locales/en/plans.ts
+@@ -185,2 +185,3 @@
+     route: {
++      stopLabel: 'Stop {{count}}',
+       openRoute: 'Open route',
+diff --git a/packages/i18n/src/locales/fr/plans.ts b/packages/i18n/src/locales/fr/plans.ts
+--- a/packages/i18n/src/locales/fr/plans.ts
++++ b/packages/i18n/src/locales/fr/plans.ts
+@@ -180,2 +180,3 @@
+     route: {
++      stopLabel: 'Étape {{count}}',
+       openRoute: 'Ouvrir l’itinéraire',
+diff --git a/packages/i18n/src/locales/es/plans.ts b/packages/i18n/src/locales/es/plans.ts
+--- a/packages/i18n/src/locales/es/plans.ts
++++ b/packages/i18n/src/locales/es/plans.ts
+@@ -180,2 +180,3 @@
+     route: {
++      stopLabel: 'Parada {{count}}',
+       openRoute: 'Abrir ruta',

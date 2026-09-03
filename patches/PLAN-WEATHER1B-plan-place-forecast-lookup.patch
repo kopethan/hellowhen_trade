@@ -1,0 +1,380 @@
+diff --git a/apps/api/src/modules/plans/__tests__/planPlaceWeather.test.ts b/apps/api/src/modules/plans/__tests__/planPlaceWeather.test.ts
+new file mode 100644
+index 0000000..f842ba5
+--- /dev/null
++++ b/apps/api/src/modules/plans/__tests__/planPlaceWeather.test.ts
+@@ -0,0 +1,123 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import {
++  canReadPlanPlaceWeather,
++  lookupPlanPlaceWeather,
++  nearestWeatherHour,
++  planPlaceCoordinatesForWeather,
++  planPlaceWeatherScheduledAt,
++  type PlanPlaceWeatherService,
++} from '../planPlaceWeather.js';
++import { WEATHER_FORECAST_HORIZON_MS, type WeatherHourlyForecast } from '../../weather/weatherTypes.js';
++
++const now = new Date('2026-09-02T12:00:00.000Z');
++
++function forecast(hours: WeatherHourlyForecast['hours']): WeatherHourlyForecast {
++  return {
++    provider: 'weatherkit',
++    providerName: 'Apple Weather',
++    attributionRequired: true,
++    latitude: 48.8566,
++    longitude: 2.3522,
++    fetchedAt: now.toISOString(),
++    hours,
++  };
++}
++
++function serviceReturning(value: WeatherHourlyForecast | null) {
++  const calls: Array<{ latitude: number; longitude: number }> = [];
++  const service: PlanPlaceWeatherService = {
++    async getHourlyForecast(input) {
++      calls.push(input);
++      return value;
++    },
++  };
++  return { service, calls };
++}
++
++test('Plan Place coordinates prefer the Plan Place snapshot and fall back to its reusable source Place', () => {
++  assert.deepEqual(planPlaceCoordinatesForWeather({
++    mode: 'local',
++    startsAt: now,
++    latitude: 48.85,
++    longitude: 2.35,
++    sourcePlace: { latitude: 40.7, longitude: -74 },
++  }), { latitude: 48.85, longitude: 2.35 });
++
++  assert.deepEqual(planPlaceCoordinatesForWeather({
++    mode: 'local',
++    startsAt: now,
++    latitude: null,
++    longitude: null,
++    sourcePlace: { latitude: 40.7, longitude: -74 },
++  }), { latitude: 40.7, longitude: -74 });
++});
++
++test('weather eligibility uses only the Plan Place startsAt and rejects remote or out-of-horizon Places', () => {
++  const missingOwnDate = { mode: 'local', startsAt: null, latitude: 48.85, longitude: 2.35, planStartsAt: '2026-09-03T12:00:00Z' } as any;
++  assert.equal(planPlaceWeatherScheduledAt(missingOwnDate, now), null);
++  assert.equal(planPlaceWeatherScheduledAt({ mode: 'remote', startsAt: '2026-09-03T12:00:00Z', latitude: 48.85, longitude: 2.35 }, now), null);
++  assert.equal(planPlaceWeatherScheduledAt({ mode: 'local', startsAt: '2026-09-02T11:59:59Z', latitude: 48.85, longitude: 2.35 }, now), null);
++  assert.equal(planPlaceWeatherScheduledAt({
++    mode: 'local',
++    startsAt: new Date(now.getTime() + WEATHER_FORECAST_HORIZON_MS).toISOString(),
++    latitude: 48.85,
++    longitude: 2.35,
++  }, now), null);
++  assert.equal(planPlaceWeatherScheduledAt({ mode: 'local', startsAt: '2026-09-03T12:00:00Z', latitude: 48.85, longitude: 2.35 }, now)?.toISOString(), '2026-09-03T12:00:00.000Z');
++});
++
++test('nearest hourly weather is selected for the Plan Place scheduled time', () => {
++  const result = nearestWeatherHour(forecast([
++    { forecastStart: '2026-09-03T12:00:00Z', temperatureC: 18 },
++    { forecastStart: '2026-09-03T13:00:00Z', temperatureC: 20 },
++  ]), new Date('2026-09-03T12:25:00Z'));
++  assert.deepEqual(result, { forecastStart: '2026-09-03T12:00:00Z', temperatureC: 18 });
++
++  assert.equal(nearestWeatherHour(forecast([
++    { forecastStart: '2026-09-03T18:00:00Z', temperatureC: 25 },
++  ]), new Date('2026-09-03T12:25:00Z')), null);
++});
++
++test('lookup returns compact scheduled weather without coordinates', async () => {
++  const { service, calls } = serviceReturning(forecast([
++    { forecastStart: '2026-09-03T12:00:00Z', temperatureC: 18.25 },
++    { forecastStart: '2026-09-03T13:00:00Z', temperatureC: 19.75 },
++  ]));
++
++  const result = await lookupPlanPlaceWeather({
++    mode: 'local',
++    startsAt: '2026-09-03T12:20:00Z',
++    latitude: 48.8566,
++    longitude: 2.3522,
++  }, service, now);
++
++  assert.deepEqual(calls, [{ latitude: 48.8566, longitude: 2.3522 }]);
++  assert.deepEqual(result, {
++    temperatureC: 18.25,
++    forecastStart: '2026-09-03T12:00:00Z',
++    scheduledFor: '2026-09-03T12:20:00.000Z',
++    provider: 'weatherkit',
++    providerName: 'Apple Weather',
++    attributionRequired: true,
++    fetchedAt: now.toISOString(),
++  });
++  assert.equal('latitude' in (result ?? {}), false);
++  assert.equal('longitude' in (result ?? {}), false);
++});
++
++test('ineligible Plan Places never call the weather provider', async () => {
++  const { service, calls } = serviceReturning(forecast([]));
++  assert.equal(await lookupPlanPlaceWeather({ mode: 'remote', startsAt: '2026-09-03T12:00:00Z', latitude: 48.85, longitude: 2.35 }, service, now), null);
++  assert.equal(await lookupPlanPlaceWeather({ mode: 'local', startsAt: null, latitude: 48.85, longitude: 2.35 }, service, now), null);
++  assert.equal(await lookupPlanPlaceWeather({ mode: 'local', startsAt: '2026-09-03T12:00:00Z', latitude: null, longitude: null }, service, now), null);
++  assert.equal(calls.length, 0);
++});
++
++test('Plan weather visibility mirrors current public Plan visibility while allowing the owner', () => {
++  assert.equal(canReadPlanPlaceWeather({ ownerId: 'owner', status: 'draft', deletedAt: null, ownerTrustTier: 'restricted' }, 'owner'), true);
++  assert.equal(canReadPlanPlaceWeather({ ownerId: 'owner', status: 'open', deletedAt: null, ownerTrustTier: 'email_verified' }, 'viewer'), true);
++  assert.equal(canReadPlanPlaceWeather({ ownerId: 'owner', status: 'draft', deletedAt: null, ownerTrustTier: 'email_verified' }, 'viewer'), false);
++  assert.equal(canReadPlanPlaceWeather({ ownerId: 'owner', status: 'open', deletedAt: null, ownerTrustTier: 'restricted' }, 'viewer'), false);
++  assert.equal(canReadPlanPlaceWeather({ ownerId: 'owner', status: 'open', deletedAt: now, ownerTrustTier: 'email_verified' }, 'viewer'), false);
++});
+diff --git a/apps/api/src/modules/plans/planPlaceWeather.ts b/apps/api/src/modules/plans/planPlaceWeather.ts
+new file mode 100644
+index 0000000..ff44823
+--- /dev/null
++++ b/apps/api/src/modules/plans/planPlaceWeather.ts
+@@ -0,0 +1,114 @@
++import { WEATHER_FORECAST_HORIZON_MS, type WeatherHourlyForecast } from '../weather/weatherTypes.js';
++
++const LOCAL_PLAN_PLACE_MODE = 'local';
++const PUBLIC_PLAN_WEATHER_STATUSES = new Set(['open', 'full', 'started']);
++const MAX_NEAREST_HOUR_DISTANCE_MS = 90 * 60 * 1000;
++
++export type PlanPlaceWeatherTarget = {
++  mode: string | null | undefined;
++  startsAt: Date | string | null | undefined;
++  latitude: number | null | undefined;
++  longitude: number | null | undefined;
++  sourcePlace?: {
++    latitude: number | null | undefined;
++    longitude: number | null | undefined;
++  } | null;
++};
++
++export type PlanWeatherVisibilityTarget = {
++  ownerId: string;
++  status: string;
++  deletedAt?: Date | string | null;
++  ownerTrustTier?: string | null;
++};
++
++export type PlanPlaceWeatherService = {
++  getHourlyForecast(input: { latitude: number; longitude: number }): Promise<WeatherHourlyForecast | null>;
++};
++
++export type PlanPlaceWeatherSnapshot = {
++  temperatureC: number;
++  forecastStart: string;
++  scheduledFor: string;
++  provider: WeatherHourlyForecast['provider'];
++  providerName: string;
++  attributionRequired: boolean;
++  fetchedAt: string;
++};
++
++function validCoordinate(latitude: number, longitude: number) {
++  return Number.isFinite(latitude)
++    && Number.isFinite(longitude)
++    && latitude >= -90
++    && latitude <= 90
++    && longitude >= -180
++    && longitude <= 180;
++}
++
++export function planPlaceCoordinatesForWeather(place: PlanPlaceWeatherTarget) {
++  const latitude = typeof place.latitude === 'number' ? place.latitude : place.sourcePlace?.latitude;
++  const longitude = typeof place.longitude === 'number' ? place.longitude : place.sourcePlace?.longitude;
++  if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
++  if (!validCoordinate(latitude, longitude)) return null;
++  return { latitude, longitude };
++}
++
++export function planPlaceWeatherScheduledAt(place: PlanPlaceWeatherTarget, now = new Date()) {
++  if (place.mode !== LOCAL_PLAN_PLACE_MODE || !place.startsAt) return null;
++  const scheduledAt = place.startsAt instanceof Date ? place.startsAt : new Date(place.startsAt);
++  if (!Number.isFinite(scheduledAt.getTime())) return null;
++  const scheduledMs = scheduledAt.getTime();
++  const nowMs = now.getTime();
++  if (scheduledMs < nowMs || scheduledMs >= nowMs + WEATHER_FORECAST_HORIZON_MS) return null;
++  return scheduledAt;
++}
++
++export function nearestWeatherHour(forecast: WeatherHourlyForecast, scheduledAt: Date) {
++  let nearest: WeatherHourlyForecast['hours'][number] | null = null;
++  let nearestDistanceMs = Number.POSITIVE_INFINITY;
++
++  for (const hour of forecast.hours) {
++    const forecastMs = Date.parse(hour.forecastStart);
++    if (!Number.isFinite(forecastMs) || !Number.isFinite(hour.temperatureC)) continue;
++    const distanceMs = Math.abs(forecastMs - scheduledAt.getTime());
++    if (distanceMs < nearestDistanceMs) {
++      nearest = hour;
++      nearestDistanceMs = distanceMs;
++    }
++  }
++
++  return nearest && nearestDistanceMs <= MAX_NEAREST_HOUR_DISTANCE_MS ? nearest : null;
++}
++
++export function canReadPlanPlaceWeather(target: PlanWeatherVisibilityTarget, viewerId: string) {
++  if (target.deletedAt) return false;
++  if (target.ownerId === viewerId) return true;
++  if (target.ownerTrustTier === 'restricted') return false;
++  return PUBLIC_PLAN_WEATHER_STATUSES.has(target.status);
++}
++
++export async function lookupPlanPlaceWeather(
++  place: PlanPlaceWeatherTarget,
++  service: PlanPlaceWeatherService,
++  now = new Date(),
++): Promise<PlanPlaceWeatherSnapshot | null> {
++  const scheduledAt = planPlaceWeatherScheduledAt(place, now);
++  if (!scheduledAt) return null;
++  const coordinates = planPlaceCoordinatesForWeather(place);
++  if (!coordinates) return null;
++
++  const forecast = await service.getHourlyForecast(coordinates);
++  if (!forecast) return null;
++  const nearest = nearestWeatherHour(forecast, scheduledAt);
++  if (!nearest) return null;
++
++  return {
++    temperatureC: nearest.temperatureC,
++    forecastStart: nearest.forecastStart,
++    scheduledFor: scheduledAt.toISOString(),
++    provider: forecast.provider,
++    providerName: forecast.providerName,
++    attributionRequired: forecast.attributionRequired,
++    fetchedAt: forecast.fetchedAt,
++  };
++}
+diff --git a/apps/api/src/modules/plans/planWeather.routes.ts b/apps/api/src/modules/plans/planWeather.routes.ts
+new file mode 100644
+index 0000000..e7941cf
+--- /dev/null
++++ b/apps/api/src/modules/plans/planWeather.routes.ts
+@@ -0,0 +1,58 @@
++import { Router } from 'express';
++import { asyncRoute } from '../../lib/asyncRoute.js';
++import { prisma } from '../../lib/prisma.js';
++import { requireAuth } from '../../middleware/auth.js';
++import { usersHaveBlockBetween } from '../users/userBlocks.js';
++import { weatherService } from '../weather/weatherFactory.js';
++import { canReadPlanPlaceWeather, lookupPlanPlaceWeather } from './planPlaceWeather.js';
++
++export const planWeatherRoutes = Router();
++
++planWeatherRoutes.get('/:planId/places/:planPlaceId/weather', requireAuth, asyncRoute(async (req, res) => {
++  const planId = req.params.planId;
++  const planPlaceId = req.params.planPlaceId;
++  const viewerId = req.user!.id;
++  if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
++  if (!planPlaceId) return res.status(400).json({ error: 'missing_plan_place_id' });
++
++  const plan = await prisma.plan.findUnique({
++    where: { id: planId },
++    select: {
++      ownerId: true,
++      status: true,
++      deletedAt: true,
++      owner: { select: { trustTier: true } },
++      places: {
++        where: { id: planPlaceId },
++        take: 1,
++        select: {
++          id: true,
++          mode: true,
++          startsAt: true,
++          latitude: true,
++          longitude: true,
++          sourcePlace: { select: { latitude: true, longitude: true } },
++        },
++      },
++    },
++  });
++
++  if (!plan || !canReadPlanPlaceWeather({
++    ownerId: plan.ownerId,
++    status: plan.status,
++    deletedAt: plan.deletedAt,
++    ownerTrustTier: plan.owner?.trustTier ?? null,
++  }, viewerId)) {
++    return res.status(404).json({ error: 'not_found' });
++  }
++
++  if (plan.ownerId !== viewerId && await usersHaveBlockBetween(viewerId, plan.ownerId)) {
++    return res.status(404).json({ error: 'not_found' });
++  }
++
++  const place = plan.places[0];
++  if (!place) return res.status(404).json({ error: 'not_found' });
++
++  const weather = await lookupPlanPlaceWeather(place, weatherService);
++  return res.json({ weather });
++}));
+diff --git a/apps/api/src/routes.ts b/apps/api/src/routes.ts
+index b17a943..4ac066a 100644
+--- a/apps/api/src/routes.ts
++++ b/apps/api/src/routes.ts
+@@ -19,6 +19,7 @@ import { reportsRoutes } from './modules/reports/reports.routes.js';
+ import { savedRoutes } from './modules/saved/saved.routes.js';
+ import { proposalsRoutes } from './modules/proposals/proposals.routes.js';
+ import { plansRoutes } from './modules/plans/plans.routes.js';
++import { planWeatherRoutes } from './modules/plans/planWeather.routes.js';
+ import { placesRoutes } from './modules/places/places.routes.js';
+ import { plusRoutes } from './modules/subscriptions/plus.routes.js';
+ import { settingsRoutes } from './modules/settings/settings.routes.js';
+@@ -55,7 +56,7 @@ routes.use('/offers', offersRoutes);
+ routes.use('/trade-search', tradeSearchRoutes);
+ routes.use('/trades', tradesRoutes);
+ routes.use('/places', requirePlansEnabled('Place Library'), placesRoutes);
+-routes.use('/plans', requirePlansEnabled(), plansRoutes);
++routes.use('/plans', requirePlansEnabled(), planWeatherRoutes, plansRoutes);
+ routes.use('/plus', plusRoutes);
+ routes.use('/users', usersRoutes);
+ routes.use('/usage', usageRoutes);
+diff --git a/docs/launch/plan-weather-place-lookup.md b/docs/launch/plan-weather-place-lookup.md
+new file mode 100644
+index 0000000..9fe38a3
+--- /dev/null
++++ b/docs/launch/plan-weather-place-lookup.md
+@@ -0,0 +1,40 @@
++# Plan Place weather lookup
++
++PLAN-WEATHER1B connects the server-only weather foundation to real Plan Places without adding mobile UI or a database migration.
++
++## Endpoint
++
++Authenticated clients may request:
++
++```text
++GET /plans/:planId/places/:planPlaceId/weather
++```
++
++The route is mounted behind the existing Plans feature gate and mirrors the current Plan visibility rules. A blocked relationship or an unreadable/deleted Plan returns `404`, so the route does not become an ownership or visibility oracle.
++
++The response is either:
++
++```json
++{ "weather": null }
++```
++
++or compact scheduled weather metadata containing the Celsius temperature, the matched provider hour, the Plan Place scheduled time, provider identity, fetch time, and the provider-attribution requirement. Coordinates are never returned.
++
++## Eligibility
++
++Weather is looked up only when the requested Plan Place:
++
++- is local/offline (`mode=local`);
++- has its own valid `startsAt` value;
++- starts now or within the next seven days;
++- has stored coordinates on the Plan Place snapshot, or on its reusable source Place as a compatibility fallback; and
++- has a WeatherKit hourly point close enough to the Plan Place's own scheduled time.
++
++The parent Plan `startsAt` is deliberately not accepted by the lookup helper and is never used as a fallback.
++Remote Places, missing dates, missing/invalid coordinates, past dates, dates outside the seven-day horizon, disabled weather, provider failures, and missing nearby forecast points all return `weather: null`.
++
++## Privacy and provider boundary
++
++The client supplies only Plan and Plan Place IDs. It cannot submit arbitrary latitude/longitude values to proxy WeatherKit through Hellowhen. The API resolves stored coordinates after Plan visibility checks, calls the server-only weather service, and strips coordinates from the returned weather snapshot.
++
++PLAN-WEATHER2 may consume this endpoint for the compact mobile temperature treatment and temperature-unit preference. It must also render the required Apple Weather attribution/legal affordance when weather is visible.

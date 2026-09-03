@@ -1,0 +1,994 @@
+diff --git a/apps/api/src/modules/plans/__tests__/planPlaceWeather.test.ts b/apps/api/src/modules/plans/__tests__/planPlaceWeather.test.ts
+index f842ba5..175c030 100644
+--- a/apps/api/src/modules/plans/__tests__/planPlaceWeather.test.ts
++++ b/apps/api/src/modules/plans/__tests__/planPlaceWeather.test.ts
+@@ -17,6 +17,12 @@ function forecast(hours: WeatherHourlyForecast['hours']): WeatherHourlyForecast
+     provider: 'weatherkit',
+     providerName: 'Apple Weather',
+     attributionRequired: true,
++    attribution: {
++      serviceName: 'Apple Weather',
++      legalUrl: 'https://weatherkit.apple.com/legal-attribution.html',
++      logoLightUrl: 'https://weatherkit.apple.com/assets/Apple_Weather_light.png',
++      logoDarkUrl: 'https://weatherkit.apple.com/assets/Apple_Weather_dark.png',
++    },
+     latitude: 48.8566,
+     longitude: 2.3522,
+     fetchedAt: now.toISOString(),
+@@ -100,12 +106,34 @@ test('lookup returns compact scheduled weather without coordinates', async () =>
+     provider: 'weatherkit',
+     providerName: 'Apple Weather',
+     attributionRequired: true,
++    attribution: {
++      serviceName: 'Apple Weather',
++      legalUrl: 'https://weatherkit.apple.com/legal-attribution.html',
++      logoLightUrl: 'https://weatherkit.apple.com/assets/Apple_Weather_light.png',
++      logoDarkUrl: 'https://weatherkit.apple.com/assets/Apple_Weather_dark.png',
++    },
+     fetchedAt: now.toISOString(),
+   });
+   assert.equal('latitude' in (result ?? {}), false);
+   assert.equal('longitude' in (result ?? {}), false);
+ });
+ 
++
++test('lookup refuses WeatherKit display data when required attribution is missing', async () => {
++  const missingAttribution = forecast([{ forecastStart: '2026-09-03T12:00:00Z', temperatureC: 18 }]);
++  delete missingAttribution.attribution;
++  const { service } = serviceReturning(missingAttribution);
++
++  const result = await lookupPlanPlaceWeather({
++    mode: 'local',
++    startsAt: '2026-09-03T12:20:00Z',
++    latitude: 48.8566,
++    longitude: 2.3522,
++  }, service, now);
++
++  assert.equal(result, null);
++});
++
+ test('ineligible Plan Places never call the weather provider', async () => {
+   const { service, calls } = serviceReturning(forecast([]));
+   assert.equal(await lookupPlanPlaceWeather({ mode: 'remote', startsAt: '2026-09-03T12:00:00Z', latitude: 48.85, longitude: 2.35 }, service, now), null);
+diff --git a/apps/api/src/modules/plans/planPlaceWeather.ts b/apps/api/src/modules/plans/planPlaceWeather.ts
+index ff44823..43c50c0 100644
+--- a/apps/api/src/modules/plans/planPlaceWeather.ts
++++ b/apps/api/src/modules/plans/planPlaceWeather.ts
+@@ -33,6 +33,7 @@ export type PlanPlaceWeatherSnapshot = {
+   provider: WeatherHourlyForecast['provider'];
+   providerName: string;
+   attributionRequired: boolean;
++  attribution: WeatherHourlyForecast['attribution'] | null;
+   fetchedAt: string;
+ };
+ 
+@@ -99,6 +100,7 @@ export async function lookupPlanPlaceWeather(
+ 
+   const forecast = await service.getHourlyForecast(coordinates);
+   if (!forecast) return null;
++  if (forecast.attributionRequired && !forecast.attribution) return null;
+   const nearest = nearestWeatherHour(forecast, scheduledAt);
+   if (!nearest) return null;
+ 
+@@ -109,6 +111,7 @@ export async function lookupPlanPlaceWeather(
+     provider: forecast.provider,
+     providerName: forecast.providerName,
+     attributionRequired: forecast.attributionRequired,
++    attribution: forecast.attribution ?? null,
+     fetchedAt: forecast.fetchedAt,
+   };
+ }
+diff --git a/apps/api/src/modules/weather/__tests__/weatherKitProvider.test.ts b/apps/api/src/modules/weather/__tests__/weatherKitProvider.test.ts
+index ae19490..1fc3999 100644
+--- a/apps/api/src/modules/weather/__tests__/weatherKitProvider.test.ts
++++ b/apps/api/src/modules/weather/__tests__/weatherKitProvider.test.ts
+@@ -34,7 +34,7 @@ test('WeatherKit developer token contains only the documented header and payload
+   assert.equal(payload.sub, credentials.serviceId);
+ });
+ 
+-test('WeatherKit adapter requests hourly-only data and normalizes Celsius forecast points', async () => {
++test('WeatherKit adapter requests hourly-only data and required attribution assets', async () => {
+   const requests: URL[] = [];
+   const provider = new WeatherKitProvider({
+     credentials: testCredentials(),
+@@ -43,8 +43,19 @@ test('WeatherKit adapter requests hourly-only data and normalizes Celsius foreca
+     fetchImpl: async (input) => {
+       const url = new URL(String(input));
+       requests.push(url);
++      if (url.pathname === '/attribution/en') {
++        return new Response(JSON.stringify({
++          serviceName: 'Apple Weather',
++          'logoLight@2x': '/assets/attribution/Apple_Weather_light_2x.png',
++          'logoDark@2x': '/assets/attribution/Apple_Weather_dark_2x.png',
++        }), { status: 200, headers: { 'content-type': 'application/json' } });
++      }
+       return new Response(JSON.stringify({
+         forecastHourly: {
++          metadata: {
++            attributionURL: 'https://weatherkit.apple.com/legal-attribution.html',
++            providerName: 'Apple Weather',
++          },
+           hours: [
+             { forecastStart: '2026-09-02T12:00:00Z', temperature: 18.25 },
+             { forecastStart: 'invalid', temperature: 99 },
+@@ -54,23 +65,64 @@ test('WeatherKit adapter requests hourly-only data and normalizes Celsius foreca
+     },
+   });
+ 
+-  const result = await provider.getHourlyForecast({
++  const request = {
+     latitude: 48.8566,
+     longitude: 2.3522,
+     hourlyStart: new Date('2026-09-02T12:00:00.000Z'),
+     hourlyEnd: new Date('2026-09-09T12:00:00.000Z'),
+     timezone: 'Europe/Paris',
+     language: 'en',
+-  });
++  };
++  const result = await provider.getHourlyForecast(request);
++  await provider.getHourlyForecast(request);
+ 
+-  assert.equal(requests.length, 1);
+-  assert.equal(requests[0]?.origin, 'https://weatherkit.apple.com');
+-  assert.equal(requests[0]?.pathname, '/api/v1/weather/en/48.8566/2.3522');
+-  assert.equal(requests[0]?.searchParams.get('dataSets'), 'forecastHourly');
+-  assert.equal(requests[0]?.searchParams.get('timezone'), 'Europe/Paris');
+-  assert.equal(requests[0]?.searchParams.get('hourlyStart'), '2026-09-02T12:00:00.000Z');
+-  assert.equal(requests[0]?.searchParams.get('hourlyEnd'), '2026-09-09T12:00:00.000Z');
++  assert.equal(requests.length, 3);
++  const weatherRequest = requests[0];
++  const attributionRequest = requests[1];
++  assert.equal(weatherRequest?.origin, 'https://weatherkit.apple.com');
++  assert.equal(weatherRequest?.pathname, '/api/v1/weather/en/48.8566/2.3522');
++  assert.equal(weatherRequest?.searchParams.get('dataSets'), 'forecastHourly');
++  assert.equal(weatherRequest?.searchParams.get('timezone'), 'Europe/Paris');
++  assert.equal(weatherRequest?.searchParams.get('hourlyStart'), '2026-09-02T12:00:00.000Z');
++  assert.equal(weatherRequest?.searchParams.get('hourlyEnd'), '2026-09-09T12:00:00.000Z');
++  assert.equal(attributionRequest?.pathname, '/attribution/en');
++  assert.equal(requests[2]?.pathname, '/api/v1/weather/en/48.8566/2.3522');
+   assert.equal(result?.provider, 'weatherkit');
+   assert.equal(result?.attributionRequired, true);
++  assert.deepEqual(result?.attribution, {
++    serviceName: 'Apple Weather',
++    legalUrl: 'https://weatherkit.apple.com/legal-attribution.html',
++    logoLightUrl: 'https://weatherkit.apple.com/assets/attribution/Apple_Weather_light_2x.png',
++    logoDarkUrl: 'https://weatherkit.apple.com/assets/attribution/Apple_Weather_dark_2x.png',
++  });
+   assert.deepEqual(result?.hours, [{ forecastStart: '2026-09-02T12:00:00Z', temperatureC: 18.25 }]);
+ });
++
++test('WeatherKit adapter refuses display data when required attribution is incomplete', async () => {
++  const provider = new WeatherKitProvider({
++    credentials: testCredentials(),
++    requestTimeoutMs: 2_000,
++    fetchImpl: async (input) => {
++      const url = new URL(String(input));
++      if (url.pathname.startsWith('/attribution/')) {
++        return new Response(JSON.stringify({ serviceName: 'Apple Weather' }), { status: 200 });
++      }
++      return new Response(JSON.stringify({
++        forecastHourly: {
++          metadata: { attributionURL: 'https://weatherkit.apple.com/legal-attribution.html' },
++          hours: [{ forecastStart: '2026-09-02T12:00:00Z', temperature: 18 }],
++        },
++      }), { status: 200 });
++    },
++  });
++
++  const result = await provider.getHourlyForecast({
++    latitude: 48.8566,
++    longitude: 2.3522,
++    hourlyStart: new Date('2026-09-02T12:00:00.000Z'),
++    hourlyEnd: new Date('2026-09-09T12:00:00.000Z'),
++    timezone: 'Europe/Paris',
++    language: 'en',
++  });
++  assert.equal(result, null);
++});
+diff --git a/apps/api/src/modules/weather/index.ts b/apps/api/src/modules/weather/index.ts
+index a3f23a7..201b69c 100644
+--- a/apps/api/src/modules/weather/index.ts
++++ b/apps/api/src/modules/weather/index.ts
+@@ -7,6 +7,7 @@ export {
+   WEATHER_FORECAST_HORIZON_MS,
+   convertTemperatureFromCelsius,
+   type TemperatureUnit,
++  type WeatherAttribution,
+   type WeatherHourlyForecast,
+   type WeatherHourlyPoint,
+   type WeatherProvider,
+diff --git a/apps/api/src/modules/weather/weatherKitProvider.ts b/apps/api/src/modules/weather/weatherKitProvider.ts
+index 1ad2569..ccbec73 100644
+--- a/apps/api/src/modules/weather/weatherKitProvider.ts
++++ b/apps/api/src/modules/weather/weatherKitProvider.ts
+@@ -1,5 +1,6 @@
+ import { createPrivateKey, sign as signPayload } from 'node:crypto';
+ import type {
++  WeatherAttribution,
+   WeatherHourlyForecast,
+   WeatherHourlyPoint,
+   WeatherProvider,
+@@ -26,6 +27,10 @@ type WeatherKitProviderOptions = {
+ 
+ type WeatherKitHourlyResponse = {
+   forecastHourly?: {
++    metadata?: {
++      attributionURL?: unknown;
++      providerName?: unknown;
++    };
+     hours?: Array<{
+       forecastStart?: unknown;
+       temperature?: unknown;
+@@ -33,6 +38,16 @@ type WeatherKitHourlyResponse = {
+   };
+ };
+ 
++type WeatherKitAttributionResponse = {
++  serviceName?: unknown;
++  'logoDark@1x'?: unknown;
++  'logoDark@2x'?: unknown;
++  'logoDark@3x'?: unknown;
++  'logoLight@1x'?: unknown;
++  'logoLight@2x'?: unknown;
++  'logoLight@3x'?: unknown;
++};
++
+ function base64UrlJson(value: unknown) {
+   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+ }
+@@ -75,6 +90,38 @@ function parseHourlyPoints(response: WeatherKitHourlyResponse): WeatherHourlyPoi
+   });
+ }
+ 
++function absoluteWeatherKitAssetUrl(value: unknown) {
++  if (typeof value !== 'string' || !value.trim()) return null;
++  try {
++    return new URL(value, WEATHERKIT_BASE_URL).toString();
++  } catch {
++    return null;
++  }
++}
++
++function parseWeatherKitAttribution(response: WeatherKitAttributionResponse, legalUrl: unknown): WeatherAttribution | null {
++  if (typeof legalUrl !== 'string' || !legalUrl.trim()) return null;
++  let parsedLegalUrl: string;
++  try {
++    const parsed = new URL(legalUrl);
++    if (parsed.protocol !== 'https:') return null;
++    parsedLegalUrl = parsed.toString();
++  } catch {
++    return null;
++  }
++
++  const logoLightUrl = absoluteWeatherKitAssetUrl(response['logoLight@2x'] ?? response['logoLight@1x'] ?? response['logoLight@3x']);
++  const logoDarkUrl = absoluteWeatherKitAssetUrl(response['logoDark@2x'] ?? response['logoDark@1x'] ?? response['logoDark@3x']);
++  if (!logoLightUrl || !logoDarkUrl) return null;
++
++  return {
++    serviceName: typeof response.serviceName === 'string' && response.serviceName.trim() ? response.serviceName.trim() : 'Apple Weather',
++    legalUrl: parsedLegalUrl,
++    logoLightUrl,
++    logoDarkUrl,
++  };
++}
++
+ export class WeatherKitProvider implements WeatherProvider {
+   readonly id = 'weatherkit' as const;
+   private readonly credentials: WeatherKitCredentials;
+@@ -82,6 +129,7 @@ export class WeatherKitProvider implements WeatherProvider {
+   private readonly fetchImpl: typeof fetch;
+   private readonly now: () => Date;
+   private cachedToken: { value: string; refreshAfterMs: number } | null = null;
++  private readonly attributionByLanguage = new Map<string, Promise<WeatherKitAttributionResponse | null>>();
+ 
+   constructor(options: WeatherKitProviderOptions) {
+     this.credentials = options.credentials;
+@@ -102,16 +150,7 @@ export class WeatherKitProvider implements WeatherProvider {
+     return value;
+   }
+ 
+-  async getHourlyForecast(input: WeatherProviderHourlyRequest): Promise<WeatherHourlyForecast | null> {
+-    const url = new URL(
+-      `/api/v1/weather/${encodeURIComponent(input.language)}/${input.latitude}/${input.longitude}`,
+-      WEATHERKIT_BASE_URL,
+-    );
+-    url.searchParams.set('dataSets', 'forecastHourly');
+-    url.searchParams.set('timezone', input.timezone);
+-    url.searchParams.set('hourlyStart', input.hourlyStart.toISOString());
+-    url.searchParams.set('hourlyEnd', input.hourlyEnd.toISOString());
+-
++  private async fetchJson<T>(url: URL): Promise<T> {
+     const controller = new AbortController();
+     const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+     try {
+@@ -124,22 +163,58 @@ export class WeatherKitProvider implements WeatherProvider {
+         signal: controller.signal,
+       });
+       if (!response.ok) throw new Error(`WeatherKit request failed with status ${response.status}.`);
+-
+-      const body = await response.json() as WeatherKitHourlyResponse;
+-      const hours = parseHourlyPoints(body);
+-      if (hours.length === 0) return null;
+-
+-      return {
+-        provider: this.id,
+-        providerName: 'Apple Weather',
+-        attributionRequired: true,
+-        latitude: input.latitude,
+-        longitude: input.longitude,
+-        fetchedAt: this.now().toISOString(),
+-        hours,
+-      };
++      return await response.json() as T;
+     } finally {
+       clearTimeout(timeout);
+     }
+   }
++
++  private getAttributionAssets(language: string) {
++    const normalizedLanguage = language.trim().toLowerCase() || 'en';
++    const cached = this.attributionByLanguage.get(normalizedLanguage);
++    if (cached) return cached;
++
++    const request = this.fetchJson<WeatherKitAttributionResponse>(
++      new URL(`/attribution/${encodeURIComponent(normalizedLanguage)}`, WEATHERKIT_BASE_URL),
++    ).catch(() => {
++      this.attributionByLanguage.delete(normalizedLanguage);
++      return null;
++    });
++    this.attributionByLanguage.set(normalizedLanguage, request);
++    return request;
++  }
++
++  async getHourlyForecast(input: WeatherProviderHourlyRequest): Promise<WeatherHourlyForecast | null> {
++    const url = new URL(
++      `/api/v1/weather/${encodeURIComponent(input.language)}/${input.latitude}/${input.longitude}`,
++      WEATHERKIT_BASE_URL,
++    );
++    url.searchParams.set('dataSets', 'forecastHourly');
++    url.searchParams.set('timezone', input.timezone);
++    url.searchParams.set('hourlyStart', input.hourlyStart.toISOString());
++    url.searchParams.set('hourlyEnd', input.hourlyEnd.toISOString());
++
++    const body = await this.fetchJson<WeatherKitHourlyResponse>(url);
++    const hours = parseHourlyPoints(body);
++    if (hours.length === 0) return null;
++
++    const attributionAssets = await this.getAttributionAssets(input.language);
++    const attribution = attributionAssets
++      ? parseWeatherKitAttribution(attributionAssets, body.forecastHourly?.metadata?.attributionURL)
++      : null;
++    if (!attribution) return null;
++
++    return {
++      provider: this.id,
++      providerName: typeof body.forecastHourly?.metadata?.providerName === 'string' && body.forecastHourly.metadata.providerName.trim()
++        ? body.forecastHourly.metadata.providerName.trim()
++        : attribution.serviceName,
++      attributionRequired: true,
++      attribution,
++      latitude: input.latitude,
++      longitude: input.longitude,
++      fetchedAt: this.now().toISOString(),
++      hours,
++    };
++  }
+ }
+diff --git a/apps/api/src/modules/weather/weatherTypes.ts b/apps/api/src/modules/weather/weatherTypes.ts
+index ab53bc9..5be360b 100644
+--- a/apps/api/src/modules/weather/weatherTypes.ts
++++ b/apps/api/src/modules/weather/weatherTypes.ts
+@@ -9,10 +9,18 @@ export type WeatherHourlyPoint = {
+   temperatureC: number;
+ };
+ 
++export type WeatherAttribution = {
++  serviceName: string;
++  legalUrl: string;
++  logoLightUrl: string;
++  logoDarkUrl: string;
++};
++
+ export type WeatherHourlyForecast = {
+   provider: WeatherProviderId;
+   providerName: string;
+   attributionRequired: boolean;
++  attribution?: WeatherAttribution;
+   latitude: number;
+   longitude: number;
+   fetchedAt: string;
+diff --git a/apps/mobile/src/features/plans/__tests__/planWeatherModel.test.ts b/apps/mobile/src/features/plans/__tests__/planWeatherModel.test.ts
+new file mode 100644
+index 0000000..63345b7
+--- /dev/null
++++ b/apps/mobile/src/features/plans/__tests__/planWeatherModel.test.ts
+@@ -0,0 +1,76 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import {
++  PLAN_WEATHER_CLIENT_HORIZON_MS,
++  formatPlanTemperature,
++  isPlanPlaceWeatherClientEligible,
++  isSyntheticPlanWeatherPlanId,
++  nextPlanTemperatureUnit,
++  parsePlanPlaceWeatherResponse,
++  temperatureForUnit,
++} from '../planWeatherModel';
++
++const now = new Date('2026-09-02T12:00:00.000Z');
++
++function response(overrides: Record<string, unknown> = {}) {
++  return {
++    weather: {
++      temperatureC: 18.4,
++      forecastStart: '2026-09-03T12:00:00.000Z',
++      scheduledFor: '2026-09-03T12:20:00.000Z',
++      provider: 'weatherkit',
++      providerName: 'Apple Weather',
++      attributionRequired: true,
++      attribution: {
++        serviceName: 'Apple Weather',
++        legalUrl: 'https://weatherkit.apple.com/legal-attribution.html',
++        logoLightUrl: 'https://weatherkit.apple.com/assets/light.png',
++        logoDarkUrl: 'https://weatherkit.apple.com/assets/dark.png',
++      },
++      fetchedAt: '2026-09-02T12:00:00.000Z',
++      ...overrides,
++    },
++  };
++}
++
++test('mobile eligibility uses only an offline Plan Place own startsAt', () => {
++  assert.equal(isPlanPlaceWeatherClientEligible({ mode: 'local', startsAt: '2026-09-03T12:00:00Z' }, now), true);
++  assert.equal(isPlanPlaceWeatherClientEligible({ mode: 'remote', startsAt: '2026-09-03T12:00:00Z' }, now), false);
++  assert.equal(isPlanPlaceWeatherClientEligible({ mode: 'local', startsAt: null, planStartsAt: '2026-09-03T12:00:00Z' } as any, now), false);
++  assert.equal(isPlanPlaceWeatherClientEligible({ mode: 'local', startsAt: '2026-09-02T11:59:59Z' }, now), false);
++  assert.equal(isPlanPlaceWeatherClientEligible({ mode: 'local', startsAt: new Date(now.getTime() + PLAN_WEATHER_CLIENT_HORIZON_MS).toISOString() }, now), false);
++});
++
++test('synthetic starter and create-preview Plans never request weather', () => {
++  assert.equal(isSyntheticPlanWeatherPlanId('starter-plan-idea-coffee'), true);
++  assert.equal(isSyntheticPlanWeatherPlanId('create-plan-preview'), true);
++  assert.equal(isSyntheticPlanWeatherPlanId('cm123-real-plan'), false);
++});
++
++test('temperature formatting keeps Celsius default semantics and converts Fahrenheit', () => {
++  assert.equal(temperatureForUnit(20, 'celsius'), 20);
++  assert.equal(temperatureForUnit(20, 'fahrenheit'), 68);
++  assert.equal(formatPlanTemperature(18.4, 'celsius'), '18°C');
++  assert.equal(formatPlanTemperature(18.4, 'fahrenheit'), '65°F');
++  assert.equal(nextPlanTemperatureUnit('celsius'), 'fahrenheit');
++  assert.equal(nextPlanTemperatureUnit('fahrenheit'), 'celsius');
++});
++
++test('weather response parser requires complete WeatherKit attribution before display', () => {
++  const parsed = parsePlanPlaceWeatherResponse(response());
++  assert.equal(parsed?.temperatureC, 18.4);
++  assert.equal(parsed?.attribution.serviceName, 'Apple Weather');
++
++  assert.equal(parsePlanPlaceWeatherResponse(response({ attribution: null })), null);
++  assert.equal(parsePlanPlaceWeatherResponse(response({ attributionRequired: false })), null);
++  assert.equal(parsePlanPlaceWeatherResponse(response({ provider: 'other' })), null);
++  assert.equal(parsePlanPlaceWeatherResponse(response({ temperatureC: Number.NaN })), null);
++  assert.equal(parsePlanPlaceWeatherResponse(response({
++    attribution: {
++      serviceName: 'Apple Weather',
++      legalUrl: 'http://example.com/legal',
++      logoLightUrl: 'https://weatherkit.apple.com/assets/light.png',
++      logoDarkUrl: 'https://weatherkit.apple.com/assets/dark.png',
++    },
++  })), null);
++});
+diff --git a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+index cb94007..582c5b4 100644
+--- a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
++++ b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+@@ -1,5 +1,5 @@
+-import React, { useMemo } from 'react';
+-import { Image, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
++import React, { useEffect, useMemo, useState } from 'react';
++import { Image, Linking, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+ import type { MediaAssetDto, PlaceStaticMapDto, PlanDto, PlanPlaceDto } from '@hellowhen/contracts';
+ import type { SemanticColorName } from '@hellowhen/theme';
+ import { AppText } from '../../../components/AppText';
+@@ -9,8 +9,11 @@ import { PosterCardFooter } from '../../../components/PosterCardFooter';
+ import { SemanticBadge } from '../../../components/SemanticUI';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+ import { useTranslation } from '../../../providers/MobileI18nProvider';
++import { useAuth } from '../../../providers/AuthProvider';
+ import { ContinuousSquareStackDeck, type SquareStackDeckCard } from '../../trade/deck';
+ import { resolveMediaVariantUrl } from '../../trade/mediaUrls';
++import { formatPlanTemperature, isSyntheticPlanWeatherPlanId } from '../planWeatherModel';
++import { usePlanPlaceWeather, useTemperatureUnitPreference } from '../planWeatherMobile';
+ 
+ const MOBILE_PLAN_DECK_AVAILABLE_HEIGHT = 404;
+ const MOBILE_PLAN_DECK_MAX_CARD_SIZE = 348;
+@@ -130,8 +133,30 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
+   const fallback = useMemo(() => fallbackModel(card.id), [card.id]);
+   const place = card.place;
+   const isEmpty = card.kind === 'emptyPlace' || !place;
++  const auth = useAuth();
++  const { unit: temperatureUnit, toggleUnit: toggleTemperatureUnit } = useTemperatureUnitPreference();
++  const weatherCandidate = usePlanPlaceWeather(
++    card.plan.id,
++    place,
++    auth.user?.id,
++    Boolean(auth.user && place && !isEmpty && !isSyntheticPlanWeatherPlanId(card.plan.id)),
++  );
++  const attributionLogoUrl = weatherCandidate
++    ? (theme.mode === 'dark' ? weatherCandidate.attribution.logoDarkUrl : weatherCandidate.attribution.logoLightUrl)
++    : null;
++  const [attributionLogoReady, setAttributionLogoReady] = useState(false);
++  const [attributionLogoFailed, setAttributionLogoFailed] = useState(false);
++
++  useEffect(() => {
++    setAttributionLogoReady(false);
++    setAttributionLogoFailed(false);
++  }, [attributionLogoUrl]);
++
++  const weatherVisible = Boolean(weatherCandidate && attributionLogoReady && !attributionLogoFailed);
++  const temperatureLabel = weatherCandidate && weatherVisible ? formatPlanTemperature(weatherCandidate.temperatureC, temperatureUnit) : '';
+   const cardCounter = isEmpty ? t('plans.deck.noPlacesCount') : `${String(card.placeIndex + 1).padStart(2, '0')}/${String(card.placeTotal).padStart(2, '0')}`;
+   const modeLabel = place?.mode === 'remote' ? t('plans.deck.online') : t('plans.deck.offline');
++  const modeWeatherLabel = temperatureLabel ? `${modeLabel} · ${temperatureLabel}` : modeLabel;
+   const placeTitle = place?.title ?? t('plans.deck.noPlaces');
+   const languageLabel = isEmpty ? '' : getPlaceLanguageLabel(place);
+   const locationLabel = isEmpty ? '' : [languageLabel, getPlaceLocationLabel(place)].filter(Boolean).join(' · ');
+@@ -205,7 +230,27 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
+         ) : (
+           <SemanticBadge label={primaryBadgeLabel} tone={topBadgeTone} size="sm" />
+         )}
+-        {showModeBadge && !isEmpty ? (hasPosterImage ? (
++        {showModeBadge && !isEmpty ? (temperatureLabel ? (
++          <Pressable
++            accessibilityRole="button"
++            accessibilityLabel={t('plans.deck.weather.temperatureAccessibility', { temperature: temperatureLabel })}
++            accessibilityHint={t(temperatureUnit === 'celsius' ? 'plans.deck.weather.switchToFahrenheit' : 'plans.deck.weather.switchToCelsius')}
++            hitSlop={6}
++            onPress={(event) => {
++              event.stopPropagation();
++              void toggleTemperatureUnit();
++            }}
++            style={({ pressed }) => [styles.weatherToggle, pressed && styles.weatherTogglePressed]}
++          >
++            {hasPosterImage ? (
++              <View style={[styles.posterPill, styles.posterModePill, { backgroundColor: posterPillBg, borderColor: posterPillBorder }]}>
++                <AppText style={[styles.posterPillText, { color: posterPillText }]} numberOfLines={1}>{modeWeatherLabel}</AppText>
++              </View>
++            ) : (
++              <SemanticBadge label={modeWeatherLabel} tone="muted" size="sm" />
++            )}
++          </Pressable>
++        ) : hasPosterImage ? (
+           <View style={[styles.posterPill, styles.posterModePill, { backgroundColor: posterPillBg, borderColor: posterPillBorder }]}>
+             <AppText style={[styles.posterPillText, { color: posterPillText }]} numberOfLines={1}>{modeLabel}</AppText>
+           </View>
+@@ -225,6 +270,34 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
+         {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{t('plans.deck.addFirstStop')}</AppText> : null}
+         {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{locationLabel}</AppText> : null}
+         <AppText style={[styles.placeTimeText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{timeLabel}</AppText>
++        {weatherCandidate && attributionLogoUrl ? (
++          <Pressable
++            accessibilityRole="link"
++            accessibilityLabel={t('plans.deck.weather.openAttribution')}
++            hitSlop={6}
++            onPress={(event) => {
++              event.stopPropagation();
++              void Linking.openURL(weatherCandidate.attribution.legalUrl).catch(() => undefined);
++            }}
++            style={({ pressed }) => [
++              styles.weatherAttribution,
++              { backgroundColor: theme.color.surface, borderColor: theme.color.border },
++              pressed && styles.weatherTogglePressed,
++            ]}
++          >
++            <Image
++              source={{ uri: attributionLogoUrl }}
++              resizeMode="contain"
++              style={[styles.weatherAttributionLogo, attributionLogoFailed && styles.weatherAttributionLogoHidden]}
++              onLoad={() => setAttributionLogoReady(true)}
++              onError={() => {
++                setAttributionLogoReady(false);
++                setAttributionLogoFailed(true);
++              }}
++            />
++            {!attributionLogoFailed ? <AppText style={[styles.weatherAttributionText, { color: theme.color.muted }]}>{t('plans.deck.weather.sources')}</AppText> : null}
++          </Pressable>
++        ) : null}
+       </PosterCardFooter>
+     </Pressable>
+   );
+@@ -379,6 +452,37 @@ const styles = StyleSheet.create({
+     textShadowOffset: { width: 0, height: 1 },
+     textShadowRadius: 4.5,
+   },
++  weatherToggle: {
++    borderRadius: 999,
++  },
++  weatherTogglePressed: {
++    opacity: 0.72,
++  },
++  weatherAttribution: {
++    alignSelf: 'flex-start',
++    minHeight: 24,
++    maxWidth: 148,
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 6,
++    borderRadius: 999,
++    borderWidth: StyleSheet.hairlineWidth,
++    paddingHorizontal: 8,
++    paddingVertical: 4,
++  },
++  weatherAttributionLogo: {
++    width: 76,
++    height: 14,
++  },
++  weatherAttributionLogoHidden: {
++    width: 0,
++    height: 0,
++  },
++  weatherAttributionText: {
++    fontSize: 10,
++    lineHeight: 12,
++    fontWeight: '700',
++  },
+   pressed: {
+     opacity: 0.76,
+     transform: [{ scale: 0.99 }],
+diff --git a/apps/mobile/src/features/plans/planWeatherMobile.ts b/apps/mobile/src/features/plans/planWeatherMobile.ts
+new file mode 100644
+index 0000000..34cb825
+--- /dev/null
++++ b/apps/mobile/src/features/plans/planWeatherMobile.ts
+@@ -0,0 +1,154 @@
++import { useCallback, useEffect, useMemo, useState } from 'react';
++import AsyncStorage from '@react-native-async-storage/async-storage';
++import type { PlanPlaceDto } from '@hellowhen/contracts';
++import { API_URL, refreshMobileSession } from '../../lib/api';
++import { getAccessToken } from '../../lib/tokenStore';
++import {
++  isPlanPlaceWeatherClientEligible,
++  nextPlanTemperatureUnit,
++  parsePlanPlaceWeatherResponse,
++  type PlanPlaceWeatherSnapshot,
++  type PlanTemperatureUnit,
++} from './planWeatherModel';
++
++const PLAN_WEATHER_CACHE_TTL_MS = 5 * 60 * 1000;
++const PLAN_TEMPERATURE_UNIT_STORAGE_KEY = 'hellowhen_plan_temperature_unit_v1';
++
++type CachedWeather = { value: PlanPlaceWeatherSnapshot | null; expiresAt: number };
++const weatherCache = new Map<string, CachedWeather>();
++const weatherInFlight = new Map<string, Promise<PlanPlaceWeatherSnapshot | null>>();
++
++let temperatureUnit: PlanTemperatureUnit = 'celsius';
++let temperatureUnitHydrated = false;
++let temperatureUnitHydration: Promise<void> | null = null;
++const temperatureUnitListeners = new Set<(unit: PlanTemperatureUnit) => void>();
++
++function weatherCacheKey(viewerId: string, planId: string, planPlaceId: string) {
++  return `${viewerId}:${planId}:${planPlaceId}`;
++}
++
++function cachedWeatherValue(key: string) {
++  const cached = weatherCache.get(key);
++  if (!cached) return undefined;
++  if (cached.expiresAt <= Date.now()) {
++    weatherCache.delete(key);
++    return undefined;
++  }
++  return cached.value;
++}
++
++async function requestPlanPlaceWeather(planId: string, planPlaceId: string, retryUnauthorized = true): Promise<PlanPlaceWeatherSnapshot | null> {
++  const accessToken = await getAccessToken();
++  if (!accessToken) return null;
++
++  const response = await fetch(`${API_URL}/plans/${encodeURIComponent(planId)}/places/${encodeURIComponent(planPlaceId)}/weather`, {
++    method: 'GET',
++    headers: {
++      accept: 'application/json',
++      authorization: `Bearer ${accessToken}`,
++    },
++  });
++
++  if (response.status === 401 && retryUnauthorized) {
++    const refreshed = await refreshMobileSession().catch(() => null);
++    if (!refreshed) return null;
++    return requestPlanPlaceWeather(planId, planPlaceId, false);
++  }
++  if (!response.ok) return null;
++
++  let body: unknown = null;
++  try {
++    body = await response.json();
++  } catch {
++    return null;
++  }
++  return parsePlanPlaceWeatherResponse(body);
++}
++
++async function loadPlanPlaceWeather(viewerId: string, planId: string, planPlaceId: string) {
++  const key = weatherCacheKey(viewerId, planId, planPlaceId);
++  const cached = cachedWeatherValue(key);
++  if (cached !== undefined) return cached;
++
++  const existing = weatherInFlight.get(key);
++  if (existing) return existing;
++
++  const request = requestPlanPlaceWeather(planId, planPlaceId)
++    .catch(() => null)
++    .then((value) => {
++      weatherCache.set(key, { value, expiresAt: Date.now() + PLAN_WEATHER_CACHE_TTL_MS });
++      return value;
++    })
++    .finally(() => weatherInFlight.delete(key));
++  weatherInFlight.set(key, request);
++  return request;
++}
++
++function emitTemperatureUnit() {
++  for (const listener of temperatureUnitListeners) listener(temperatureUnit);
++}
++
++function hydrateTemperatureUnit() {
++  if (temperatureUnitHydrated) return Promise.resolve();
++  if (temperatureUnitHydration) return temperatureUnitHydration;
++
++  temperatureUnitHydration = AsyncStorage.getItem(PLAN_TEMPERATURE_UNIT_STORAGE_KEY)
++    .then((stored) => {
++      if (stored === 'fahrenheit' || stored === 'celsius') temperatureUnit = stored;
++      temperatureUnitHydrated = true;
++      emitTemperatureUnit();
++    })
++    .catch(() => {
++      temperatureUnitHydrated = true;
++    })
++    .finally(() => {
++      temperatureUnitHydration = null;
++    });
++  return temperatureUnitHydration;
++}
++
++export function useTemperatureUnitPreference() {
++  const [unit, setUnit] = useState<PlanTemperatureUnit>(temperatureUnit);
++
++  useEffect(() => {
++    const listener = (nextUnit: PlanTemperatureUnit) => setUnit(nextUnit);
++    temperatureUnitListeners.add(listener);
++    void hydrateTemperatureUnit();
++    return () => { temperatureUnitListeners.delete(listener); };
++  }, []);
++
++  const toggleUnit = useCallback(async () => {
++    await hydrateTemperatureUnit();
++    temperatureUnit = nextPlanTemperatureUnit(temperatureUnit);
++    emitTemperatureUnit();
++    await AsyncStorage.setItem(PLAN_TEMPERATURE_UNIT_STORAGE_KEY, temperatureUnit).catch(() => undefined);
++  }, []);
++
++  return { unit, toggleUnit };
++}
++
++export function usePlanPlaceWeather(planId: string, place: PlanPlaceDto | undefined, viewerId: string | undefined, enabled = true) {
++  const cacheKey = useMemo(() => place && viewerId ? weatherCacheKey(viewerId, planId, place.id) : '', [viewerId, planId, place?.id]);
++  const [weather, setWeather] = useState<PlanPlaceWeatherSnapshot | null>(() => cacheKey ? cachedWeatherValue(cacheKey) ?? null : null);
++
++  useEffect(() => {
++    let active = true;
++    if (!enabled || !viewerId || !place || !isPlanPlaceWeatherClientEligible(place)) {
++      setWeather(null);
++      return () => { active = false; };
++    }
++
++    const cached = cachedWeatherValue(weatherCacheKey(viewerId, planId, place.id));
++    if (cached !== undefined) {
++      setWeather(cached);
++      return () => { active = false; };
++    }
++
++    void loadPlanPlaceWeather(viewerId, planId, place.id).then((value) => {
++      if (active) setWeather(value);
++    });
++    return () => { active = false; };
++  }, [enabled, viewerId, planId, place?.id, place?.mode, place?.startsAt]);
++
++  return weather;
++}
+diff --git a/apps/mobile/src/features/plans/planWeatherModel.ts b/apps/mobile/src/features/plans/planWeatherModel.ts
+new file mode 100644
+index 0000000..3add723
+--- /dev/null
++++ b/apps/mobile/src/features/plans/planWeatherModel.ts
+@@ -0,0 +1,100 @@
++export const PLAN_WEATHER_CLIENT_HORIZON_MS = 7 * 24 * 60 * 60 * 1000;
++
++export type PlanTemperatureUnit = 'celsius' | 'fahrenheit';
++
++export type PlanPlaceWeatherAttribution = {
++  serviceName: string;
++  legalUrl: string;
++  logoLightUrl: string;
++  logoDarkUrl: string;
++};
++
++export type PlanPlaceWeatherSnapshot = {
++  temperatureC: number;
++  forecastStart: string;
++  scheduledFor: string;
++  provider: 'weatherkit';
++  providerName: string;
++  attributionRequired: true;
++  attribution: PlanPlaceWeatherAttribution;
++  fetchedAt: string;
++};
++
++type WeatherEligiblePlanPlace = {
++  mode?: string | null;
++  startsAt?: string | null;
++};
++
++function isValidHttpsUrl(value: unknown) {
++  if (typeof value !== 'string' || !value.trim()) return false;
++  try {
++    return new URL(value).protocol === 'https:';
++  } catch {
++    return false;
++  }
++}
++
++function validIsoDate(value: unknown) {
++  return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value));
++}
++
++export function isPlanPlaceWeatherClientEligible(place: WeatherEligiblePlanPlace | null | undefined, now = new Date()) {
++  if (!place || place.mode !== 'local' || !place.startsAt) return false;
++  const scheduledMs = Date.parse(place.startsAt);
++  if (!Number.isFinite(scheduledMs)) return false;
++  const nowMs = now.getTime();
++  return scheduledMs >= nowMs && scheduledMs < nowMs + PLAN_WEATHER_CLIENT_HORIZON_MS;
++}
++
++export function isSyntheticPlanWeatherPlanId(planId: string) {
++  return planId === 'create-plan-preview' || planId.startsWith('starter-plan-idea-');
++}
++
++export function parsePlanPlaceWeatherResponse(value: unknown): PlanPlaceWeatherSnapshot | null {
++  if (!value || typeof value !== 'object') return null;
++  const weather = (value as { weather?: unknown }).weather;
++  if (weather === null || weather === undefined || typeof weather !== 'object') return null;
++
++  const candidate = weather as Record<string, unknown>;
++  if (candidate.provider !== 'weatherkit' || candidate.attributionRequired !== true) return null;
++  if (typeof candidate.temperatureC !== 'number' || !Number.isFinite(candidate.temperatureC)) return null;
++  if (!validIsoDate(candidate.forecastStart) || !validIsoDate(candidate.scheduledFor) || !validIsoDate(candidate.fetchedAt)) return null;
++  if (typeof candidate.providerName !== 'string' || !candidate.providerName.trim()) return null;
++
++  const rawAttribution = candidate.attribution;
++  if (!rawAttribution || typeof rawAttribution !== 'object') return null;
++  const attribution = rawAttribution as Record<string, unknown>;
++  if (typeof attribution.serviceName !== 'string' || !attribution.serviceName.trim()) return null;
++  if (!isValidHttpsUrl(attribution.legalUrl) || !isValidHttpsUrl(attribution.logoLightUrl) || !isValidHttpsUrl(attribution.logoDarkUrl)) return null;
++
++  return {
++    temperatureC: candidate.temperatureC,
++    forecastStart: String(candidate.forecastStart),
++    scheduledFor: String(candidate.scheduledFor),
++    provider: 'weatherkit',
++    providerName: candidate.providerName.trim(),
++    attributionRequired: true,
++    attribution: {
++      serviceName: attribution.serviceName.trim(),
++      legalUrl: String(attribution.legalUrl),
++      logoLightUrl: String(attribution.logoLightUrl),
++      logoDarkUrl: String(attribution.logoDarkUrl),
++    },
++    fetchedAt: String(candidate.fetchedAt),
++  };
++}
++
++export function temperatureForUnit(temperatureC: number, unit: PlanTemperatureUnit) {
++  if (!Number.isFinite(temperatureC)) return null;
++  return unit === 'fahrenheit' ? (temperatureC * 9) / 5 + 32 : temperatureC;
++}
++
++export function formatPlanTemperature(temperatureC: number, unit: PlanTemperatureUnit) {
++  const converted = temperatureForUnit(temperatureC, unit);
++  if (converted === null) return '';
++  return `${Math.round(converted)}°${unit === 'fahrenheit' ? 'F' : 'C'}`;
++}
++
++export function nextPlanTemperatureUnit(unit: PlanTemperatureUnit): PlanTemperatureUnit {
++  return unit === 'celsius' ? 'fahrenheit' : 'celsius';
++}
+diff --git a/docs/launch/plan-weather-mobile-display.md b/docs/launch/plan-weather-mobile-display.md
+new file mode 100644
+index 0000000..f196d99
+--- /dev/null
++++ b/docs/launch/plan-weather-mobile-display.md
+@@ -0,0 +1,30 @@
++# Plan Weather — mobile temperature display
++
++PLAN-WEATHER2 adds a compact forecast temperature to eligible offline Plan Place cards on mobile. Weather remains a secondary metadata signal, not a full weather surface.
++
++## Display rules
++
++- Only authenticated users can receive Plan Place weather from the existing Plan-scoped endpoint.
++- The mobile precheck requires the Plan Place itself to be local and to have its own `startsAt` within the next seven days.
++- The client never substitutes the parent Plan `startsAt` for weather eligibility.
++- Starter Plan ideas and the create-Plan preview never make weather requests.
++- Provider failures, missing credentials, unavailable forecasts, malformed payloads, or missing attribution silently leave the existing Place card unchanged.
++- No device GPS or location permission is requested for weather. The server uses the stored Plan Place target coordinates established in PLAN-WEATHER1B.
++
++## Temperature units
++
++Celsius is the default display unit. Tapping the compact temperature badge switches between Celsius and Fahrenheit. The selection is stored locally on the device and shared across Plan Place cards; it does not alter server data or the canonical Celsius forecast value.
++
++## WeatherKit attribution
++
++Apple Weather data is displayed only after the official WeatherKit attribution mark has loaded successfully. The server returns:
++
++- the localized Apple Weather service name,
++- the legal attribution URL from forecast metadata,
++- official light and dark WeatherKit logo asset URLs from the WeatherKit attribution endpoint.
++
++The mobile card renders the official mark with a Sources link that opens Apple's legal attribution page. If the required attribution payload or mark is unavailable, the temperature stays hidden.
++
++## Deferred
++
++This patch does not add current conditions, rain probability, condition icons, alerts, a full weather widget, Explore Place weather, or weather to remote Plan Places.
+diff --git a/packages/i18n/src/locales/en/plans.ts b/packages/i18n/src/locales/en/plans.ts
+index 9a4f8b1..8e97d06 100644
+--- a/packages/i18n/src/locales/en/plans.ts
++++ b/packages/i18n/src/locales/en/plans.ts
+@@ -86,6 +86,13 @@ export const plans = {
+     onlineLinkOne: '{{count}} online link',
+     onlineLinkMany: '{{count}} online links',
+     requirementsNeeded: '{{requirements}} needed',
++    weather: {
++      sources: 'Sources',
++      openAttribution: 'Open Apple Weather data sources',
++      temperatureAccessibility: '{{temperature}} forecast for this offline place',
++      switchToFahrenheit: 'Switch temperature to Fahrenheit',
++      switchToCelsius: 'Switch temperature to Celsius',
++    },
+     reviewBeforePublishing: 'Review before publishing',
+   },
+   filters: {
+diff --git a/packages/i18n/src/locales/es/plans.ts b/packages/i18n/src/locales/es/plans.ts
+index 36eb24c..560f8a3 100644
+--- a/packages/i18n/src/locales/es/plans.ts
++++ b/packages/i18n/src/locales/es/plans.ts
+@@ -85,6 +85,13 @@ export const plans = {
+     onlineLinkOne: '{{count}} enlace en línea',
+     onlineLinkMany: '{{count}} enlaces en línea',
+     requirementsNeeded: 'Se necesita: {{requirements}}',
++    weather: {
++      sources: 'Fuentes',
++      openAttribution: 'Abrir las fuentes de datos de Apple Weather',
++      temperatureAccessibility: 'Previsión de {{temperature}} para este lugar presencial',
++      switchToFahrenheit: 'Mostrar la temperatura en Fahrenheit',
++      switchToCelsius: 'Mostrar la temperatura en Celsius',
++    },
+     reviewBeforePublishing: 'Revisar antes de publicar',
+   },
+   filters: {
+diff --git a/packages/i18n/src/locales/fr/plans.ts b/packages/i18n/src/locales/fr/plans.ts
+index d09eeb3..dde2f56 100644
+--- a/packages/i18n/src/locales/fr/plans.ts
++++ b/packages/i18n/src/locales/fr/plans.ts
+@@ -86,6 +86,13 @@ export const plans = {
+     onlineLinkOne: '{{count}} lien en ligne',
+     onlineLinkMany: '{{count}} liens en ligne',
+     requirementsNeeded: '{{requirements}} requis',
++    weather: {
++      sources: 'Sources',
++      openAttribution: 'Ouvrir les sources de données Apple Weather',
++      temperatureAccessibility: 'Prévision de {{temperature}} pour ce lieu sur place',
++      switchToFahrenheit: 'Afficher la température en Fahrenheit',
++      switchToCelsius: 'Afficher la température en Celsius',
++    },
+     reviewBeforePublishing: 'À vérifier avant publication',
+   },
+   filters: {
