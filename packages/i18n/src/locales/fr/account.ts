@@ -13,6 +13,14 @@ export const account = {
     myPlaces: 'Mes lieux',
     settingsSummary: 'Langue, apparence, notifications et sécurité.',
   },
+  context: {
+    switchProfile: 'Changer de profil',
+    switchProfileBody: 'Choisissez le profil Hellowhen que vous utilisez.',
+    personalSection: 'Personnel',
+    personal: 'Personnel',
+    current: 'Actuel',
+    closeSwitcher: 'Fermer le sélecteur de profil',
+  },
   sections: {
     activity: 'Activité',
     plans: 'Plans',

@@ -86,6 +86,13 @@ export const plans = {
     onlineLinkOne: '{{count}} lien en ligne',
     onlineLinkMany: '{{count}} liens en ligne',
     requirementsNeeded: '{{requirements}} requis',
+    weather: {
+      sources: 'Sources',
+      openAttribution: 'Ouvrir les sources de données Apple Weather',
+      temperatureAccessibility: 'Prévision de {{temperature}} pour ce lieu sur place',
+      switchToFahrenheit: 'Afficher la température en Fahrenheit',
+      switchToCelsius: 'Afficher la température en Celsius',
+    },
     reviewBeforePublishing: 'À vérifier avant publication',
   },
   filters: {

@@ -172,6 +172,13 @@ function runNavigationChecks() {
   assertContains('apps/mobile/src/features/trade/MyNeedsScreen.tsx', "navigation.replace('Account');", 'My Needs fallback navigation must return to Account without depending on MeTab.');
   assertContains('apps/mobile/src/features/trade/MyOffersScreen.tsx', "navigation.replace('Account');", 'My Offers fallback navigation must return to Account without depending on MeTab.');
   assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "auth.logout().finally(() => navigation.navigate('Login'))", 'Logout must not depend on the removable MeTab route.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'navigation.canGoBack()', 'Account must prefer stack back navigation so it returns to the Plans, Explore, or Trade surface that opened it.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'navigation.goBack();', 'Account must expose a real Back action instead of routing through a fixed primary tab.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "t('account.context.switchProfile')", 'Account must expose the profile/context switcher foundation from the Profile section.');
+  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', 'accessibilityState={{ selected: true }}', 'The Personal context must be announced as the currently selected context.');
+  assertContains('packages/i18n/src/locales/en/account.ts', "switchProfile: 'Switch profile'", 'Account context-switcher copy must remain localized in English.');
+  assertContains('packages/i18n/src/locales/fr/account.ts', "switchProfile: 'Changer de profil'", 'Account context-switcher copy must remain localized in French.');
+  assertContains('packages/i18n/src/locales/es/account.ts', "switchProfile: 'Cambiar perfil'", 'Account context-switcher copy must remain localized in Spanish.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', "accountActivity?: 'mine' | 'involved'", 'Account must be able to open the existing Trade activity workspace directly.');
   assertContains('apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx', 'setActivityTab(params.accountActivity);', 'Trade feed must honor Account activity deep links.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'const ProtectedProposalDetailScreen = withAuth(ProposalDetailScreen);', 'Proposal thread detail must stay auth-protected.');

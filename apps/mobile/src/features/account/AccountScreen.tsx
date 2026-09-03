@@ -1,9 +1,11 @@
 import React, { useCallback, useState } from 'react';
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AuthUser } from '@hellowhen/contracts';
 import type { SemanticColorName } from '@hellowhen/theme';
+import { AppHeaderActionButton } from '../../components/AppHeaderActionButton';
 import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { MobileIcon } from '../../components/MobileIcon';
@@ -86,9 +88,11 @@ export function AccountScreen() {
   const auth = useAuth();
   const { t } = useTranslation();
   const navigation = useNavigation<AccountNavigation>();
+  const insets = useSafeAreaInsets();
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
   const [counts, setCounts] = useState<AccountHubCounts>({});
   const [refreshing, setRefreshing] = useState(false);
+  const [profileSwitcherOpen, setProfileSwitcherOpen] = useState(false);
 
   const loadNotificationPreview = useCallback(async () => {
     try {
@@ -129,19 +133,31 @@ export function AccountScreen() {
   const futureActions = accountFutureActions;
   const showFlagDiagnostics = betaFeatures.mobileDiagnosticsVisible;
 
+  function goBack() {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate('TradeTabs');
+  }
+
   function navigate(route: AccountRoute) {
     navigateToAccountRoute(navigation, route);
   }
 
   const header = (
-    <View style={styles.headerCopy}>
-      <AppText style={styles.title}>{t('account.title')}</AppText>
-      <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.headerBody')}</AppText>
+    <View style={styles.headerRow}>
+      <AppHeaderActionButton icon="back" accessibilityLabel={t('navigation.goBack')} onPress={goBack} />
+      <View style={styles.headerCopy}>
+        <AppText style={styles.title}>{t('account.title')}</AppText>
+        <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.headerBody')}</AppText>
+      </View>
     </View>
   );
 
   return (
-    <AppSmartHeaderScreen header={header} resetKey={auth.user?.id ?? 'account'}>
+    <>
+      <AppSmartHeaderScreen header={header} resetKey={auth.user?.id ?? 'account'}>
       {(scrollProps) => (
         <ScrollView
           {...scrollProps.scrollViewProps}
@@ -162,10 +178,15 @@ export function AccountScreen() {
               <View style={styles.profileCopy}>
                 <AppText style={styles.profileName} numberOfLines={1}>{displayName}</AppText>
                 <AppText style={[styles.profileMeta, { color: theme.color.muted }]} numberOfLines={1}>{handle}</AppText>
-                <AppText style={[styles.profileHint, { color: theme.color.muted }]}>{t('account.hub.publicProfile')}</AppText>
+                <AppText style={[styles.profileHint, { color: theme.color.muted }]}>{t('account.context.personal')} · {t('account.hub.publicProfile')}</AppText>
               </View>
               <MobileIcon name="chevron-right" size={21} color={theme.color.muted} />
             </Pressable>
+            <AccountHubRow
+              title={t('account.context.switchProfile')}
+              description={t('account.context.personal')}
+              onPress={() => setProfileSwitcherOpen(true)}
+            />
           </AccountHubSection>
 
           {showFlagDiagnostics ? <MobileFlagDiagnosticsCard /> : null}
@@ -216,7 +237,68 @@ export function AccountScreen() {
           </Pressable>
         </ScrollView>
       )}
-    </AppSmartHeaderScreen>
+      </AppSmartHeaderScreen>
+
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setProfileSwitcherOpen(false)}
+        transparent
+        visible={profileSwitcherOpen}
+      >
+        <View style={styles.switcherOverlay}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('account.context.closeSwitcher')}
+            onPress={() => setProfileSwitcherOpen(false)}
+            style={styles.switcherBackdrop}
+          />
+          <View
+            accessibilityViewIsModal
+            style={[
+              styles.switcherSheet,
+              {
+                backgroundColor: theme.color.background,
+                borderColor: theme.color.border,
+                paddingBottom: Math.max(22, insets.bottom + 14),
+              },
+            ]}
+          >
+            <View style={[styles.switcherHandle, { backgroundColor: theme.color.border }]} />
+            <View style={styles.switcherHeader}>
+              <View style={styles.switcherHeaderCopy}>
+                <AppText accessibilityRole="header" style={styles.switcherTitle}>{t('account.context.switchProfile')}</AppText>
+                <AppText style={[styles.switcherBody, { color: theme.color.muted }]}>{t('account.context.switchProfileBody')}</AppText>
+              </View>
+              <AppHeaderActionButton icon="close" accessibilityLabel={t('account.context.closeSwitcher')} onPress={() => setProfileSwitcherOpen(false)} />
+            </View>
+
+            <View style={styles.switcherSection}>
+              <AppText style={[styles.switcherSectionTitle, { color: theme.color.muted }]}>{t('account.context.personalSection')}</AppText>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${displayName} · ${t('account.context.personal')} · ${t('account.context.current')}`}
+                accessibilityState={{ selected: true }}
+                onPress={() => setProfileSwitcherOpen(false)}
+                style={({ pressed }) => [
+                  styles.switcherProfileRow,
+                  { backgroundColor: theme.color.surface, borderColor: theme.color.border },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View style={[styles.avatar, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+                  {avatarUri ? <Image source={{ uri: avatarUri }} style={styles.avatarImage} /> : <AppText style={styles.avatarText}>{displayName.slice(0, 1).toUpperCase()}</AppText>}
+                </View>
+                <View style={styles.profileCopy}>
+                  <AppText style={styles.switcherProfileName} numberOfLines={1}>{displayName}</AppText>
+                  <AppText style={[styles.switcherProfileMeta, { color: theme.color.muted }]}>{t('account.context.personal')}</AppText>
+                </View>
+                <SemanticBadge label={t('account.context.current')} tone="muted" size="sm" />
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -294,7 +376,8 @@ function MobileFlagDiagnosticsCard() {
 
 const styles = StyleSheet.create({
   content: { paddingBottom: 34, gap: 20 },
-  headerCopy: { gap: 8 },
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  headerCopy: { flex: 1, minWidth: 0, gap: 8 },
   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
   subtitle: { lineHeight: 20, fontWeight: '600' },
   hubSection: { gap: 8 },
@@ -315,5 +398,18 @@ const styles = StyleSheet.create({
   hubRowEnd: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   logoutRow: { minHeight: 56, justifyContent: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 4 },
   logoutText: { fontSize: 16, fontWeight: '800' },
+  switcherOverlay: { flex: 1, justifyContent: 'flex-end' },
+  switcherBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0, 0, 0, 0.38)' },
+  switcherSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, paddingHorizontal: 20, paddingTop: 10, gap: 18 },
+  switcherHandle: { width: 42, height: 4, borderRadius: 2, alignSelf: 'center', opacity: 0.8 },
+  switcherHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  switcherHeaderCopy: { flex: 1, minWidth: 0, gap: 4, paddingTop: 4 },
+  switcherTitle: { fontSize: 22, lineHeight: 28, fontWeight: '900', letterSpacing: -0.35 },
+  switcherBody: { fontSize: 13, lineHeight: 18, fontWeight: '600' },
+  switcherSection: { gap: 8 },
+  switcherSectionTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9, textTransform: 'uppercase', paddingHorizontal: 4 },
+  switcherProfileRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 18, padding: 10 },
+  switcherProfileName: { fontSize: 16, fontWeight: '900' },
+  switcherProfileMeta: { fontSize: 12, fontWeight: '700' },
   pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
 });

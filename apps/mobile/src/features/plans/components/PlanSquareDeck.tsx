@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Image, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Image, Linking, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import type { MediaAssetDto, PlaceStaticMapDto, PlanDto, PlanPlaceDto } from '@hellowhen/contracts';
 import type { SemanticColorName } from '@hellowhen/theme';
 import { AppText } from '../../../components/AppText';
@@ -9,8 +9,11 @@ import { PosterCardFooter } from '../../../components/PosterCardFooter';
 import { SemanticBadge } from '../../../components/SemanticUI';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { useTranslation } from '../../../providers/MobileI18nProvider';
+import { useAuth } from '../../../providers/AuthProvider';
 import { ContinuousSquareStackDeck, type SquareStackDeckCard } from '../../trade/deck';
 import { resolveMediaVariantUrl } from '../../trade/mediaUrls';
+import { formatPlanTemperature, isSyntheticPlanWeatherPlanId } from '../planWeatherModel';
+import { usePlanPlaceWeather, useTemperatureUnitPreference } from '../planWeatherMobile';
 
 const MOBILE_PLAN_DECK_AVAILABLE_HEIGHT = 404;
 const MOBILE_PLAN_DECK_MAX_CARD_SIZE = 348;
@@ -130,8 +133,30 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
   const fallback = useMemo(() => fallbackModel(card.id), [card.id]);
   const place = card.place;
   const isEmpty = card.kind === 'emptyPlace' || !place;
+  const auth = useAuth();
+  const { unit: temperatureUnit, toggleUnit: toggleTemperatureUnit } = useTemperatureUnitPreference();
+  const weatherCandidate = usePlanPlaceWeather(
+    card.plan.id,
+    place,
+    auth.user?.id,
+    Boolean(auth.user && place && !isEmpty && !isSyntheticPlanWeatherPlanId(card.plan.id)),
+  );
+  const attributionLogoUrl = weatherCandidate
+    ? (theme.mode === 'dark' ? weatherCandidate.attribution.logoDarkUrl : weatherCandidate.attribution.logoLightUrl)
+    : null;
+  const [attributionLogoReady, setAttributionLogoReady] = useState(false);
+  const [attributionLogoFailed, setAttributionLogoFailed] = useState(false);
+
+  useEffect(() => {
+    setAttributionLogoReady(false);
+    setAttributionLogoFailed(false);
+  }, [attributionLogoUrl]);
+
+  const weatherVisible = Boolean(weatherCandidate && attributionLogoReady && !attributionLogoFailed);
+  const temperatureLabel = weatherCandidate && weatherVisible ? formatPlanTemperature(weatherCandidate.temperatureC, temperatureUnit) : '';
   const cardCounter = isEmpty ? t('plans.deck.noPlacesCount') : `${String(card.placeIndex + 1).padStart(2, '0')}/${String(card.placeTotal).padStart(2, '0')}`;
   const modeLabel = place?.mode === 'remote' ? t('plans.deck.online') : t('plans.deck.offline');
+  const modeWeatherLabel = temperatureLabel ? `${modeLabel} · ${temperatureLabel}` : modeLabel;
   const placeTitle = place?.title ?? t('plans.deck.noPlaces');
   const languageLabel = isEmpty ? '' : getPlaceLanguageLabel(place);
   const locationLabel = isEmpty ? '' : [languageLabel, getPlaceLocationLabel(place)].filter(Boolean).join(' · ');
@@ -205,7 +230,27 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
         ) : (
           <SemanticBadge label={primaryBadgeLabel} tone={topBadgeTone} size="sm" />
         )}
-        {showModeBadge && !isEmpty ? (hasPosterImage ? (
+        {showModeBadge && !isEmpty ? (temperatureLabel ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('plans.deck.weather.temperatureAccessibility', { temperature: temperatureLabel })}
+            accessibilityHint={t(temperatureUnit === 'celsius' ? 'plans.deck.weather.switchToFahrenheit' : 'plans.deck.weather.switchToCelsius')}
+            hitSlop={6}
+            onPress={(event) => {
+              event.stopPropagation();
+              void toggleTemperatureUnit();
+            }}
+            style={({ pressed }) => [styles.weatherToggle, pressed && styles.weatherTogglePressed]}
+          >
+            {hasPosterImage ? (
+              <View style={[styles.posterPill, styles.posterModePill, { backgroundColor: posterPillBg, borderColor: posterPillBorder }]}>
+                <AppText style={[styles.posterPillText, { color: posterPillText }]} numberOfLines={1}>{modeWeatherLabel}</AppText>
+              </View>
+            ) : (
+              <SemanticBadge label={modeWeatherLabel} tone="muted" size="sm" />
+            )}
+          </Pressable>
+        ) : hasPosterImage ? (
           <View style={[styles.posterPill, styles.posterModePill, { backgroundColor: posterPillBg, borderColor: posterPillBorder }]}>
             <AppText style={[styles.posterPillText, { color: posterPillText }]} numberOfLines={1}>{modeLabel}</AppText>
           </View>
@@ -225,6 +270,34 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
         {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{t('plans.deck.addFirstStop')}</AppText> : null}
         {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{locationLabel}</AppText> : null}
         <AppText style={[styles.placeTimeText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{timeLabel}</AppText>
+        {weatherCandidate && attributionLogoUrl ? (
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel={t('plans.deck.weather.openAttribution')}
+            hitSlop={6}
+            onPress={(event) => {
+              event.stopPropagation();
+              void Linking.openURL(weatherCandidate.attribution.legalUrl).catch(() => undefined);
+            }}
+            style={({ pressed }) => [
+              styles.weatherAttribution,
+              { backgroundColor: theme.color.surface, borderColor: theme.color.border },
+              pressed && styles.weatherTogglePressed,
+            ]}
+          >
+            <Image
+              source={{ uri: attributionLogoUrl }}
+              resizeMode="contain"
+              style={[styles.weatherAttributionLogo, attributionLogoFailed && styles.weatherAttributionLogoHidden]}
+              onLoad={() => setAttributionLogoReady(true)}
+              onError={() => {
+                setAttributionLogoReady(false);
+                setAttributionLogoFailed(true);
+              }}
+            />
+            {!attributionLogoFailed ? <AppText style={[styles.weatherAttributionText, { color: theme.color.muted }]}>{t('plans.deck.weather.sources')}</AppText> : null}
+          </Pressable>
+        ) : null}
       </PosterCardFooter>
     </Pressable>
   );
@@ -378,6 +451,37 @@ const styles = StyleSheet.create({
     ...DECK_CARD_TYPOGRAPHY.status,
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4.5,
+  },
+  weatherToggle: {
+    borderRadius: 999,
+  },
+  weatherTogglePressed: {
+    opacity: 0.72,
+  },
+  weatherAttribution: {
+    alignSelf: 'flex-start',
+    minHeight: 24,
+    maxWidth: 148,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  weatherAttributionLogo: {
+    width: 76,
+    height: 14,
+  },
+  weatherAttributionLogoHidden: {
+    width: 0,
+    height: 0,
+  },
+  weatherAttributionText: {
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '700',
   },
   pressed: {
     opacity: 0.76,

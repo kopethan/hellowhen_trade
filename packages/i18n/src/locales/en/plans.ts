@@ -86,6 +86,13 @@ export const plans = {
     onlineLinkOne: '{{count}} online link',
     onlineLinkMany: '{{count}} online links',
     requirementsNeeded: '{{requirements}} needed',
+    weather: {
+      sources: 'Sources',
+      openAttribution: 'Open Apple Weather data sources',
+      temperatureAccessibility: '{{temperature}} forecast for this offline place',
+      switchToFahrenheit: 'Switch temperature to Fahrenheit',
+      switchToCelsius: 'Switch temperature to Celsius',
+    },
     reviewBeforePublishing: 'Review before publishing',
   },
   filters: {

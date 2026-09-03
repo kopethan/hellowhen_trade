@@ -16,6 +16,15 @@ export const account = {
     myPlaces: 'Mis lugares',
     settingsSummary: 'Idioma, apariencia, notificaciones y seguridad.',
   },
+  context: {
+    ...enAccount.context,
+    switchProfile: 'Cambiar perfil',
+    switchProfileBody: 'Elige el perfil de Hellowhen que estás usando.',
+    personalSection: 'Personal',
+    personal: 'Personal',
+    current: 'Actual',
+    closeSwitcher: 'Cerrar selector de perfil',
+  },
   sections: {
     ...enAccount.sections,
     activity: 'Actividad',

@@ -34,15 +34,16 @@ function buildPrivatePlaceCopyRequest(place: PlaceDto): CreatePlaceRequest {
   const mode = place.mode === 'remote' ? 'remote' : 'local';
   const original = resolveInventoryOriginalCopy(place);
   const defaultLanguage = normalizeDiscoveryLanguage(original.defaultLanguage);
-  const translations = (original.translations ?? []).flatMap((translation) => {
+  const translations: NonNullable<CreatePlaceRequest['translations']> = [];
+  for (const translation of original.translations ?? []) {
     const languageCode = translation.languageCode === 'en' || translation.languageCode === 'fr' || translation.languageCode === 'es'
       ? translation.languageCode
       : null;
     const title = translation.title?.trim();
     const description = translation.description?.trim();
-    if (!languageCode || languageCode === defaultLanguage || !title || !description) return [];
-    return [{ languageCode, title, description }];
-  });
+    if (!languageCode || languageCode === defaultLanguage || !title || !description) continue;
+    translations.push({ languageCode, title, description });
+  }
 
   return {
     source: 'user',

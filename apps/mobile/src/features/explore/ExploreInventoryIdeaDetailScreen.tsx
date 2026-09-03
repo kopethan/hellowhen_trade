@@ -37,8 +37,8 @@ type ExploreInventoryAction = 'add' | 'trade' | null;
 type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
 
 function unwrapTemplate(response: TemplateResponse): InventoryTemplateDto | null {
-  if ('template' in response) return response.template ?? null;
-  return response;
+  if ('template' in response) return (response as { template?: InventoryTemplateDto }).template ?? null;
+  return response as InventoryTemplateDto;
 }
 
 function sourceLabel(template: InventoryTemplateDto, t: TFunction) {

@@ -13,6 +13,14 @@ export const account = {
     myPlaces: 'My places',
     settingsSummary: 'Language, appearance, notifications, and security.',
   },
+  context: {
+    switchProfile: 'Switch profile',
+    switchProfileBody: 'Choose the Hellowhen profile you are using.',
+    personalSection: 'Personal',
+    personal: 'Personal',
+    current: 'Current',
+    closeSwitcher: 'Close profile switcher',
+  },
   sections: {
     activity: 'Activity',
     plans: 'Plans',
