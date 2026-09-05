@@ -362,6 +362,7 @@ export const createPlanRequestSchema = z
     mode: tradeExchangeModeSchema.optional(),
     locationLabel: z.string().trim().min(1).max(160).optional(),
     startsAt: z.string().datetime(),
+    joinClosesAt: z.string().datetime().optional(),
     endsAt: z.string().datetime().optional(),
     maxParticipants: z.number().int().min(1).max(100).optional(),
     joinApprovalMode: planJoinApprovalModeSchema
@@ -381,6 +382,18 @@ export const createPlanRequestSchema = z
     {
       message: "Plan end time must be after the start time.",
       path: ["endsAt"],
+    },
+  )
+  .refine(
+    (value) => {
+      if (!value.joinClosesAt) return true;
+      return (
+        new Date(value.joinClosesAt).getTime() <= new Date(value.startsAt).getTime()
+      );
+    },
+    {
+      message: "Plan join deadline must be at or before the start time.",
+      path: ["joinClosesAt"],
     },
   );
 
@@ -845,6 +858,7 @@ export const planSchema = z
     mode: tradeExchangeModeSchema.nullable().optional(),
     locationLabel: z.string().nullable().optional(),
     startsAt: z.string(),
+    joinClosesAt: z.string().nullable().optional(),
     endsAt: z.string().nullable().optional(),
     maxParticipants: z.number().int().nullable().optional(),
     joinApprovalMode: planJoinApprovalModeSchema,

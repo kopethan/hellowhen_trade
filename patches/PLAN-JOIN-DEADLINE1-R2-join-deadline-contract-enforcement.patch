@@ -1,0 +1,193 @@
+diff --git a/apps/api/prisma/migrations/20260905080000_plan_join_deadline/migration.sql b/apps/api/prisma/migrations/20260905080000_plan_join_deadline/migration.sql
+new file mode 100644
+index 0000000..4614f70
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260905080000_plan_join_deadline/migration.sql
+@@ -0,0 +1 @@
++ALTER TABLE "Plan" ADD COLUMN "joinClosesAt" TIMESTAMP(3);
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -8,6 +8,7 @@ model Plan {
+   mode             TradeExchangeMode?
+   locationLabel    String?
+   startsAt         DateTime
++  joinClosesAt     DateTime?
+   endsAt           DateTime?
+   maxParticipants  Int?
+   joinApprovalMode PlanJoinApprovalMode @default(owner_approval)
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -16,5 +16,6 @@ import {
+   buildEstimatedPlanPlaceEndTimes,
+   buildGeneratedPlanDisplay,
++  isPlanJoinClosed,
+   findPlanStopStartGapViolation,
+   buildMissingOfflineProviderAddressMessage,
+   buildMissingOnlineDestinationMessage,
+@@ -215,6 +216,20 @@ function createPlanRequestError(code: string, publicMessage: string, statusCode
+   return Object.assign(new Error(publicMessage), { code, publicMessage, statusCode });
+ }
+ 
++function publicPlanJoinAvailabilityWhere(viewerId?: string | null, now = new Date()) {
++  const access: any[] = [
++    { joinClosesAt: { gt: now } },
++    { joinClosesAt: null, startsAt: { gt: now } },
++  ];
++  if (viewerId) {
++    access.unshift(
++      { ownerId: viewerId },
++      { participants: { some: { userId: viewerId, status: 'accepted' as any } } },
++    );
++  }
++  return { OR: access };
++}
++
+ function isPlanInteractionLocked(status: string) {
+   return lockedPlanInteractionStatuses.includes(status as any);
+ }
+@@ -548,6 +563,7 @@ function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequ
+     mode: input.mode ?? null,
+     locationLabel: input.locationLabel ?? null,
+     startsAt: new Date(input.startsAt),
++    joinClosesAt: new Date(input.startsAt),
+     endsAt: estimatedEndsAt ? new Date(estimatedEndsAt) : null,
+     maxParticipants: input.maxParticipants ?? null,
+     joinApprovalMode: input.joinApprovalMode ?? 'automatic',
+@@ -862,6 +878,9 @@ async function joinPlanFreely(planId: string, userId: string, message?: string |
+   if (existing?.status === 'removed') {
+     throw createPlanRequestError('participant_removed', 'The owner removed you from this plan.', 403);
+   }
++  if (isPlanJoinClosed(plan)) {
++    throw createPlanRequestError('join_closed', 'Joining is closed for this Plan.', 409);
++  }
+ 
+   const acceptedCount = (plan.participants ?? []).filter((participant: any) => participant.status === 'accepted').length;
+   if (plan.maxParticipants && acceptedCount >= plan.maxParticipants) {
+@@ -930,6 +949,7 @@ plansRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
+     where: {
+       deletedAt: null,
+       status: input.status ?? { in: [...publicPlanStatuses] },
++      AND: [publicPlanJoinAvailabilityWhere(req.user?.id)],
+       ...(input.q ? {
+         OR: [
+           { title: { contains: input.q, mode: 'insensitive' as const } },
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -11,5 +11,5 @@ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-n
+ import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type ListPlacesQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
+ import { formatLocalizedDateTime, type SupportedLanguage, type TranslationValues } from '@hellowhen/i18n';
+-import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, resolveInventoryOriginalCopy, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
++import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, isPlanJoinClosed, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, resolveInventoryOriginalCopy, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import type { AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
+@@ -1325,7 +1325,8 @@ function getPlanJoinModeLabel(plan: PlanDto, t: PlanTranslationFunction) {
+   return plan.joinApprovalMode === 'automatic' ? t('plans.detail.values.freeJoin') : t('plans.detail.values.requestToJoin');
+ }
+ 
+-function getPlanJoinActionCopy(plan: PlanDto, t: PlanTranslationFunction) {
++function getPlanJoinActionCopy(plan: PlanDto, t: PlanTranslationFunction, joinClosed: boolean) {
++  if (joinClosed) return t('plans.detail.actions.joinClosed');
+   if (plan.status === 'full') return t('plans.detail.actions.full');
+   if (plan.status === 'started') return t('plans.detail.actions.started');
+   if (plan.status !== 'open') return t('plans.detail.actions.statusUnavailable', { status: planStatusLabel(plan.status, t) });
+@@ -3218,7 +3219,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   const isCancelled = plan?.status === 'cancelled';
+   const participantStatus = plan?.myParticipantStatus ?? null;
+   const isJoined = participantStatus === 'accepted';
+-  const canJoin = Boolean(plan && auth.user && !isOwner && canJoinPlanFromParticipantStatus(participantStatus) && plan.status === 'open');
++  const joinClosed = Boolean(plan && isPlanJoinClosed(plan));
++  const canJoin = Boolean(plan && auth.user && !isOwner && !joinClosed && canJoinPlanFromParticipantStatus(participantStatus) && plan.status === 'open');
+   const canLeave = Boolean(plan && !isCancelled && !isOwner && isJoined);
+   const canRemovePlan = Boolean(plan && isOwner && plan.status !== 'cancelled' && plan.status !== 'hidden');
+   const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus, t) : '';
+@@ -3388,7 +3390,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+             <View style={styles.detailSectionHeader}>
+               <View style={styles.detailSectionCopy}>
+                 <AppText style={styles.sectionTitle}>{t('plans.detail.sections.actions')}</AppText>
+-                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.actions.cancelledBody') : isOwner ? t('plans.detail.actions.ownerBody') : getPlanJoinActionCopy(plan, t)}</AppText>
++                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.actions.cancelledBody') : isOwner ? t('plans.detail.actions.ownerBody') : getPlanJoinActionCopy(plan, t, joinClosed)}</AppText>
+               </View>
+               {!isOwner ? <SemanticBadge label={getPlanJoinModeLabel(plan, t)} tone="proposal" size="sm" /> : <SemanticBadge label={t('plans.detail.values.owner')} tone="plan" size="sm" />}
+             </View>
+@@ -3440,6 +3442,6 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+                   <AppText style={[styles.metaText, { color: theme.color.muted }]}>{participantStateCopy}</AppText>
+                 </View>
+               ) : null}
+-              {!auth.user && plan.status === 'open' ? <InfoNotice tone="info" title={t('plans.detail.actions.loginTitle')} body={t('plans.detail.actions.loginBody')} /> : null}
++              {!auth.user && plan.status === 'open' && !joinClosed ? <InfoNotice tone="info" title={t('plans.detail.actions.loginTitle')} body={t('plans.detail.actions.loginBody')} /> : null}
+               {actionMessage ? <InfoNotice tone="success" title={t('common.states.done')} body={actionMessage} /> : null}
+               {actionError ? <InfoNotice tone="warning" title={t('plans.detail.errors.actionTitle')} body={actionError} /> : null}
+diff --git a/packages/contracts/src/plans.ts b/packages/contracts/src/plans.ts
+--- a/packages/contracts/src/plans.ts
++++ b/packages/contracts/src/plans.ts
+@@ -9,6 +9,7 @@ export const planSchema = z
+     mode: tradeExchangeModeSchema.nullable().optional(),
+     locationLabel: z.string().nullable().optional(),
+     startsAt: z.string(),
++    joinClosesAt: z.string().nullable().optional(),
+     endsAt: z.string().nullable().optional(),
+     maxParticipants: z.number().int().nullable().optional(),
+     joinApprovalMode: planJoinApprovalModeSchema,
+diff --git a/packages/i18n/src/locales/en/plans.ts b/packages/i18n/src/locales/en/plans.ts
+--- a/packages/i18n/src/locales/en/plans.ts
++++ b/packages/i18n/src/locales/en/plans.ts
+@@ -292,6 +292,7 @@ export const plans = {
+       loginBody: 'Log in first, then join this Plan when it is open.',
+       full: 'This Plan is full right now.',
+       started: 'This Plan has already started.',
++      joinClosed: 'Joining is closed for this Plan.',
+       statusUnavailable: 'This Plan is {{status}}.',
+       freeJoinOpen: 'Free join is open. You can leave later.',
+       requestJoinOpen: 'Send your interest to join this Plan.',
+diff --git a/packages/i18n/src/locales/es/plans.ts b/packages/i18n/src/locales/es/plans.ts
+--- a/packages/i18n/src/locales/es/plans.ts
++++ b/packages/i18n/src/locales/es/plans.ts
+@@ -292,6 +292,7 @@ export const plans = {
+       loginBody: 'Inicia sesión y después únete a este Plan cuando esté abierto.',
+       full: 'Este Plan está completo ahora mismo.',
+       started: 'Este Plan ya ha empezado.',
++      joinClosed: 'Ya no es posible unirse a este Plan.',
+       statusUnavailable: 'Este Plan está {{status}}.',
+       freeJoinOpen: 'La unión libre está abierta. Podrás salir más tarde.',
+       requestJoinOpen: 'Envía tu interés para unirte a este Plan.',
+diff --git a/packages/i18n/src/locales/fr/plans.ts b/packages/i18n/src/locales/fr/plans.ts
+--- a/packages/i18n/src/locales/fr/plans.ts
++++ b/packages/i18n/src/locales/fr/plans.ts
+@@ -292,6 +292,7 @@ export const plans = {
+       loginBody: 'Connectez-vous d’abord, puis rejoignez ce Plan lorsqu’il est ouvert.',
+       full: 'Ce Plan est complet pour le moment.',
+       started: 'Ce Plan a déjà commencé.',
++      joinClosed: 'Il n’est plus possible de rejoindre ce Plan.',
+       statusUnavailable: 'Ce Plan est {{status}}.',
+       freeJoinOpen: 'La participation libre est ouverte. Vous pourrez quitter le Plan plus tard.',
+       requestJoinOpen: 'Envoyez votre demande pour rejoindre ce Plan.',
+diff --git a/packages/shared/src/plans.ts b/packages/shared/src/plans.ts
+--- a/packages/shared/src/plans.ts
++++ b/packages/shared/src/plans.ts
+@@ -1,3 +1,23 @@
++export type PlanJoinDeadlineInput = {
++  startsAt: string | Date;
++  joinClosesAt?: string | Date | null;
++};
++
++function planJoinDeadlineDate(value: string | Date) {
++  return value instanceof Date ? value : new Date(value);
++}
++
++export function effectivePlanJoinClosesAt(plan: PlanJoinDeadlineInput) {
++  return planJoinDeadlineDate(plan.joinClosesAt ?? plan.startsAt);
++}
++
++export function isPlanJoinClosed(plan: PlanJoinDeadlineInput, now: string | Date = new Date()) {
++  const deadline = effectivePlanJoinClosesAt(plan);
++  const current = planJoinDeadlineDate(now);
++  if (!Number.isFinite(deadline.getTime()) || !Number.isFinite(current.getTime())) return false;
++  return current.getTime() >= deadline.getTime();
++}
++
+ export type GeneratedPlanMode = 'local' | 'remote' | 'hybrid' | string;
+ 
+ export type GeneratedPlanPlaceInput = {

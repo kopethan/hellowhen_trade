@@ -1,3 +1,5 @@
+import { normalizedPlanLifecycleStatus } from './plans.lifecycle.js';
+
 export const ACTIVE_PLAN_TIME_STATUSES = ['draft', 'open', 'full', 'started'] as const;
 export const PUBLIC_PLAN_STATUSES = ['open', 'full', 'started'] as const;
 export const PLAN_TIME_MIN_GAP_MINUTES = 60;
@@ -64,13 +66,9 @@ export function canReadPlan(plan: { deletedAt?: Date | string | null; status: st
 }
 
 export function restoredPlanStatus(plan: { startsAt: string | Date; endsAt?: string | Date | null; maxParticipants?: number | null; acceptedCount?: number }, now: string | Date) {
-  const startsAt = asDate(plan.startsAt);
-  const effectiveEnd = plan.endsAt ? asDate(plan.endsAt) : startsAt;
-  const current = asDate(now);
-  if (effectiveEnd.getTime() <= current.getTime()) return null;
-  if (startsAt.getTime() <= current.getTime()) return 'started' as const;
-  if (plan.maxParticipants && (plan.acceptedCount ?? 0) >= plan.maxParticipants) return 'full' as const;
-  return 'open' as const;
+  const capacityStatus = plan.maxParticipants && (plan.acceptedCount ?? 0) >= plan.maxParticipants ? 'full' as const : 'open' as const;
+  const normalized = normalizedPlanLifecycleStatus({ status: capacityStatus, startsAt: plan.startsAt, endsAt: plan.endsAt }, now);
+  return normalized === 'completed' ? null : normalized;
 }
 
 export function isRemoveIdempotent(plan: { deletedAt?: Date | string | null; status: string }) {

@@ -1,0 +1,434 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index bbc2346..cc203bf 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -388,6 +388,11 @@ type PlanJoinDeadlineState = {
+   time: string;
+ };
+ 
++type PlanParticipantCapacityState = {
++  mode: 'unlimited' | 'limited';
++  limit: string;
++};
++
+ type PlanCreateStage = 'build' | 'preview';
+ 
+ 
+@@ -396,7 +401,7 @@ type PlaceTranslationFormValue = LocalizedContentTranslationDraft;
+ type NativeProviderAddressState = PlaceProviderAddressInput;
+ 
+ const PLAN_CREATE_DRAFT_STORAGE_KEY = 'hellowhen_create_plan_draft_v1';
+-const PLAN_CREATE_DRAFT_VERSION = 2;
++const PLAN_CREATE_DRAFT_VERSION = 3;
+ const PLAN_CREATE_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+ 
+ type PlanCreateDraftPlaceState = {
+@@ -422,6 +427,7 @@ type PlanCreateDraftState = {
+   advancedDetails: AdvancedPlanDetailsState;
+   planEnd: PlanEndState;
+   joinDeadline: PlanJoinDeadlineState;
++  participantCapacity: PlanParticipantCapacityState;
+ };
+ 
+ type PlaceCreateFormState = {
+@@ -506,7 +512,31 @@ function makePlanJoinDeadlineState(): PlanJoinDeadlineState {
+   return { preset: 'start', date: '', time: '' };
+ }
+ 
+-function createPlanDraftHasContent(draft: Pick<PlanCreateDraftState, 'places' | 'advancedDetails' | 'planEnd' | 'joinDeadline'>) {
++function makePlanParticipantCapacityState(): PlanParticipantCapacityState {
++  return { mode: 'unlimited', limit: '8' };
++}
++
++function resolvePlanParticipantCapacity(state: PlanParticipantCapacityState, t: PlanTranslationFunction) {
++  if (state.mode === 'unlimited') {
++    return { maxParticipants: null as number | null, label: t('plans.create.capacity.unlimited'), previewLabel: t('plans.create.capacity.previewUnlimited'), error: '' };
++  }
++  const normalized = state.limit.trim();
++  if (!/^\d+$/.test(normalized)) {
++    return { maxParticipants: null as number | null, label: t('plans.create.capacity.limited'), previewLabel: '', error: t('plans.create.capacity.invalid') };
++  }
++  const maxParticipants = Number(normalized);
++  if (!Number.isInteger(maxParticipants) || maxParticipants < 1 || maxParticipants > 100) {
++    return { maxParticipants: null as number | null, label: t('plans.create.capacity.limited'), previewLabel: '', error: t('plans.create.capacity.range') };
++  }
++  return {
++    maxParticipants,
++    label: t('plans.create.capacity.limitedSummary', { count: maxParticipants }),
++    previewLabel: t('plans.create.capacity.previewLimited', { count: maxParticipants }),
++    error: '',
++  };
++}
++
++function createPlanDraftHasContent(draft: Pick<PlanCreateDraftState, 'places' | 'advancedDetails' | 'planEnd' | 'joinDeadline' | 'participantCapacity'>) {
+   return draft.places.length > 0
+     || Boolean(draft.advancedDetails.title.trim())
+     || Boolean(draft.advancedDetails.description.trim())
+@@ -516,10 +546,11 @@ function createPlanDraftHasContent(draft: Pick<PlanCreateDraftState, 'places' |
+     || Boolean(draft.planEnd.time.trim())
+     || draft.joinDeadline.preset !== 'start'
+     || Boolean(draft.joinDeadline.date.trim())
+-    || Boolean(draft.joinDeadline.time.trim());
++    || Boolean(draft.joinDeadline.time.trim())
++    || draft.participantCapacity.mode === 'limited';
+ }
+ 
+-function buildCreatePlanDraftState(places: SelectedPlanPlaceState[], advancedDetails: AdvancedPlanDetailsState, planEnd: PlanEndState, joinDeadline: PlanJoinDeadlineState, stage: PlanCreateStage): PlanCreateDraftState {
++function buildCreatePlanDraftState(places: SelectedPlanPlaceState[], advancedDetails: AdvancedPlanDetailsState, planEnd: PlanEndState, joinDeadline: PlanJoinDeadlineState, participantCapacity: PlanParticipantCapacityState, stage: PlanCreateStage): PlanCreateDraftState {
+   return {
+     version: PLAN_CREATE_DRAFT_VERSION,
+     updatedAt: new Date().toISOString(),
+@@ -528,6 +559,7 @@ function buildCreatePlanDraftState(places: SelectedPlanPlaceState[], advancedDet
+     advancedDetails,
+     planEnd,
+     joinDeadline,
++    participantCapacity,
+   };
+ }
+ 
+@@ -536,7 +568,7 @@ async function readCreatePlanDraft() {
+     const raw = await AsyncStorage.getItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
+     if (!raw) return null;
+     const parsed = JSON.parse(raw) as Partial<PlanCreateDraftState> & { version?: number };
+-    if ((parsed.version !== 1 && parsed.version !== PLAN_CREATE_DRAFT_VERSION) || !parsed.updatedAt || !Array.isArray(parsed.places) || !parsed.advancedDetails || !parsed.planEnd) {
++    if ((parsed.version !== 1 && parsed.version !== 2 && parsed.version !== PLAN_CREATE_DRAFT_VERSION) || !parsed.updatedAt || !Array.isArray(parsed.places) || !parsed.advancedDetails || !parsed.planEnd) {
+       await AsyncStorage.removeItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
+       return null;
+     }
+@@ -578,6 +610,10 @@ async function readCreatePlanDraft() {
+         date: typeof parsed.joinDeadline?.date === 'string' ? parsed.joinDeadline.date : '',
+         time: typeof parsed.joinDeadline?.time === 'string' ? parsed.joinDeadline.time : '',
+       },
++      participantCapacity: {
++        mode: parsed.participantCapacity?.mode === 'limited' ? 'limited' : 'unlimited',
++        limit: typeof parsed.participantCapacity?.limit === 'string' && parsed.participantCapacity.limit ? parsed.participantCapacity.limit : '8',
++      },
+     };
+     return createPlanDraftHasContent(draft) ? draft : null;
+   } catch {
+@@ -3437,6 +3473,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+               <PlanDetailInfoRow label={t('plans.detail.fields.visibility')} value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : plan.status === 'hidden' ? t('plans.detail.values.hidden') : t('plans.detail.values.public')} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.joinMode')} value={getPlanJoinModeLabel(plan, t)} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.joinCloses')} value={formatDate(effectivePlanJoinClosesAt(plan).toISOString(), language, t)} />
++              <PlanDetailInfoRow label={t('plans.detail.fields.capacity')} value={plan.maxParticipants ? t('plans.detail.values.capacityLimited', { count: plan.maxParticipants }) : t('plans.detail.values.capacityUnlimited')} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.time')} value={formatPlanDateRange(plan, language, t)} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.placeMode')} value={getPlanModeLabel(plan, t)} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.created')} value={formatDate(plan.createdAt, language, t)} />
+@@ -3709,7 +3746,7 @@ function TextField({
+   onChangeText: (value: string) => void;
+   placeholder?: string;
+   multiline?: boolean;
+-  keyboardType?: 'default' | 'numbers-and-punctuation' | 'url';
++  keyboardType?: 'default' | 'number-pad' | 'numbers-and-punctuation' | 'url';
+   maxLength?: number;
+   compactMultiline?: boolean;
+   onKeyboardInputFocus?: (input: TextInput | null, additionalOffset?: number) => void;
+@@ -4189,6 +4226,55 @@ function PlanJoinDeadlinePickerSheet({
+   );
+ }
+ 
++function PlanParticipantCapacityControl({
++  value,
++  summary,
++  onChange,
++  onKeyboardInputFocus,
++  onKeyboardInputBlur,
++}: {
++  value: PlanParticipantCapacityState;
++  summary: ReturnType<typeof resolvePlanParticipantCapacity>;
++  onChange: (value: PlanParticipantCapacityState) => void;
++  onKeyboardInputFocus?: (input: TextInput | null, additionalOffset?: number) => void;
++  onKeyboardInputBlur?: (input: TextInput | null) => void;
++}) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++
++  function chooseMode(mode: PlanParticipantCapacityState['mode']) {
++    onChange({ ...value, mode, limit: value.limit || '8' });
++  }
++
++  return (
++    <View style={styles.planCapacityControl}>
++      <View style={styles.timelineCopy}>
++        <AppText style={styles.rowTitle}>{t('plans.create.capacity.title')}</AppText>
++        <AppText style={[styles.metaText, { color: summary.error ? theme.semantic.warning.text : theme.color.muted }]}>
++          {summary.error || (value.mode === 'unlimited' ? t('plans.create.capacity.unlimitedHelp') : t('plans.create.capacity.limitedHelp', { count: summary.maxParticipants ?? (value.limit || '?') }))}
++        </AppText>
++      </View>
++      <View style={styles.quickChoiceRow}>
++        <QuickChoiceButton label={t('plans.create.capacity.unlimited')} active={value.mode === 'unlimited'} onPress={() => chooseMode('unlimited')} />
++        <QuickChoiceButton label={t('plans.create.capacity.limited')} active={value.mode === 'limited'} onPress={() => chooseMode('limited')} />
++      </View>
++      {value.mode === 'limited' ? (
++        <TextField
++          label={t('plans.create.capacity.maximum')}
++          value={value.limit}
++          onChangeText={(nextValue) => onChange({ ...value, limit: nextValue.replace(/\D/g, '').slice(0, 3) })}
++          placeholder="8"
++          keyboardType="number-pad"
++          maxLength={3}
++          onKeyboardInputFocus={onKeyboardInputFocus}
++          onKeyboardInputBlur={onKeyboardInputBlur}
++          keyboardScrollOffset={10}
++        />
++      ) : null}
++    </View>
++  );
++}
++
+ function makeGooglePlaceSessionToken() {
+   const maybeCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+   if (typeof maybeCrypto?.randomUUID === 'function') {
+@@ -4674,6 +4760,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   const [advancedDetails, setAdvancedDetails] = useState<AdvancedPlanDetailsState>(() => makeAdvancedPlanDetails());
+   const [planEnd, setPlanEnd] = useState<PlanEndState>({ date: '', time: '' });
+   const [joinDeadline, setJoinDeadline] = useState<PlanJoinDeadlineState>(() => makePlanJoinDeadlineState());
++  const [participantCapacity, setParticipantCapacity] = useState<PlanParticipantCapacityState>(() => makePlanParticipantCapacityState());
+   const [stage, setStage] = useState<PlanCreateStage>('build');
+   const [createPlanMenuOpen, setCreatePlanMenuOpen] = useState(false);
+   const [draftPrompt, setDraftPrompt] = useState<PlanCreateDraftState | null>(null);
+@@ -4724,6 +4811,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   const explicitPlanEnd = useMemo(() => parseOptionalMobilePlanEnd(planEnd, schedule.startsAt, t), [planEnd, schedule.startsAt, t]);
+   const endSummary = useMemo(() => mobilePlanEndSummary(schedule, planEnd, t), [schedule, planEnd, t]);
+   const joinDeadlineSummary = useMemo(() => resolvePlanJoinDeadline(joinDeadline, schedule.startsAt, t), [joinDeadline, schedule.startsAt, t]);
++  const participantCapacitySummary = useMemo(() => resolvePlanParticipantCapacity(participantCapacity, t), [participantCapacity, t]);
+   const conflictWarning = useMemo(() => planConflictWarning(myPlansForConflict, schedule, explicitPlanEnd, t), [explicitPlanEnd, myPlansForConflict, schedule, t]);
+   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
+     places: placesForGeneratedDisplay,
+@@ -4748,6 +4836,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     startsAt: schedule.startsAt || new Date().toISOString(),
+     joinClosesAt: joinDeadlineSummary.joinClosesAt || schedule.startsAt || new Date().toISOString(),
+     endsAt: explicitPlanEnd.endsAt || schedule.endsAt || null,
++    maxParticipants: participantCapacitySummary.maxParticipants,
+     joinApprovalMode: 'automatic',
+     status: 'open',
+     createdAt: new Date().toISOString(),
+@@ -4779,7 +4868,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+       media: place.existingMedia ? [place.existingMedia] : undefined,
+       staticMap: place.existingStaticMap ?? null,
+     })),
+-  }) as PlanDto, [advancedDetails.category, advancedDetails.tags, explicitPlanEnd.endsAt, joinDeadlineSummary.joinClosesAt, places, placesForGeneratedDisplay, previewDescription, previewTitle, schedule.endsAt, schedule.placeEndsAt, schedule.placeStartsAt, schedule.startsAt, t]);
++  }) as PlanDto, [advancedDetails.category, advancedDetails.tags, explicitPlanEnd.endsAt, joinDeadlineSummary.joinClosesAt, participantCapacitySummary.maxParticipants, places, placesForGeneratedDisplay, previewDescription, previewTitle, schedule.endsAt, schedule.placeEndsAt, schedule.placeStartsAt, schedule.startsAt, t]);
+ 
+   const loadReusablePlaces = useCallback(async () => {
+     if (!isPlansVisible()) return;
+@@ -4823,14 +4912,14 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   useEffect(() => {
+     if (!createPlanDraftReadyRef.current || createPlanDraftHydratingRef.current) return undefined;
+     if (createPlanDraftSaveTimeoutRef.current) clearTimeout(createPlanDraftSaveTimeoutRef.current);
+-    const draft = buildCreatePlanDraftState(places, advancedDetails, planEnd, joinDeadline, stage);
++    const draft = buildCreatePlanDraftState(places, advancedDetails, planEnd, joinDeadline, participantCapacity, stage);
+     createPlanDraftSaveTimeoutRef.current = setTimeout(() => {
+       void writeCreatePlanDraft(draft);
+     }, 300);
+     return () => {
+       if (createPlanDraftSaveTimeoutRef.current) clearTimeout(createPlanDraftSaveTimeoutRef.current);
+     };
+-  }, [advancedDetails, joinDeadline, places, planEnd, stage]);
++  }, [advancedDetails, joinDeadline, participantCapacity, places, planEnd, stage]);
+ 
+   useEffect(() => {
+     const ideaKey = parseStarterPlanIdeaKey(route.params?.initialPlanIdeaKey);
+@@ -4907,6 +4996,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     setAdvancedDetails(makeAdvancedPlanDetails());
+     setPlanEnd({ date: '', time: '' });
+     setJoinDeadline(makePlanJoinDeadlineState());
++    setParticipantCapacity(makePlanParticipantCapacityState());
+     setStage('build');
+     setPlaceSourceSheetOpen(false);
+     setPlacePickerOpen(false);
+@@ -4938,6 +5028,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     setAdvancedDetails(draft.advancedDetails);
+     setPlanEnd(draft.planEnd);
+     setJoinDeadline(draft.joinDeadline);
++    setParticipantCapacity(draft.participantCapacity);
+     setStage('build');
+     try {
+       const results = (await Promise.all(restoredPlaces.map(validateRestoredDraftPlace))).filter((result): result is DraftPlaceValidationResult => Boolean(result));
+@@ -5196,6 +5287,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     if (addressRuleError) { setError(addressRuleError); return; }
+     if (explicitPlanEnd.error) { setError(explicitPlanEnd.error); return; }
+     if (joinDeadlineSummary.error) { setError(joinDeadlineSummary.error); return; }
++    if (participantCapacitySummary.error) { setError(participantCapacitySummary.error); return; }
+     setStage('preview');
+   }
+ 
+@@ -5208,6 +5300,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     const customTags = parsePlanTagsInput(advancedDetails.tags);
+     const nextExplicitEnd = parseOptionalMobilePlanEnd(planEnd, nextSchedule.startsAt, t);
+     const nextJoinDeadline = resolvePlanJoinDeadline(joinDeadline, nextSchedule.startsAt, t);
++    const nextParticipantCapacity = resolvePlanParticipantCapacity(participantCapacity, t);
+     if (usablePlaces.length === 0) { setError(t('plans.create.validation.addAtLeastOne')); return; }
+     if (focusDraftPlacesNeedingReview()) return;
+     if (focusMissingOfflineAddresses()) return;
+@@ -5216,6 +5309,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     if (addressRuleError) { setError(addressRuleError); return; }
+     if (nextExplicitEnd.error) { setError(nextExplicitEnd.error); return; }
+     if (nextJoinDeadline.error) { setError(nextJoinDeadline.error); return; }
++    if (nextParticipantCapacity.error) { setError(nextParticipantCapacity.error); return; }
+     if (customTitle && customTitle.length < 3) { setError(t('plans.create.validation.titleTooShort')); return; }
+     if (customDescription && customDescription.length < 10) { setError(t('plans.create.validation.descriptionTooShort')); return; }
+     if (customTags.length > 8 || customTags.some((tag) => tag.length > 32)) { setError(t('plans.create.validation.tagsInvalid')); return; }
+@@ -5239,6 +5333,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+         startsAt: nextSchedule.startsAt,
+         joinClosesAt: nextJoinDeadline.joinClosesAt || nextSchedule.startsAt,
+         endsAt: nextExplicitEnd.endsAt || nextSchedule.endsAt || nextSchedule.startsAt,
++        maxParticipants: nextParticipantCapacity.maxParticipants ?? undefined,
+         joinApprovalMode: 'automatic',
+         status: 'open',
+         places: usablePlaces.map((place, index) => ({
+@@ -5394,6 +5489,15 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                     <View style={[styles.planTimelineLineItem, { borderTopColor: theme.color.border }]}>
+                       <PlanJoinDeadlineCompactRow summary={joinDeadlineSummary} onOpen={() => setJoinDeadlinePickerOpen(true)} />
+                     </View>
++                    <View style={[styles.planTimelineLineItem, { borderTopColor: theme.color.border }]}>
++                      <PlanParticipantCapacityControl
++                        value={participantCapacity}
++                        summary={participantCapacitySummary}
++                        onChange={setParticipantCapacity}
++                        onKeyboardInputFocus={createPlanKeyboardVisibility.onInputFocus}
++                        onKeyboardInputBlur={createPlanKeyboardVisibility.onInputBlur}
++                      />
++                    </View>
+                   </>
+                 ) : null}
+               </View>
+@@ -5416,6 +5520,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                     <SemanticBadge label={t(places.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: places.length })} tone="place" size="sm" />
+                     <SemanticBadge label={t('plans.detail.values.freeJoin')} tone="plan" size="sm" />
+                     <SemanticBadge label={t('plans.create.joinDeadline.previewBadge', { date: joinDeadlineSummary.deadlineLabel })} tone="plan" size="sm" />
++                    <SemanticBadge label={participantCapacitySummary.previewLabel} tone="proposal" size="sm" />
+                     <SemanticBadge label={t('plans.status.open')} tone="plan" size="sm" />
+                   </View>
+                 </View>
+@@ -6438,6 +6543,7 @@ const styles = StyleSheet.create({
+   quickChoiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+   quickChoiceButton: { minHeight: 36, borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' },
+   quickChoiceButtonText: { fontSize: 12, fontWeight: '900' },
++  planCapacityControl: { flex: 1, minWidth: 0, gap: 10 },
+   advancedCard: { borderRadius: 0, borderWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 13, gap: 10 },
+   advancedToggle: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10 },
+   advancedPanel: { gap: 12, paddingTop: 2 },
+diff --git a/packages/i18n/src/locales/en/plans.ts b/packages/i18n/src/locales/en/plans.ts
+index 3fd9c8f..eafabb7 100644
+--- a/packages/i18n/src/locales/en/plans.ts
++++ b/packages/i18n/src/locales/en/plans.ts
+@@ -171,6 +171,7 @@ export const plans = {
+       visibility: 'Visibility',
+       joinMode: 'Join mode',
+       joinCloses: 'Join closes',
++      capacity: 'Capacity',
+       time: 'Time',
+       placeMode: 'Place mode',
+       created: 'Created',
+@@ -185,6 +186,8 @@ export const plans = {
+       hybrid: 'Local / Online',
+       freeJoin: 'Free join',
+       requestToJoin: 'Request to join',
++      capacityUnlimited: 'Unlimited',
++      capacityLimited: '{{count}} people max',
+     },
+     route: {
+       openRoute: 'Open route',
+@@ -555,6 +558,19 @@ export const plans = {
+       summary: '{{preset}} · {{date}}',
+       previewBadge: 'Join closes {{date}}',
+     },
++    capacity: {
++      title: 'Participant capacity',
++      unlimited: 'Unlimited',
++      limited: 'Limited',
++      unlimitedHelp: 'Any number of people can join until joining closes.',
++      limitedHelp: 'Up to {{count}} people can join. The Plan becomes Full when the limit is reached.',
++      maximum: 'Maximum participants',
++      invalid: 'Enter a participant limit.',
++      range: 'Choose a limit from 1 to 100.',
++      limitedSummary: 'Max {{count}} participants',
++      previewUnlimited: 'Unlimited participants',
++      previewLimited: 'Max {{count}} participants',
++    },
+     duration: {
+       helper: 'Duration helper',
+       custom: 'Custom',
+diff --git a/packages/i18n/src/locales/es/plans.ts b/packages/i18n/src/locales/es/plans.ts
+index 5882338..563f48e 100644
+--- a/packages/i18n/src/locales/es/plans.ts
++++ b/packages/i18n/src/locales/es/plans.ts
+@@ -170,6 +170,7 @@ export const plans = {
+       visibility: 'Visibilidad',
+       joinMode: 'Modo de unión',
+       joinCloses: 'Cierre para unirse',
++      capacity: 'Capacidad',
+       time: 'Horario',
+       placeMode: 'Modalidad de lugares',
+       created: 'Creado',
+@@ -183,6 +184,8 @@ export const plans = {
+       hybrid: 'Presencial / En línea',
+       freeJoin: 'Unión libre',
+       requestToJoin: 'Solicitud para unirse',
++      capacityUnlimited: 'Sin límite',
++      capacityLimited: 'Máximo {{count}} personas',
+     },
+     route: {
+       openRoute: 'Abrir ruta',
+@@ -553,6 +556,19 @@ export const plans = {
+       summary: '{{preset}} · {{date}}',
+       previewBadge: 'Cierra {{date}}',
+     },
++    capacity: {
++      title: 'Capacidad de participantes',
++      unlimited: 'Sin límite',
++      limited: 'Limitada',
++      unlimitedHelp: 'Cualquier número de personas puede unirse hasta el cierre para unirse.',
++      limitedHelp: 'Hasta {{count}} personas pueden unirse. El Plan pasa a Completo cuando alcanza el límite.',
++      maximum: 'Máximo de participantes',
++      invalid: 'Introduce un límite de participantes.',
++      range: 'Elige un límite entre 1 y 100.',
++      limitedSummary: 'Máximo {{count}} participantes',
++      previewUnlimited: 'Participantes sin límite',
++      previewLimited: 'Máx. {{count}} participantes',
++    },
+     duration: {
+       helper: 'Ayuda de duración',
+       custom: 'Personalizada',
+diff --git a/packages/i18n/src/locales/fr/plans.ts b/packages/i18n/src/locales/fr/plans.ts
+index 6be2985..b5ddf58 100644
+--- a/packages/i18n/src/locales/fr/plans.ts
++++ b/packages/i18n/src/locales/fr/plans.ts
+@@ -171,6 +171,7 @@ export const plans = {
+       visibility: 'Visibilité',
+       joinMode: 'Mode de participation',
+       joinCloses: 'Clôture des participations',
++      capacity: 'Capacité',
+       time: 'Horaire',
+       placeMode: 'Mode des lieux',
+       created: 'Créé le',
+@@ -185,6 +186,8 @@ export const plans = {
+       hybrid: 'Sur place / En ligne',
+       freeJoin: 'Participation libre',
+       requestToJoin: 'Demande de participation',
++      capacityUnlimited: 'Illimitée',
++      capacityLimited: '{{count}} personnes max',
+     },
+     route: {
+       openRoute: 'Ouvrir l’itinéraire',
+@@ -555,6 +558,19 @@ export const plans = {
+       summary: '{{preset}} · {{date}}',
+       previewBadge: 'Clôture {{date}}',
+     },
++    capacity: {
++      title: 'Capacité de participation',
++      unlimited: 'Illimitée',
++      limited: 'Limitée',
++      unlimitedHelp: 'Un nombre illimité de personnes peut rejoindre le Plan jusqu’à la clôture des participations.',
++      limitedHelp: 'Jusqu’à {{count}} personnes peuvent rejoindre ce Plan. Il passe à Complet lorsque la limite est atteinte.',
++      maximum: 'Nombre maximum de participants',
++      invalid: 'Saisissez une limite de participants.',
++      range: 'Choisissez une limite entre 1 et 100.',
++      limitedSummary: '{{count}} participants maximum',
++      previewUnlimited: 'Participants illimités',
++      previewLimited: '{{count}} participants max',
++    },
+     duration: {
+       helper: 'Aide pour la durée',
+       custom: 'Personnalisée',

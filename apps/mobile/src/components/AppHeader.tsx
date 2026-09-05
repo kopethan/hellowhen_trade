@@ -13,6 +13,7 @@ import { MobileIcon } from './MobileIcon';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useThemeTokens } from '../providers/ThemeProvider';
 import { useTranslation } from '../providers/MobileI18nProvider';
+import { SECONDARY_HEADER_TITLE_STYLE } from './headerTypography';
 
 export type AppHeaderTitleOverflowBehavior = 'truncate' | 'scroll';
 
@@ -163,11 +164,11 @@ export function AppHeader({
 const styles = StyleSheet.create({
   headerRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12 },
   backButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  title: { flex: 1, minWidth: 0, fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 },
+  title: { flex: 1, minWidth: 0, ...SECONDARY_HEADER_TITLE_STYLE },
   titleViewport: { flex: 1, minWidth: 0, height: 32, justifyContent: 'center', overflow: 'hidden' },
   titleMeasureScroller: { width: '100%', overflow: 'hidden' },
   titleMeasureContent: { alignItems: 'center', paddingRight: 1 },
-  scrollingTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 },
+  scrollingTitle: { ...SECONDARY_HEADER_TITLE_STYLE },
   rightSlot: { marginLeft: 'auto' },
   pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },
 });

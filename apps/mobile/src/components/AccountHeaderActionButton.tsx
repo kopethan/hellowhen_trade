@@ -66,8 +66,9 @@ export function AccountHeaderActionButton({ onPress }: AccountHeaderActionButton
           src={profile?.avatarUrl}
           displayName={profile?.displayName}
           handle={profile?.handle}
-          size="sm"
+          size="md"
           decorative
+          style={{ borderWidth: 0 }}
         />
       ) : undefined}
     />

@@ -1,0 +1,58 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1037,6 +1037,33 @@ function dateAndTimeFromDate(value: Date): PlanEndState {
+   return { date: toDateInputValueFromDate(value), time: `${padDatePart(value.getHours())}:${padDatePart(value.getMinutes())}` };
+ }
+ 
++function cascadePlanStopDateTimeChange(
++  places: SelectedPlanPlaceState[],
++  index: number,
++  patch: Pick<Partial<SelectedPlanPlaceState>, 'date' | 'time'>,
++) {
++  const selectedPlace = places[index];
++  if (!selectedPlace) return places;
++
++  const nextSelectedPlace = { ...selectedPlace, ...patch };
++  const previousDateTime = parseLocalDateTime(selectedPlace.date, selectedPlace.time);
++  const nextDateTime = parseLocalDateTime(nextSelectedPlace.date, nextSelectedPlace.time);
++  if (!previousDateTime || !nextDateTime) {
++    return places.map((place, placeIndex) => placeIndex === index ? nextSelectedPlace : place);
++  }
++
++  const deltaMs = nextDateTime.getTime() - previousDateTime.getTime();
++  return places.map((place, placeIndex) => {
++    if (placeIndex < index) return place;
++    if (placeIndex === index) return nextSelectedPlace;
++    if (deltaMs === 0) return place;
++
++    const downstreamDateTime = parseLocalDateTime(place.date, place.time);
++    if (!downstreamDateTime) return place;
++    return { ...place, ...dateAndTimeFromDate(new Date(downstreamDateTime.getTime() + deltaMs)) };
++  });
++}
++
+ function nextPlanStopDateTimeFromPlaces(places: SelectedPlanPlaceState[], fallbackDate = toDateInputValue()) {
+   const previous = places[places.length - 1];
+   const previousDateTime = previous ? parseLocalDateTime(previous.date, previous.time) : null;
+@@ -4831,6 +4858,11 @@ function planSelectedTimeRange(schedule: ReturnType<typeof buildMobilePlanSchedu
+     setError(null);
+   }
+ 
++  function updateSelectedPlaceSchedule(index: number, patch: Pick<Partial<SelectedPlanPlaceState>, 'date' | 'time'>) {
++    setPlaces((current) => cascadePlanStopDateTimeChange(current, index, patch));
++    setError(null);
++  }
++
+   async function retryDraftPlaceReview(placeId: string) {
+     const place = places.find((item) => item.id === placeId);
+     if (!place?.sourcePlaceId) return;
+@@ -5243,7 +5275,7 @@ function planSelectedTimeRange(schedule: ReturnType<typeof buildMobilePlanSchedu
+             time={timeSheetPlace.time}
+             title={t(timeSheet.mode === 'date' ? 'plans.create.time.dateForPlace' : 'plans.create.time.timeForPlace', { index: timeSheet.placeIndex + 1 })}
+             subtitle={timeSheetPlace.title || timeSheetPlace.sourcePlaceTitle || t('plans.create.time.stopSubtitle')}
+-            onChange={(patch) => updateSelectedPlace(timeSheet.placeIndex, patch)}
++            onChange={(patch) => updateSelectedPlaceSchedule(timeSheet.placeIndex, patch)}
+             onClose={() => setTimeSheet(null)}
+           />
+         ) : null}

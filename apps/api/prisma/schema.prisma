@@ -2761,6 +2761,7 @@ model Plan {
   mode             TradeExchangeMode?
   locationLabel    String?
   startsAt         DateTime
+  joinClosesAt     DateTime?
   endsAt           DateTime?
   maxParticipants  Int?
   joinApprovalMode PlanJoinApprovalMode @default(owner_approval)

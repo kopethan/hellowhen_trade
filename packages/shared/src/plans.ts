@@ -1,3 +1,23 @@
+export type PlanJoinDeadlineInput = {
+  startsAt: string | Date;
+  joinClosesAt?: string | Date | null;
+};
+
+function planJoinDeadlineDate(value: string | Date) {
+  return value instanceof Date ? value : new Date(value);
+}
+
+export function effectivePlanJoinClosesAt(plan: PlanJoinDeadlineInput) {
+  return planJoinDeadlineDate(plan.joinClosesAt ?? plan.startsAt);
+}
+
+export function isPlanJoinClosed(plan: PlanJoinDeadlineInput, now: string | Date = new Date()) {
+  const deadline = effectivePlanJoinClosesAt(plan);
+  const current = planJoinDeadlineDate(now);
+  if (!Number.isFinite(deadline.getTime()) || !Number.isFinite(current.getTime())) return false;
+  return current.getTime() >= deadline.getTime();
+}
+
 export type GeneratedPlanMode = 'local' | 'remote' | 'hybrid' | string;
 
 export type GeneratedPlanPlaceInput = {

@@ -9,11 +9,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type ListPlacesQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
 import { formatLocalizedDateTime, type SupportedLanguage, type TranslationValues } from '@hellowhen/i18n';
-import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, resolveInventoryOriginalCopy, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, effectivePlanJoinClosesAt, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, resolveInventoryOriginalCopy, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import type { AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
 import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
+import { PRIMARY_HEADER_TITLE_STYLE } from '../../components/headerTypography';
 import { AccountHeaderActionButton } from '../../components/AccountHeaderActionButton';
 import { AppText } from '../../components/AppText';
 import { EMPTY_LIBRARY_HEADER_CONTROLS_STATE, LibraryActiveFilterChips, LibraryFilterGroup, LibraryFilterOption, LibraryFilterScreen, LibraryHeaderActions, LibraryInlineSearch, LibrarySearchFilterRow, SlidingSegmentedControl, useScopedLibraryState, type LibraryHeaderControlsHandle, type LibraryHeaderControlsState } from '../../components/library';
@@ -53,6 +54,7 @@ import { FeatureGuidePromptCard } from '../onboarding-guide/FeatureGuidePromptCa
 import { useFeatureGuidePrompt } from '../onboarding-guide/onboardingGuideStorage';
 import { PlanPlaceWeatherDetail } from './components/PlanPlaceWeatherDetail';
 import { PlanSquareDeck } from './components/PlanSquareDeck';
+import { getPlanPresentationState, getPlanPresentationTone, planPresentationLabelKey, type PlanPresentationState } from './planPresentationState';
 
 type PlansScreenProps = { navigation?: NativeStackNavigationProp<RootStackParamList>; route?: { params?: PlanTabRouteParams } };
 type PlanDetailProps = NativeStackScreenProps<RootStackParamList, 'PlanDetail'>;
@@ -199,7 +201,7 @@ function applyPlanFilters(plans: PlanDto[], filters: string[], query?: string | 
   const timeFilters = planFilterValues(filters, 'time');
   return plans.filter((plan) => {
     if (!planMatchesSearch(plan, query)) return false;
-    if (statuses.length && !statuses.includes(plan.status)) return false;
+    if (statuses.length && !statuses.includes(getPlanPresentationState(plan))) return false;
     if (modes.length && (!plan.mode || !modes.includes(plan.mode))) return false;
     if (joinModes.includes('automatic') && plan.joinApprovalMode !== 'automatic') return false;
     if (placeCounts.length) {
@@ -256,6 +258,10 @@ function getPlanMeta(plan: PlanDto, t?: Translate) {
 function planStatusLabel(status: string, t: Translate) {
   const knownStatuses = new Set(['open', 'full', 'started', 'completed', 'cancelled', 'draft', 'expired', 'hidden']);
   return knownStatuses.has(status) ? t(`plans.status.${status}`) : status;
+}
+
+function planPresentationStateLabel(state: PlanPresentationState, t: Translate) {
+  return t(planPresentationLabelKey(state));
 }
 
 function participantStatusLabel(status: string, t: Translate) {
@@ -380,6 +386,19 @@ type PlanEndState = {
   time: string;
 };
 
+type PlanJoinDeadlinePreset = 'start' | '1h' | '3h' | '1d' | 'custom';
+
+type PlanJoinDeadlineState = {
+  preset: PlanJoinDeadlinePreset;
+  date: string;
+  time: string;
+};
+
+type PlanParticipantCapacityState = {
+  mode: 'unlimited' | 'limited';
+  limit: string;
+};
+
 type PlanCreateStage = 'build' | 'preview';
 
 
@@ -388,7 +407,7 @@ type PlaceTranslationFormValue = LocalizedContentTranslationDraft;
 type NativeProviderAddressState = PlaceProviderAddressInput;
 
 const PLAN_CREATE_DRAFT_STORAGE_KEY = 'hellowhen_create_plan_draft_v1';
-const PLAN_CREATE_DRAFT_VERSION = 1;
+const PLAN_CREATE_DRAFT_VERSION = 3;
 const PLAN_CREATE_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 type PlanCreateDraftPlaceState = {
@@ -413,6 +432,8 @@ type PlanCreateDraftState = {
   places: PlanCreateDraftPlaceState[];
   advancedDetails: AdvancedPlanDetailsState;
   planEnd: PlanEndState;
+  joinDeadline: PlanJoinDeadlineState;
+  participantCapacity: PlanParticipantCapacityState;
 };
 
 type PlaceCreateFormState = {
@@ -493,17 +514,49 @@ function selectedPlanPlaceFromDraft(place: PlanCreateDraftPlaceState, index: num
   };
 }
 
-function createPlanDraftHasContent(draft: Pick<PlanCreateDraftState, 'places' | 'advancedDetails' | 'planEnd'>) {
+function makePlanJoinDeadlineState(): PlanJoinDeadlineState {
+  return { preset: 'start', date: '', time: '' };
+}
+
+function makePlanParticipantCapacityState(): PlanParticipantCapacityState {
+  return { mode: 'unlimited', limit: '8' };
+}
+
+function resolvePlanParticipantCapacity(state: PlanParticipantCapacityState, t: PlanTranslationFunction) {
+  if (state.mode === 'unlimited') {
+    return { maxParticipants: null as number | null, label: t('plans.create.capacity.unlimited'), previewLabel: t('plans.create.capacity.previewUnlimited'), error: '' };
+  }
+  const normalized = state.limit.trim();
+  if (!/^\d+$/.test(normalized)) {
+    return { maxParticipants: null as number | null, label: t('plans.create.capacity.limited'), previewLabel: '', error: t('plans.create.capacity.invalid') };
+  }
+  const maxParticipants = Number(normalized);
+  if (!Number.isInteger(maxParticipants) || maxParticipants < 1 || maxParticipants > 100) {
+    return { maxParticipants: null as number | null, label: t('plans.create.capacity.limited'), previewLabel: '', error: t('plans.create.capacity.range') };
+  }
+  return {
+    maxParticipants,
+    label: t('plans.create.capacity.limitedSummary', { count: maxParticipants }),
+    previewLabel: t('plans.create.capacity.previewLimited', { count: maxParticipants }),
+    error: '',
+  };
+}
+
+function createPlanDraftHasContent(draft: Pick<PlanCreateDraftState, 'places' | 'advancedDetails' | 'planEnd' | 'joinDeadline' | 'participantCapacity'>) {
   return draft.places.length > 0
     || Boolean(draft.advancedDetails.title.trim())
     || Boolean(draft.advancedDetails.description.trim())
     || Boolean(draft.advancedDetails.category.trim())
     || Boolean(draft.advancedDetails.tags.trim())
     || Boolean(draft.planEnd.date.trim())
-    || Boolean(draft.planEnd.time.trim());
+    || Boolean(draft.planEnd.time.trim())
+    || draft.joinDeadline.preset !== 'start'
+    || Boolean(draft.joinDeadline.date.trim())
+    || Boolean(draft.joinDeadline.time.trim())
+    || draft.participantCapacity.mode === 'limited';
 }
 
-function buildCreatePlanDraftState(places: SelectedPlanPlaceState[], advancedDetails: AdvancedPlanDetailsState, planEnd: PlanEndState, stage: PlanCreateStage): PlanCreateDraftState {
+function buildCreatePlanDraftState(places: SelectedPlanPlaceState[], advancedDetails: AdvancedPlanDetailsState, planEnd: PlanEndState, joinDeadline: PlanJoinDeadlineState, participantCapacity: PlanParticipantCapacityState, stage: PlanCreateStage): PlanCreateDraftState {
   return {
     version: PLAN_CREATE_DRAFT_VERSION,
     updatedAt: new Date().toISOString(),
@@ -511,6 +564,8 @@ function buildCreatePlanDraftState(places: SelectedPlanPlaceState[], advancedDet
     places: places.map(createPlanDraftPlaceFromSelected),
     advancedDetails,
     planEnd,
+    joinDeadline,
+    participantCapacity,
   };
 }
 
@@ -518,8 +573,8 @@ async function readCreatePlanDraft() {
   try {
     const raw = await AsyncStorage.getItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<PlanCreateDraftState>;
-    if (parsed.version !== PLAN_CREATE_DRAFT_VERSION || !parsed.updatedAt || !Array.isArray(parsed.places) || !parsed.advancedDetails || !parsed.planEnd) {
+    const parsed = JSON.parse(raw) as Partial<PlanCreateDraftState> & { version?: number };
+    if ((parsed.version !== 1 && parsed.version !== 2 && parsed.version !== PLAN_CREATE_DRAFT_VERSION) || !parsed.updatedAt || !Array.isArray(parsed.places) || !parsed.advancedDetails || !parsed.planEnd) {
       await AsyncStorage.removeItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
       return null;
     }
@@ -555,6 +610,15 @@ async function readCreatePlanDraft() {
       planEnd: {
         date: typeof parsed.planEnd.date === 'string' ? parsed.planEnd.date : '',
         time: typeof parsed.planEnd.time === 'string' ? parsed.planEnd.time : '',
+      },
+      joinDeadline: {
+        preset: parsed.joinDeadline?.preset === '1h' || parsed.joinDeadline?.preset === '3h' || parsed.joinDeadline?.preset === '1d' || parsed.joinDeadline?.preset === 'custom' ? parsed.joinDeadline.preset : 'start',
+        date: typeof parsed.joinDeadline?.date === 'string' ? parsed.joinDeadline.date : '',
+        time: typeof parsed.joinDeadline?.time === 'string' ? parsed.joinDeadline.time : '',
+      },
+      participantCapacity: {
+        mode: parsed.participantCapacity?.mode === 'limited' ? 'limited' : 'unlimited',
+        limit: typeof parsed.participantCapacity?.limit === 'string' && parsed.participantCapacity.limit ? parsed.participantCapacity.limit : '8',
       },
     };
     return createPlanDraftHasContent(draft) ? draft : null;
@@ -1037,6 +1101,83 @@ function dateAndTimeFromDate(value: Date): PlanEndState {
   return { date: toDateInputValueFromDate(value), time: `${padDatePart(value.getHours())}:${padDatePart(value.getMinutes())}` };
 }
 
+function planJoinDeadlinePresetOffsetMinutes(preset: PlanJoinDeadlinePreset) {
+  if (preset === '1h') return 60;
+  if (preset === '3h') return 180;
+  if (preset === '1d') return 24 * 60;
+  return 0;
+}
+
+function planJoinDeadlinePresetLabel(preset: PlanJoinDeadlinePreset, t: PlanTranslationFunction) {
+  if (preset === '1h') return t('plans.create.joinDeadline.oneHourBefore');
+  if (preset === '3h') return t('plans.create.joinDeadline.threeHoursBefore');
+  if (preset === '1d') return t('plans.create.joinDeadline.oneDayBefore');
+  if (preset === 'custom') return t('plans.create.joinDeadline.custom');
+  return t('plans.create.joinDeadline.atStart');
+}
+
+function resolvePlanJoinDeadline(state: PlanJoinDeadlineState, startsAt: string, t: PlanTranslationFunction) {
+  if (!startsAt) {
+    return { joinClosesAt: '', presetLabel: planJoinDeadlinePresetLabel(state.preset, t), deadlineLabel: '', error: t('plans.create.joinDeadline.startFirst') };
+  }
+  const start = new Date(startsAt);
+  if (Number.isNaN(start.getTime())) {
+    return { joinClosesAt: '', presetLabel: planJoinDeadlinePresetLabel(state.preset, t), deadlineLabel: '', error: t('plans.create.joinDeadline.startFirst') };
+  }
+
+  let deadline = start;
+  if (state.preset === 'custom') {
+    if (!state.date.trim() || !state.time.trim()) {
+      return { joinClosesAt: '', presetLabel: planJoinDeadlinePresetLabel(state.preset, t), deadlineLabel: '', error: t('plans.create.joinDeadline.customBoth') };
+    }
+    const custom = parseLocalDateTime(state.date, state.time);
+    if (!custom) {
+      return { joinClosesAt: '', presetLabel: planJoinDeadlinePresetLabel(state.preset, t), deadlineLabel: '', error: t('plans.create.joinDeadline.customInvalid') };
+    }
+    deadline = custom;
+  } else {
+    deadline = new Date(start.getTime() - planJoinDeadlinePresetOffsetMinutes(state.preset) * 60_000);
+  }
+
+  if (deadline.getTime() > start.getTime()) {
+    return { joinClosesAt: '', presetLabel: planJoinDeadlinePresetLabel(state.preset, t), deadlineLabel: formatCompactIsoDateTime(deadline.toISOString()), error: t('plans.create.joinDeadline.afterStart') };
+  }
+
+  return {
+    joinClosesAt: deadline.toISOString(),
+    presetLabel: planJoinDeadlinePresetLabel(state.preset, t),
+    deadlineLabel: formatCompactIsoDateTime(deadline.toISOString()),
+    error: '',
+  };
+}
+
+function cascadePlanStopDateTimeChange(
+  places: SelectedPlanPlaceState[],
+  index: number,
+  patch: Pick<Partial<SelectedPlanPlaceState>, 'date' | 'time'>,
+) {
+  const selectedPlace = places[index];
+  if (!selectedPlace) return places;
+
+  const nextSelectedPlace = { ...selectedPlace, ...patch };
+  const previousDateTime = parseLocalDateTime(selectedPlace.date, selectedPlace.time);
+  const nextDateTime = parseLocalDateTime(nextSelectedPlace.date, nextSelectedPlace.time);
+  if (!previousDateTime || !nextDateTime) {
+    return places.map((place, placeIndex) => placeIndex === index ? nextSelectedPlace : place);
+  }
+
+  const deltaMs = nextDateTime.getTime() - previousDateTime.getTime();
+  return places.map((place, placeIndex) => {
+    if (placeIndex < index) return place;
+    if (placeIndex === index) return nextSelectedPlace;
+    if (deltaMs === 0) return place;
+
+    const downstreamDateTime = parseLocalDateTime(place.date, place.time);
+    if (!downstreamDateTime) return place;
+    return { ...place, ...dateAndTimeFromDate(new Date(downstreamDateTime.getTime() + deltaMs)) };
+  });
+}
+
 function nextPlanStopDateTimeFromPlaces(places: SelectedPlanPlaceState[], fallbackDate = toDateInputValue()) {
   const previous = places[places.length - 1];
   const previousDateTime = previous ? parseLocalDateTime(previous.date, previous.time) : null;
@@ -1310,22 +1451,16 @@ function getPlanModeLabel(plan: PlanDto, t: PlanTranslationFunction) {
   return t('plans.detail.values.hybrid');
 }
 
-function getPlanStatusTone(status: string) {
-  if (status === 'open' || status === 'started' || status === 'completed') return 'success' as const;
-  if (status === 'full') return 'warning' as const;
-  if (status === 'cancelled' || status === 'hidden') return 'danger' as const;
-  if (status === 'expired') return 'time' as const;
-  return 'muted' as const;
-}
-
 function getPlanJoinModeLabel(plan: PlanDto, t: PlanTranslationFunction) {
   return plan.joinApprovalMode === 'automatic' ? t('plans.detail.values.freeJoin') : t('plans.detail.values.requestToJoin');
 }
 
-function getPlanJoinActionCopy(plan: PlanDto, t: PlanTranslationFunction) {
-  if (plan.status === 'full') return t('plans.detail.actions.full');
-  if (plan.status === 'started') return t('plans.detail.actions.started');
-  if (plan.status !== 'open') return t('plans.detail.actions.statusUnavailable', { status: planStatusLabel(plan.status, t) });
+function getPlanJoinActionCopy(plan: PlanDto, t: PlanTranslationFunction, presentationState: PlanPresentationState) {
+  if (presentationState === 'completed') return t('plans.detail.actions.completed');
+  if (presentationState === 'started') return t('plans.detail.actions.started');
+  if (presentationState === 'join_closed') return t('plans.detail.actions.joinClosed');
+  if (presentationState === 'full') return t('plans.detail.actions.full');
+  if (presentationState !== 'open') return t('plans.detail.actions.statusUnavailable', { status: planPresentationStateLabel(presentationState, t) });
   return plan.joinApprovalMode === 'automatic' ? t('plans.detail.actions.freeJoinOpen') : t('plans.detail.actions.requestJoinOpen');
 }
 
@@ -1767,10 +1902,11 @@ function PlanRow({ plan, onPress }: { plan: PlanDto; onPress: () => void }) {
   const theme = useThemeTokens();
   const { language, t } = useTranslation();
   const firstPlace = plan.places?.[0];
+  const presentationState = getPlanPresentationState(plan);
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.rowCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
       <View style={styles.rowTop}>
-        <SemanticBadge label={planStatusLabel(plan.status, t)} tone={plan.status === 'open' ? 'success' : 'muted'} size="sm" />
+        <SemanticBadge label={planPresentationStateLabel(presentationState, t)} tone={getPlanPresentationTone(presentationState)} size="sm" />
         {plan.myParticipantStatus ? <SemanticBadge label={participantStatusLabel(plan.myParticipantStatus, t)} tone="proposal" size="sm" /> : null}
       </View>
       <AppText style={styles.rowTitle}>{plan.title}</AppText>
@@ -2080,7 +2216,7 @@ const PlanIdeaDeckSection = React.memo(function PlanIdeaDeckSection({ ideaKey, i
   const idea = starterPlanIdeas[ideaKey];
   const plan = useMemo(() => planIdeaPreviewPlan(idea), [idea]);
   const handlePress = useCallback(() => onPressIdea(ideaKey), [ideaKey, onPressIdea]);
-  return <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} topBadgeLabel={t('plans.deck.ideaBadge', { pack: idea.pack })} topBadgeTone="plan" showModeBadge={false} />;
+  return <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} topBadgeLabel={t('plans.deck.ideaBadge', { pack: idea.pack })} topBadgeTone="plan" showModeBadge={false} showStatusBadge={false} />;
 });
 
 type PlaceModeFilter = 'all' | PlanPlaceMode;
@@ -2532,46 +2668,18 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
   const activeFilters = normalizePlanFilters(routeParams?.filters);
   const activeSearchQuery = normalizePlanSearchQuery(routeParams?.q);
   const activeFilterCount = activePlanFilterCount(activeFilters, activeSearchQuery);
-  const [menuOpen, setMenuOpen] = useState(false);
 
   if (!isPlansVisible()) return <DisabledPlansScreen onBack={() => navigation.goBack()} />;
-
-  const menuItems = getNormalWorkspaceMenuItems('plans');
-
-  function openWorkspaceItem(itemId: string) {
-    setMenuOpen(false);
-    if (itemId === 'plan_guide') {
-      navigation.navigate('OnboardingGuide', { guide: 'plans', replay: true });
-      return;
-    }
-    if (itemId === 'my_plans') {
-      navigation.navigate('MyPlans');
-      return;
-    }
-    if (itemId === 'joined_plans') {
-      navigation.navigate('JoinedPlans');
-      return;
-    }
-    if (itemId === 'my_places') {
-      navigation.navigate('MyPlaces');
-      return;
-    }
-    if (itemId === 'plan_ideas') {
-      navigateToPlansTab(navigation, { filters: [], q: undefined, focusIdeas: Date.now() });
-      return;
-    }
-  }
 
   const header = (
     <View style={styles.feedHeader}>
       <View style={styles.feedTitleWrap}>
-        <AppText style={styles.feedTitle}>{t('plans.common.title')}</AppText>
+        <AppText accessibilityRole="header" style={styles.feedTitle}>{t('plans.common.title')}</AppText>
       </View>
       <View style={styles.headerActions}>
-        <HeaderAction icon="filter" label={activeFilterCount ? t('plans.feed.actions.filterActive', { count: activeFilterCount }) : t('plans.feed.actions.filter')} badgeCount={activeFilterCount} onPress={() => { setMenuOpen(false); navigation.navigate('PlanFilters', { filters: activeFilters, q: activeSearchQuery || undefined }); }} />
-        <HeaderAction icon="activity" label={t('plans.feed.actions.menu')} onPress={() => setMenuOpen(true)} />
+        <HeaderAction icon="filter" label={activeFilterCount ? t('plans.feed.actions.filterActive', { count: activeFilterCount }) : t('plans.feed.actions.filter')} badgeCount={activeFilterCount} onPress={() => navigation.navigate('PlanFilters', { filters: activeFilters, q: activeSearchQuery || undefined })} />
         <HeaderAction icon="add" label={t('plans.feed.actions.create')} primaryTone="plan" iconSize={23} onPress={() => navigation.navigate('CreatePlan')} />
-        <AccountHeaderActionButton onPress={() => { setMenuOpen(false); navigation.navigate('Account'); }} />
+        <AccountHeaderActionButton onPress={() => navigation.navigate('Account')} />
       </View>
     </View>
   );
@@ -2579,58 +2687,20 @@ export function PlansScreen(props: Partial<PlansScreenProps> = {}) {
   const smartHeaderResetKey = `${activeFilters.join('|')}::${activeSearchQuery}::${routeParams?.focusIdeas ?? 0}`;
 
   return (
-    <>
-      <AppSmartHeaderScreen header={header} resetKey={smartHeaderResetKey}>
-        {(scrollProps) => (
-          <View style={styles.bodyWrap}>
-            <PlanList
-              scope="feed"
-              navigation={navigation}
-              filters={activeFilters}
-              searchQuery={activeSearchQuery}
-              focusStarterIdeaRequestKey={routeParams?.focusIdeas}
-              scrollProps={scrollProps}
-            />
-          </View>
-        )}
-      </AppSmartHeaderScreen>
-      <PlanWorkspaceMenuModal
-        visible={menuOpen}
-        items={menuItems}
-        onClose={() => setMenuOpen(false)}
-        onSelect={(item) => openWorkspaceItem(item.id)}
-      />
-    </>
-  );
-}
-
-function PlanWorkspaceMenuModal({ visible, items, onClose, onSelect }: { visible: boolean; items: readonly NormalWorkspaceMenuItem[]; onClose: () => void; onSelect: (item: NormalWorkspaceMenuItem) => void }) {
-  const theme = useThemeTokens();
-  const insets = useSafeAreaInsets();
-  const { t } = useTranslation();
-
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
-      <View style={[styles.planWorkspaceMenuScreen, { backgroundColor: theme.color.background, paddingTop: insets.top + 18, paddingBottom: Math.max(insets.bottom, 10) }]}>
-        <View style={styles.planWorkspaceMenuHeaderRow}>
-          <View style={styles.planWorkspaceMenuHeaderCopy}>
-            <AppText style={styles.planWorkspaceMenuTitle}>{t('plans.workspace.menu.title')}</AppText>
-            <AppText style={[styles.planWorkspaceMenuBody, { color: theme.color.muted }]}>{t('plans.workspace.menu.body')}</AppText>
-          </View>
-          <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.close')} onPress={onClose} style={({ pressed }) => [styles.planWorkspaceMenuClose, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-            <MobileIcon name="close" size={18} color={theme.color.text} />
-          </Pressable>
+    <AppSmartHeaderScreen header={header} resetKey={smartHeaderResetKey}>
+      {(scrollProps) => (
+        <View style={styles.bodyWrap}>
+          <PlanList
+            scope="feed"
+            navigation={navigation}
+            filters={activeFilters}
+            searchQuery={activeSearchQuery}
+            focusStarterIdeaRequestKey={routeParams?.focusIdeas}
+            scrollProps={scrollProps}
+          />
         </View>
-        <ScrollView contentContainerStyle={styles.planWorkspaceMenuContent} showsVerticalScrollIndicator={false}>
-          <View style={styles.planWorkspaceMenuGroup}>
-            <AppText style={[styles.planWorkspaceMenuGroupTitle, { color: theme.color.muted }]}>{t('plans.workspace.menu.group')}</AppText>
-            <View style={styles.planWorkspaceMenuItems}>
-              {items.map((item) => <MenuItem key={item.id} item={item} onPress={() => onSelect(item)} />)}
-            </View>
-          </View>
-        </ScrollView>
-      </View>
-    </Modal>
+      )}
+    </AppSmartHeaderScreen>
   );
 }
 
@@ -2746,21 +2816,6 @@ export function PlanFiltersScreen(props: Partial<SimpleScreenProps<'PlanFilters'
         </View>
       </View>
     </AppFixedHeaderScreen>
-  );
-}
-
-function MenuItem({ item, onPress }: { item: NormalWorkspaceMenuItem; onPress: () => void }) {
-  const theme = useThemeTokens();
-  const { t } = useTranslation();
-  return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.menuItem, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-      <View style={[styles.menuIcon, { backgroundColor: theme.semantic[item.tone].softBg, borderColor: theme.semantic[item.tone].border }]}><MobileIcon name={item.icon} size={17} color={theme.semantic[item.tone].text} /></View>
-      <View style={styles.menuCopy}>
-        <AppText style={styles.menuTitle}>{item.titleKey ? t(item.titleKey) : item.title}</AppText>
-        <AppText style={[styles.menuBody, { color: theme.color.muted }]}>{item.bodyKey ? t(item.bodyKey) : item.body}</AppText>
-      </View>
-      <MobileIcon name="chevron-right" size={20} color={theme.color.muted} />
-    </Pressable>
   );
 }
 
@@ -3223,8 +3278,10 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   const isCancelled = plan?.status === 'cancelled';
   const participantStatus = plan?.myParticipantStatus ?? null;
   const isJoined = participantStatus === 'accepted';
-  const canJoin = Boolean(plan && auth.user && !isOwner && canJoinPlanFromParticipantStatus(participantStatus) && plan.status === 'open');
-  const canLeave = Boolean(plan && !isCancelled && !isOwner && isJoined);
+  const presentationState = plan ? getPlanPresentationState(plan) : null;
+  const presentationLabel = presentationState ? planPresentationStateLabel(presentationState, t) : '';
+  const canJoin = Boolean(plan && auth.user && !isOwner && presentationState === 'open' && canJoinPlanFromParticipantStatus(participantStatus));
+  const canLeave = Boolean(plan && !isCancelled && presentationState !== 'completed' && !isOwner && isJoined);
   const canRemovePlan = Boolean(plan && isOwner && plan.status !== 'cancelled' && plan.status !== 'hidden');
   const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus, t) : '';
   const places = plan ? sortedPlanPlaces(plan) : [];
@@ -3234,6 +3291,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
   const hasAffectedParticipants = Boolean(plan?.participants?.some((participant) => participant.status === 'accepted' || participant.status === 'pending'));
   const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
   const showReportActions = Boolean(auth.user && plan && !isOwner);
+  const canVerifyPresence = Boolean(plan && auth.user && (isOwner || isJoined) && presentationState !== 'completed' && ['open', 'full', 'started'].includes(plan.status));
+  const isDiscussionReadOnly = Boolean(plan && (presentationState === 'completed' || !['open', 'full', 'started'].includes(plan.status)));
   const header = (
     <AppHeader
       title={t('plans.detail.headerTitle')}
@@ -3273,7 +3332,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.planDetailHero}>
-            <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : t('plans.detail.hero.eyebrow', { status: planStatusLabel(plan.status, t) })}</AppText>
+            <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : t('plans.detail.hero.eyebrow', { status: presentationLabel })}</AppText>
             <AppText style={styles.planDetailTitle}>{plan.title}</AppText>
             <AppText style={[styles.planDetailStart, { color: theme.color.muted }]}>{t('plans.detail.hero.starts', { date: formatDate(plan.startsAt, language, t) })}</AppText>
             <View style={styles.planDetailOwnerLine}>
@@ -3281,7 +3340,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
               <AppText style={styles.planDetailOwnerName}>{getOwnerName(plan, t)}</AppText>
             </View>
             <View style={styles.planDetailChips}>
-              <SemanticBadge label={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status, t)} tone={getPlanStatusTone(plan.status)} size="sm" />
+              <SemanticBadge label={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : presentationLabel} tone={isCancelled && isOwner ? 'danger' : getPlanPresentationTone(presentationState!)} size="sm" />
               <SemanticBadge label={getPlanJoinModeLabel(plan, t)} tone="proposal" size="sm" />
               <SemanticBadge label={t(places.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: places.length })} tone="place" size="sm" />
               <SemanticBadge label={getPlanModeLabel(plan, t)} tone="muted" size="sm" />
@@ -3319,7 +3378,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                 isLast={index === places.length - 1}
                 planStartsAt={plan.startsAt}
                 showReport={showReportActions}
-                canVerifyPresence={Boolean(!isCancelled && auth.user && (isOwner || isJoined))}
+                canVerifyPresence={canVerifyPresence}
                 isVerifyingPresence={verifyingPlaceId === place.id}
                 presenceNotice={presenceNotices[place.id]}
                 onVerifyPresence={(nextPlace) => { void verifyPlanPlacePresence(nextPlace); }}
@@ -3333,8 +3392,11 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
             <AppText style={styles.sectionTitle}>{t('plans.detail.sections.details')}</AppText>
             <View style={styles.planDetailInfoList}>
               <PlanDetailInfoRow label={t('plans.detail.fields.status')} value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status, t)} />
+              <PlanDetailInfoRow label={t('plans.detail.fields.joining')} value={presentationState === 'open' ? t('plans.detail.values.joiningOpen') : presentationState === 'full' ? t('plans.detail.values.joiningFull') : t('plans.detail.values.joiningClosed')} />
               <PlanDetailInfoRow label={t('plans.detail.fields.visibility')} value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : plan.status === 'hidden' ? t('plans.detail.values.hidden') : t('plans.detail.values.public')} />
               <PlanDetailInfoRow label={t('plans.detail.fields.joinMode')} value={getPlanJoinModeLabel(plan, t)} />
+              <PlanDetailInfoRow label={t('plans.detail.fields.joinCloses')} value={formatDate(effectivePlanJoinClosesAt(plan).toISOString(), language, t)} />
+              <PlanDetailInfoRow label={t('plans.detail.fields.capacity')} value={plan.maxParticipants ? t('plans.detail.values.capacityLimited', { count: plan.maxParticipants }) : t('plans.detail.values.capacityUnlimited')} />
               <PlanDetailInfoRow label={t('plans.detail.fields.time')} value={formatPlanDateRange(plan, language, t)} />
               <PlanDetailInfoRow label={t('plans.detail.fields.placeMode')} value={getPlanModeLabel(plan, t)} />
               <PlanDetailInfoRow label={t('plans.detail.fields.created')} value={formatDate(plan.createdAt, language, t)} />
@@ -3370,7 +3432,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                 <AppText style={styles.sectionTitle}>{t('plans.detail.sections.discussion')}</AppText>
                 <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{t(publicMessageCount === 1 ? 'plans.detail.discussion.summaryOne' : 'plans.detail.discussion.summaryMany', { count: publicMessageCount })}</AppText>
               </View>
-              <SemanticBadge label={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : t('plans.detail.values.public')} tone={isCancelled ? "muted" : "plan"} size="sm" />
+              <SemanticBadge label={isDiscussionReadOnly ? t('plans.detail.discussion.readOnlyBadge') : t('plans.detail.values.public')} tone={isDiscussionReadOnly ? "muted" : "plan"} size="sm" />
             </View>
             <Pressable
               accessibilityRole="button"
@@ -3382,8 +3444,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                 <MobileIcon name="discussion" size={18} color={theme.semantic.plan.text} />
               </View>
               <View style={styles.feedTitleWrap}>
-                <AppText style={styles.planDiscussionTitle}>{t('plans.detail.discussion.open')}</AppText>
-                <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.discussion.cancelledBody') : t('plans.detail.discussion.body')}</AppText>
+                <AppText style={styles.planDiscussionTitle}>{t(isDiscussionReadOnly ? 'plans.detail.discussion.history' : 'plans.detail.discussion.open')}</AppText>
+                <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.discussion.cancelledBody') : presentationState === 'completed' ? t('plans.detail.discussion.completedBody') : t('plans.detail.discussion.body')}</AppText>
               </View>
               <MobileIcon name="chevron-right" size={18} color={theme.color.muted} />
             </Pressable>
@@ -3395,7 +3457,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
             <View style={styles.detailSectionHeader}>
               <View style={styles.detailSectionCopy}>
                 <AppText style={styles.sectionTitle}>{t('plans.detail.sections.actions')}</AppText>
-                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.actions.cancelledBody') : isOwner ? t('plans.detail.actions.ownerBody') : getPlanJoinActionCopy(plan, t)}</AppText>
+                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.actions.cancelledBody') : isOwner ? t('plans.detail.actions.ownerBody') : getPlanJoinActionCopy(plan, t, presentationState!)}</AppText>
               </View>
               {!isOwner ? <SemanticBadge label={getPlanJoinModeLabel(plan, t)} tone="proposal" size="sm" /> : <SemanticBadge label={t('plans.detail.values.owner')} tone="plan" size="sm" />}
             </View>
@@ -3446,7 +3508,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                   <MobileIcon name="proposal-accepted" size={18} color={theme.semantic.success.text} />
                   <View style={styles.feedTitleWrap}>
                     <AppText style={[styles.joinedStateText, { color: theme.semantic.success.text }]}>{t('plans.detail.actions.joinedTitle')}</AppText>
-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.detail.actions.joinedBody')}</AppText>
+                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t(presentationState === 'completed' ? 'plans.detail.actions.joinedCompletedBody' : 'plans.detail.actions.joinedBody')}</AppText>
                   </View>
                 </View>
               ) : null}
@@ -3461,7 +3523,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
                   <AppText style={[styles.metaText, { color: theme.color.muted }]}>{participantStateCopy}</AppText>
                 </View>
               ) : null}
-              {!auth.user && plan.status === 'open' ? <InfoNotice tone="info" title={t('plans.detail.actions.loginTitle')} body={t('plans.detail.actions.loginBody')} /> : null}
+              {!auth.user && presentationState === 'open' ? <InfoNotice tone="info" title={t('plans.detail.actions.loginTitle')} body={t('plans.detail.actions.loginBody')} /> : null}
               {actionMessage ? <InfoNotice tone="success" title={t('common.states.done')} body={actionMessage} /> : null}
               {actionError ? <InfoNotice tone="warning" title={t('plans.detail.errors.actionTitle')} body={actionError} /> : null}
               {showReportActions ? <ReportContentPanel targetType="plan" targetId={plan.id} labelKey="report.button" helperKey="report.helper.content" /> : null}
@@ -3607,7 +3669,7 @@ function TextField({
   onChangeText: (value: string) => void;
   placeholder?: string;
   multiline?: boolean;
-  keyboardType?: 'default' | 'numbers-and-punctuation' | 'url';
+  keyboardType?: 'default' | 'number-pad' | 'numbers-and-punctuation' | 'url';
   maxLength?: number;
   compactMultiline?: boolean;
   onKeyboardInputFocus?: (input: TextInput | null, additionalOffset?: number) => void;
@@ -3963,6 +4025,176 @@ function PlanEndPickerSheet({
         <PlanEndNativeControls end={end} schedule={schedule} onChange={onChange} />
       )}
     </PlanPickerSheetFrame>
+  );
+}
+
+function PlanJoinDeadlineCustomControls({
+  value,
+  schedule,
+  onChange,
+}: {
+  value: PlanJoinDeadlineState;
+  schedule: ReturnType<typeof buildMobilePlanSchedule>;
+  onChange: (value: PlanJoinDeadlineState) => void;
+}) {
+  const theme = useThemeTokens();
+  const { t } = useTranslation();
+  const [dateOpen, setDateOpen] = useState(false);
+  const [timeOpen, setTimeOpen] = useState(false);
+  const fallbackStart = schedule.startsAt ? new Date(schedule.startsAt) : new Date();
+  const safeFallback = Number.isNaN(fallbackStart.getTime()) ? new Date() : fallbackStart;
+  const fallbackDate = toDateInputValueFromDate(safeFallback);
+  const fallbackTime = toTimeInputValueFromDate(safeFallback);
+  const pickerDate = value.date || fallbackDate;
+  const pickerTime = value.time || fallbackTime;
+
+  function handleChange(patch: { date?: string; time?: string }) {
+    onChange({
+      preset: 'custom',
+      date: (patch.date ?? value.date) || fallbackDate,
+      time: (patch.time ?? value.time) || fallbackTime,
+    });
+  }
+
+  return (
+    <View style={styles.quickPickerGroup}>
+      <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{t('plans.create.joinDeadline.customDateTime')}</AppText>
+      <View style={styles.quickChoiceRow}>
+        <QuickChoiceButton label={value.date ? formatInputDateLabel(value.date) : t('plans.create.joinDeadline.date')} active={dateOpen || Boolean(value.date)} onPress={() => { setTimeOpen(false); setDateOpen((open) => !open); }} />
+        <QuickChoiceButton label={value.time ? formatInputTimeLabel(value.time) : t('plans.create.joinDeadline.time')} active={timeOpen || Boolean(value.time)} onPress={() => { setDateOpen(false); setTimeOpen((open) => !open); }} />
+      </View>
+      {dateOpen ? <PlanNativeDateTimePicker mode="date" date={pickerDate} time={pickerTime} onChange={handleChange} onClose={() => setDateOpen(false)} /> : null}
+      {timeOpen ? <PlanNativeDateTimePicker mode="time" date={pickerDate} time={pickerTime} onChange={handleChange} onClose={() => setTimeOpen(false)} /> : null}
+    </View>
+  );
+}
+
+function PlanJoinDeadlineCompactRow({
+  summary,
+  onOpen,
+}: {
+  summary: ReturnType<typeof resolvePlanJoinDeadline>;
+  onOpen: () => void;
+}) {
+  const theme = useThemeTokens();
+  const { t } = useTranslation();
+  return (
+    <View style={styles.planEndSummaryRow}>
+      <View style={styles.timelineCopy}>
+        <AppText style={styles.rowTitle}>{t('plans.create.joinDeadline.title')}</AppText>
+        <AppText style={[styles.metaText, { color: summary.error ? theme.semantic.warning.text : theme.color.muted }]}>
+          {summary.error || `${summary.presetLabel} · ${summary.deadlineLabel}`}
+        </AppText>
+      </View>
+      <QuickChoiceButton label={t('plans.create.joinDeadline.change')} onPress={onOpen} />
+    </View>
+  );
+}
+
+function PlanJoinDeadlinePickerSheet({
+  visible,
+  value,
+  schedule,
+  onChange,
+  onClose,
+}: {
+  visible: boolean;
+  value: PlanJoinDeadlineState;
+  schedule: ReturnType<typeof buildMobilePlanSchedule>;
+  onChange: (value: PlanJoinDeadlineState) => void;
+  onClose: () => void;
+}) {
+  const theme = useThemeTokens();
+  const { t } = useTranslation();
+  const summary = resolvePlanJoinDeadline(value, schedule.startsAt, t);
+  const presets: PlanJoinDeadlinePreset[] = ['start', '1h', '3h', '1d'];
+
+  function choosePreset(preset: PlanJoinDeadlinePreset) {
+    onChange({ ...value, preset });
+    onClose();
+  }
+
+  function chooseCustom() {
+    if (value.date && value.time) {
+      onChange({ ...value, preset: 'custom' });
+      return;
+    }
+    const start = schedule.startsAt ? new Date(schedule.startsAt) : new Date();
+    const safeStart = Number.isNaN(start.getTime()) ? new Date() : start;
+    const fallback = dateAndTimeFromDate(safeStart);
+    onChange({ preset: 'custom', date: value.date || fallback.date, time: value.time || fallback.time });
+  }
+
+  return (
+    <PlanPickerSheetFrame
+      visible={visible}
+      title={t('plans.create.joinDeadline.title')}
+      subtitle={t('plans.create.joinDeadline.subtitle')}
+      onClose={onClose}
+    >
+      <View style={styles.quickPickerGroup}>
+        <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{t('plans.create.joinDeadline.presets')}</AppText>
+        <View style={styles.quickChoiceRow}>
+          {presets.map((preset) => (
+            <QuickChoiceButton key={preset} label={planJoinDeadlinePresetLabel(preset, t)} active={value.preset === preset} onPress={() => choosePreset(preset)} />
+          ))}
+          <QuickChoiceButton label={t('plans.create.joinDeadline.custom')} active={value.preset === 'custom'} onPress={chooseCustom} />
+        </View>
+      </View>
+      {value.preset === 'custom' ? <PlanJoinDeadlineCustomControls value={value} schedule={schedule} onChange={onChange} /> : null}
+      <AppText style={[styles.metaText, { color: summary.error ? theme.semantic.warning.text : theme.color.muted }]}>
+        {summary.error || t('plans.create.joinDeadline.summary', { preset: summary.presetLabel, date: summary.deadlineLabel })}
+      </AppText>
+    </PlanPickerSheetFrame>
+  );
+}
+
+function PlanParticipantCapacityControl({
+  value,
+  summary,
+  onChange,
+  onKeyboardInputFocus,
+  onKeyboardInputBlur,
+}: {
+  value: PlanParticipantCapacityState;
+  summary: ReturnType<typeof resolvePlanParticipantCapacity>;
+  onChange: (value: PlanParticipantCapacityState) => void;
+  onKeyboardInputFocus?: (input: TextInput | null, additionalOffset?: number) => void;
+  onKeyboardInputBlur?: (input: TextInput | null) => void;
+}) {
+  const theme = useThemeTokens();
+  const { t } = useTranslation();
+
+  function chooseMode(mode: PlanParticipantCapacityState['mode']) {
+    onChange({ ...value, mode, limit: value.limit || '8' });
+  }
+
+  return (
+    <View style={styles.planCapacityControl}>
+      <View style={styles.timelineCopy}>
+        <AppText style={styles.rowTitle}>{t('plans.create.capacity.title')}</AppText>
+        <AppText style={[styles.metaText, { color: summary.error ? theme.semantic.warning.text : theme.color.muted }]}>
+          {summary.error || (value.mode === 'unlimited' ? t('plans.create.capacity.unlimitedHelp') : t('plans.create.capacity.limitedHelp', { count: summary.maxParticipants ?? (value.limit || '?') }))}
+        </AppText>
+      </View>
+      <View style={styles.quickChoiceRow}>
+        <QuickChoiceButton label={t('plans.create.capacity.unlimited')} active={value.mode === 'unlimited'} onPress={() => chooseMode('unlimited')} />
+        <QuickChoiceButton label={t('plans.create.capacity.limited')} active={value.mode === 'limited'} onPress={() => chooseMode('limited')} />
+      </View>
+      {value.mode === 'limited' ? (
+        <TextField
+          label={t('plans.create.capacity.maximum')}
+          value={value.limit}
+          onChangeText={(nextValue) => onChange({ ...value, limit: nextValue.replace(/\D/g, '').slice(0, 3) })}
+          placeholder="8"
+          keyboardType="number-pad"
+          maxLength={3}
+          onKeyboardInputFocus={onKeyboardInputFocus}
+          onKeyboardInputBlur={onKeyboardInputBlur}
+          keyboardScrollOffset={10}
+        />
+      ) : null}
+    </View>
   );
 }
 
@@ -4450,6 +4682,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   const [saving, setSaving] = useState(false);
   const [advancedDetails, setAdvancedDetails] = useState<AdvancedPlanDetailsState>(() => makeAdvancedPlanDetails());
   const [planEnd, setPlanEnd] = useState<PlanEndState>({ date: '', time: '' });
+  const [joinDeadline, setJoinDeadline] = useState<PlanJoinDeadlineState>(() => makePlanJoinDeadlineState());
+  const [participantCapacity, setParticipantCapacity] = useState<PlanParticipantCapacityState>(() => makePlanParticipantCapacityState());
   const [stage, setStage] = useState<PlanCreateStage>('build');
   const [createPlanMenuOpen, setCreatePlanMenuOpen] = useState(false);
   const [draftPrompt, setDraftPrompt] = useState<PlanCreateDraftState | null>(null);
@@ -4461,6 +4695,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   const [detailPlaceIndex, setDetailPlaceIndex] = useState<number | null>(null);
   const [timeSheet, setTimeSheet] = useState<PlanStopTimeSheetState>(null);
   const [endPickerMode, setEndPickerMode] = useState<PlanEndPickerMode | null>(null);
+  const [joinDeadlinePickerOpen, setJoinDeadlinePickerOpen] = useState(false);
   const [advancedDetailsOpen, setAdvancedDetailsOpen] = useState(false);
   const handledCreatedPlaceNonceRef = useRef<number | undefined>(undefined);
   const handledInitialPlanIdeaRef = useRef<string | null>(null);
@@ -4498,6 +4733,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   const schedule = useMemo(() => buildMobilePlanSchedule(schedulablePlaces, t), [schedulablePlaces, t]);
   const explicitPlanEnd = useMemo(() => parseOptionalMobilePlanEnd(planEnd, schedule.startsAt, t), [planEnd, schedule.startsAt, t]);
   const endSummary = useMemo(() => mobilePlanEndSummary(schedule, planEnd, t), [schedule, planEnd, t]);
+  const joinDeadlineSummary = useMemo(() => resolvePlanJoinDeadline(joinDeadline, schedule.startsAt, t), [joinDeadline, schedule.startsAt, t]);
+  const participantCapacitySummary = useMemo(() => resolvePlanParticipantCapacity(participantCapacity, t), [participantCapacity, t]);
   const conflictWarning = useMemo(() => planConflictWarning(myPlansForConflict, schedule, explicitPlanEnd, t), [explicitPlanEnd, myPlansForConflict, schedule, t]);
   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
     places: placesForGeneratedDisplay,
@@ -4520,7 +4757,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     mode: planModeFromSelectedPlaces(placesForGeneratedDisplay),
     locationLabel: placesForGeneratedDisplay.length === 0 ? null : t(placesForGeneratedDisplay.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: placesForGeneratedDisplay.length }),
     startsAt: schedule.startsAt || new Date().toISOString(),
+    joinClosesAt: joinDeadlineSummary.joinClosesAt || schedule.startsAt || new Date().toISOString(),
     endsAt: explicitPlanEnd.endsAt || schedule.endsAt || null,
+    maxParticipants: participantCapacitySummary.maxParticipants,
     joinApprovalMode: 'automatic',
     status: 'open',
     createdAt: new Date().toISOString(),
@@ -4552,7 +4791,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
       media: place.existingMedia ? [place.existingMedia] : undefined,
       staticMap: place.existingStaticMap ?? null,
     })),
-  }) as PlanDto, [advancedDetails.category, advancedDetails.tags, explicitPlanEnd.endsAt, places, placesForGeneratedDisplay, previewDescription, previewTitle, schedule.endsAt, schedule.placeEndsAt, schedule.placeStartsAt, schedule.startsAt, t]);
+  }) as PlanDto, [advancedDetails.category, advancedDetails.tags, explicitPlanEnd.endsAt, joinDeadlineSummary.joinClosesAt, participantCapacitySummary.maxParticipants, places, placesForGeneratedDisplay, previewDescription, previewTitle, schedule.endsAt, schedule.placeEndsAt, schedule.placeStartsAt, schedule.startsAt, t]);
 
   const loadReusablePlaces = useCallback(async () => {
     if (!isPlansVisible()) return;
@@ -4596,14 +4835,14 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
   useEffect(() => {
     if (!createPlanDraftReadyRef.current || createPlanDraftHydratingRef.current) return undefined;
     if (createPlanDraftSaveTimeoutRef.current) clearTimeout(createPlanDraftSaveTimeoutRef.current);
-    const draft = buildCreatePlanDraftState(places, advancedDetails, planEnd, stage);
+    const draft = buildCreatePlanDraftState(places, advancedDetails, planEnd, joinDeadline, participantCapacity, stage);
     createPlanDraftSaveTimeoutRef.current = setTimeout(() => {
       void writeCreatePlanDraft(draft);
     }, 300);
     return () => {
       if (createPlanDraftSaveTimeoutRef.current) clearTimeout(createPlanDraftSaveTimeoutRef.current);
     };
-  }, [advancedDetails, places, planEnd, stage]);
+  }, [advancedDetails, joinDeadline, participantCapacity, places, planEnd, stage]);
 
   useEffect(() => {
     const ideaKey = parseStarterPlanIdeaKey(route.params?.initialPlanIdeaKey);
@@ -4679,6 +4918,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     setPlaces([]);
     setAdvancedDetails(makeAdvancedPlanDetails());
     setPlanEnd({ date: '', time: '' });
+    setJoinDeadline(makePlanJoinDeadlineState());
+    setParticipantCapacity(makePlanParticipantCapacityState());
     setStage('build');
     setPlaceSourceSheetOpen(false);
     setPlacePickerOpen(false);
@@ -4686,6 +4927,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     setDetailPlaceIndex(null);
     setTimeSheet(null);
     setEndPickerMode(null);
+    setJoinDeadlinePickerOpen(false);
     setAdvancedDetailsOpen(false);
     setMessage(null);
     setError(null);
@@ -4708,6 +4950,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     setPlaces(restoredPlaces);
     setAdvancedDetails(draft.advancedDetails);
     setPlanEnd(draft.planEnd);
+    setJoinDeadline(draft.joinDeadline);
+    setParticipantCapacity(draft.participantCapacity);
     setStage('build');
     try {
       const results = (await Promise.all(restoredPlaces.map(validateRestoredDraftPlace))).filter((result): result is DraftPlaceValidationResult => Boolean(result));
@@ -4828,6 +5072,11 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
 
   function updateSelectedPlace(index: number, patch: Partial<SelectedPlanPlaceState>) {
     setPlaces((current) => current.map((place, placeIndex) => placeIndex === index ? { ...place, ...patch } : place));
+    setError(null);
+  }
+
+  function updateSelectedPlaceSchedule(index: number, patch: Pick<Partial<SelectedPlanPlaceState>, 'date' | 'time'>) {
+    setPlaces((current) => cascadePlanStopDateTimeChange(current, index, patch));
     setError(null);
   }
 
@@ -4960,6 +5209,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     const addressRuleError = getPlanPlacesAddressRuleError(schedulablePlaces, t);
     if (addressRuleError) { setError(addressRuleError); return; }
     if (explicitPlanEnd.error) { setError(explicitPlanEnd.error); return; }
+    if (joinDeadlineSummary.error) { setError(joinDeadlineSummary.error); return; }
+    if (participantCapacitySummary.error) { setError(participantCapacitySummary.error); return; }
     setStage('preview');
   }
 
@@ -4971,6 +5222,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     const customCategory = advancedDetails.category.trim();
     const customTags = parsePlanTagsInput(advancedDetails.tags);
     const nextExplicitEnd = parseOptionalMobilePlanEnd(planEnd, nextSchedule.startsAt, t);
+    const nextJoinDeadline = resolvePlanJoinDeadline(joinDeadline, nextSchedule.startsAt, t);
+    const nextParticipantCapacity = resolvePlanParticipantCapacity(participantCapacity, t);
     if (usablePlaces.length === 0) { setError(t('plans.create.validation.addAtLeastOne')); return; }
     if (focusDraftPlacesNeedingReview()) return;
     if (focusMissingOfflineAddresses()) return;
@@ -4978,6 +5231,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
     const addressRuleError = getPlanPlacesAddressRuleError(usablePlaces, t);
     if (addressRuleError) { setError(addressRuleError); return; }
     if (nextExplicitEnd.error) { setError(nextExplicitEnd.error); return; }
+    if (nextJoinDeadline.error) { setError(nextJoinDeadline.error); return; }
+    if (nextParticipantCapacity.error) { setError(nextParticipantCapacity.error); return; }
     if (customTitle && customTitle.length < 3) { setError(t('plans.create.validation.titleTooShort')); return; }
     if (customDescription && customDescription.length < 10) { setError(t('plans.create.validation.descriptionTooShort')); return; }
     if (customTags.length > 8 || customTags.some((tag) => tag.length > 32)) { setError(t('plans.create.validation.tagsInvalid')); return; }
@@ -4999,7 +5254,9 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
         tags: customTags.length ? customTags : undefined,
         mode: planModeFromSelectedPlaces(usablePlaces),
         startsAt: nextSchedule.startsAt,
+        joinClosesAt: nextJoinDeadline.joinClosesAt || nextSchedule.startsAt,
         endsAt: nextExplicitEnd.endsAt || nextSchedule.endsAt || nextSchedule.startsAt,
+        maxParticipants: nextParticipantCapacity.maxParticipants ?? undefined,
         joinApprovalMode: 'automatic',
         status: 'open',
         places: usablePlaces.map((place, index) => ({
@@ -5144,13 +5401,27 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                 </Pressable>
 
                 {places.length > 0 ? (
-                  <View style={[styles.planTimelineLineItem, styles.planTimelineOptionalEnd, { borderTopColor: theme.color.border }]}>
-                    <PlanEndCompactRow
-                      endSummary={endSummary}
-                      onOpenCustom={() => setEndPickerMode('custom')}
-                      onReset={() => updatePlanEnd({ date: '', time: '' })}
-                    />
-                  </View>
+                  <>
+                    <View style={[styles.planTimelineLineItem, styles.planTimelineOptionalEnd, { borderTopColor: theme.color.border }]}>
+                      <PlanEndCompactRow
+                        endSummary={endSummary}
+                        onOpenCustom={() => setEndPickerMode('custom')}
+                        onReset={() => updatePlanEnd({ date: '', time: '' })}
+                      />
+                    </View>
+                    <View style={[styles.planTimelineLineItem, { borderTopColor: theme.color.border }]}>
+                      <PlanJoinDeadlineCompactRow summary={joinDeadlineSummary} onOpen={() => setJoinDeadlinePickerOpen(true)} />
+                    </View>
+                    <View style={[styles.planTimelineLineItem, { borderTopColor: theme.color.border }]}>
+                      <PlanParticipantCapacityControl
+                        value={participantCapacity}
+                        summary={participantCapacitySummary}
+                        onChange={setParticipantCapacity}
+                        onKeyboardInputFocus={createPlanKeyboardVisibility.onInputFocus}
+                        onKeyboardInputBlur={createPlanKeyboardVisibility.onInputBlur}
+                      />
+                    </View>
+                  </>
                 ) : null}
               </View>
 
@@ -5171,6 +5442,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
                     {endSummary ? <SemanticBadge label={`${endSummary.label}: ${endSummary.endLabel}`} tone="time" size="sm" /> : null}
                     <SemanticBadge label={t(places.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: places.length })} tone="place" size="sm" />
                     <SemanticBadge label={t('plans.detail.values.freeJoin')} tone="plan" size="sm" />
+                    <SemanticBadge label={t('plans.create.joinDeadline.previewBadge', { date: joinDeadlineSummary.deadlineLabel })} tone="plan" size="sm" />
+                    <SemanticBadge label={participantCapacitySummary.previewLabel} tone="proposal" size="sm" />
                     <SemanticBadge label={t('plans.status.open')} tone="plan" size="sm" />
                   </View>
                 </View>
@@ -5243,7 +5516,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
             time={timeSheetPlace.time}
             title={t(timeSheet.mode === 'date' ? 'plans.create.time.dateForPlace' : 'plans.create.time.timeForPlace', { index: timeSheet.placeIndex + 1 })}
             subtitle={timeSheetPlace.title || timeSheetPlace.sourcePlaceTitle || t('plans.create.time.stopSubtitle')}
-            onChange={(patch) => updateSelectedPlace(timeSheet.placeIndex, patch)}
+            onChange={(patch) => updateSelectedPlaceSchedule(timeSheet.placeIndex, patch)}
             onClose={() => setTimeSheet(null)}
           />
         ) : null}
@@ -5255,6 +5528,13 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
           onChange={updatePlanEnd}
           onSelectDuration={applyPlanDuration}
           onClose={() => setEndPickerMode(null)}
+        />
+        <PlanJoinDeadlinePickerSheet
+          visible={joinDeadlinePickerOpen}
+          value={joinDeadline}
+          schedule={schedule}
+          onChange={setJoinDeadline}
+          onClose={() => setJoinDeadlinePickerOpen(false)}
         />
         <AppConfirmSheet
           visible={Boolean(draftPrompt)}
@@ -5876,7 +6156,7 @@ const styles = StyleSheet.create({
   feedIntroStack: { gap: 10, marginBottom: 4 },
   feedHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   feedTitleWrap: { flex: 1, gap: 6 },
-  feedTitle: { fontSize: 35, lineHeight: 40, fontWeight: '900', letterSpacing: -1 },
+  feedTitle: { ...PRIMARY_HEADER_TITLE_STYLE },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerAction: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' },
   headerActionPressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
@@ -5886,16 +6166,6 @@ const styles = StyleSheet.create({
   filterChip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
   filterChipText: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
   filterNotice: { borderRadius: 22, borderWidth: 1, padding: 12, flexDirection: 'row', gap: 11, alignItems: 'center' },
-  planWorkspaceMenuScreen: { flex: 1, paddingHorizontal: 18 },
-  planWorkspaceMenuHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, paddingBottom: 12 },
-  planWorkspaceMenuHeaderCopy: { flex: 1, minWidth: 0, gap: 4 },
-  planWorkspaceMenuTitle: { fontSize: 28, fontWeight: '900', letterSpacing: -0.7 },
-  planWorkspaceMenuBody: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
-  planWorkspaceMenuClose: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  planWorkspaceMenuContent: { gap: 18, paddingBottom: 24 },
-  planWorkspaceMenuGroup: { gap: 9 },
-  planWorkspaceMenuGroupTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9, textTransform: 'uppercase', paddingHorizontal: 4 },
-  planWorkspaceMenuItems: { gap: 8 },
   createPlanMenuPanel: { marginBottom: 10, borderRadius: 22, borderWidth: 1, overflow: 'hidden' },
   menuItem: { minHeight: 72, borderRadius: 22, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
   menuIcon: { width: 40, height: 40, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
@@ -6186,6 +6456,7 @@ const styles = StyleSheet.create({
   quickChoiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   quickChoiceButton: { minHeight: 36, borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' },
   quickChoiceButtonText: { fontSize: 12, fontWeight: '900' },
+  planCapacityControl: { flex: 1, minWidth: 0, gap: 10 },
   advancedCard: { borderRadius: 0, borderWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 13, gap: 10 },
   advancedToggle: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10 },
   advancedPanel: { gap: 12, paddingTop: 2 },

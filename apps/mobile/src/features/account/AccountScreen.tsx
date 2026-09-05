@@ -7,6 +7,7 @@ import type { AuthUser } from '@hellowhen/contracts';
 import type { SemanticColorName } from '@hellowhen/theme';
 import { AppHeaderActionButton } from '../../components/AppHeaderActionButton';
 import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
+import { PRIMARY_HEADER_TITLE_STYLE } from '../../components/headerTypography';
 import { AppText } from '../../components/AppText';
 import { MobileIcon } from '../../components/MobileIcon';
 import { SemanticBadge } from '../../components/SemanticUI';
@@ -149,7 +150,7 @@ export function AccountScreen() {
     <View style={styles.headerRow}>
       <AppHeaderActionButton icon="back" accessibilityLabel={t('navigation.goBack')} onPress={goBack} />
       <View style={styles.headerCopy}>
-        <AppText style={styles.title}>{t('account.title')}</AppText>
+        <AppText accessibilityRole="header" style={styles.title}>{t('account.title')}</AppText>
         <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.headerBody')}</AppText>
       </View>
     </View>
@@ -378,7 +379,7 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 34, gap: 20 },
   headerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   headerCopy: { flex: 1, minWidth: 0, gap: 8 },
-  title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+  title: { ...PRIMARY_HEADER_TITLE_STYLE },
   subtitle: { lineHeight: 20, fontWeight: '600' },
   hubSection: { gap: 8 },
   hubSectionTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9, textTransform: 'uppercase', paddingHorizontal: 4 },

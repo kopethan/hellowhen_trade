@@ -1,0 +1,652 @@
+diff --git a/apps/mobile/src/features/plans/PlanPublicDiscussionScreen.tsx b/apps/mobile/src/features/plans/PlanPublicDiscussionScreen.tsx
+index c37259b..10db8d7 100644
+--- a/apps/mobile/src/features/plans/PlanPublicDiscussionScreen.tsx
++++ b/apps/mobile/src/features/plans/PlanPublicDiscussionScreen.tsx
+@@ -23,6 +23,7 @@ import { useAuth } from '../../providers/AuthProvider';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { UserIdentityPressable } from '../users/UserIdentityPressable';
++import { isPlanDiscussionWritableStatus } from './planPresentationState';
+ import type { TradeOwnerPreview } from '../trade/types';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'PlanPublicDiscussion'>;
+@@ -186,7 +187,8 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+   }, [navigation, route.params.planId, route.params.title]);
+ 
+   const isCancelled = planStatus === 'cancelled';
+-  const canWrite = Boolean(auth.user && !isCancelled);
++  const isCompleted = planStatus === 'completed';
++  const canWrite = Boolean(auth.user && isPlanDiscussionWritableStatus(planStatus));
+ 
+   let actionSheetActions: AppActionSheetAction[] = [];
+   if (actionSheet?.type === 'own') {
+@@ -306,7 +308,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+           {error ? <InfoNotice tone="danger" title={t('plans.discussion.errors.unavailableTitle')} body={error} /> : null}
+           {notice ? <AppText style={[styles.feedbackText, { color: theme.color.muted }]}>{notice}</AppText> : null}
+           {groupedRows.length === 0 && loading ? <LoadingDiscussion theme={theme} label={t('common.states.loading')} /> : null}
+-          {groupedRows.length === 0 && !loading ? <EmptyDiscussion theme={theme} t={t} /> : null}
++          {groupedRows.length === 0 && !loading ? <EmptyDiscussion theme={theme} t={t} canWrite={canWrite} /> : null}
+           {groupedRows.map((row) => row.type === 'date' ? (
+             <View key={row.key} style={styles.dateSeparator}><View style={[styles.dateLine, { backgroundColor: theme.color.border }]} /><AppText style={[styles.dateText, { color: theme.color.muted }]}>{row.label}</AppText><View style={[styles.dateLine, { backgroundColor: theme.color.border }]} /></View>
+           ) : (
+@@ -330,9 +332,13 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
+             />
+           ))}
+         </ScrollView>
+-        {isCancelled ? (
++        {!canWrite ? (
+           <View style={[styles.closedComposer, { backgroundColor: theme.color.background, borderColor: theme.color.border, paddingBottom: Math.max(10, insets.bottom + 8) }]}>
+-            <InfoNotice tone="warning" title={t('plans.discussion.cancelled.title')} body={t('plans.discussion.cancelled.body')} />
++            <InfoNotice
++              tone="warning"
++              title={t(isCancelled ? 'plans.discussion.cancelled.title' : isCompleted ? 'plans.discussion.completed.title' : 'plans.discussion.readOnly.title')}
++              body={t(isCancelled ? 'plans.discussion.cancelled.body' : isCompleted ? 'plans.discussion.completed.body' : 'plans.discussion.readOnly.body')}
++            />
+           </View>
+         ) : (
+           <View style={[styles.composer, { backgroundColor: theme.color.background, borderColor: theme.color.border, paddingBottom: Math.max(10, insets.bottom + 8) }]}>
+@@ -462,11 +468,11 @@ function LoadingDiscussion({ theme, label }: { theme: ThemeTokens; label: string
+   );
+ }
+ 
+-function EmptyDiscussion({ theme, t }: { theme: ThemeTokens; t: TFunction }) {
++function EmptyDiscussion({ theme, t, canWrite }: { theme: ThemeTokens; t: TFunction; canWrite: boolean }) {
+   return (
+     <View style={styles.emptyBox}>
+       <AppText style={styles.emptyTitle}>{t('plans.discussion.empty.title')}</AppText>
+-      <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{t('plans.discussion.empty.body')}</AppText>
++      <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{t(canWrite ? 'plans.discussion.empty.body' : 'plans.discussion.empty.readOnlyBody')}</AppText>
+     </View>
+   );
+ }
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index cc203bf..ac15cba 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+ import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type ListPlacesQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
+ import { formatLocalizedDateTime, type SupportedLanguage, type TranslationValues } from '@hellowhen/i18n';
+-import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, effectivePlanJoinClosesAt, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, isPlanJoinClosed, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, resolveInventoryOriginalCopy, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
++import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, effectivePlanJoinClosesAt, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, resolveInventoryOriginalCopy, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import type { AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
+ import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
+@@ -53,6 +53,7 @@ import { FeatureGuidePromptCard } from '../onboarding-guide/FeatureGuidePromptCa
+ import { useFeatureGuidePrompt } from '../onboarding-guide/onboardingGuideStorage';
+ import { PlanPlaceWeatherDetail } from './components/PlanPlaceWeatherDetail';
+ import { PlanSquareDeck } from './components/PlanSquareDeck';
++import { getPlanPresentationState, getPlanPresentationTone, planPresentationLabelKey, type PlanPresentationState } from './planPresentationState';
+ 
+ type PlansScreenProps = { navigation?: NativeStackNavigationProp<RootStackParamList>; route?: { params?: PlanTabRouteParams } };
+ type PlanDetailProps = NativeStackScreenProps<RootStackParamList, 'PlanDetail'>;
+@@ -199,7 +200,7 @@ function applyPlanFilters(plans: PlanDto[], filters: string[], query?: string |
+   const timeFilters = planFilterValues(filters, 'time');
+   return plans.filter((plan) => {
+     if (!planMatchesSearch(plan, query)) return false;
+-    if (statuses.length && !statuses.includes(plan.status)) return false;
++    if (statuses.length && !statuses.includes(getPlanPresentationState(plan))) return false;
+     if (modes.length && (!plan.mode || !modes.includes(plan.mode))) return false;
+     if (joinModes.includes('automatic') && plan.joinApprovalMode !== 'automatic') return false;
+     if (placeCounts.length) {
+@@ -258,6 +259,10 @@ function planStatusLabel(status: string, t: Translate) {
+   return knownStatuses.has(status) ? t(`plans.status.${status}`) : status;
+ }
+ 
++function planPresentationStateLabel(state: PlanPresentationState, t: Translate) {
++  return t(planPresentationLabelKey(state));
++}
++
+ function participantStatusLabel(status: string, t: Translate) {
+   const knownStatuses = new Set(['accepted', 'pending', 'declined', 'cancelled']);
+   return knownStatuses.has(status) ? t(`plans.participantStatus.${status}`) : status;
+@@ -1445,23 +1450,16 @@ function getPlanModeLabel(plan: PlanDto, t: PlanTranslationFunction) {
+   return t('plans.detail.values.hybrid');
+ }
+ 
+-function getPlanStatusTone(status: string) {
+-  if (status === 'open' || status === 'started' || status === 'completed') return 'success' as const;
+-  if (status === 'full') return 'warning' as const;
+-  if (status === 'cancelled' || status === 'hidden') return 'danger' as const;
+-  if (status === 'expired') return 'time' as const;
+-  return 'muted' as const;
+-}
+-
+ function getPlanJoinModeLabel(plan: PlanDto, t: PlanTranslationFunction) {
+   return plan.joinApprovalMode === 'automatic' ? t('plans.detail.values.freeJoin') : t('plans.detail.values.requestToJoin');
+ }
+ 
+-function getPlanJoinActionCopy(plan: PlanDto, t: PlanTranslationFunction, joinClosed: boolean) {
+-  if (joinClosed) return t('plans.detail.actions.joinClosed');
+-  if (plan.status === 'full') return t('plans.detail.actions.full');
+-  if (plan.status === 'started') return t('plans.detail.actions.started');
+-  if (plan.status !== 'open') return t('plans.detail.actions.statusUnavailable', { status: planStatusLabel(plan.status, t) });
++function getPlanJoinActionCopy(plan: PlanDto, t: PlanTranslationFunction, presentationState: PlanPresentationState) {
++  if (presentationState === 'completed') return t('plans.detail.actions.completed');
++  if (presentationState === 'started') return t('plans.detail.actions.started');
++  if (presentationState === 'join_closed') return t('plans.detail.actions.joinClosed');
++  if (presentationState === 'full') return t('plans.detail.actions.full');
++  if (presentationState !== 'open') return t('plans.detail.actions.statusUnavailable', { status: planPresentationStateLabel(presentationState, t) });
+   return plan.joinApprovalMode === 'automatic' ? t('plans.detail.actions.freeJoinOpen') : t('plans.detail.actions.requestJoinOpen');
+ }
+ 
+@@ -1903,10 +1901,11 @@ function PlanRow({ plan, onPress }: { plan: PlanDto; onPress: () => void }) {
+   const theme = useThemeTokens();
+   const { language, t } = useTranslation();
+   const firstPlace = plan.places?.[0];
++  const presentationState = getPlanPresentationState(plan);
+   return (
+     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.rowCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+       <View style={styles.rowTop}>
+-        <SemanticBadge label={planStatusLabel(plan.status, t)} tone={plan.status === 'open' ? 'success' : 'muted'} size="sm" />
++        <SemanticBadge label={planPresentationStateLabel(presentationState, t)} tone={getPlanPresentationTone(presentationState)} size="sm" />
+         {plan.myParticipantStatus ? <SemanticBadge label={participantStatusLabel(plan.myParticipantStatus, t)} tone="proposal" size="sm" /> : null}
+       </View>
+       <AppText style={styles.rowTitle}>{plan.title}</AppText>
+@@ -2216,7 +2215,7 @@ const PlanIdeaDeckSection = React.memo(function PlanIdeaDeckSection({ ideaKey, i
+   const idea = starterPlanIdeas[ideaKey];
+   const plan = useMemo(() => planIdeaPreviewPlan(idea), [idea]);
+   const handlePress = useCallback(() => onPressIdea(ideaKey), [ideaKey, onPressIdea]);
+-  return <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} topBadgeLabel={t('plans.deck.ideaBadge', { pack: idea.pack })} topBadgeTone="plan" showModeBadge={false} />;
++  return <PlanSquareDeck plan={plan} index={index} total={total} onOpen={handlePress} topBadgeLabel={t('plans.deck.ideaBadge', { pack: idea.pack })} topBadgeTone="plan" showModeBadge={false} showStatusBadge={false} />;
+ });
+ 
+ type PlaceModeFilter = 'all' | PlanPlaceMode;
+@@ -3359,9 +3358,10 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   const isCancelled = plan?.status === 'cancelled';
+   const participantStatus = plan?.myParticipantStatus ?? null;
+   const isJoined = participantStatus === 'accepted';
+-  const joinClosed = Boolean(plan && isPlanJoinClosed(plan));
+-  const canJoin = Boolean(plan && auth.user && !isOwner && !joinClosed && canJoinPlanFromParticipantStatus(participantStatus) && plan.status === 'open');
+-  const canLeave = Boolean(plan && !isCancelled && plan.status !== 'completed' && !isOwner && isJoined);
++  const presentationState = plan ? getPlanPresentationState(plan) : null;
++  const presentationLabel = presentationState ? planPresentationStateLabel(presentationState, t) : '';
++  const canJoin = Boolean(plan && auth.user && !isOwner && presentationState === 'open' && canJoinPlanFromParticipantStatus(participantStatus));
++  const canLeave = Boolean(plan && !isCancelled && presentationState !== 'completed' && !isOwner && isJoined);
+   const canRemovePlan = Boolean(plan && isOwner && plan.status !== 'cancelled' && plan.status !== 'hidden');
+   const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus, t) : '';
+   const places = plan ? sortedPlanPlaces(plan) : [];
+@@ -3371,6 +3371,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   const hasAffectedParticipants = Boolean(plan?.participants?.some((participant) => participant.status === 'accepted' || participant.status === 'pending'));
+   const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
+   const showReportActions = Boolean(auth.user && plan && !isOwner);
++  const canVerifyPresence = Boolean(plan && auth.user && (isOwner || isJoined) && presentationState !== 'completed' && ['open', 'full', 'started'].includes(plan.status));
++  const isDiscussionReadOnly = Boolean(plan && (presentationState === 'completed' || !['open', 'full', 'started'].includes(plan.status)));
+   const header = (
+     <AppHeader
+       title={t('plans.detail.headerTitle')}
+@@ -3410,7 +3412,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+           showsVerticalScrollIndicator={false}
+         >
+           <View style={styles.planDetailHero}>
+-            <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : t('plans.detail.hero.eyebrow', { status: planStatusLabel(plan.status, t) })}</AppText>
++            <AppText style={[styles.planDetailEyebrow, { color: theme.semantic.plan.text }]}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : t('plans.detail.hero.eyebrow', { status: presentationLabel })}</AppText>
+             <AppText style={styles.planDetailTitle}>{plan.title}</AppText>
+             <AppText style={[styles.planDetailStart, { color: theme.color.muted }]}>{t('plans.detail.hero.starts', { date: formatDate(plan.startsAt, language, t) })}</AppText>
+             <View style={styles.planDetailOwnerLine}>
+@@ -3418,7 +3420,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+               <AppText style={styles.planDetailOwnerName}>{getOwnerName(plan, t)}</AppText>
+             </View>
+             <View style={styles.planDetailChips}>
+-              <SemanticBadge label={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status, t)} tone={getPlanStatusTone(plan.status)} size="sm" />
++              <SemanticBadge label={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : presentationLabel} tone={isCancelled && isOwner ? 'danger' : getPlanPresentationTone(presentationState!)} size="sm" />
+               <SemanticBadge label={getPlanJoinModeLabel(plan, t)} tone="proposal" size="sm" />
+               <SemanticBadge label={t(places.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: places.length })} tone="place" size="sm" />
+               <SemanticBadge label={getPlanModeLabel(plan, t)} tone="muted" size="sm" />
+@@ -3456,7 +3458,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+                 isLast={index === places.length - 1}
+                 planStartsAt={plan.startsAt}
+                 showReport={showReportActions}
+-                canVerifyPresence={Boolean(!isCancelled && auth.user && (isOwner || isJoined))}
++                canVerifyPresence={canVerifyPresence}
+                 isVerifyingPresence={verifyingPlaceId === place.id}
+                 presenceNotice={presenceNotices[place.id]}
+                 onVerifyPresence={(nextPlace) => { void verifyPlanPlacePresence(nextPlace); }}
+@@ -3470,6 +3472,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+             <AppText style={styles.sectionTitle}>{t('plans.detail.sections.details')}</AppText>
+             <View style={styles.planDetailInfoList}>
+               <PlanDetailInfoRow label={t('plans.detail.fields.status')} value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status, t)} />
++              <PlanDetailInfoRow label={t('plans.detail.fields.joining')} value={presentationState === 'open' ? t('plans.detail.values.joiningOpen') : presentationState === 'full' ? t('plans.detail.values.joiningFull') : t('plans.detail.values.joiningClosed')} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.visibility')} value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : plan.status === 'hidden' ? t('plans.detail.values.hidden') : t('plans.detail.values.public')} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.joinMode')} value={getPlanJoinModeLabel(plan, t)} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.joinCloses')} value={formatDate(effectivePlanJoinClosesAt(plan).toISOString(), language, t)} />
+@@ -3509,7 +3512,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+                 <AppText style={styles.sectionTitle}>{t('plans.detail.sections.discussion')}</AppText>
+                 <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{t(publicMessageCount === 1 ? 'plans.detail.discussion.summaryOne' : 'plans.detail.discussion.summaryMany', { count: publicMessageCount })}</AppText>
+               </View>
+-              <SemanticBadge label={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : t('plans.detail.values.public')} tone={isCancelled ? "muted" : "plan"} size="sm" />
++              <SemanticBadge label={isDiscussionReadOnly ? t('plans.detail.discussion.readOnlyBadge') : t('plans.detail.values.public')} tone={isDiscussionReadOnly ? "muted" : "plan"} size="sm" />
+             </View>
+             <Pressable
+               accessibilityRole="button"
+@@ -3521,8 +3524,8 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+                 <MobileIcon name="discussion" size={18} color={theme.semantic.plan.text} />
+               </View>
+               <View style={styles.feedTitleWrap}>
+-                <AppText style={styles.planDiscussionTitle}>{t('plans.detail.discussion.open')}</AppText>
+-                <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.discussion.cancelledBody') : t('plans.detail.discussion.body')}</AppText>
++                <AppText style={styles.planDiscussionTitle}>{t(isDiscussionReadOnly ? 'plans.detail.discussion.history' : 'plans.detail.discussion.open')}</AppText>
++                <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.discussion.cancelledBody') : presentationState === 'completed' ? t('plans.detail.discussion.completedBody') : t('plans.detail.discussion.body')}</AppText>
+               </View>
+               <MobileIcon name="chevron-right" size={18} color={theme.color.muted} />
+             </Pressable>
+@@ -3534,7 +3537,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+             <View style={styles.detailSectionHeader}>
+               <View style={styles.detailSectionCopy}>
+                 <AppText style={styles.sectionTitle}>{t('plans.detail.sections.actions')}</AppText>
+-                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.actions.cancelledBody') : isOwner ? t('plans.detail.actions.ownerBody') : getPlanJoinActionCopy(plan, t, joinClosed)}</AppText>
++                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.actions.cancelledBody') : isOwner ? t('plans.detail.actions.ownerBody') : getPlanJoinActionCopy(plan, t, presentationState!)}</AppText>
+               </View>
+               {!isOwner ? <SemanticBadge label={getPlanJoinModeLabel(plan, t)} tone="proposal" size="sm" /> : <SemanticBadge label={t('plans.detail.values.owner')} tone="plan" size="sm" />}
+             </View>
+@@ -3585,7 +3588,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+                   <MobileIcon name="proposal-accepted" size={18} color={theme.semantic.success.text} />
+                   <View style={styles.feedTitleWrap}>
+                     <AppText style={[styles.joinedStateText, { color: theme.semantic.success.text }]}>{t('plans.detail.actions.joinedTitle')}</AppText>
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t('plans.detail.actions.joinedBody')}</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{t(presentationState === 'completed' ? 'plans.detail.actions.joinedCompletedBody' : 'plans.detail.actions.joinedBody')}</AppText>
+                   </View>
+                 </View>
+               ) : null}
+@@ -3600,7 +3603,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+                   <AppText style={[styles.metaText, { color: theme.color.muted }]}>{participantStateCopy}</AppText>
+                 </View>
+               ) : null}
+-              {!auth.user && plan.status === 'open' && !joinClosed ? <InfoNotice tone="info" title={t('plans.detail.actions.loginTitle')} body={t('plans.detail.actions.loginBody')} /> : null}
++              {!auth.user && presentationState === 'open' ? <InfoNotice tone="info" title={t('plans.detail.actions.loginTitle')} body={t('plans.detail.actions.loginBody')} /> : null}
+               {actionMessage ? <InfoNotice tone="success" title={t('common.states.done')} body={actionMessage} /> : null}
+               {actionError ? <InfoNotice tone="warning" title={t('plans.detail.errors.actionTitle')} body={actionError} /> : null}
+               {showReportActions ? <ReportContentPanel targetType="plan" targetId={plan.id} labelKey="report.button" helperKey="report.helper.content" /> : null}
+diff --git a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+index 06da3c6..8b811bc 100644
+--- a/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
++++ b/apps/mobile/src/features/plans/components/PlanSquareDeck.tsx
+@@ -14,6 +14,7 @@ import { ContinuousSquareStackDeck, type SquareStackDeckCard } from '../../trade
+ import { resolveMediaVariantUrl } from '../../trade/mediaUrls';
+ import { formatPlanTemperature, isSyntheticPlanWeatherPlanId } from '../planWeatherModel';
+ import { usePlanPlaceWeather, useTemperatureUnitPreference } from '../planWeatherMobile';
++import { getPlanPresentationState, getPlanPresentationTone, planPresentationLabelKey } from '../planPresentationState';
+ 
+ const MOBILE_PLAN_DECK_AVAILABLE_HEIGHT = 404;
+ const MOBILE_PLAN_DECK_MAX_CARD_SIZE = 348;
+@@ -36,6 +37,7 @@ type PlanSquareDeckProps = {
+   topBadgeLabel?: string;
+   topBadgeTone?: SemanticColorName;
+   showModeBadge?: boolean;
++  showStatusBadge?: boolean;
+ };
+ 
+ function activeMedia(media: MediaAssetDto[] | undefined) {
+@@ -123,7 +125,7 @@ function getPlanParticipantCount(plan: PlanDto) {
+   return plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
+ }
+ 
+-function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLabel, topBadgeTone = 'place', showModeBadge = true }: { card: PlanPlaceDeckCard; deckIndex: number; deckTotal: number; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
++function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLabel, topBadgeTone = 'place', showModeBadge = true, showStatusBadge = true }: { card: PlanPlaceDeckCard; deckIndex: number; deckTotal: number; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean; showStatusBadge?: boolean }) {
+   const theme = useThemeTokens();
+   const { language, t } = useTranslation();
+   const isDark = theme.mode === 'dark';
+@@ -166,6 +168,9 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
+   const contentBadgeLabel = topBadgeLabel ?? t('plans.deck.placeBadge', { counter: cardCounter });
+   const deckCounter = `${String(deckIndex + 1).padStart(2, '0')}/${String(Math.max(deckTotal, 1)).padStart(2, '0')}`;
+   const primaryBadgeLabel = deckTotal > 1 ? `${deckCounter} · ${contentBadgeLabel}` : contentBadgeLabel;
++  const presentationState = getPlanPresentationState(card.plan);
++  const presentationLabel = t(planPresentationLabelKey(presentationState));
++  const presentationTone = getPlanPresentationTone(presentationState);
+   const hasPosterImage = Boolean(imageUrl);
+   const posterTextShadow = hasPosterImage ? 'rgba(0,0,0,0.34)' : isDark ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.48)';
+   const posterTitleColor = hasPosterImage ? '#FFFFFF' : theme.color.text;
+@@ -265,7 +270,10 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
+         surfaceStyle={styles.posterCardFooterSurface}
+         contentStyle={styles.posterCardFooterContent}
+       >
+-        <AppText style={[styles.planTitle, { color: posterPlanColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{card.plan.title}</AppText>
++        <View style={styles.planTitleRow}>
++          <AppText style={[styles.planTitle, styles.planTitleFlex, { color: posterPlanColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{card.plan.title}</AppText>
++          {showStatusBadge ? <SemanticBadge label={presentationLabel} tone={presentationTone} size="sm" /> : null}
++        </View>
+         <AppText style={[styles.placeTitle, { color: posterTitleColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{placeTitle}</AppText>
+         {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{t('plans.deck.addFirstStop')}</AppText> : null}
+         {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{locationLabel}</AppText> : null}
+@@ -312,7 +320,7 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
+   );
+ }
+ 
+-export function PlanSquareDeck({ plan, index = 0, total = 1, onOpen, style, topBadgeLabel, topBadgeTone, showModeBadge = true }: PlanSquareDeckProps) {
++export function PlanSquareDeck({ plan, index = 0, total = 1, onOpen, style, topBadgeLabel, topBadgeTone, showModeBadge = true, showStatusBadge = true }: PlanSquareDeckProps) {
+   const cards = useMemo(() => buildPlanPlaceDeckCards(plan), [plan]);
+   const handleOpen = onOpen ?? (() => {});
+ 
+@@ -320,7 +328,7 @@ export function PlanSquareDeck({ plan, index = 0, total = 1, onOpen, style, topB
+     <View style={[styles.container, style]}>
+       <ContinuousSquareStackDeck<PlanPlaceDeckCard>
+         cards={cards}
+-        renderCard={({ card }) => <PlanPlaceDeckCardView card={card} deckIndex={index} deckTotal={total} onOpen={handleOpen} topBadgeLabel={topBadgeLabel} topBadgeTone={topBadgeTone} showModeBadge={showModeBadge} />}
++        renderCard={({ card }) => <PlanPlaceDeckCardView card={card} deckIndex={index} deckTotal={total} onOpen={handleOpen} topBadgeLabel={topBadgeLabel} topBadgeTone={topBadgeTone} showModeBadge={showModeBadge} showStatusBadge={showStatusBadge} />}
+         renderWindow="visible"
+         showDebugBadge={false}
+         depthEffect="motionOnly"
+@@ -417,6 +425,15 @@ const styles = StyleSheet.create({
+     letterSpacing: POSTER_CARD_GEOMETRY.topPillLetterSpacing,
+     textTransform: 'uppercase',
+   },
++  planTitleRow: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 8,
++  },
++  planTitleFlex: {
++    flex: 1,
++    minWidth: 0,
++  },
+   cardCopy: {
+     alignSelf: 'stretch',
+     gap: POSTER_CARD_GEOMETRY.footerContentGap,
+diff --git a/apps/mobile/src/features/plans/planPresentationState.ts b/apps/mobile/src/features/plans/planPresentationState.ts
+new file mode 100644
+index 0000000..9539811
+--- /dev/null
++++ b/apps/mobile/src/features/plans/planPresentationState.ts
+@@ -0,0 +1,62 @@
++import type { PlanDto } from '@hellowhen/contracts';
++import { isPlanJoinClosed } from '@hellowhen/shared';
++import type { SemanticColorName } from '@hellowhen/theme';
++
++export type PlanPresentationState =
++  | 'open'
++  | 'full'
++  | 'join_closed'
++  | 'started'
++  | 'completed'
++  | 'cancelled'
++  | 'draft'
++  | 'expired'
++  | 'hidden';
++
++function timeValue(value?: string | null) {
++  if (!value) return null;
++  const time = new Date(value).getTime();
++  return Number.isFinite(time) ? time : null;
++}
++
++function acceptedParticipantCount(plan: PlanDto) {
++  return plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
++}
++
++export function getPlanPresentationState(plan: PlanDto, now: Date = new Date()): PlanPresentationState {
++  if (plan.status === 'cancelled' || plan.status === 'draft' || plan.status === 'expired' || plan.status === 'hidden') {
++    return plan.status;
++  }
++  if (plan.status === 'completed') return 'completed';
++
++  const nowTime = now.getTime();
++  const startsAt = timeValue(plan.startsAt);
++  const endsAt = timeValue(plan.endsAt ?? plan.startsAt);
++  if (Number.isFinite(nowTime) && endsAt !== null && nowTime >= endsAt) return 'completed';
++  if (plan.status === 'started') return 'started';
++  if (Number.isFinite(nowTime) && startsAt !== null && nowTime >= startsAt) return 'started';
++
++  if (isPlanJoinClosed(plan, now)) return 'join_closed';
++
++  const participantCount = acceptedParticipantCount(plan);
++  if (plan.status === 'full' || (plan.maxParticipants && participantCount >= plan.maxParticipants)) return 'full';
++  return 'open';
++}
++
++export function planPresentationLabelKey(state: PlanPresentationState) {
++  return state === 'join_closed' ? 'plans.status.joinClosed' : `plans.status.${state}`;
++}
++
++export function getPlanPresentationTone(state: PlanPresentationState): SemanticColorName {
++  if (state === 'open') return 'success';
++  if (state === 'full') return 'warning';
++  if (state === 'join_closed') return 'time';
++  if (state === 'started') return 'plan';
++  if (state === 'cancelled' || state === 'hidden') return 'danger';
++  if (state === 'expired') return 'time';
++  return 'muted';
++}
++
++export function isPlanDiscussionWritableStatus(status: PlanDto['status'] | null | undefined) {
++  return status === 'open' || status === 'full' || status === 'started';
++}
+diff --git a/packages/i18n/src/locales/en/plans.ts b/packages/i18n/src/locales/en/plans.ts
+index eafabb7..8035714 100644
+--- a/packages/i18n/src/locales/en/plans.ts
++++ b/packages/i18n/src/locales/en/plans.ts
+@@ -54,6 +54,7 @@ export const plans = {
+   },
+   status: {
+     open: 'Open',
++    joinClosed: 'Join closed',
+     full: 'Full',
+     started: 'Started',
+     completed: 'Completed',
+@@ -168,6 +169,7 @@ export const plans = {
+     },
+     fields: {
+       status: 'Status',
++      joining: 'Joining',
+       visibility: 'Visibility',
+       joinMode: 'Join mode',
+       joinCloses: 'Join closes',
+@@ -186,6 +188,9 @@ export const plans = {
+       hybrid: 'Local / Online',
+       freeJoin: 'Free join',
+       requestToJoin: 'Request to join',
++      joiningOpen: 'Open',
++      joiningFull: 'Full',
++      joiningClosed: 'Closed',
+       capacityUnlimited: 'Unlimited',
+       capacityLimited: '{{count}} people max',
+     },
+@@ -265,8 +270,11 @@ export const plans = {
+       summaryOne: '{{count}} comment · visible to logged-in members',
+       summaryMany: '{{count}} comments · visible to logged-in members',
+       open: 'Open public comments',
++      history: 'Discussion history',
++      readOnlyBadge: 'Read only',
+       openAccessibility: 'Open Plan public discussion',
+       body: 'Ask questions, coordinate details, or reply to people interested in this Plan.',
++      completedBody: 'Read the preserved comments. This Plan is completed, so new replies and edits are closed.',
+       cancelledBody: 'Read the preserved comments. This removed Plan and its discussion are private to you.',
+     },
+     actions: {
+@@ -289,12 +297,14 @@ export const plans = {
+       cancelledLongBody: 'Only you can open this Plan. Its places, timing, participants, discussion, and verification history are preserved.',
+       joinedTitle: 'You joined this Plan',
+       joinedBody: 'You can leave if this Plan is no longer useful.',
++      joinedCompletedBody: 'Your participation is preserved in this completed Plan.',
+       freeJoinFootnote: 'Free join · leave anytime.',
+       requestJoinFootnote: 'Join request · owner review.',
+       loginTitle: 'Log in to join',
+       loginBody: 'Log in first, then join this Plan when it is open.',
+       full: 'This Plan is full right now.',
+       started: 'This Plan has already started.',
++      completed: 'This Plan has completed.',
+       joinClosed: 'Joining is closed for this Plan.',
+       statusUnavailable: 'This Plan is {{status}}.',
+       freeJoinOpen: 'Free join is open. You can leave later.',
+@@ -380,6 +390,7 @@ export const plans = {
+     empty: {
+       title: 'No comments yet',
+       body: 'Ask a public question or start a friendly discussion around this Plan.',
++      readOnlyBody: 'There are no preserved comments in this closed discussion.',
+     },
+     composer: {
+       placeholder: 'Comment publicly on this Plan…',
+@@ -388,6 +399,14 @@ export const plans = {
+       title: 'Private · Removed from feed',
+       body: 'Earlier comments are preserved for you, but new replies and comment edits are closed.',
+     },
++    completed: {
++      title: 'Plan completed · Discussion closed',
++      body: 'Earlier comments remain available, but new replies and comment edits are closed.',
++    },
++    readOnly: {
++      title: 'Discussion is read only',
++      body: 'Earlier comments remain available, but this Plan no longer accepts new replies or edits.',
++    },
+     actions: {
+       title: 'Comment actions',
+       edit: 'Edit comment',
+diff --git a/packages/i18n/src/locales/es/plans.ts b/packages/i18n/src/locales/es/plans.ts
+index 563f48e..b6c5bd1 100644
+--- a/packages/i18n/src/locales/es/plans.ts
++++ b/packages/i18n/src/locales/es/plans.ts
+@@ -53,6 +53,7 @@ export const plans = {
+   },
+   status: {
+     open: 'Abierto',
++    joinClosed: 'Unión cerrada',
+     full: 'Completo',
+     started: 'Iniciado',
+     completed: 'Completado',
+@@ -167,6 +168,7 @@ export const plans = {
+     },
+     fields: {
+       status: 'Estado',
++      joining: 'Unirse',
+       visibility: 'Visibilidad',
+       joinMode: 'Modo de unión',
+       joinCloses: 'Cierre para unirse',
+@@ -184,6 +186,9 @@ export const plans = {
+       hybrid: 'Presencial / En línea',
+       freeJoin: 'Unión libre',
+       requestToJoin: 'Solicitud para unirse',
++      joiningOpen: 'Abierto',
++      joiningFull: 'Completo',
++      joiningClosed: 'Cerrado',
+       capacityUnlimited: 'Sin límite',
+       capacityLimited: 'Máximo {{count}} personas',
+     },
+@@ -263,8 +268,11 @@ export const plans = {
+       summaryOne: '{{count}} comentario · visible para miembros conectados',
+       summaryMany: '{{count}} comentarios · visibles para miembros conectados',
+       open: 'Abrir comentarios públicos',
++      history: 'Historial de la conversación',
++      readOnlyBadge: 'Solo lectura',
+       openAccessibility: 'Abrir conversación pública del Plan',
+       body: 'Haz preguntas, coordina detalles o responde a personas interesadas en este Plan.',
++      completedBody: 'Lee los comentarios conservados. Este Plan está completado, así que las nuevas respuestas y ediciones están cerradas.',
+       cancelledBody: 'Lee los comentarios anteriores. Las nuevas respuestas públicas están cerradas para este Plan cancelado.',
+     },
+     actions: {
+@@ -286,12 +294,14 @@ export const plans = {
+       cancelledLongBody: 'Sigue visible como contexto. Ya no se puede unir, salir, cambiar participantes, responder públicamente ni verificar la presencia.',
+       joinedTitle: 'Te has unido a este Plan',
+       joinedBody: 'Puedes salir si este Plan ya no te resulta útil.',
++      joinedCompletedBody: 'Tu participación queda conservada en este Plan completado.',
+       freeJoinFootnote: 'Unión libre · puedes salir cuando quieras.',
+       requestJoinFootnote: 'Solicitud de unión · revisión del organizador.',
+       loginTitle: 'Inicia sesión para unirte',
+       loginBody: 'Inicia sesión y después únete a este Plan cuando esté abierto.',
+       full: 'Este Plan está completo ahora mismo.',
+       started: 'Este Plan ya ha empezado.',
++      completed: 'Este Plan ha finalizado.',
+       joinClosed: 'Ya no es posible unirse a este Plan.',
+       statusUnavailable: 'Este Plan está {{status}}.',
+       freeJoinOpen: 'La unión libre está abierta. Podrás salir más tarde.',
+@@ -378,6 +388,7 @@ export const plans = {
+     empty: {
+       title: 'Todavía no hay comentarios',
+       body: 'Haz una pregunta pública o inicia una conversación amistosa sobre este Plan.',
++      readOnlyBody: 'No hay comentarios conservados en esta conversación cerrada.',
+     },
+     composer: {
+       placeholder: 'Comentar públicamente este Plan…',
+@@ -386,6 +397,14 @@ export const plans = {
+       title: 'Este Plan fue cancelado',
+       body: 'Los comentarios anteriores siguen visibles, pero las nuevas respuestas y ediciones están cerradas.',
+     },
++    completed: {
++      title: 'Plan completado · Conversación cerrada',
++      body: 'Los comentarios anteriores siguen disponibles, pero las nuevas respuestas y ediciones están cerradas.',
++    },
++    readOnly: {
++      title: 'Conversación de solo lectura',
++      body: 'Los comentarios anteriores siguen disponibles, pero este Plan ya no acepta nuevas respuestas ni ediciones.',
++    },
+     actions: {
+       title: 'Acciones del comentario',
+       edit: 'Editar comentario',
+diff --git a/packages/i18n/src/locales/fr/plans.ts b/packages/i18n/src/locales/fr/plans.ts
+index b5ddf58..751fc37 100644
+--- a/packages/i18n/src/locales/fr/plans.ts
++++ b/packages/i18n/src/locales/fr/plans.ts
+@@ -54,6 +54,7 @@ export const plans = {
+   },
+   status: {
+     open: 'Ouvert',
++    joinClosed: 'Participation fermée',
+     full: 'Complet',
+     started: 'Commencé',
+     completed: 'Terminé',
+@@ -168,6 +169,7 @@ export const plans = {
+     },
+     fields: {
+       status: 'Statut',
++      joining: 'Participation',
+       visibility: 'Visibilité',
+       joinMode: 'Mode de participation',
+       joinCloses: 'Clôture des participations',
+@@ -186,6 +188,9 @@ export const plans = {
+       hybrid: 'Sur place / En ligne',
+       freeJoin: 'Participation libre',
+       requestToJoin: 'Demande de participation',
++      joiningOpen: 'Ouverte',
++      joiningFull: 'Complet',
++      joiningClosed: 'Fermée',
+       capacityUnlimited: 'Illimitée',
+       capacityLimited: '{{count}} personnes max',
+     },
+@@ -265,8 +270,11 @@ export const plans = {
+       summaryOne: '{{count}} commentaire · visible par les membres connectés',
+       summaryMany: '{{count}} commentaires · visibles par les membres connectés',
+       open: 'Ouvrir les commentaires publics',
++      history: 'Historique de la discussion',
++      readOnlyBadge: 'Lecture seule',
+       openAccessibility: 'Ouvrir la discussion publique du Plan',
+       body: 'Posez des questions, coordonnez les détails ou répondez aux personnes intéressées par ce Plan.',
++      completedBody: 'Consultez les commentaires conservés. Ce Plan est terminé : les nouvelles réponses et modifications sont fermées.',
+       cancelledBody: 'Consultez les commentaires conservés. Ce Plan retiré et sa discussion sont privés.',
+     },
+     actions: {
+@@ -289,12 +297,14 @@ export const plans = {
+       cancelledLongBody: 'Vous seul pouvez ouvrir ce Plan. Ses lieux, horaires, participants, discussions et historiques de vérification sont conservés.',
+       joinedTitle: 'Vous avez rejoint ce Plan',
+       joinedBody: 'Vous pouvez le quitter s’il ne vous est plus utile.',
++      joinedCompletedBody: 'Votre participation est conservée dans ce Plan terminé.',
+       freeJoinFootnote: 'Participation libre · départ possible à tout moment.',
+       requestJoinFootnote: 'Demande de participation · validation par l’organisateur.',
+       loginTitle: 'Connectez-vous pour participer',
+       loginBody: 'Connectez-vous d’abord, puis rejoignez ce Plan lorsqu’il est ouvert.',
+       full: 'Ce Plan est complet pour le moment.',
+       started: 'Ce Plan a déjà commencé.',
++      completed: 'Ce Plan est terminé.',
+       joinClosed: 'Il n’est plus possible de rejoindre ce Plan.',
+       statusUnavailable: 'Ce Plan est {{status}}.',
+       freeJoinOpen: 'La participation libre est ouverte. Vous pourrez quitter le Plan plus tard.',
+@@ -380,6 +390,7 @@ export const plans = {
+     empty: {
+       title: 'Aucun commentaire pour le moment',
+       body: 'Posez une question publique ou lancez une discussion amicale autour de ce Plan.',
++      readOnlyBody: 'Aucun commentaire n’est conservé dans cette discussion fermée.',
+     },
+     composer: {
+       placeholder: 'Commenter publiquement ce Plan…',
+@@ -388,6 +399,14 @@ export const plans = {
+       title: 'Privé · Retiré du fil',
+       body: 'Les anciens commentaires sont conservés pour vous, mais les nouvelles réponses et modifications sont fermées.',
+     },
++    completed: {
++      title: 'Plan terminé · Discussion fermée',
++      body: 'Les commentaires précédents restent disponibles, mais les nouvelles réponses et modifications sont fermées.',
++    },
++    readOnly: {
++      title: 'Discussion en lecture seule',
++      body: 'Les commentaires précédents restent disponibles, mais ce Plan n’accepte plus de nouvelles réponses ni modifications.',
++    },
+     actions: {
+       title: 'Actions du commentaire',
+       edit: 'Modifier le commentaire',

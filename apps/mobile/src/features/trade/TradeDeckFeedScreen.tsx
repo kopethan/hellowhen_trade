@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { ListTradesFeedQuery, TradeExchangeMode, TradePostType, TradeSearchKeywordSource, TradeSearchSuggestion } from '@hellowhen/contracts';
 import { formatLocalizedShortDate, type SupportedLanguage } from '@hellowhen/i18n';
-import { getNormalWorkspaceMenuItems, getTradeOwnerVisibilityState, isTradeOwnerCloseAllowed, isTradeOwnerRenewAllowed, type NormalWorkspaceMenuItem, type NormalWorkspaceMenuTone } from '@hellowhen/shared';
+import { getTradeOwnerVisibilityState, isTradeOwnerCloseAllowed, isTradeOwnerRenewAllowed } from '@hellowhen/shared';
 import type { RootStackParamList, TradeFilterRouteParams } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
@@ -13,6 +13,7 @@ import { betaFeatures } from '../../lib/betaFeatures';
 import { AppCard } from '../../components/AppCard';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
+import { PRIMARY_HEADER_TITLE_STYLE } from '../../components/headerTypography';
 import { AccountHeaderActionButton } from '../../components/AccountHeaderActionButton';
 import { AppConfirmSheet } from '../../components/AppConfirmSheet';
 import { type AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
@@ -107,7 +108,6 @@ export function TradeDeckFeedScreen() {
   const { t, language } = useTranslation();
   const [activityTab, setActivityTab] = useState<TradeActivityTab>('mine');
   const [activityModalVisible, setActivityModalVisible] = useState(false);
-  const [wizardModalVisible, setWizardModalVisible] = useState(false);
   const [trades, setTrades] = useState<TradeDeckItem[]>([]);
   const route = useRoute<RouteProp<{ TradeTab: TradeFilterRouteParams | undefined }, 'TradeTab'>>();
   const [query, setQuery] = useState('');
@@ -147,7 +147,6 @@ export function TradeDeckFeedScreen() {
     if (!params?.accountActivity || !params.accountActivityKey || appliedAccountActivityKeyRef.current === params.accountActivityKey) return;
     appliedAccountActivityKeyRef.current = params.accountActivityKey;
     setActivityTab(params.accountActivity);
-    setWizardModalVisible(false);
     setActivityModalVisible(true);
   }, [route.params?.accountActivity, route.params?.accountActivityKey]);
 
@@ -271,36 +270,6 @@ export function TradeDeckFeedScreen() {
     navigation.navigate('CreateTrade');
   }, [auth.isAuthenticated, navigation]);
 
-  const openTradeWizardAction = useCallback((action: TradeWizardAction) => {
-    if (action === 'trade_guide') {
-      setWizardModalVisible(false);
-      navigation.navigate('OnboardingGuide', { guide: 'trade', replay: true });
-      return;
-    }
-    if (action === 'my_trades' || action === 'proposals') {
-      setActivityTab(action === 'my_trades' ? 'mine' : 'involved');
-      setWizardModalVisible(false);
-      setActivityModalVisible(true);
-      return;
-    }
-    if (action === 'my_needs') {
-      setWizardModalVisible(false);
-      navigation.navigate('MyNeeds');
-      return;
-    }
-    if (action === 'my_offers') {
-      setWizardModalVisible(false);
-      navigation.navigate('MyOffers');
-      return;
-    }
-    setPostTypeFilter('all');
-    setCategory('');
-    setImagesOnly(false);
-    setMoneyOnly(false);
-    setSeenTradeIds([]);
-    setRefreshSeed(createFeedRefreshSeed());
-    setWizardModalVisible(false);
-  }, [navigation]);
 
   const openTradeIdea = useCallback((ideaKey: FeedTradeIdeaKey) => {
     navigation.navigate('TradeIdeaDetail', { ideaId: ideaKey });
@@ -356,19 +325,16 @@ export function TradeDeckFeedScreen() {
   const header = (
     <View style={styles.fixedHeaderStack}>
       <View style={styles.headerRow}>
-        <AppText style={styles.title}>{t('navigation.tabs.trade')}</AppText>
+        <AppText accessibilityRole="header" style={styles.title}>{t('navigation.tabs.trade')}</AppText>
         <View style={styles.headerActions}>
           <Pressable accessibilityRole="button" accessibilityLabel={t('trade.filters.searchAndFilters')} onPress={() => navigation.navigate('TradeFilters', { q: query || undefined, mode: modeFilter === 'all' ? undefined : modeFilter, postType: postTypeFilter === 'all' ? undefined : postTypeFilter, category: category.trim() || undefined, hasImages: imagesOnly || undefined, hasMoney: betaFeatures.moneyTradesEnabled ? (moneyOnly || undefined) : undefined })} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, hasFilters && { backgroundColor: theme.semantic.trade.softBg, borderColor: theme.semantic.trade.border }, pressed && styles.pressed]}>
             <MobileIcon name="filter" size={18} color={hasFilters ? theme.semantic.trade.text : theme.color.text} />
             {hasFilters ? <View style={[styles.filterDot, { backgroundColor: theme.semantic.trade.bg }]}><AppText style={[styles.filterDotText, { color: theme.semantic.trade.onBg }]}>{activeFilterCount}</AppText></View> : null}
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={t('trade.wizard.open')} onPress={() => setWizardModalVisible(true)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, wizardModalVisible && { backgroundColor: theme.semantic.instruction.softBg, borderColor: theme.semantic.instruction.border }, pressed && styles.pressed]}>
-            <MobileIcon name="activity" size={19} color={wizardModalVisible ? theme.semantic.instruction.text : theme.color.text} />
-          </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel={t('trade.create.title')} onPress={() => createTrade()} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.semantic.trade.bg, borderColor: theme.semantic.trade.bg }, pressed && styles.pressed]}>
             <MobileIcon name="add" size={23} color={theme.semantic.trade.onBg} />
           </Pressable>
-          <AccountHeaderActionButton onPress={() => { setWizardModalVisible(false); navigation.navigate('Account'); }} />
+          <AccountHeaderActionButton onPress={() => navigation.navigate('Account')} />
         </View>
       </View>
     </View>
@@ -395,11 +361,6 @@ export function TradeDeckFeedScreen() {
             maxToRenderPerBatch={3}
             windowSize={5}
             updateCellsBatchingPeriod={60}
-          />
-          <TradeWizardMenuModal
-            visible={wizardModalVisible}
-            onClose={() => setWizardModalVisible(false)}
-            onSelect={openTradeWizardAction}
           />
           <TradeActivityModal
             activeTab={activityTab}
@@ -558,81 +519,6 @@ function TradeFeedInlineIdeaCard({ ideaKey, onOpenIdea }: { ideaKey: FeedTradeId
   return <TradeFeedIdeaCard ideaKey={ideaKey} onOpenIdea={onOpenIdea} inline />;
 }
 
-
-type TradeWizardAction = NormalWorkspaceMenuItem['id'];
-
-type TradeWizardMenuModalProps = {
-  visible: boolean;
-  onClose: () => void;
-  onSelect: (action: TradeWizardAction) => void;
-};
-
-function TradeWizardMenuModal({ visible, onClose, onSelect }: TradeWizardMenuModalProps) {
-  const theme = useThemeTokens();
-  const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const isWideLayout = width >= 720;
-  const { t } = useTranslation();
-
-  const workspaceItems = getNormalWorkspaceMenuItems('trade');
-
-  function itemTitle(item: NormalWorkspaceMenuItem) {
-    return item.titleKey ? t(item.titleKey) : item.title;
-  }
-
-  function itemBody(item: NormalWorkspaceMenuItem) {
-    return item.bodyKey ? t(item.bodyKey) : item.body;
-  }
-
-  function toneColors(tone: NormalWorkspaceMenuTone) {
-    if (tone === 'need') return theme.semantic.need;
-    if (tone === 'offer') return theme.semantic.offer;
-    if (tone === 'info') return theme.semantic.info;
-    if (tone === 'muted') return theme.semantic.muted;
-    if (tone === 'plan') return theme.semantic.plan;
-    if (tone === 'place') return theme.semantic.place;
-    if (tone === 'proposal') return theme.semantic.proposal;
-    return theme.semantic.trade;
-  }
-
-  return (
-    <Modal visible={visible} animationType={isWideLayout ? 'fade' : 'slide'} onRequestClose={onClose} presentationStyle={isWideLayout ? 'overFullScreen' : 'fullScreen'} transparent={isWideLayout}>
-      <View style={isWideLayout ? styles.modalDesktopBackdrop : styles.modalPlainRoot}>
-        <View style={[styles.activityModalScreen, { backgroundColor: theme.color.background, paddingTop: isWideLayout ? 18 : insets.top + 18, paddingBottom: isWideLayout ? 18 : Math.max(insets.bottom, 10) }, isWideLayout && [styles.activityModalSheet, { borderColor: theme.color.border }]]}>
-          <View style={styles.activityHeaderRow}>
-            <View style={styles.activityHeaderCopy}>
-              <AppText style={styles.activityTitle}>{t('trade.wizard.title')}</AppText>
-              <AppText style={[styles.activityBody, { color: theme.color.muted }]}>{t('trade.wizard.body')}</AppText>
-            </View>
-            <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.close')} onPress={onClose} style={({ pressed }) => [styles.toolsCloseButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-              <MobileIcon name="close" size={18} color={theme.color.text} />
-            </Pressable>
-          </View>
-          <ScrollView contentContainerStyle={styles.wizardContent} showsVerticalScrollIndicator={false}>
-            <View style={styles.wizardGroup}>
-              <AppText style={[styles.wizardGroupTitle, { color: theme.color.muted }]}>Workspace</AppText>
-              <View style={styles.wizardItems}>
-                {workspaceItems.map((item) => {
-                  const colors = toneColors(item.tone);
-                  return (
-                    <Pressable key={item.id} accessibilityRole="button" onPress={() => onSelect(item.id)} style={({ pressed }) => [styles.wizardItem, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-                      <View style={[styles.wizardIcon, { backgroundColor: colors.softBg, borderColor: colors.border }]}><MobileIcon name={item.icon} size={17} color={colors.text} /></View>
-                      <View style={styles.wizardCopy}>
-                        <AppText style={styles.wizardTitle}>{itemTitle(item)}</AppText>
-                        <AppText style={[styles.wizardBody, { color: theme.color.muted }]}>{itemBody(item)}</AppText>
-                      </View>
-                      <MobileIcon name="chevron-right" size={20} color={theme.color.muted} />
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
-}
 
 type TradeActivityModalProps = {
   activeTab: TradeActivityTab;
@@ -1287,20 +1173,11 @@ const styles = StyleSheet.create({
   activityTab: { flex: 1, minHeight: 38, borderRadius: 999, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   activityTabText: { fontSize: 13, fontWeight: '900' },
   activityBodyWrap: { flex: 1, minHeight: 0 },
-  wizardContent: { gap: 18, paddingBottom: 24 },
-  wizardGroup: { gap: 9 },
-  wizardGroupTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9, textTransform: 'uppercase', paddingHorizontal: 4 },
-  wizardItems: { gap: 8 },
-  wizardItem: { minHeight: 72, borderRadius: 22, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  wizardIcon: { width: 40, height: 40, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  wizardCopy: { flex: 1, minWidth: 0, gap: 3 },
-  wizardTitle: { fontSize: 15, lineHeight: 19, fontWeight: '900' },
-  wizardBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
   feedIntroStack: { gap: 10, marginBottom: 4 },
   feedLoadingState: { minHeight: 180, alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 24 },
   feedLoadingText: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
-  title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+  title: { ...PRIMARY_HEADER_TITLE_STYLE },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1, overflow: 'hidden' },
   iconButtonText: { fontSize: 16, fontWeight: '900', lineHeight: 20 },

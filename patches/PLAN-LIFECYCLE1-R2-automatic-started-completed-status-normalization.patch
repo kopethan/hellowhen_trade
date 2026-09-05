@@ -1,0 +1,371 @@
+diff --git a/apps/api/src/modules/plans/__tests__/plans.safety.test.ts b/apps/api/src/modules/plans/__tests__/plans.safety.test.ts
+index 96777d1dbae47d8a3224cf0606d1eccf60e9ef24..cc8f8cac5b618ac48f625c5f53a9c81c0b8062ef 100644
+--- a/apps/api/src/modules/plans/__tests__/plans.safety.test.ts
++++ b/apps/api/src/modules/plans/__tests__/plans.safety.test.ts
+@@ -9,6 +9,7 @@ import {
+   rangesConflictWithRequiredGap,
+   restoredPlanStatus,
+ } from '../plans.safety.testkit.js';
++import { normalizedPlanLifecycleStatus } from '../plans.lifecycle.js';
+ 
+ const at = (hour: number, minute = 0) => `2026-07-20T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000Z`;
+ 
+@@ -69,6 +70,34 @@ test('restore recalculates public status from date and capacity eligibility', ()
+   assert.equal(restoredPlanStatus({ startsAt: at(10), endsAt: at(11) }, at(11)), null);
+ });
+ 
++
++test('plan lifecycle starts exactly at startsAt and completes exactly at endsAt', () => {
++  const plan = { status: 'open', startsAt: at(10), endsAt: at(11) };
++  assert.equal(normalizedPlanLifecycleStatus(plan, at(9, 59)), 'open');
++  assert.equal(normalizedPlanLifecycleStatus(plan, at(10)), 'started');
++  assert.equal(normalizedPlanLifecycleStatus(plan, at(10, 30)), 'started');
++  assert.equal(normalizedPlanLifecycleStatus(plan, at(11)), 'completed');
++});
++
++test('full plans become started when their scheduled time begins', () => {
++  const plan = { status: 'full', startsAt: at(10), endsAt: at(11) };
++  assert.equal(normalizedPlanLifecycleStatus(plan, at(9, 59)), 'full');
++  assert.equal(normalizedPlanLifecycleStatus(plan, at(10)), 'started');
++});
++
++test('legacy plans without an end time complete at their start time', () => {
++  const plan = { status: 'open', startsAt: at(10), endsAt: null };
++  assert.equal(normalizedPlanLifecycleStatus(plan, at(9, 59)), 'open');
++  assert.equal(normalizedPlanLifecycleStatus(plan, at(10)), 'completed');
++});
++
++test('terminal and non-public lifecycle statuses are not rewritten by time', () => {
++  assert.equal(normalizedPlanLifecycleStatus({ status: 'completed', startsAt: at(10), endsAt: at(11) }, at(12)), 'completed');
++  assert.equal(normalizedPlanLifecycleStatus({ status: 'cancelled', startsAt: at(10), endsAt: at(11) }, at(12)), 'cancelled');
++  assert.equal(normalizedPlanLifecycleStatus({ status: 'hidden', startsAt: at(10), endsAt: at(11) }, at(12)), 'hidden');
++  assert.equal(normalizedPlanLifecycleStatus({ status: 'draft', startsAt: at(10), endsAt: at(11) }, at(12)), 'draft');
++});
++
+ test('owners can read non-public drafts while public viewers cannot', () => {
+   const draft = { status: 'draft', deletedAt: null };
+   assert.equal(canReadPlan(draft, true), true);
+diff --git a/apps/api/src/modules/plans/plans.lifecycle.ts b/apps/api/src/modules/plans/plans.lifecycle.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c80293c80663cf855a919feccc43da0a2f8ed0f4
+--- /dev/null
++++ b/apps/api/src/modules/plans/plans.lifecycle.ts
+@@ -0,0 +1,24 @@
++export const PLAN_TIME_DRIVEN_STATUSES = ['open', 'full', 'started'] as const;
++
++type PlanLifecycleInput = {
++  status: string;
++  startsAt: string | Date;
++  endsAt?: string | Date | null;
++};
++
++function asTime(value: string | Date) {
++  const date = value instanceof Date ? value : new Date(value);
++  return date.getTime();
++}
++
++export function normalizedPlanLifecycleStatus(plan: PlanLifecycleInput, now: string | Date = new Date()) {
++  if (!PLAN_TIME_DRIVEN_STATUSES.includes(plan.status as (typeof PLAN_TIME_DRIVEN_STATUSES)[number])) return plan.status;
++
++  const startsAt = asTime(plan.startsAt);
++  const endsAt = plan.endsAt ? asTime(plan.endsAt) : startsAt;
++  const current = asTime(now);
++  if (![startsAt, endsAt, current].every(Number.isFinite)) return plan.status;
++  if (current >= endsAt) return 'completed' as const;
++  if (current >= startsAt) return 'started' as const;
++  return plan.status;
++}
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+index df2fb2b2780ac17b55f31e132a1d5071834b3dbd..20e98f63c6e248f6db22658b1c276b8b3f806a95 100644
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -42,6 +42,7 @@ import { applyTextReviewContentActionToTarget, buildAiTextReviewRouteOutcome } f
+ import { buildPlaceStaticMapResult } from '../places/placeStaticMap.js';
+ import { createRandomPlaceStaticMapTemplateAssignment } from '../places/placeStaticMapTemplates.js';
+ import { canUseReusablePlaceInPlan, planPlaceSourceForOwner } from '../places/placeOwnershipPolicy.js';
++import { normalizedPlanLifecycleStatus, PLAN_TIME_DRIVEN_STATUSES } from './plans.lifecycle.js';
+ 
+ export const plansRoutes = Router();
+ 
+@@ -53,6 +54,7 @@ const placePresenceVerificationRateLimit = createRateLimiter({
+ });
+ 
+ const publicPlanStatuses = ['open', 'full', 'started'] as const;
++const joinedPlanStatuses = ['open', 'full', 'started', 'completed'] as const;
+ const writablePlanDiscussionStatuses = ['open', 'full', 'started'] as const;
+ const lockedPlanInteractionStatuses = ['cancelled'] as const;
+ const userSummarySelect = {
+@@ -150,7 +152,39 @@ async function logPlanSearch(req: any, input: { q?: string; status?: unknown; mo
+   ]).catch(() => null);
+ }
+ 
++async function syncDuePlanLifecycleStatuses(now = new Date(), scope: { planId?: string; ownerId?: string } = {}) {
++  const whereScope = {
++    ...(scope.planId ? { id: scope.planId } : {}),
++    ...(scope.ownerId ? { ownerId: scope.ownerId } : {}),
++  };
++
++  await prisma.plan.updateMany({
++    where: {
++      ...whereScope,
++      deletedAt: null,
++      status: { in: [...PLAN_TIME_DRIVEN_STATUSES] as any },
++      OR: [
++        { endsAt: { lte: now } },
++        { endsAt: null, startsAt: { lte: now } },
++      ],
++    },
++    data: { status: 'completed' as any },
++  });
++
++  await prisma.plan.updateMany({
++    where: {
++      ...whereScope,
++      deletedAt: null,
++      status: { in: ['open', 'full'] as any },
++      startsAt: { lte: now },
++      endsAt: { gt: now },
++    },
++    data: { status: 'started' as any },
++  });
++}
++
+ async function syncPlanCapacityStatus(planId: string) {
++  await syncDuePlanLifecycleStatuses(new Date(), { planId });
+   const plan = await prisma.plan.findUnique({ where: { id: planId }, select: { id: true, status: true, maxParticipants: true, deletedAt: true } });
+   if (!plan || plan.deletedAt || !plan.maxParticipants || !['open', 'full'].includes(plan.status as string)) return;
+   const acceptedCount = await prisma.planParticipant.count({ where: { planId, status: 'accepted' as any } });
+@@ -230,6 +264,13 @@ function planInteractionLockedResponse() {
+   };
+ }
+ 
++function planCompletedResponse() {
++  return {
++    error: 'plan_completed',
++    message: 'This Plan has ended. Participant changes and presence verification are closed.',
++  };
++}
++
+ function assertPlanInteractionUnlocked(status: string) {
+   if (isPlanInteractionLocked(status)) {
+     const response = planInteractionLockedResponse();
+@@ -290,12 +331,12 @@ function serializePlan(plan: any, viewerId: string | null, surface: 'detail' | '
+ }
+ 
+ async function loadPlanForViewer(planId: string, viewerId?: string | null) {
++  await syncDuePlanLifecycleStatuses(new Date(), { planId });
+   const plan = await prisma.plan.findUnique({ where: { id: planId }, include: planInclude() });
+   if (!plan || plan.deletedAt) return null;
+-  if (!viewerId || plan.ownerId !== viewerId) {
+-    if (!publicPlanStatuses.includes(plan.status as any)) return null;
+-  }
+   const isOwner = Boolean(viewerId && plan.ownerId === viewerId);
++  const isAcceptedParticipant = Boolean(viewerId && (plan.participants ?? []).some((participant: any) => participant.userId === viewerId && participant.status === 'accepted'));
++  if (!isOwner && !publicPlanStatuses.includes(plan.status as any) && !(plan.status === 'completed' && isAcceptedParticipant)) return null;
+   if (!isOwner) {
+     const owner = await prisma.user.findUnique({ where: { id: plan.ownerId }, select: { trustTier: true } });
+     if (!owner || owner.trustTier === 'restricted') return null;
+@@ -305,13 +346,18 @@ async function loadPlanForViewer(planId: string, viewerId?: string | null) {
+ }
+ 
+ async function loadReadablePlanForDiscussion(planId: string, actorId?: string | null) {
++  await syncDuePlanLifecycleStatuses(new Date(), { planId });
+   const plan = await prisma.plan.findUnique({
+     where: { id: planId },
+     select: { id: true, ownerId: true, status: true, deletedAt: true, owner: { select: { trustTier: true } } },
+   });
+   if (!plan || plan.deletedAt || plan.owner?.trustTier === 'restricted') return null;
+   const isOwner = Boolean(actorId && plan.ownerId === actorId);
+-  if (!isOwner && !publicPlanStatuses.includes(plan.status as any)) return null;
++  if (!isOwner && !publicPlanStatuses.includes(plan.status as any)) {
++    if (!actorId || plan.status !== 'completed') return null;
++    const participant = await prisma.planParticipant.findUnique({ where: { planId_userId: { planId, userId: actorId } }, select: { status: true } });
++    if (participant?.status !== 'accepted') return null;
++  }
+   if (actorId && plan.ownerId !== actorId && await usersHaveBlockBetween(actorId, plan.ownerId)) return null;
+   return plan;
+ }
+@@ -472,6 +518,7 @@ async function createPlacePresenceVerificationRecord(params: {
+ }
+ 
+ async function loadPlanPlaceForPresenceVerification(planId: string, planPlaceId: string, userId: string) {
++  await syncDuePlanLifecycleStatuses(new Date(), { planId });
+   const plan = await prisma.plan.findUnique({
+     where: { id: planId },
+     select: {
+@@ -503,6 +550,7 @@ async function loadPlanPlaceForPresenceVerification(planId: string, planPlaceId:
+     return plan.ownerId === userId || Boolean(participant) ? { error: 'plan_deleted' as const } : null;
+   }
+   if (isPlanInteractionLocked(plan.status)) return { error: 'plan_cancelled' as const };
++  if (plan.status === 'completed') return { error: 'plan_completed' as const };
+   if (!verificationPlanStatuses.includes(plan.status as any)) return null;
+   if (plan.ownerId !== userId && await usersHaveBlockBetween(userId, plan.ownerId)) return null;
+ 
+@@ -711,12 +759,10 @@ function planRemovedResponse() {
+ }
+ 
+ function restoredPlanStatus(plan: { startsAt: Date; endsAt: Date | null; maxParticipants: number | null; participants?: Array<{ status: string }> }, now = new Date()) {
+-  const effectiveEnd = plan.endsAt ?? plan.startsAt;
+-  if (effectiveEnd.getTime() <= now.getTime()) return null;
+-  if (plan.startsAt.getTime() <= now.getTime()) return 'started' as const;
+   const acceptedCount = (plan.participants ?? []).filter((participant) => participant.status === 'accepted').length;
+-  if (plan.maxParticipants && acceptedCount >= plan.maxParticipants) return 'full' as const;
+-  return 'open' as const;
++  const capacityStatus = plan.maxParticipants && acceptedCount >= plan.maxParticipants ? 'full' as const : 'open' as const;
++  const normalized = normalizedPlanLifecycleStatus({ status: capacityStatus, startsAt: plan.startsAt, endsAt: plan.endsAt }, now);
++  return normalized === 'completed' ? null : normalized;
+ }
+ 
+ async function planHasRestoreModerationBlock(planId: string) {
+@@ -845,6 +891,7 @@ async function placeCreateData(planId: string, ownerId: string, input: ReturnTyp
+ }
+ 
+ async function joinPlanFreely(planId: string, userId: string, message?: string | null) {
++  await syncDuePlanLifecycleStatuses(new Date(), { planId });
+   const plan = await prisma.plan.findUnique({
+     where: { id: planId },
+     include: { participants: true, owner: { select: { trustTier: true } } },
+@@ -913,6 +960,7 @@ async function joinPlanFreely(planId: string, userId: string, message?: string |
+ }
+ 
+ async function leaveJoinedPlan(planId: string, userId: string) {
++  await syncDuePlanLifecycleStatuses(new Date(), { planId });
+   const participant = await prisma.planParticipant.findUnique({
+     where: { planId_userId: { planId, userId } },
+     include: { plan: { select: { status: true, deletedAt: true } } },
+@@ -923,6 +971,10 @@ async function leaveJoinedPlan(planId: string, userId: string) {
+     throw createPlanRequestError(response.error, response.message, 410);
+   }
+   assertPlanInteractionUnlocked(participant.plan.status);
++  if (participant.plan.status === 'completed') {
++    const response = planCompletedResponse();
++    throw createPlanRequestError(response.error, response.message, 409);
++  }
+   if (participant.status !== 'accepted') {
+     throw createPlanRequestError('cannot_leave_plan', 'Only joined participants can leave a plan.', 409);
+   }
+@@ -936,6 +988,7 @@ async function leaveJoinedPlan(planId: string, userId: string) {
+ }
+ 
+ plansRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
++  await syncDuePlanLifecycleStatuses();
+   const input = listPlansQuerySchema.parse(req.query ?? {});
+   const blockedOwnerIds = await blockedUserIdsForViewer(req.user?.id);
+   const plans = await prisma.plan.findMany({
+@@ -974,6 +1027,7 @@ plansRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
+ }));
+ 
+ plansRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
++  await syncDuePlanLifecycleStatuses(new Date(), { ownerId: req.user!.id });
+   const plans = await prisma.plan.findMany({
+     where: { ownerId: req.user!.id, deletedAt: null },
+     include: planInclude(),
+@@ -984,12 +1038,13 @@ plansRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
+ }));
+ 
+ plansRoutes.get('/joined', requireAuth, asyncRoute(async (req, res) => {
++  await syncDuePlanLifecycleStatuses();
+   const blockedOwnerIds = await blockedUserIdsForViewer(req.user!.id);
+   const plans = await prisma.plan.findMany({
+     where: {
+       deletedAt: null,
+       participants: { some: { userId: req.user!.id, status: 'accepted' as any } },
+-      status: { in: [...publicPlanStatuses] },
++      status: { in: [...joinedPlanStatuses] },
+       owner: { trustTier: { not: 'restricted' } },
+       ...(blockedOwnerIds.length > 0 ? { ownerId: { notIn: blockedOwnerIds } } : {}),
+     },
+@@ -1001,6 +1056,7 @@ plansRoutes.get('/joined', requireAuth, asyncRoute(async (req, res) => {
+ }));
+ 
+ plansRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
++  await syncDuePlanLifecycleStatuses(new Date(), { ownerId: req.user!.id });
+   const input = createPlanRequestSchema.parse(req.body ?? {});
+   const stopGapViolation = findPlanRequestStopGapViolation(input);
+   if (stopGapViolation) return res.status(400).json(planStopGapViolationResponse(stopGapViolation));
+@@ -1062,6 +1118,7 @@ plansRoutes.post('/:planId/remove', requireAuth, requireActiveAccount, asyncRout
+ }));
+ 
+ plansRoutes.post('/:planId/restore', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
++  await syncDuePlanLifecycleStatuses(new Date(), { ownerId: req.user!.id });
+   const existing = await prisma.plan.findFirst({
+     where: { id: req.params.planId, ownerId: req.user!.id },
+     include: planInclude(),
+@@ -1154,6 +1211,7 @@ plansRoutes.post('/:planId/places/:placeId/verify-presence', requireAuth, requir
+   if ('error' in loaded) {
+     if (loaded.error === 'plan_deleted') return res.status(410).json(planDeletedResponse());
+     if (loaded.error === 'plan_cancelled') return res.status(409).json(planInteractionLockedResponse());
++    if (loaded.error === 'plan_completed') return res.status(409).json(planCompletedResponse());
+     if (loaded.error === 'not_plan_participant') return res.status(403).json({ error: loaded.error, message: 'Join this plan before verifying your presence at its offline places.' });
+     return res.status(404).json({ error: loaded.error });
+   }
+@@ -1316,11 +1374,13 @@ plansRoutes.get('/:planId/join-requests', requireAuth, asyncRoute(async (req, re
+ }));
+ 
+ plansRoutes.patch('/:planId/join-requests/:participantId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
++  await syncDuePlanLifecycleStatuses(new Date(), { planId: req.params.planId });
+   const input = updatePlanParticipantRequestSchema.parse(req.body ?? {});
+   const plan = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id }, include: { participants: true } });
+   if (!plan) return res.status(404).json({ error: 'not_found' });
+   if (plan.deletedAt) return res.status(410).json(planDeletedResponse());
+   if (isPlanInteractionLocked(plan.status)) return res.status(409).json(planInteractionLockedResponse());
++  if (plan.status === 'completed') return res.status(409).json(planCompletedResponse());
+   const participant = (plan.participants ?? []).find((item: any) => item.id === req.params.participantId);
+   if (!participant) return res.status(404).json({ error: 'not_found' });
+   if (input.status === 'accepted') {
+@@ -1352,6 +1412,7 @@ plansRoutes.patch('/:planId/my-join-request', requireAuth, requireActiveAccount,
+     const participant = await leaveJoinedPlan(planId, req.user!.id);
+     return res.json({ participant });
+   }
++  await syncDuePlanLifecycleStatuses(new Date(), { planId });
+   const participant = await prisma.planParticipant.findUnique({
+     where: { planId_userId: { planId, userId: req.user!.id } },
+     include: { plan: { select: { status: true, deletedAt: true } } },
+@@ -1359,6 +1420,7 @@ plansRoutes.patch('/:planId/my-join-request', requireAuth, requireActiveAccount,
+   if (!participant) return res.status(404).json({ error: 'not_found' });
+   if (participant.plan.deletedAt) return res.status(410).json(planDeletedResponse());
+   if (isPlanInteractionLocked(participant.plan.status)) return res.status(409).json(planInteractionLockedResponse());
++  if (participant.plan.status === 'completed') return res.status(409).json(planCompletedResponse());
+   if (input.status === 'cancelled' && participant.status !== 'pending') return res.status(409).json({ error: 'cannot_cancel_join_request', message: 'Only pending join requests can be cancelled.' });
+   const updated = await prisma.planParticipant.update({
+     where: { id: participant.id },
+diff --git a/apps/api/src/modules/plans/plans.safety.testkit.ts b/apps/api/src/modules/plans/plans.safety.testkit.ts
+index 4b0427229b4df9a027deae6a72b03f919f7a9558..a2133840100ff7b22556e2da4ae64147d4215eaa 100644
+--- a/apps/api/src/modules/plans/plans.safety.testkit.ts
++++ b/apps/api/src/modules/plans/plans.safety.testkit.ts
+@@ -1,3 +1,5 @@
++import { normalizedPlanLifecycleStatus } from './plans.lifecycle.js';
++
+ export const ACTIVE_PLAN_TIME_STATUSES = ['draft', 'open', 'full', 'started'] as const;
+ export const PUBLIC_PLAN_STATUSES = ['open', 'full', 'started'] as const;
+ export const PLAN_TIME_MIN_GAP_MINUTES = 60;
+@@ -64,13 +66,9 @@ export function canReadPlan(plan: { deletedAt?: Date | string | null; status: st
+ }
+ 
+ export function restoredPlanStatus(plan: { startsAt: string | Date; endsAt?: string | Date | null; maxParticipants?: number | null; acceptedCount?: number }, now: string | Date) {
+-  const startsAt = asDate(plan.startsAt);
+-  const effectiveEnd = plan.endsAt ? asDate(plan.endsAt) : startsAt;
+-  const current = asDate(now);
+-  if (effectiveEnd.getTime() <= current.getTime()) return null;
+-  if (startsAt.getTime() <= current.getTime()) return 'started' as const;
+-  if (plan.maxParticipants && (plan.acceptedCount ?? 0) >= plan.maxParticipants) return 'full' as const;
+-  return 'open' as const;
++  const capacityStatus = plan.maxParticipants && (plan.acceptedCount ?? 0) >= plan.maxParticipants ? 'full' as const : 'open' as const;
++  const normalized = normalizedPlanLifecycleStatus({ status: capacityStatus, startsAt: plan.startsAt, endsAt: plan.endsAt }, now);
++  return normalized === 'completed' ? null : normalized;
+ }
+ 
+ export function isRemoveIdempotent(plan: { deletedAt?: Date | string | null; status: string }) {
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index b220a155073d389faaf41d5de865bab74202c450..bbc2346a5d34678f4d4c022b20c081358eddab4c 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -3325,7 +3325,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   const isJoined = participantStatus === 'accepted';
+   const joinClosed = Boolean(plan && isPlanJoinClosed(plan));
+   const canJoin = Boolean(plan && auth.user && !isOwner && !joinClosed && canJoinPlanFromParticipantStatus(participantStatus) && plan.status === 'open');
+-  const canLeave = Boolean(plan && !isCancelled && !isOwner && isJoined);
++  const canLeave = Boolean(plan && !isCancelled && plan.status !== 'completed' && !isOwner && isJoined);
+   const canRemovePlan = Boolean(plan && isOwner && plan.status !== 'cancelled' && plan.status !== 'hidden');
+   const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus, t) : '';
+   const places = plan ? sortedPlanPlaces(plan) : [];

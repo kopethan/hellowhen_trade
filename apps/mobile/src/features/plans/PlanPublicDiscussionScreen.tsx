@@ -23,6 +23,7 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { UserIdentityPressable } from '../users/UserIdentityPressable';
+import { isPlanDiscussionWritableStatus } from './planPresentationState';
 import type { TradeOwnerPreview } from '../trade/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PlanPublicDiscussion'>;
@@ -186,7 +187,8 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
   }, [navigation, route.params.planId, route.params.title]);
 
   const isCancelled = planStatus === 'cancelled';
-  const canWrite = Boolean(auth.user && !isCancelled);
+  const isCompleted = planStatus === 'completed';
+  const canWrite = Boolean(auth.user && isPlanDiscussionWritableStatus(planStatus));
 
   let actionSheetActions: AppActionSheetAction[] = [];
   if (actionSheet?.type === 'own') {
@@ -306,7 +308,7 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
           {error ? <InfoNotice tone="danger" title={t('plans.discussion.errors.unavailableTitle')} body={error} /> : null}
           {notice ? <AppText style={[styles.feedbackText, { color: theme.color.muted }]}>{notice}</AppText> : null}
           {groupedRows.length === 0 && loading ? <LoadingDiscussion theme={theme} label={t('common.states.loading')} /> : null}
-          {groupedRows.length === 0 && !loading ? <EmptyDiscussion theme={theme} t={t} /> : null}
+          {groupedRows.length === 0 && !loading ? <EmptyDiscussion theme={theme} t={t} canWrite={canWrite} /> : null}
           {groupedRows.map((row) => row.type === 'date' ? (
             <View key={row.key} style={styles.dateSeparator}><View style={[styles.dateLine, { backgroundColor: theme.color.border }]} /><AppText style={[styles.dateText, { color: theme.color.muted }]}>{row.label}</AppText><View style={[styles.dateLine, { backgroundColor: theme.color.border }]} /></View>
           ) : (
@@ -330,9 +332,13 @@ export function PlanPublicDiscussionScreen({ route, navigation }: Props) {
             />
           ))}
         </ScrollView>
-        {isCancelled ? (
+        {!canWrite ? (
           <View style={[styles.closedComposer, { backgroundColor: theme.color.background, borderColor: theme.color.border, paddingBottom: Math.max(10, insets.bottom + 8) }]}>
-            <InfoNotice tone="warning" title={t('plans.discussion.cancelled.title')} body={t('plans.discussion.cancelled.body')} />
+            <InfoNotice
+              tone="warning"
+              title={t(isCancelled ? 'plans.discussion.cancelled.title' : isCompleted ? 'plans.discussion.completed.title' : 'plans.discussion.readOnly.title')}
+              body={t(isCancelled ? 'plans.discussion.cancelled.body' : isCompleted ? 'plans.discussion.completed.body' : 'plans.discussion.readOnly.body')}
+            />
           </View>
         ) : (
           <View style={[styles.composer, { backgroundColor: theme.color.background, borderColor: theme.color.border, paddingBottom: Math.max(10, insets.bottom + 8) }]}>
@@ -462,11 +468,11 @@ function LoadingDiscussion({ theme, label }: { theme: ThemeTokens; label: string
   );
 }
 
-function EmptyDiscussion({ theme, t }: { theme: ThemeTokens; t: TFunction }) {
+function EmptyDiscussion({ theme, t, canWrite }: { theme: ThemeTokens; t: TFunction; canWrite: boolean }) {
   return (
     <View style={styles.emptyBox}>
       <AppText style={styles.emptyTitle}>{t('plans.discussion.empty.title')}</AppText>
-      <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{t('plans.discussion.empty.body')}</AppText>
+      <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{t(canWrite ? 'plans.discussion.empty.body' : 'plans.discussion.empty.readOnlyBody')}</AppText>
     </View>
   );
 }

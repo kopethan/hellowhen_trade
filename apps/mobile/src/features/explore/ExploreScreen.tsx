@@ -6,6 +6,7 @@ import { starterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type Starte
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
 import { AppHeaderActionButton } from '../../components/AppHeaderActionButton';
+import { PRIMARY_HEADER_TITLE_STYLE } from '../../components/headerTypography';
 import { LibraryFilterGroup, LibraryFilterOption, LibraryFilterScreen, LibraryInlineSearch } from '../../components/library';
 import { AccountHeaderActionButton } from '../../components/AccountHeaderActionButton';
 import { AppText } from '../../components/AppText';
@@ -539,7 +540,7 @@ export function ExploreScreen() {
 const styles = StyleSheet.create({
   headerRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  title: { flex: 1, minWidth: 0, fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 },
+  title: { flex: 1, minWidth: 0, ...PRIMARY_HEADER_TITLE_STYLE },
   content: { paddingTop: 8, paddingBottom: 44 },
   conceptDeck: { alignItems: 'center', justifyContent: 'center', overflow: 'visible' },
   firstConceptDeck: { marginTop: 14 },

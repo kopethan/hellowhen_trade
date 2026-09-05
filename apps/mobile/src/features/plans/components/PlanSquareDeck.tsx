@@ -14,6 +14,7 @@ import { ContinuousSquareStackDeck, type SquareStackDeckCard } from '../../trade
 import { resolveMediaVariantUrl } from '../../trade/mediaUrls';
 import { formatPlanTemperature, isSyntheticPlanWeatherPlanId } from '../planWeatherModel';
 import { usePlanPlaceWeather, useTemperatureUnitPreference } from '../planWeatherMobile';
+import { getPlanPresentationState, getPlanPresentationTone, planPresentationLabelKey } from '../planPresentationState';
 
 const MOBILE_PLAN_DECK_AVAILABLE_HEIGHT = 404;
 const MOBILE_PLAN_DECK_MAX_CARD_SIZE = 348;
@@ -36,6 +37,7 @@ type PlanSquareDeckProps = {
   topBadgeLabel?: string;
   topBadgeTone?: SemanticColorName;
   showModeBadge?: boolean;
+  showStatusBadge?: boolean;
 };
 
 function activeMedia(media: MediaAssetDto[] | undefined) {
@@ -123,7 +125,7 @@ function getPlanParticipantCount(plan: PlanDto) {
   return plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
 }
 
-function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLabel, topBadgeTone = 'place', showModeBadge = true }: { card: PlanPlaceDeckCard; deckIndex: number; deckTotal: number; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean }) {
+function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLabel, topBadgeTone = 'place', showModeBadge = true, showStatusBadge = true }: { card: PlanPlaceDeckCard; deckIndex: number; deckTotal: number; onOpen: () => void; topBadgeLabel?: string; topBadgeTone?: SemanticColorName; showModeBadge?: boolean; showStatusBadge?: boolean }) {
   const theme = useThemeTokens();
   const { language, t } = useTranslation();
   const isDark = theme.mode === 'dark';
@@ -152,7 +154,7 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
     setAttributionLogoFailed(false);
   }, [attributionLogoUrl]);
 
-  const weatherVisible = Boolean(weatherCandidate && attributionLogoReady && !attributionLogoFailed);
+  const weatherVisible = Boolean(weatherCandidate && attributionLogoUrl && attributionLogoReady && !attributionLogoFailed);
   const temperatureLabel = weatherCandidate && weatherVisible ? formatPlanTemperature(weatherCandidate.temperatureC, temperatureUnit) : '';
   const cardCounter = isEmpty ? t('plans.deck.noPlacesCount') : `${String(card.placeIndex + 1).padStart(2, '0')}/${String(card.placeTotal).padStart(2, '0')}`;
   const modeLabel = place?.mode === 'remote' ? t('plans.deck.online') : t('plans.deck.offline');
@@ -166,6 +168,9 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
   const contentBadgeLabel = topBadgeLabel ?? t('plans.deck.placeBadge', { counter: cardCounter });
   const deckCounter = `${String(deckIndex + 1).padStart(2, '0')}/${String(Math.max(deckTotal, 1)).padStart(2, '0')}`;
   const primaryBadgeLabel = deckTotal > 1 ? `${deckCounter} · ${contentBadgeLabel}` : contentBadgeLabel;
+  const presentationState = getPlanPresentationState(card.plan);
+  const presentationLabel = t(planPresentationLabelKey(presentationState));
+  const presentationTone = getPlanPresentationTone(presentationState);
   const hasPosterImage = Boolean(imageUrl);
   const posterTextShadow = hasPosterImage ? 'rgba(0,0,0,0.34)' : isDark ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.48)';
   const posterTitleColor = hasPosterImage ? '#FFFFFF' : theme.color.text;
@@ -243,7 +248,7 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
             style={({ pressed }) => [styles.weatherToggle, pressed && styles.weatherTogglePressed]}
           >
             {hasPosterImage ? (
-              <View style={[styles.posterPill, styles.posterModePill, { backgroundColor: posterPillBg, borderColor: posterPillBorder }]}>
+              <View style={[styles.posterPill, styles.posterWeatherPill, { backgroundColor: posterPillBg, borderColor: posterPillBorder }]}>
                 <AppText style={[styles.posterPillText, { color: posterPillText }]} numberOfLines={1}>{modeWeatherLabel}</AppText>
               </View>
             ) : (
@@ -265,20 +270,25 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
         surfaceStyle={styles.posterCardFooterSurface}
         contentStyle={styles.posterCardFooterContent}
       >
-        <AppText style={[styles.planTitle, { color: posterPlanColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{card.plan.title}</AppText>
+        <View style={styles.planTitleRow}>
+          <AppText style={[styles.planTitle, styles.planTitleFlex, { color: posterPlanColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{card.plan.title}</AppText>
+          {showStatusBadge ? <SemanticBadge label={presentationLabel} tone={presentationTone} size="sm" /> : null}
+        </View>
         <AppText style={[styles.placeTitle, { color: posterTitleColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{placeTitle}</AppText>
         {isEmpty ? <AppText style={[styles.emptyHint, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={2}>{t('plans.deck.addFirstStop')}</AppText> : null}
         {!isEmpty && locationLabel ? <AppText style={[styles.placeMetaText, { color: posterMutedColor, textShadowColor: posterTextShadow }]} numberOfLines={1}>{locationLabel}</AppText> : null}
         <AppText
           style={[
             styles.placeTimeText,
-            weatherCandidate && attributionLogoUrl && !attributionLogoFailed && styles.placeTimeTextWithWeatherAttribution,
+            weatherVisible && styles.placeTimeTextWithWeatherAttribution,
             { color: posterMutedColor, textShadowColor: posterTextShadow },
           ]}
           numberOfLines={1}
         >{timeLabel}</AppText>
         {weatherCandidate && attributionLogoUrl ? (
           <Pressable
+            accessible={weatherVisible}
+            pointerEvents={weatherVisible ? 'auto' : 'none'}
             accessibilityRole="link"
             accessibilityLabel={t('plans.deck.weather.openAttribution')}
             hitSlop={6}
@@ -289,6 +299,7 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
             style={({ pressed }) => [
               styles.weatherAttribution,
               { backgroundColor: theme.color.surface, borderColor: theme.color.border },
+              !weatherVisible && styles.weatherAttributionPending,
               pressed && styles.weatherTogglePressed,
             ]}
           >
@@ -309,7 +320,7 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
   );
 }
 
-export function PlanSquareDeck({ plan, index = 0, total = 1, onOpen, style, topBadgeLabel, topBadgeTone, showModeBadge = true }: PlanSquareDeckProps) {
+export function PlanSquareDeck({ plan, index = 0, total = 1, onOpen, style, topBadgeLabel, topBadgeTone, showModeBadge = true, showStatusBadge = true }: PlanSquareDeckProps) {
   const cards = useMemo(() => buildPlanPlaceDeckCards(plan), [plan]);
   const handleOpen = onOpen ?? (() => {});
 
@@ -317,7 +328,7 @@ export function PlanSquareDeck({ plan, index = 0, total = 1, onOpen, style, topB
     <View style={[styles.container, style]}>
       <ContinuousSquareStackDeck<PlanPlaceDeckCard>
         cards={cards}
-        renderCard={({ card }) => <PlanPlaceDeckCardView card={card} deckIndex={index} deckTotal={total} onOpen={handleOpen} topBadgeLabel={topBadgeLabel} topBadgeTone={topBadgeTone} showModeBadge={showModeBadge} />}
+        renderCard={({ card }) => <PlanPlaceDeckCardView card={card} deckIndex={index} deckTotal={total} onOpen={handleOpen} topBadgeLabel={topBadgeLabel} topBadgeTone={topBadgeTone} showModeBadge={showModeBadge} showStatusBadge={showStatusBadge} />}
         renderWindow="visible"
         showDebugBadge={false}
         depthEffect="motionOnly"
@@ -404,12 +415,24 @@ const styles = StyleSheet.create({
   posterModePill: {
     maxWidth: POSTER_CARD_GEOMETRY.secondaryPillMaxWidth,
   },
+  posterWeatherPill: {
+    maxWidth: '100%',
+  },
   posterPillText: {
     fontSize: POSTER_CARD_GEOMETRY.topPillFontSize,
     lineHeight: POSTER_CARD_GEOMETRY.topPillLineHeight,
     fontWeight: '900',
     letterSpacing: POSTER_CARD_GEOMETRY.topPillLetterSpacing,
     textTransform: 'uppercase',
+  },
+  planTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  planTitleFlex: {
+    flex: 1,
+    minWidth: 0,
   },
   cardCopy: {
     alignSelf: 'stretch',
@@ -463,6 +486,8 @@ const styles = StyleSheet.create({
   },
   weatherToggle: {
     borderRadius: 999,
+    flexShrink: 0,
+    maxWidth: '54%',
   },
   weatherTogglePressed: {
     opacity: 0.72,
@@ -479,6 +504,9 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 6,
     paddingVertical: 2,
+  },
+  weatherAttributionPending: {
+    opacity: 0,
   },
   weatherAttributionLogo: {
     width: 56,

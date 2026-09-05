@@ -1,0 +1,1 @@
+ALTER TABLE "Plan" ADD COLUMN "joinClosesAt" TIMESTAMP(3);

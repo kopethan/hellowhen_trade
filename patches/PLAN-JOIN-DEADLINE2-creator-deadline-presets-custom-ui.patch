@@ -1,0 +1,620 @@
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+index 00ceabe..df2fb2b 100644
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -578,7 +578,7 @@ function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequ
+     mode: input.mode ?? null,
+     locationLabel: input.locationLabel ?? null,
+     startsAt: new Date(input.startsAt),
+-    joinClosesAt: new Date(input.startsAt),
++    joinClosesAt: new Date(input.joinClosesAt ?? input.startsAt),
+     endsAt: estimatedEndsAt ? new Date(estimatedEndsAt) : null,
+     maxParticipants: input.maxParticipants ?? null,
+     joinApprovalMode: input.joinApprovalMode ?? 'automatic',
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index b558a74..b220a15 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+ import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type ListPlacesQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceMode } from '@hellowhen/contracts';
+ import { formatLocalizedDateTime, type SupportedLanguage, type TranslationValues } from '@hellowhen/i18n';
+-import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, isPlanJoinClosed, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, resolveInventoryOriginalCopy, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
++import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, effectivePlanJoinClosesAt, getNormalWorkspaceMenuItems, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, isPlanJoinClosed, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, resolveInventoryOriginalCopy, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type NormalWorkspaceMenuItem, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import type { AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
+ import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
+@@ -380,6 +380,14 @@ type PlanEndState = {
+   time: string;
+ };
+ 
++type PlanJoinDeadlinePreset = 'start' | '1h' | '3h' | '1d' | 'custom';
++
++type PlanJoinDeadlineState = {
++  preset: PlanJoinDeadlinePreset;
++  date: string;
++  time: string;
++};
++
+ type PlanCreateStage = 'build' | 'preview';
+ 
+ 
+@@ -388,7 +396,7 @@ type PlaceTranslationFormValue = LocalizedContentTranslationDraft;
+ type NativeProviderAddressState = PlaceProviderAddressInput;
+ 
+ const PLAN_CREATE_DRAFT_STORAGE_KEY = 'hellowhen_create_plan_draft_v1';
+-const PLAN_CREATE_DRAFT_VERSION = 1;
++const PLAN_CREATE_DRAFT_VERSION = 2;
+ const PLAN_CREATE_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+ 
+ type PlanCreateDraftPlaceState = {
+@@ -413,6 +421,7 @@ type PlanCreateDraftState = {
+   places: PlanCreateDraftPlaceState[];
+   advancedDetails: AdvancedPlanDetailsState;
+   planEnd: PlanEndState;
++  joinDeadline: PlanJoinDeadlineState;
+ };
+ 
+ type PlaceCreateFormState = {
+@@ -493,17 +502,24 @@ function selectedPlanPlaceFromDraft(place: PlanCreateDraftPlaceState, index: num
+   };
+ }
+ 
+-function createPlanDraftHasContent(draft: Pick<PlanCreateDraftState, 'places' | 'advancedDetails' | 'planEnd'>) {
++function makePlanJoinDeadlineState(): PlanJoinDeadlineState {
++  return { preset: 'start', date: '', time: '' };
++}
++
++function createPlanDraftHasContent(draft: Pick<PlanCreateDraftState, 'places' | 'advancedDetails' | 'planEnd' | 'joinDeadline'>) {
+   return draft.places.length > 0
+     || Boolean(draft.advancedDetails.title.trim())
+     || Boolean(draft.advancedDetails.description.trim())
+     || Boolean(draft.advancedDetails.category.trim())
+     || Boolean(draft.advancedDetails.tags.trim())
+     || Boolean(draft.planEnd.date.trim())
+-    || Boolean(draft.planEnd.time.trim());
++    || Boolean(draft.planEnd.time.trim())
++    || draft.joinDeadline.preset !== 'start'
++    || Boolean(draft.joinDeadline.date.trim())
++    || Boolean(draft.joinDeadline.time.trim());
+ }
+ 
+-function buildCreatePlanDraftState(places: SelectedPlanPlaceState[], advancedDetails: AdvancedPlanDetailsState, planEnd: PlanEndState, stage: PlanCreateStage): PlanCreateDraftState {
++function buildCreatePlanDraftState(places: SelectedPlanPlaceState[], advancedDetails: AdvancedPlanDetailsState, planEnd: PlanEndState, joinDeadline: PlanJoinDeadlineState, stage: PlanCreateStage): PlanCreateDraftState {
+   return {
+     version: PLAN_CREATE_DRAFT_VERSION,
+     updatedAt: new Date().toISOString(),
+@@ -511,6 +527,7 @@ function buildCreatePlanDraftState(places: SelectedPlanPlaceState[], advancedDet
+     places: places.map(createPlanDraftPlaceFromSelected),
+     advancedDetails,
+     planEnd,
++    joinDeadline,
+   };
+ }
+ 
+@@ -518,8 +535,8 @@ async function readCreatePlanDraft() {
+   try {
+     const raw = await AsyncStorage.getItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
+     if (!raw) return null;
+-    const parsed = JSON.parse(raw) as Partial<PlanCreateDraftState>;
+-    if (parsed.version !== PLAN_CREATE_DRAFT_VERSION || !parsed.updatedAt || !Array.isArray(parsed.places) || !parsed.advancedDetails || !parsed.planEnd) {
++    const parsed = JSON.parse(raw) as Partial<PlanCreateDraftState> & { version?: number };
++    if ((parsed.version !== 1 && parsed.version !== PLAN_CREATE_DRAFT_VERSION) || !parsed.updatedAt || !Array.isArray(parsed.places) || !parsed.advancedDetails || !parsed.planEnd) {
+       await AsyncStorage.removeItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
+       return null;
+     }
+@@ -556,6 +573,11 @@ async function readCreatePlanDraft() {
+         date: typeof parsed.planEnd.date === 'string' ? parsed.planEnd.date : '',
+         time: typeof parsed.planEnd.time === 'string' ? parsed.planEnd.time : '',
+       },
++      joinDeadline: {
++        preset: parsed.joinDeadline?.preset === '1h' || parsed.joinDeadline?.preset === '3h' || parsed.joinDeadline?.preset === '1d' || parsed.joinDeadline?.preset === 'custom' ? parsed.joinDeadline.preset : 'start',
++        date: typeof parsed.joinDeadline?.date === 'string' ? parsed.joinDeadline.date : '',
++        time: typeof parsed.joinDeadline?.time === 'string' ? parsed.joinDeadline.time : '',
++      },
+     };
+     return createPlanDraftHasContent(draft) ? draft : null;
+   } catch {
+@@ -1037,6 +1059,56 @@ function dateAndTimeFromDate(value: Date): PlanEndState {
+   return { date: toDateInputValueFromDate(value), time: `${padDatePart(value.getHours())}:${padDatePart(value.getMinutes())}` };
+ }
+ 
++function planJoinDeadlinePresetOffsetMinutes(preset: PlanJoinDeadlinePreset) {
++  if (preset === '1h') return 60;
++  if (preset === '3h') return 180;
++  if (preset === '1d') return 24 * 60;
++  return 0;
++}
++
++function planJoinDeadlinePresetLabel(preset: PlanJoinDeadlinePreset, t: PlanTranslationFunction) {
++  if (preset === '1h') return t('plans.create.joinDeadline.oneHourBefore');
++  if (preset === '3h') return t('plans.create.joinDeadline.threeHoursBefore');
++  if (preset === '1d') return t('plans.create.joinDeadline.oneDayBefore');
++  if (preset === 'custom') return t('plans.create.joinDeadline.custom');
++  return t('plans.create.joinDeadline.atStart');
++}
++
++function resolvePlanJoinDeadline(state: PlanJoinDeadlineState, startsAt: string, t: PlanTranslationFunction) {
++  if (!startsAt) {
++    return { joinClosesAt: '', presetLabel: planJoinDeadlinePresetLabel(state.preset, t), deadlineLabel: '', error: t('plans.create.joinDeadline.startFirst') };
++  }
++  const start = new Date(startsAt);
++  if (Number.isNaN(start.getTime())) {
++    return { joinClosesAt: '', presetLabel: planJoinDeadlinePresetLabel(state.preset, t), deadlineLabel: '', error: t('plans.create.joinDeadline.startFirst') };
++  }
++
++  let deadline = start;
++  if (state.preset === 'custom') {
++    if (!state.date.trim() || !state.time.trim()) {
++      return { joinClosesAt: '', presetLabel: planJoinDeadlinePresetLabel(state.preset, t), deadlineLabel: '', error: t('plans.create.joinDeadline.customBoth') };
++    }
++    const custom = parseLocalDateTime(state.date, state.time);
++    if (!custom) {
++      return { joinClosesAt: '', presetLabel: planJoinDeadlinePresetLabel(state.preset, t), deadlineLabel: '', error: t('plans.create.joinDeadline.customInvalid') };
++    }
++    deadline = custom;
++  } else {
++    deadline = new Date(start.getTime() - planJoinDeadlinePresetOffsetMinutes(state.preset) * 60_000);
++  }
++
++  if (deadline.getTime() > start.getTime()) {
++    return { joinClosesAt: '', presetLabel: planJoinDeadlinePresetLabel(state.preset, t), deadlineLabel: formatCompactIsoDateTime(deadline.toISOString()), error: t('plans.create.joinDeadline.afterStart') };
++  }
++
++  return {
++    joinClosesAt: deadline.toISOString(),
++    presetLabel: planJoinDeadlinePresetLabel(state.preset, t),
++    deadlineLabel: formatCompactIsoDateTime(deadline.toISOString()),
++    error: '',
++  };
++}
++
+ function cascadePlanStopDateTimeChange(
+   places: SelectedPlanPlaceState[],
+   index: number,
+@@ -3364,6 +3436,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+               <PlanDetailInfoRow label={t('plans.detail.fields.status')} value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status, t)} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.visibility')} value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : plan.status === 'hidden' ? t('plans.detail.values.hidden') : t('plans.detail.values.public')} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.joinMode')} value={getPlanJoinModeLabel(plan, t)} />
++              <PlanDetailInfoRow label={t('plans.detail.fields.joinCloses')} value={formatDate(effectivePlanJoinClosesAt(plan).toISOString(), language, t)} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.time')} value={formatPlanDateRange(plan, language, t)} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.placeMode')} value={getPlanModeLabel(plan, t)} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.created')} value={formatDate(plan.createdAt, language, t)} />
+@@ -3995,6 +4068,127 @@ function PlanEndPickerSheet({
+   );
+ }
+ 
++function PlanJoinDeadlineCustomControls({
++  value,
++  schedule,
++  onChange,
++}: {
++  value: PlanJoinDeadlineState;
++  schedule: ReturnType<typeof buildMobilePlanSchedule>;
++  onChange: (value: PlanJoinDeadlineState) => void;
++}) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  const [dateOpen, setDateOpen] = useState(false);
++  const [timeOpen, setTimeOpen] = useState(false);
++  const fallbackStart = schedule.startsAt ? new Date(schedule.startsAt) : new Date();
++  const safeFallback = Number.isNaN(fallbackStart.getTime()) ? new Date() : fallbackStart;
++  const fallbackDate = toDateInputValueFromDate(safeFallback);
++  const fallbackTime = toTimeInputValueFromDate(safeFallback);
++  const pickerDate = value.date || fallbackDate;
++  const pickerTime = value.time || fallbackTime;
++
++  function handleChange(patch: { date?: string; time?: string }) {
++    onChange({
++      preset: 'custom',
++      date: (patch.date ?? value.date) || fallbackDate,
++      time: (patch.time ?? value.time) || fallbackTime,
++    });
++  }
++
++  return (
++    <View style={styles.quickPickerGroup}>
++      <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{t('plans.create.joinDeadline.customDateTime')}</AppText>
++      <View style={styles.quickChoiceRow}>
++        <QuickChoiceButton label={value.date ? formatInputDateLabel(value.date) : t('plans.create.joinDeadline.date')} active={dateOpen || Boolean(value.date)} onPress={() => { setTimeOpen(false); setDateOpen((open) => !open); }} />
++        <QuickChoiceButton label={value.time ? formatInputTimeLabel(value.time) : t('plans.create.joinDeadline.time')} active={timeOpen || Boolean(value.time)} onPress={() => { setDateOpen(false); setTimeOpen((open) => !open); }} />
++      </View>
++      {dateOpen ? <PlanNativeDateTimePicker mode="date" date={pickerDate} time={pickerTime} onChange={handleChange} onClose={() => setDateOpen(false)} /> : null}
++      {timeOpen ? <PlanNativeDateTimePicker mode="time" date={pickerDate} time={pickerTime} onChange={handleChange} onClose={() => setTimeOpen(false)} /> : null}
++    </View>
++  );
++}
++
++function PlanJoinDeadlineCompactRow({
++  summary,
++  onOpen,
++}: {
++  summary: ReturnType<typeof resolvePlanJoinDeadline>;
++  onOpen: () => void;
++}) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  return (
++    <View style={styles.planEndSummaryRow}>
++      <View style={styles.timelineCopy}>
++        <AppText style={styles.rowTitle}>{t('plans.create.joinDeadline.title')}</AppText>
++        <AppText style={[styles.metaText, { color: summary.error ? theme.semantic.warning.text : theme.color.muted }]}>
++          {summary.error || `${summary.presetLabel} · ${summary.deadlineLabel}`}
++        </AppText>
++      </View>
++      <QuickChoiceButton label={t('plans.create.joinDeadline.change')} onPress={onOpen} />
++    </View>
++  );
++}
++
++function PlanJoinDeadlinePickerSheet({
++  visible,
++  value,
++  schedule,
++  onChange,
++  onClose,
++}: {
++  visible: boolean;
++  value: PlanJoinDeadlineState;
++  schedule: ReturnType<typeof buildMobilePlanSchedule>;
++  onChange: (value: PlanJoinDeadlineState) => void;
++  onClose: () => void;
++}) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  const summary = resolvePlanJoinDeadline(value, schedule.startsAt, t);
++  const presets: PlanJoinDeadlinePreset[] = ['start', '1h', '3h', '1d'];
++
++  function choosePreset(preset: PlanJoinDeadlinePreset) {
++    onChange({ ...value, preset });
++    onClose();
++  }
++
++  function chooseCustom() {
++    if (value.date && value.time) {
++      onChange({ ...value, preset: 'custom' });
++      return;
++    }
++    const start = schedule.startsAt ? new Date(schedule.startsAt) : new Date();
++    const safeStart = Number.isNaN(start.getTime()) ? new Date() : start;
++    const fallback = dateAndTimeFromDate(safeStart);
++    onChange({ preset: 'custom', date: value.date || fallback.date, time: value.time || fallback.time });
++  }
++
++  return (
++    <PlanPickerSheetFrame
++      visible={visible}
++      title={t('plans.create.joinDeadline.title')}
++      subtitle={t('plans.create.joinDeadline.subtitle')}
++      onClose={onClose}
++    >
++      <View style={styles.quickPickerGroup}>
++        <AppText style={[styles.quickPickerLabel, { color: theme.color.muted }]}>{t('plans.create.joinDeadline.presets')}</AppText>
++        <View style={styles.quickChoiceRow}>
++          {presets.map((preset) => (
++            <QuickChoiceButton key={preset} label={planJoinDeadlinePresetLabel(preset, t)} active={value.preset === preset} onPress={() => choosePreset(preset)} />
++          ))}
++          <QuickChoiceButton label={t('plans.create.joinDeadline.custom')} active={value.preset === 'custom'} onPress={chooseCustom} />
++        </View>
++      </View>
++      {value.preset === 'custom' ? <PlanJoinDeadlineCustomControls value={value} schedule={schedule} onChange={onChange} /> : null}
++      <AppText style={[styles.metaText, { color: summary.error ? theme.semantic.warning.text : theme.color.muted }]}>
++        {summary.error || t('plans.create.joinDeadline.summary', { preset: summary.presetLabel, date: summary.deadlineLabel })}
++      </AppText>
++    </PlanPickerSheetFrame>
++  );
++}
++
+ function makeGooglePlaceSessionToken() {
+   const maybeCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+   if (typeof maybeCrypto?.randomUUID === 'function') {
+@@ -4479,6 +4673,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   const [saving, setSaving] = useState(false);
+   const [advancedDetails, setAdvancedDetails] = useState<AdvancedPlanDetailsState>(() => makeAdvancedPlanDetails());
+   const [planEnd, setPlanEnd] = useState<PlanEndState>({ date: '', time: '' });
++  const [joinDeadline, setJoinDeadline] = useState<PlanJoinDeadlineState>(() => makePlanJoinDeadlineState());
+   const [stage, setStage] = useState<PlanCreateStage>('build');
+   const [createPlanMenuOpen, setCreatePlanMenuOpen] = useState(false);
+   const [draftPrompt, setDraftPrompt] = useState<PlanCreateDraftState | null>(null);
+@@ -4490,6 +4685,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   const [detailPlaceIndex, setDetailPlaceIndex] = useState<number | null>(null);
+   const [timeSheet, setTimeSheet] = useState<PlanStopTimeSheetState>(null);
+   const [endPickerMode, setEndPickerMode] = useState<PlanEndPickerMode | null>(null);
++  const [joinDeadlinePickerOpen, setJoinDeadlinePickerOpen] = useState(false);
+   const [advancedDetailsOpen, setAdvancedDetailsOpen] = useState(false);
+   const handledCreatedPlaceNonceRef = useRef<number | undefined>(undefined);
+   const handledInitialPlanIdeaRef = useRef<string | null>(null);
+@@ -4527,6 +4723,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   const schedule = useMemo(() => buildMobilePlanSchedule(schedulablePlaces, t), [schedulablePlaces, t]);
+   const explicitPlanEnd = useMemo(() => parseOptionalMobilePlanEnd(planEnd, schedule.startsAt, t), [planEnd, schedule.startsAt, t]);
+   const endSummary = useMemo(() => mobilePlanEndSummary(schedule, planEnd, t), [schedule, planEnd, t]);
++  const joinDeadlineSummary = useMemo(() => resolvePlanJoinDeadline(joinDeadline, schedule.startsAt, t), [joinDeadline, schedule.startsAt, t]);
+   const conflictWarning = useMemo(() => planConflictWarning(myPlansForConflict, schedule, explicitPlanEnd, t), [explicitPlanEnd, myPlansForConflict, schedule, t]);
+   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
+     places: placesForGeneratedDisplay,
+@@ -4549,6 +4746,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     mode: planModeFromSelectedPlaces(placesForGeneratedDisplay),
+     locationLabel: placesForGeneratedDisplay.length === 0 ? null : t(placesForGeneratedDisplay.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: placesForGeneratedDisplay.length }),
+     startsAt: schedule.startsAt || new Date().toISOString(),
++    joinClosesAt: joinDeadlineSummary.joinClosesAt || schedule.startsAt || new Date().toISOString(),
+     endsAt: explicitPlanEnd.endsAt || schedule.endsAt || null,
+     joinApprovalMode: 'automatic',
+     status: 'open',
+@@ -4581,7 +4779,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+       media: place.existingMedia ? [place.existingMedia] : undefined,
+       staticMap: place.existingStaticMap ?? null,
+     })),
+-  }) as PlanDto, [advancedDetails.category, advancedDetails.tags, explicitPlanEnd.endsAt, places, placesForGeneratedDisplay, previewDescription, previewTitle, schedule.endsAt, schedule.placeEndsAt, schedule.placeStartsAt, schedule.startsAt, t]);
++  }) as PlanDto, [advancedDetails.category, advancedDetails.tags, explicitPlanEnd.endsAt, joinDeadlineSummary.joinClosesAt, places, placesForGeneratedDisplay, previewDescription, previewTitle, schedule.endsAt, schedule.placeEndsAt, schedule.placeStartsAt, schedule.startsAt, t]);
+ 
+   const loadReusablePlaces = useCallback(async () => {
+     if (!isPlansVisible()) return;
+@@ -4625,14 +4823,14 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   useEffect(() => {
+     if (!createPlanDraftReadyRef.current || createPlanDraftHydratingRef.current) return undefined;
+     if (createPlanDraftSaveTimeoutRef.current) clearTimeout(createPlanDraftSaveTimeoutRef.current);
+-    const draft = buildCreatePlanDraftState(places, advancedDetails, planEnd, stage);
++    const draft = buildCreatePlanDraftState(places, advancedDetails, planEnd, joinDeadline, stage);
+     createPlanDraftSaveTimeoutRef.current = setTimeout(() => {
+       void writeCreatePlanDraft(draft);
+     }, 300);
+     return () => {
+       if (createPlanDraftSaveTimeoutRef.current) clearTimeout(createPlanDraftSaveTimeoutRef.current);
+     };
+-  }, [advancedDetails, places, planEnd, stage]);
++  }, [advancedDetails, joinDeadline, places, planEnd, stage]);
+ 
+   useEffect(() => {
+     const ideaKey = parseStarterPlanIdeaKey(route.params?.initialPlanIdeaKey);
+@@ -4708,6 +4906,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     setPlaces([]);
+     setAdvancedDetails(makeAdvancedPlanDetails());
+     setPlanEnd({ date: '', time: '' });
++    setJoinDeadline(makePlanJoinDeadlineState());
+     setStage('build');
+     setPlaceSourceSheetOpen(false);
+     setPlacePickerOpen(false);
+@@ -4715,6 +4914,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     setDetailPlaceIndex(null);
+     setTimeSheet(null);
+     setEndPickerMode(null);
++    setJoinDeadlinePickerOpen(false);
+     setAdvancedDetailsOpen(false);
+     setMessage(null);
+     setError(null);
+@@ -4737,6 +4937,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     setPlaces(restoredPlaces);
+     setAdvancedDetails(draft.advancedDetails);
+     setPlanEnd(draft.planEnd);
++    setJoinDeadline(draft.joinDeadline);
+     setStage('build');
+     try {
+       const results = (await Promise.all(restoredPlaces.map(validateRestoredDraftPlace))).filter((result): result is DraftPlaceValidationResult => Boolean(result));
+@@ -4994,6 +5195,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     const addressRuleError = getPlanPlacesAddressRuleError(schedulablePlaces, t);
+     if (addressRuleError) { setError(addressRuleError); return; }
+     if (explicitPlanEnd.error) { setError(explicitPlanEnd.error); return; }
++    if (joinDeadlineSummary.error) { setError(joinDeadlineSummary.error); return; }
+     setStage('preview');
+   }
+ 
+@@ -5005,6 +5207,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     const customCategory = advancedDetails.category.trim();
+     const customTags = parsePlanTagsInput(advancedDetails.tags);
+     const nextExplicitEnd = parseOptionalMobilePlanEnd(planEnd, nextSchedule.startsAt, t);
++    const nextJoinDeadline = resolvePlanJoinDeadline(joinDeadline, nextSchedule.startsAt, t);
+     if (usablePlaces.length === 0) { setError(t('plans.create.validation.addAtLeastOne')); return; }
+     if (focusDraftPlacesNeedingReview()) return;
+     if (focusMissingOfflineAddresses()) return;
+@@ -5012,6 +5215,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     const addressRuleError = getPlanPlacesAddressRuleError(usablePlaces, t);
+     if (addressRuleError) { setError(addressRuleError); return; }
+     if (nextExplicitEnd.error) { setError(nextExplicitEnd.error); return; }
++    if (nextJoinDeadline.error) { setError(nextJoinDeadline.error); return; }
+     if (customTitle && customTitle.length < 3) { setError(t('plans.create.validation.titleTooShort')); return; }
+     if (customDescription && customDescription.length < 10) { setError(t('plans.create.validation.descriptionTooShort')); return; }
+     if (customTags.length > 8 || customTags.some((tag) => tag.length > 32)) { setError(t('plans.create.validation.tagsInvalid')); return; }
+@@ -5033,6 +5237,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+         tags: customTags.length ? customTags : undefined,
+         mode: planModeFromSelectedPlaces(usablePlaces),
+         startsAt: nextSchedule.startsAt,
++        joinClosesAt: nextJoinDeadline.joinClosesAt || nextSchedule.startsAt,
+         endsAt: nextExplicitEnd.endsAt || nextSchedule.endsAt || nextSchedule.startsAt,
+         joinApprovalMode: 'automatic',
+         status: 'open',
+@@ -5178,13 +5383,18 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                 </Pressable>
+ 
+                 {places.length > 0 ? (
+-                  <View style={[styles.planTimelineLineItem, styles.planTimelineOptionalEnd, { borderTopColor: theme.color.border }]}>
+-                    <PlanEndCompactRow
+-                      endSummary={endSummary}
+-                      onOpenCustom={() => setEndPickerMode('custom')}
+-                      onReset={() => updatePlanEnd({ date: '', time: '' })}
+-                    />
+-                  </View>
++                  <>
++                    <View style={[styles.planTimelineLineItem, styles.planTimelineOptionalEnd, { borderTopColor: theme.color.border }]}>
++                      <PlanEndCompactRow
++                        endSummary={endSummary}
++                        onOpenCustom={() => setEndPickerMode('custom')}
++                        onReset={() => updatePlanEnd({ date: '', time: '' })}
++                      />
++                    </View>
++                    <View style={[styles.planTimelineLineItem, { borderTopColor: theme.color.border }]}>
++                      <PlanJoinDeadlineCompactRow summary={joinDeadlineSummary} onOpen={() => setJoinDeadlinePickerOpen(true)} />
++                    </View>
++                  </>
+                 ) : null}
+               </View>
+ 
+@@ -5205,6 +5415,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                     {endSummary ? <SemanticBadge label={`${endSummary.label}: ${endSummary.endLabel}`} tone="time" size="sm" /> : null}
+                     <SemanticBadge label={t(places.length === 1 ? 'plans.row.placeOne' : 'plans.row.placeMany', { count: places.length })} tone="place" size="sm" />
+                     <SemanticBadge label={t('plans.detail.values.freeJoin')} tone="plan" size="sm" />
++                    <SemanticBadge label={t('plans.create.joinDeadline.previewBadge', { date: joinDeadlineSummary.deadlineLabel })} tone="plan" size="sm" />
+                     <SemanticBadge label={t('plans.status.open')} tone="plan" size="sm" />
+                   </View>
+                 </View>
+@@ -5290,6 +5501,13 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+           onSelectDuration={applyPlanDuration}
+           onClose={() => setEndPickerMode(null)}
+         />
++        <PlanJoinDeadlinePickerSheet
++          visible={joinDeadlinePickerOpen}
++          value={joinDeadline}
++          schedule={schedule}
++          onChange={setJoinDeadline}
++          onClose={() => setJoinDeadlinePickerOpen(false)}
++        />
+         <AppConfirmSheet
+           visible={Boolean(draftPrompt)}
+           title={t('plans.create.draft.continueTitle')}
+diff --git a/packages/contracts/src/plans.ts b/packages/contracts/src/plans.ts
+index 2dc2c86..549a15a 100644
+--- a/packages/contracts/src/plans.ts
++++ b/packages/contracts/src/plans.ts
+@@ -362,6 +362,7 @@ export const createPlanRequestSchema = z
+     mode: tradeExchangeModeSchema.optional(),
+     locationLabel: z.string().trim().min(1).max(160).optional(),
+     startsAt: z.string().datetime(),
++    joinClosesAt: z.string().datetime().optional(),
+     endsAt: z.string().datetime().optional(),
+     maxParticipants: z.number().int().min(1).max(100).optional(),
+     joinApprovalMode: planJoinApprovalModeSchema
+@@ -382,6 +383,18 @@ export const createPlanRequestSchema = z
+       message: "Plan end time must be after the start time.",
+       path: ["endsAt"],
+     },
++  )
++  .refine(
++    (value) => {
++      if (!value.joinClosesAt) return true;
++      return (
++        new Date(value.joinClosesAt).getTime() <= new Date(value.startsAt).getTime()
++      );
++    },
++    {
++      message: "Plan join deadline must be at or before the start time.",
++      path: ["joinClosesAt"],
++    },
+   );
+ 
+ export const updatePlanRequestSchema = z
+diff --git a/packages/i18n/src/locales/en/plans.ts b/packages/i18n/src/locales/en/plans.ts
+index d235183..3fd9c8f 100644
+--- a/packages/i18n/src/locales/en/plans.ts
++++ b/packages/i18n/src/locales/en/plans.ts
+@@ -170,6 +170,7 @@ export const plans = {
+       status: 'Status',
+       visibility: 'Visibility',
+       joinMode: 'Join mode',
++      joinCloses: 'Join closes',
+       time: 'Time',
+       placeMode: 'Place mode',
+       created: 'Created',
+@@ -534,6 +535,26 @@ export const plans = {
+       time: 'Time',
+       timeRequired: 'Time required',
+     },
++    joinDeadline: {
++      title: 'Join closes',
++      subtitle: 'Choose the last moment when new people can join this Plan.',
++      presets: 'Presets',
++      atStart: 'At Plan start',
++      oneHourBefore: '1 hour before',
++      threeHoursBefore: '3 hours before',
++      oneDayBefore: '1 day before',
++      custom: 'Custom',
++      change: 'Change',
++      customDateTime: 'Custom join deadline',
++      date: 'Deadline date',
++      time: 'Deadline time',
++      startFirst: 'Choose the Plan start date and time first.',
++      customBoth: 'Choose both a join deadline date and time.',
++      customInvalid: 'Choose a valid join deadline date and time.',
++      afterStart: 'Join deadline must be at or before the Plan start.',
++      summary: '{{preset}} · {{date}}',
++      previewBadge: 'Join closes {{date}}',
++    },
+     duration: {
+       helper: 'Duration helper',
+       custom: 'Custom',
+diff --git a/packages/i18n/src/locales/es/plans.ts b/packages/i18n/src/locales/es/plans.ts
+index 5fa1a59..5882338 100644
+--- a/packages/i18n/src/locales/es/plans.ts
++++ b/packages/i18n/src/locales/es/plans.ts
+@@ -169,6 +169,7 @@ export const plans = {
+       status: 'Estado',
+       visibility: 'Visibilidad',
+       joinMode: 'Modo de unión',
++      joinCloses: 'Cierre para unirse',
+       time: 'Horario',
+       placeMode: 'Modalidad de lugares',
+       created: 'Creado',
+@@ -532,6 +533,26 @@ export const plans = {
+       time: 'Hora',
+       timeRequired: 'Hora obligatoria',
+     },
++    joinDeadline: {
++      title: 'Cierre para unirse',
++      subtitle: 'Elige el último momento en que nuevas personas pueden unirse a este Plan.',
++      presets: 'Opciones rápidas',
++      atStart: 'Al comenzar el Plan',
++      oneHourBefore: '1 hora antes',
++      threeHoursBefore: '3 horas antes',
++      oneDayBefore: '1 día antes',
++      custom: 'Personalizado',
++      change: 'Cambiar',
++      customDateTime: 'Cierre personalizado',
++      date: 'Fecha de cierre',
++      time: 'Hora de cierre',
++      startFirst: 'Elige primero la fecha y hora de inicio del Plan.',
++      customBoth: 'Elige una fecha y una hora de cierre.',
++      customInvalid: 'Elige una fecha y una hora de cierre válidas.',
++      afterStart: 'El cierre para unirse debe ser igual o anterior al inicio del Plan.',
++      summary: '{{preset}} · {{date}}',
++      previewBadge: 'Cierra {{date}}',
++    },
+     duration: {
+       helper: 'Ayuda de duración',
+       custom: 'Personalizada',
+diff --git a/packages/i18n/src/locales/fr/plans.ts b/packages/i18n/src/locales/fr/plans.ts
+index 552325c..6be2985 100644
+--- a/packages/i18n/src/locales/fr/plans.ts
++++ b/packages/i18n/src/locales/fr/plans.ts
+@@ -170,6 +170,7 @@ export const plans = {
+       status: 'Statut',
+       visibility: 'Visibilité',
+       joinMode: 'Mode de participation',
++      joinCloses: 'Clôture des participations',
+       time: 'Horaire',
+       placeMode: 'Mode des lieux',
+       created: 'Créé le',
+@@ -534,6 +535,26 @@ export const plans = {
+       time: 'Heure',
+       timeRequired: 'Heure requise',
+     },
++    joinDeadline: {
++      title: 'Clôture des participations',
++      subtitle: 'Choisissez le dernier moment où de nouvelles personnes peuvent rejoindre ce Plan.',
++      presets: 'Raccourcis',
++      atStart: 'Au début du Plan',
++      oneHourBefore: '1 h avant',
++      threeHoursBefore: '3 h avant',
++      oneDayBefore: '1 jour avant',
++      custom: 'Personnalisé',
++      change: 'Modifier',
++      customDateTime: 'Clôture personnalisée',
++      date: 'Date de clôture',
++      time: 'Heure de clôture',
++      startFirst: 'Choisissez d’abord la date et l’heure de début du Plan.',
++      customBoth: 'Choisissez une date et une heure de clôture.',
++      customInvalid: 'Choisissez une date et une heure de clôture valides.',
++      afterStart: 'La clôture des participations doit être fixée au plus tard au début du Plan.',
++      summary: '{{preset}} · {{date}}',
++      previewBadge: 'Clôture {{date}}',
++    },
+     duration: {
+       helper: 'Aide pour la durée',
+       custom: 'Personnalisée',

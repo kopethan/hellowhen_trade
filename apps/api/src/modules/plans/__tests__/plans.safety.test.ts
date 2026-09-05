@@ -9,6 +9,7 @@ import {
   rangesConflictWithRequiredGap,
   restoredPlanStatus,
 } from '../plans.safety.testkit.js';
+import { normalizedPlanLifecycleStatus } from '../plans.lifecycle.js';
 
 const at = (hour: number, minute = 0) => `2026-07-20T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000Z`;
 
@@ -67,6 +68,34 @@ test('restore recalculates public status from date and capacity eligibility', ()
   assert.equal(restoredPlanStatus({ startsAt: at(12), endsAt: at(13), maxParticipants: 2, acceptedCount: 2 }, at(10)), 'full');
   assert.equal(restoredPlanStatus({ startsAt: at(10), endsAt: at(13) }, at(11)), 'started');
   assert.equal(restoredPlanStatus({ startsAt: at(10), endsAt: at(11) }, at(11)), null);
+});
+
+
+test('plan lifecycle starts exactly at startsAt and completes exactly at endsAt', () => {
+  const plan = { status: 'open', startsAt: at(10), endsAt: at(11) };
+  assert.equal(normalizedPlanLifecycleStatus(plan, at(9, 59)), 'open');
+  assert.equal(normalizedPlanLifecycleStatus(plan, at(10)), 'started');
+  assert.equal(normalizedPlanLifecycleStatus(plan, at(10, 30)), 'started');
+  assert.equal(normalizedPlanLifecycleStatus(plan, at(11)), 'completed');
+});
+
+test('full plans become started when their scheduled time begins', () => {
+  const plan = { status: 'full', startsAt: at(10), endsAt: at(11) };
+  assert.equal(normalizedPlanLifecycleStatus(plan, at(9, 59)), 'full');
+  assert.equal(normalizedPlanLifecycleStatus(plan, at(10)), 'started');
+});
+
+test('legacy plans without an end time complete at their start time', () => {
+  const plan = { status: 'open', startsAt: at(10), endsAt: null };
+  assert.equal(normalizedPlanLifecycleStatus(plan, at(9, 59)), 'open');
+  assert.equal(normalizedPlanLifecycleStatus(plan, at(10)), 'completed');
+});
+
+test('terminal and non-public lifecycle statuses are not rewritten by time', () => {
+  assert.equal(normalizedPlanLifecycleStatus({ status: 'completed', startsAt: at(10), endsAt: at(11) }, at(12)), 'completed');
+  assert.equal(normalizedPlanLifecycleStatus({ status: 'cancelled', startsAt: at(10), endsAt: at(11) }, at(12)), 'cancelled');
+  assert.equal(normalizedPlanLifecycleStatus({ status: 'hidden', startsAt: at(10), endsAt: at(11) }, at(12)), 'hidden');
+  assert.equal(normalizedPlanLifecycleStatus({ status: 'draft', startsAt: at(10), endsAt: at(11) }, at(12)), 'draft');
 });
 
 test('owners can read non-public drafts while public viewers cannot', () => {
