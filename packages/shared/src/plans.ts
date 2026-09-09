@@ -21,6 +21,7 @@ export function isPlanJoinClosed(plan: PlanJoinDeadlineInput, now: string | Date
 export type GeneratedPlanMode = 'local' | 'remote' | 'hybrid' | string;
 
 export type GeneratedPlanPlaceInput = {
+  kind?: 'place' | 'pause' | 'free_time' | 'meeting_point' | 'custom' | string | null;
   title?: string | null;
   sourcePlaceTitle?: string | null;
   mode?: GeneratedPlanMode | null;
@@ -32,6 +33,8 @@ export type GeneratedPlanDisplayLabels = {
   placeFallback: string;
   place: string;
   places: string;
+  stop: string;
+  stops: string;
   starts: string;
   localPlan: string;
   remotePlan: string;
@@ -60,6 +63,8 @@ const defaultGeneratedPlanDisplayLabels: GeneratedPlanDisplayLabels = {
   placeFallback: 'Place',
   place: 'place',
   places: 'places',
+  stop: 'stop',
+  stops: 'stops',
   starts: 'Starts',
   localPlan: 'Local plan',
   remotePlan: 'Online plan',
@@ -98,22 +103,12 @@ function formatGeneratedPlanDate(value?: string | null) {
   }
 }
 
-function formatGeneratedPlanDateTime(value?: string | null) {
-  const date = safeDate(value);
-  if (!date) return '';
-  try {
-    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
-  } catch {
-    return date.toLocaleString();
-  }
-}
-
 function generatedPlanPlaceTitle(place: GeneratedPlanPlaceInput | null | undefined, index: number, labels: GeneratedPlanDisplayLabels) {
   return cleanText(place?.title) || cleanText(place?.sourcePlaceTitle) || `${labels.placeFallback} ${index + 1}`;
 }
 
 function inferGeneratedPlanMode(places: readonly GeneratedPlanPlaceInput[]) {
-  const modes = new Set(places.map((place) => cleanText(place.mode)).filter(Boolean));
+  const modes = new Set(places.filter((place) => cleanText(place.kind || 'place') === 'place').map((place) => cleanText(place.mode)).filter(Boolean));
   if (modes.size > 1) return 'hybrid';
   if (modes.has('remote')) return 'remote';
   return 'local';
@@ -128,7 +123,9 @@ function generatedPlanModeLabel(mode: GeneratedPlanMode | null | undefined, labe
 export function buildGeneratedPlanTitle(input: GeneratedPlanDisplayInput) {
   const labels = labelsFor(input.labels);
   const places = input.places ?? [];
-  const names = places.map((place, index) => generatedPlanPlaceTitle(place, index, labels)).filter(Boolean);
+  const titlePlaces = places.filter((place) => cleanText(place.kind || 'place') === 'place');
+  const titleCandidates = titlePlaces.length ? titlePlaces : places;
+  const names = titleCandidates.map((place, index) => generatedPlanPlaceTitle(place, index, labels)).filter(Boolean);
   const firstName = names[0] ?? labels.newPlan;
   const secondName = names[1] ?? `${labels.placeFallback} 2`;
 
@@ -145,15 +142,39 @@ export function buildGeneratedPlanSummaryParts(input: GeneratedPlanDisplayInput)
   const labels = labelsFor(input.labels);
   const places = input.places ?? [];
   const mode = input.mode ?? inferGeneratedPlanMode(places);
-  const startsAtLabel = formatGeneratedPlanDateTime(input.startsAt);
   const placeCount = places.length;
+  const hasCustomStops = places.some((place) => cleanText(place.kind || 'place') !== 'place');
   const parts = [
-    placeCount > 0 ? `${placeCount} ${placeCount === 1 ? labels.place : labels.places}` : labels.placeFirstPlan,
-    startsAtLabel ? `${labels.starts} ${startsAtLabel}` : null,
+    placeCount > 0 ? `${placeCount} ${hasCustomStops ? (placeCount === 1 ? labels.stop : labels.stops) : (placeCount === 1 ? labels.place : labels.places)}` : labels.placeFirstPlan,
     generatedPlanModeLabel(mode, labels),
     input.joinApprovalMode === 'owner_approval' ? null : labels.freeJoin,
   ];
   return parts.filter((part): part is string => Boolean(part));
+}
+
+/**
+ * Older automatically generated Plan descriptions persisted a viewer-formatted
+ * start time (for example, "1 place · Starts Jan 1, 1:00 PM · Local plan").
+ * That text can disagree with canonical startsAt when the Plan is viewed in a
+ * different timezone. Strip only the exact legacy generated-summary shape so
+ * custom creator descriptions remain untouched.
+ */
+export function stripLegacyGeneratedPlanStartTime(value?: string | null) {
+  const description = cleanText(value);
+  if (!description) return description;
+
+  const parts = description.split(' · ').map((part) => part.trim());
+  if (parts.length < 3 || parts.length > 4) return description;
+
+  const labels = defaultGeneratedPlanDisplayLabels;
+  const [placePart, startsPart, modePart, joinPart] = parts;
+  const isGeneratedPlacePart = placePart === labels.placeFirstPlan || /^\d+\s+places?$/.test(placePart ?? '');
+  const isGeneratedStartsPart = Boolean(startsPart?.startsWith(`${labels.starts} `));
+  const isGeneratedModePart = [labels.localPlan, labels.remotePlan, labels.mixedPlan].includes(modePart ?? '');
+  const isGeneratedJoinPart = joinPart === undefined || joinPart === labels.freeJoin;
+
+  if (!isGeneratedPlacePart || !isGeneratedStartsPart || !isGeneratedModePart || !isGeneratedJoinPart) return description;
+  return [placePart, modePart, joinPart].filter((part): part is string => Boolean(part)).join(' · ');
 }
 
 export function buildGeneratedPlanDescription(input: GeneratedPlanDisplayInput) {

@@ -685,6 +685,7 @@ enum ModerationActionType {
 enum AccountDeletionRequestStatus {
   requested
   in_review
+  processing
   completed
   cancelled
   rejected
@@ -718,6 +719,14 @@ enum PlanParticipantStatus {
 enum PlanPlaceMode {
   local
   remote
+}
+
+enum PlanPlaceKind {
+  place
+  pause
+  free_time
+  meeting_point
+  custom
 }
 
 enum PlaceSource {
@@ -2635,21 +2644,23 @@ model ModerationAction {
 
 model AccountDeletionRequest {
   id              String                       @id @default(cuid())
-  userId          String
+  userId          String?
   status          AccountDeletionRequestStatus @default(requested)
   reason          String?
   details         String?
   supportTicketId String?
   requestedAt     DateTime                     @default(now())
+  scheduledFor    DateTime
   reviewedAt      DateTime?
   completedAt     DateTime?
   cancelledAt     DateTime?
   createdAt       DateTime                     @default(now())
   updatedAt       DateTime                     @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId, status, createdAt])
+  @@index([status, scheduledFor])
   @@index([status, createdAt])
   @@index([supportTicketId])
 }
@@ -2792,6 +2803,7 @@ model PlanPlace {
   placeId            String?
   order              Int           @default(0)
   mode               PlanPlaceMode @default(local)
+  kind               PlanPlaceKind @default(place)
   title              String
   note               String?
   addressPublicText  String?
@@ -2820,6 +2832,7 @@ model PlanPlace {
   @@index([planId, order])
   @@index([placeId])
   @@index([mode])
+  @@index([kind])
   @@index([startsAt])
   @@index([googlePlaceId])
   @@index([latitude, longitude])

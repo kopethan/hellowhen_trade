@@ -107,8 +107,8 @@ export type RootStackParamList = {
   MyPlaces: undefined;
   PlaceLibrary: undefined;
   HellowhenPlaceDetail: { placeId: string; title?: string };
-  CreatePlan: { createdPlace?: PlaceDto; createdPlaceTargetIndex?: number; createdPlaceNonce?: number; updatedPlace?: PlaceDto; updatedPlaceTargetIndex?: number; updatedPlaceNonce?: number; updatedPlaceSelectAfterFix?: boolean; initialPlanIdeaKey?: string } | undefined;
-  CreatePlace: { returnToCreatePlan?: boolean; editPlace?: PlaceDto; copyFromPlace?: PlaceDto; targetPlaceIndex?: number; selectPlaceAfterSave?: boolean } | undefined;
+  CreatePlan: { createdPlace?: PlaceDto; createdPlaceTargetIndex?: number; createdPlaceNonce?: number; updatedPlace?: PlaceDto; updatedPlaceTargetIndex?: number; updatedPlaceNonce?: number; updatedPlaceSelectAfterFix?: boolean; initialPlanIdeaKey?: string; editPlanId?: string } | undefined;
+  CreatePlace: { returnToCreatePlan?: boolean; returnToEditPlanId?: string; editPlace?: PlaceDto; copyFromPlace?: PlaceDto; targetPlaceIndex?: number; selectPlaceAfterSave?: boolean } | undefined;
   SavedLibraryCollection: { collectionId: string; title?: string };
   Membership: undefined;
   ProPlans: undefined;

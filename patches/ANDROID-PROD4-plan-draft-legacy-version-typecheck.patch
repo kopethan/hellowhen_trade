@@ -1,0 +1,12 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -573,7 +573,7 @@
+   try {
+     const raw = await AsyncStorage.getItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
+     if (!raw) return null;
+-    const parsed = JSON.parse(raw) as Partial<PlanCreateDraftState> & { version?: number };
++    const parsed = JSON.parse(raw) as Omit<Partial<PlanCreateDraftState>, 'version'> & { version?: number };
+     if ((parsed.version !== 1 && parsed.version !== 2 && parsed.version !== PLAN_CREATE_DRAFT_VERSION) || !parsed.updatedAt || !Array.isArray(parsed.places) || !parsed.advancedDetails || !parsed.planEnd) {
+       await AsyncStorage.removeItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
+       return null;

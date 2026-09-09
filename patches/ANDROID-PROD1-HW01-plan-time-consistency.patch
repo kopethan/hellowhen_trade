@@ -1,0 +1,129 @@
+diff --git a/apps/api/src/modules/plans/__tests__/plans.safety.test.ts b/apps/api/src/modules/plans/__tests__/plans.safety.test.ts
+index cc8f8ca..5b95294 100644
+--- a/apps/api/src/modules/plans/__tests__/plans.safety.test.ts
++++ b/apps/api/src/modules/plans/__tests__/plans.safety.test.ts
+@@ -9,6 +9,7 @@ import {
+   rangesConflictWithRequiredGap,
+   restoredPlanStatus,
+ } from '../plans.safety.testkit.js';
++import { buildGeneratedPlanDisplay, stripLegacyGeneratedPlanStartTime } from '@hellowhen/shared';
+ import { normalizedPlanLifecycleStatus } from '../plans.lifecycle.js';
+ 
+ const at = (hour: number, minute = 0) => `2026-07-20T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000Z`;
+@@ -103,3 +104,32 @@ test('owners can read non-public drafts while public viewers cannot', () => {
+   assert.equal(canReadPlan(draft, true), true);
+   assert.equal(canReadPlan(draft, false), false);
+ });
++
++test('generated Plan descriptions never persist viewer-formatted start times', () => {
++  const display = buildGeneratedPlanDisplay({
++    places: [{ title: 'Jardins du Trocadéro', mode: 'local' }],
++    startsAt: '2026-01-01T13:00:00.000Z',
++    mode: 'local',
++    joinApprovalMode: 'automatic',
++  });
++
++  assert.deepEqual(display.summaryParts, ['1 place', 'Local plan', 'Free join']);
++  assert.equal(display.description, '1 place · Local plan · Free join');
++  assert.equal(display.description.includes('13:00'), false);
++  assert.equal(display.description.includes('Starts'), false);
++});
++
++test('legacy generated Plan descriptions drop only the frozen start-time segment', () => {
++  assert.equal(
++    stripLegacyGeneratedPlanStartTime('1 place · Starts Jan 1, 1:00 PM · Local plan · Free join'),
++    '1 place · Local plan · Free join',
++  );
++  assert.equal(
++    stripLegacyGeneratedPlanStartTime('2 places · Starts 1 Jan, 13:00 · Mixed plan'),
++    '2 places · Mixed plan',
++  );
++  assert.equal(
++    stripLegacyGeneratedPlanStartTime('Meet by the fountain · Starts after lunch · Bring a jacket'),
++    'Meet by the fountain · Starts after lunch · Bring a jacket',
++  );
++});
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+index 20e98f6..e84d6d1 100644
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -28,6 +28,7 @@ import {
+   PLAN_MIN_STOP_START_GAP_MINUTES,
+   PLACE_OFFLINE_MODE,
+   PLACE_ONLINE_MODE,
++  stripLegacyGeneratedPlanStartTime,
+ } from '@hellowhen/shared';
+ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+@@ -306,6 +307,7 @@ function serializePlan(plan: any, viewerId: string | null, surface: 'detail' | '
+ 
+   return {
+     ...plan,
++    description: stripLegacyGeneratedPlanStartTime(plan.description),
+     places: (plan.places ?? []).map((place: any) => {
+       const source = planPlaceSourceForOwner(place, plan.ownerId);
+       const sourcePlace = canSeeSourcePlace && source !== 'custom'
+diff --git a/packages/shared/src/plans.ts b/packages/shared/src/plans.ts
+index 64fcb57..2b6fcae 100644
+--- a/packages/shared/src/plans.ts
++++ b/packages/shared/src/plans.ts
+@@ -98,16 +98,6 @@ function formatGeneratedPlanDate(value?: string | null) {
+   }
+ }
+ 
+-function formatGeneratedPlanDateTime(value?: string | null) {
+-  const date = safeDate(value);
+-  if (!date) return '';
+-  try {
+-    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
+-  } catch {
+-    return date.toLocaleString();
+-  }
+-}
+-
+ function generatedPlanPlaceTitle(place: GeneratedPlanPlaceInput | null | undefined, index: number, labels: GeneratedPlanDisplayLabels) {
+   return cleanText(place?.title) || cleanText(place?.sourcePlaceTitle) || `${labels.placeFallback} ${index + 1}`;
+ }
+@@ -145,17 +135,40 @@ export function buildGeneratedPlanSummaryParts(input: GeneratedPlanDisplayInput)
+   const labels = labelsFor(input.labels);
+   const places = input.places ?? [];
+   const mode = input.mode ?? inferGeneratedPlanMode(places);
+-  const startsAtLabel = formatGeneratedPlanDateTime(input.startsAt);
+   const placeCount = places.length;
+   const parts = [
+     placeCount > 0 ? `${placeCount} ${placeCount === 1 ? labels.place : labels.places}` : labels.placeFirstPlan,
+-    startsAtLabel ? `${labels.starts} ${startsAtLabel}` : null,
+     generatedPlanModeLabel(mode, labels),
+     input.joinApprovalMode === 'owner_approval' ? null : labels.freeJoin,
+   ];
+   return parts.filter((part): part is string => Boolean(part));
+ }
+ 
++/**
++ * Older automatically generated Plan descriptions persisted a viewer-formatted
++ * start time (for example, "1 place · Starts Jan 1, 1:00 PM · Local plan").
++ * That text can disagree with canonical startsAt when the Plan is viewed in a
++ * different timezone. Strip only the exact legacy generated-summary shape so
++ * custom creator descriptions remain untouched.
++ */
++export function stripLegacyGeneratedPlanStartTime(value?: string | null) {
++  const description = cleanText(value);
++  if (!description) return description;
++
++  const parts = description.split(' · ').map((part) => part.trim());
++  if (parts.length < 3 || parts.length > 4) return description;
++
++  const labels = defaultGeneratedPlanDisplayLabels;
++  const [placePart, startsPart, modePart, joinPart] = parts;
++  const isGeneratedPlacePart = placePart === labels.placeFirstPlan || /^\d+\s+places?$/.test(placePart ?? '');
++  const isGeneratedStartsPart = Boolean(startsPart?.startsWith(`${labels.starts} `));
++  const isGeneratedModePart = [labels.localPlan, labels.remotePlan, labels.mixedPlan].includes(modePart ?? '');
++  const isGeneratedJoinPart = joinPart === undefined || joinPart === labels.freeJoin;
++
++  if (!isGeneratedPlacePart || !isGeneratedStartsPart || !isGeneratedModePart || !isGeneratedJoinPart) return description;
++  return [placePart, modePart, joinPart].filter((part): part is string => Boolean(part)).join(' · ');
++}
++
+ export function buildGeneratedPlanDescription(input: GeneratedPlanDisplayInput) {
+   return truncateGeneratedPlanText(buildGeneratedPlanSummaryParts(input).join(' · '), 2000);
+ }

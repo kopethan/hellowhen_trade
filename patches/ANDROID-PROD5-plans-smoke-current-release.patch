@@ -1,0 +1,142 @@
+diff --git a/scripts/plans-hidden-smoke.mjs b/scripts/plans-hidden-smoke.mjs
+index de61be9..e98c18f 100644
+--- a/scripts/plans-hidden-smoke.mjs
++++ b/scripts/plans-hidden-smoke.mjs
+@@ -5,7 +5,7 @@ const ownerEmail = process.env.PLAN_OWNER_EMAIL || 'demo@hellowhen.app';
+ const helperEmail = process.env.PLAN_HELPER_EMAIL || 'helper@hellowhen.app';
+ const ownerPassword = process.env.PLAN_OWNER_PASSWORD || process.env.SEED_DEMO_PASSWORD || 'password123';
+ const helperPassword = process.env.PLAN_HELPER_PASSWORD || process.env.SEED_DEMO_PASSWORD || 'password123';
+-const expectEnabled = (process.env.EXPECT_PLANS_ENABLED || 'false').toLowerCase() === 'true';
++const expectEnabled = (process.env.EXPECT_PLANS_ENABLED ?? 'true').toLowerCase() === 'true';
+ 
+ async function request(path, options = {}) {
+   const response = await fetch(`${apiBase}${path}`, {
+@@ -37,6 +37,19 @@ function assert(condition, message) {
+   if (!condition) throw new Error(message);
+ }
+ 
++async function expectRequestError(path, options, expectedStatus, expectedCode, label) {
++  try {
++    await request(path, options);
++    throw new Error(`${label} unexpectedly succeeded.`);
++  } catch (error) {
++    if (error.status === expectedStatus && error.body?.error === expectedCode) {
++      console.log(`${label}: PASS`);
++      return;
++    }
++    throw error;
++  }
++}
++
+ async function expectPlansDisabled() {
+   try {
+     await request('/plans/feed');
+@@ -121,39 +134,61 @@ async function runEnabledSmoke() {
+   const joinedPlans = await request('/plans/joined', { headers: authHeaders(helper.token) });
+   assert(joinedPlans.plans?.some((plan) => plan.id === planId), 'Joined plans should include the plan after free join.');
+ 
+-  await request(`/plans/${planId}`, {
+-    method: 'PATCH',
+-    headers: authHeaders(owner.token),
+-    body: JSON.stringify({ title: `Hidden Plans edited ${stamp}`, mode: 'hybrid', endsAt: remoteStopAt, joinApprovalMode: 'automatic', maxParticipants: null, status: 'open', locationLabel: null }),
+-  });
++  assert(created.plan.joinClosesAt === firstStopAt, 'Default join deadline should match the Plan start.');
+ 
+   const firstPlaceId = helperAfter.plan?.places?.[0]?.id;
+   assert(firstPlaceId, 'Created Plan should include a first place id.');
+ 
+-  await request(`/plans/${planId}/places/${firstPlaceId}`, {
+-    method: 'PATCH',
+-    headers: authHeaders(owner.token),
+-    body: JSON.stringify({ mode: 'remote', onlineLabel: 'Edited smoke link', onlineUrl: `https://meet.example/plan-edited-${encodeURIComponent(stamp)}`, order: 1, startsAt: secondStopAt }),
+-  });
+-
+-  await request(`/plans/${planId}/places`, {
+-    method: 'POST',
+-    headers: authHeaders(owner.token),
+-    body: JSON.stringify({
+-      mode: 'remote',
+-      title: 'Remote smoke stop',
+-      note: 'This stop verifies per-place remote mode and explicit date/time scheduling.',
+-      onlineLabel: 'Remote smoke link',
+-      onlineUrl: `https://meet.example/remote-smoke-${encodeURIComponent(stamp)}`,
+-      startsAt: remoteStopAt,
+-      order: 2,
+-    }),
+-  });
+-
+-  const helperAfterEdit = await request(`/plans/${planId}`, { headers: authHeaders(helper.token) });
+-  assert(helperAfterEdit.plan?.title?.startsWith('Hidden Plans edited'), 'Owner should be able to edit Plan details.');
+-  assert(helperAfterEdit.plan?.places?.some((place) => place.onlineUrl?.startsWith('https://meet.example/plan-edited-')), 'Edited remote place URL should be visible.');
+-  assert(helperAfterEdit.plan?.places?.some((place) => place.title === 'Remote smoke stop' && place.mode === 'remote'), 'Owner should be able to add another remote place.');
++  await expectRequestError(
++    `/plans/${planId}`,
++    {
++      method: 'PATCH',
++      headers: authHeaders(owner.token),
++      body: JSON.stringify({ title: `Locked Plan edit ${stamp}` }),
++    },
++    409,
++    'plan_locked_after_creation',
++    'Plan content lock',
++  );
++
++  await expectRequestError(
++    `/plans/${planId}/places/${firstPlaceId}`,
++    {
++      method: 'PATCH',
++      headers: authHeaders(owner.token),
++      body: JSON.stringify({ startsAt: secondStopAt }),
++    },
++    409,
++    'plan_locked_after_creation',
++    'Plan place edit lock',
++  );
++
++  await expectRequestError(
++    `/plans/${planId}/places`,
++    {
++      method: 'POST',
++      headers: authHeaders(owner.token),
++      body: JSON.stringify({
++        mode: 'remote',
++        title: 'Locked smoke stop',
++        onlineLabel: 'Locked smoke link',
++        onlineUrl: `https://meet.example/locked-smoke-${encodeURIComponent(stamp)}`,
++        startsAt: remoteStopAt,
++        order: 2,
++      }),
++    },
++    409,
++    'plan_locked_after_creation',
++    'Plan place add lock',
++  );
++
++  await expectRequestError(
++    `/plans/${planId}/places/${firstPlaceId}`,
++    { method: 'DELETE', headers: authHeaders(owner.token) },
++    409,
++    'plan_locked_after_creation',
++    'Plan place delete lock',
++  );
+ 
+   await request(`/plans/${planId}/leave`, {
+     method: 'POST',
+@@ -169,14 +204,14 @@ async function runEnabledSmoke() {
+     body: JSON.stringify({ status: 'cancelled' }),
+   });
+ 
+-  console.log(`Created, instantly joined, edited, place-updated, left, and cancelled simplified Plan ${planId}: PASS`);
++  console.log(`Created, joined, lock-checked, left, and cancelled Plan ${planId}: PASS`);
+ }
+ 
+ async function main() {
+-  console.log(`Hidden Plans smoke: ${apiBase}`);
++  console.log(`Plans smoke: ${apiBase}`);
+   if (!expectEnabled) {
+     await expectPlansDisabled();
+-    console.log('Set EXPECT_PLANS_ENABLED=true with PLANS_ENABLED=true on the API to run the full create/join smoke test.');
++    console.log('Plans disabled gate was explicitly requested with EXPECT_PLANS_ENABLED=false.');
+     return;
+   }
+ 

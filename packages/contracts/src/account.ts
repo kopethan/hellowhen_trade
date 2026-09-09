@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const accountDeletionRequestStatusSchema = z.enum(['requested', 'in_review', 'completed', 'cancelled', 'rejected']);
+export const accountDeletionRequestStatusSchema = z.enum(['requested', 'in_review', 'processing', 'completed', 'cancelled', 'rejected']);
 
 export const createAccountDeletionRequestSchema = z.object({
   reason: z.string().trim().max(120).optional(),
@@ -9,12 +9,13 @@ export const createAccountDeletionRequestSchema = z.object({
 
 export const accountDeletionRequestSchema = z.object({
   id: z.string(),
-  userId: z.string(),
+  userId: z.string().nullable(),
   status: accountDeletionRequestStatusSchema,
   reason: z.string().nullable().optional(),
   details: z.string().nullable().optional(),
   supportTicketId: z.string().nullable().optional(),
   requestedAt: z.string(),
+  scheduledFor: z.string(),
   reviewedAt: z.string().nullable().optional(),
   completedAt: z.string().nullable().optional(),
   cancelledAt: z.string().nullable().optional(),

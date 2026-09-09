@@ -6,9 +6,11 @@ import {
   findStopGapViolation,
   isRemoveIdempotent,
   isCancelOnlyUpdate,
+  canOwnerEditPublishedPlan,
   rangesConflictWithRequiredGap,
   restoredPlanStatus,
 } from '../plans.safety.testkit.js';
+import { buildGeneratedPlanDisplay, isPlanJoinClosed, stripLegacyGeneratedPlanStartTime } from '@hellowhen/shared';
 import { normalizedPlanLifecycleStatus } from '../plans.lifecycle.js';
 
 const at = (hour: number, minute = 0) => `2026-07-20T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000Z`;
@@ -43,6 +45,16 @@ test('created plan content remains immutable while cancellation is allowed', () 
   assert.equal(isCancelOnlyUpdate({ title: 'Changed' }), false);
   assert.equal(isCancelOnlyUpdate({ status: 'cancelled', title: 'Changed' }), false);
   assert.equal(isCancelOnlyUpdate({ places: [] }), false);
+});
+
+test('owners can edit only future open Plans before any participant interaction', () => {
+  const now = at(10);
+  assert.equal(canOwnerEditPublishedPlan({ status: 'open', startsAt: at(12), participants: [] }, now), true);
+  assert.equal(canOwnerEditPublishedPlan({ status: 'open', startsAt: at(12), participants: [{ status: 'pending' }] }, now), false);
+  assert.equal(canOwnerEditPublishedPlan({ status: 'open', startsAt: at(12), participants: [{ status: 'left' }] }, now), false);
+  assert.equal(canOwnerEditPublishedPlan({ status: 'started', startsAt: at(9), participants: [] }, now), false);
+  assert.equal(canOwnerEditPublishedPlan({ status: 'open', startsAt: at(10), participants: [] }, now), false);
+  assert.equal(canOwnerEditPublishedPlan({ status: 'open', startsAt: at(12), participants: [], deletedAt: new Date() }, now), false);
 });
 
 test('legacy deleted plans are hidden from public and owner detail access', () => {
@@ -102,4 +114,55 @@ test('owners can read non-public drafts while public viewers cannot', () => {
   const draft = { status: 'draft', deletedAt: null };
   assert.equal(canReadPlan(draft, true), true);
   assert.equal(canReadPlan(draft, false), false);
+});
+
+test('Plan join deadline is still open only while its effective deadline is in the future', () => {
+  assert.equal(isPlanJoinClosed({ startsAt: at(12) }, at(11, 59)), false);
+  assert.equal(isPlanJoinClosed({ startsAt: at(12) }, at(12)), true);
+  assert.equal(isPlanJoinClosed({ startsAt: at(14), joinClosesAt: at(13) }, at(12, 59)), false);
+  assert.equal(isPlanJoinClosed({ startsAt: at(14), joinClosesAt: at(13) }, at(13)), true);
+});
+
+test('generated Plan descriptions never persist viewer-formatted start times', () => {
+  const display = buildGeneratedPlanDisplay({
+    places: [{ title: 'Jardins du Trocadéro', mode: 'local' }],
+    startsAt: '2026-01-01T13:00:00.000Z',
+    mode: 'local',
+    joinApprovalMode: 'automatic',
+  });
+
+  assert.deepEqual(display.summaryParts, ['1 place', 'Local plan', 'Free join']);
+  assert.equal(display.description, '1 place · Local plan · Free join');
+  assert.equal(display.description.includes('13:00'), false);
+  assert.equal(display.description.includes('Starts'), false);
+});
+
+test('generated Plan descriptions call mixed Place/custom-stop routes stops', () => {
+  const display = buildGeneratedPlanDisplay({
+    places: [
+      { kind: 'place', title: 'Pont Alexandre III', mode: 'local' },
+      { kind: 'pause', title: 'Pause', mode: 'local' },
+      { kind: 'place', title: 'Parc des Buttes-Chaumont', mode: 'local' },
+    ],
+    mode: 'local',
+    joinApprovalMode: 'automatic',
+  });
+
+  assert.equal(display.title, 'Pont Alexandre III → Parc des Buttes-Chaumont');
+  assert.deepEqual(display.summaryParts, ['3 stops', 'Local plan', 'Free join']);
+});
+
+test('legacy generated Plan descriptions drop only the frozen start-time segment', () => {
+  assert.equal(
+    stripLegacyGeneratedPlanStartTime('1 place · Starts Jan 1, 1:00 PM · Local plan · Free join'),
+    '1 place · Local plan · Free join',
+  );
+  assert.equal(
+    stripLegacyGeneratedPlanStartTime('2 places · Starts 1 Jan, 13:00 · Mixed plan'),
+    '2 places · Mixed plan',
+  );
+  assert.equal(
+    stripLegacyGeneratedPlanStartTime('Meet by the fountain · Starts after lunch · Bring a jacket'),
+    'Meet by the fountain · Starts after lunch · Bring a jacket',
+  );
 });

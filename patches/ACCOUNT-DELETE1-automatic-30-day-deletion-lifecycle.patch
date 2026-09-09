@@ -1,0 +1,810 @@
+diff --git a/apps/api/package.json b/apps/api/package.json
+index 7edff9c..7225160 100644
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -22,7 +22,8 @@
+     "test:places": "tsx --test src/modules/places/__tests__/placeUpdatePolicy.test.ts src/modules/places/__tests__/placeOwnershipPolicy.test.ts src/modules/places/__tests__/hellowhenPlaceLibrarySeed.test.ts",
+     "test:inventory-original": "tsx --test src/modules/__tests__/inventoryOriginalCopy.test.ts",
+     "test:mobile-release": "tsx --test src/modules/mobile-release/__tests__/mobileReleasePolicy.test.ts",
+-    "places:library-seed": "tsx src/scripts/seedHellowhenPlaceLibrary.ts"
++    "places:library-seed": "tsx src/scripts/seedHellowhenPlaceLibrary.ts",
++    "test:account-deletion": "tsx --test src/modules/account/__tests__/accountDeletion.lifecycle.test.ts"
+   },
+   "dependencies": {
+     "@aws-sdk/client-s3": "^3.1077.0",
+diff --git a/apps/api/prisma/migrations/20260909083000_account_deletion_automatic_lifecycle/migration.sql b/apps/api/prisma/migrations/20260909083000_account_deletion_automatic_lifecycle/migration.sql
+new file mode 100644
+index 0000000..bd764c7
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260909083000_account_deletion_automatic_lifecycle/migration.sql
+@@ -0,0 +1,27 @@
++ALTER TYPE "AccountDeletionRequestStatus" ADD VALUE IF NOT EXISTS 'processing';
++
++ALTER TABLE "AccountDeletionRequest"
++ADD COLUMN "scheduledFor" TIMESTAMP(3);
++
++-- Existing active requests predate the automatic lifecycle. Give them a fresh
++-- 30-day grace period instead of deleting accounts immediately on deployment.
++UPDATE "AccountDeletionRequest"
++SET "scheduledFor" = CASE
++  WHEN "status" IN ('requested', 'in_review') THEN CURRENT_TIMESTAMP + INTERVAL '30 days'
++  ELSE "requestedAt" + INTERVAL '30 days'
++END
++WHERE "scheduledFor" IS NULL;
++
++ALTER TABLE "AccountDeletionRequest"
++ALTER COLUMN "scheduledFor" SET NOT NULL,
++ALTER COLUMN "userId" DROP NOT NULL;
++
++ALTER TABLE "AccountDeletionRequest"
++DROP CONSTRAINT IF EXISTS "AccountDeletionRequest_userId_fkey";
++
++ALTER TABLE "AccountDeletionRequest"
++ADD CONSTRAINT "AccountDeletionRequest_userId_fkey"
++FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
++
++CREATE INDEX "AccountDeletionRequest_status_scheduledFor_idx"
++ON "AccountDeletionRequest"("status", "scheduledFor");
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 1114729..1d08aa2 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -685,6 +685,7 @@ enum ModerationActionType {
+ enum AccountDeletionRequestStatus {
+   requested
+   in_review
++  processing
+   completed
+   cancelled
+   rejected
+@@ -2643,21 +2644,23 @@ model ModerationAction {
+ 
+ model AccountDeletionRequest {
+   id              String                       @id @default(cuid())
+-  userId          String
++  userId          String?
+   status          AccountDeletionRequestStatus @default(requested)
+   reason          String?
+   details         String?
+   supportTicketId String?
+   requestedAt     DateTime                     @default(now())
++  scheduledFor    DateTime
+   reviewedAt      DateTime?
+   completedAt     DateTime?
+   cancelledAt     DateTime?
+   createdAt       DateTime                     @default(now())
+   updatedAt       DateTime                     @updatedAt
+ 
+-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
++  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+ 
+   @@index([userId, status, createdAt])
++  @@index([status, scheduledFor])
+   @@index([status, createdAt])
+   @@index([supportTicketId])
+ }
+diff --git a/apps/api/src/modules/account/__tests__/accountDeletion.lifecycle.test.ts b/apps/api/src/modules/account/__tests__/accountDeletion.lifecycle.test.ts
+new file mode 100644
+index 0000000..60ab6c4
+--- /dev/null
++++ b/apps/api/src/modules/account/__tests__/accountDeletion.lifecycle.test.ts
+@@ -0,0 +1,31 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import {
++  ACCOUNT_DELETION_GRACE_PERIOD_DAYS,
++  ACCOUNT_DELETION_GRACE_PERIOD_MS,
++  accountDeletionScheduledFor,
++  isAccountDeletionDue,
++} from '../accountDeletion.lifecycle.js';
++
++test('account deletion is scheduled exactly 30 days after the request', () => {
++  const requestedAt = new Date('2026-09-09T08:00:00.000Z');
++  const scheduledFor = accountDeletionScheduledFor(requestedAt);
++  assert.equal(ACCOUNT_DELETION_GRACE_PERIOD_DAYS, 30);
++  assert.equal(scheduledFor.getTime() - requestedAt.getTime(), ACCOUNT_DELETION_GRACE_PERIOD_MS);
++  assert.equal(scheduledFor.toISOString(), '2026-10-09T08:00:00.000Z');
++});
++
++test('requested and in-review deletions become due only at the scheduled instant', () => {
++  const scheduledFor = '2026-10-09T08:00:00.000Z';
++  assert.equal(isAccountDeletionDue({ status: 'requested', scheduledFor }, new Date('2026-10-09T07:59:59.999Z')), false);
++  assert.equal(isAccountDeletionDue({ status: 'requested', scheduledFor }, new Date(scheduledFor)), true);
++  assert.equal(isAccountDeletionDue({ status: 'in_review', scheduledFor }, new Date('2026-10-09T08:00:00.001Z')), true);
++});
++
++test('cancelled, processing, completed, and rejected requests are not claimed as due', () => {
++  const scheduledFor = '2026-09-01T00:00:00.000Z';
++  const now = new Date('2026-10-09T08:00:00.000Z');
++  for (const status of ['cancelled', 'processing', 'completed', 'rejected']) {
++    assert.equal(isAccountDeletionDue({ status, scheduledFor }, now), false, status);
++  }
++});
+diff --git a/apps/api/src/modules/account/account.routes.ts b/apps/api/src/modules/account/account.routes.ts
+index 92ec38b..09921cb 100644
+--- a/apps/api/src/modules/account/account.routes.ts
++++ b/apps/api/src/modules/account/account.routes.ts
+@@ -3,18 +3,21 @@ import { createAccountDeletionRequestSchema } from '@hellowhen/contracts';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
++import { accountDeletionScheduledFor } from './accountDeletion.lifecycle.js';
+ 
+ export const accountRoutes = Router();
+ accountRoutes.use(requireAuth);
+ 
+ const activeDeletionStatuses = ['requested', 'in_review'] as const;
+ 
+-function deletionMessage(reason?: string, details?: string) {
++function deletionMessage(scheduledFor: Date, reason?: string, details?: string) {
+   const lines = [
+     'The user requested account deletion from the account deletion flow.',
++    `Automatic deletion is scheduled for ${scheduledFor.toISOString()}.`,
++    'The user can cancel before the scheduled deletion begins. Routine deletion does not require admin approval.',
+     reason ? `Reason: ${reason}` : null,
+     details ? `Details: ${details}` : null,
+-    'Support should confirm identity/safety retention requirements before final deletion.',
++    'Support can help with account access or exceptional safety/legal questions during the grace period.',
+   ].filter(Boolean);
+   return lines.join('\n\n');
+ }
+@@ -36,15 +39,19 @@ accountRoutes.post('/deletion-request', asyncRoute(async (req, res) => {
+   });
+   if (existing) return res.status(200).json({ request: existing, duplicate: true });
+ 
++  const requestedAt = new Date();
++  const scheduledFor = accountDeletionScheduledFor(requestedAt);
+   const request = await prisma.$transaction(async (tx) => {
+     const created = await tx.accountDeletionRequest.create({
+       data: {
+         userId: actorId,
+         reason: input.reason?.trim() || null,
+         details: input.details?.trim() || null,
++        requestedAt,
++        scheduledFor,
+       },
+     });
+-    const message = deletionMessage(input.reason?.trim(), input.details?.trim());
++    const message = deletionMessage(scheduledFor, input.reason?.trim(), input.details?.trim());
+     const ticket = await tx.supportTicket.create({
+       data: {
+         userId: actorId,
+@@ -69,14 +76,27 @@ accountRoutes.patch('/deletion-request/cancel', asyncRoute(async (req, res) => {
+   });
+   if (!existing) return res.status(404).json({ error: 'not_found', message: 'There is no active account deletion request to cancel.' });
+ 
++  const now = new Date();
+   const request = await prisma.$transaction(async (tx) => {
+-    const updated = await tx.accountDeletionRequest.update({ where: { id: existing.id }, data: { status: 'cancelled', cancelledAt: new Date() } });
++    const cancelled = await tx.accountDeletionRequest.updateMany({
++      where: {
++        id: existing.id,
++        userId: actorId,
++        status: { in: [...activeDeletionStatuses] },
++        scheduledFor: { gt: now },
++      },
++      data: { status: 'cancelled', cancelledAt: now },
++    });
++    if (cancelled.count !== 1) return null;
+     if (existing.supportTicketId) {
+-      await tx.supportTicket.updateMany({ where: { id: existing.supportTicketId, userId: actorId }, data: { status: 'closed', resolvedAt: new Date() } });
++      await tx.supportTicket.updateMany({ where: { id: existing.supportTicketId, userId: actorId }, data: { status: 'closed', resolvedAt: now } });
+       await tx.supportTicketMessage.create({ data: { ticketId: existing.supportTicketId, senderId: actorId, senderRole: 'user', body: 'I cancelled my account deletion request.' } }).catch(() => null);
+     }
+-    return updated;
++    return tx.accountDeletionRequest.findUnique({ where: { id: existing.id } });
+   });
++  if (!request) {
++    return res.status(409).json({ error: 'deletion_processing', message: 'The deletion grace period has ended and account deletion is being processed.' });
++  }
+ 
+   res.json({ request });
+ }));
+diff --git a/apps/api/src/modules/account/accountDeletion.lifecycle.ts b/apps/api/src/modules/account/accountDeletion.lifecycle.ts
+new file mode 100644
+index 0000000..4f89d29
+--- /dev/null
++++ b/apps/api/src/modules/account/accountDeletion.lifecycle.ts
+@@ -0,0 +1,183 @@
++import type { Prisma } from '@prisma/client';
++import { prisma } from '../../lib/prisma.js';
++import { cleanupRemovedMediaStorage } from '../media/media.cleanup.js';
++import { normalizeMediaVariants } from '../media/media.variants.js';
++import { getMediaStorageProvider } from '../media/storage/mediaStorageProvider.js';
++
++export const ACCOUNT_DELETION_GRACE_PERIOD_DAYS = 30;
++export const ACCOUNT_DELETION_GRACE_PERIOD_MS = ACCOUNT_DELETION_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000;
++export const ACCOUNT_DELETION_PROCESS_INTERVAL_MS = 15 * 60 * 1000;
++const ACCOUNT_DELETION_BATCH_SIZE = 25;
++
++const deletableStatuses = ['requested', 'in_review'] as const;
++const businessRolePriority = new Map([
++  ['owner', 0],
++  ['admin', 1],
++  ['finance', 2],
++  ['member', 3],
++]);
++
++export function accountDeletionScheduledFor(requestedAt = new Date()) {
++  return new Date(requestedAt.getTime() + ACCOUNT_DELETION_GRACE_PERIOD_MS);
++}
++
++export function isAccountDeletionDue(
++  request: { status: string; scheduledFor: Date | string },
++  now = new Date(),
++) {
++  if (!deletableStatuses.includes(request.status as (typeof deletableStatuses)[number])) return false;
++  const scheduledFor = request.scheduledFor instanceof Date ? request.scheduledFor : new Date(request.scheduledFor);
++  return Number.isFinite(scheduledFor.getTime()) && scheduledFor.getTime() <= now.getTime();
++}
++
++async function cleanupOwnedMedia(userId: string) {
++  const media = await prisma.mediaAsset.findMany({
++    where: { ownerId: userId },
++    select: { id: true, url: true, storageKey: true, variantsJson: true },
++  });
++  const provider = getMediaStorageProvider();
++  for (const asset of media) {
++    if (provider.driver === 'local') {
++      const storageKeys = new Set<string>();
++      if (asset.storageKey) storageKeys.add(asset.storageKey);
++      const variants = normalizeMediaVariants(asset.variantsJson);
++      if (variants) {
++        for (const variant of Object.values(variants)) {
++          if (variant?.storageKey) storageKeys.add(variant.storageKey);
++        }
++      }
++      await provider.deleteImages({ storageKeys: Array.from(storageKeys) });
++      continue;
++    }
++    await cleanupRemovedMediaStorage(asset, 'accountDeletion.lifecycle');
++  }
++}
++
++async function transferOwnedBusinesses(tx: Prisma.TransactionClient, userId: string) {
++  const businesses = await tx.businessProfile.findMany({
++    where: { ownerId: userId },
++    select: {
++      id: true,
++      members: {
++        where: { userId: { not: userId } },
++        select: { id: true, userId: true, role: true, createdAt: true },
++      },
++    },
++  });
++
++  for (const business of businesses) {
++    const successor = [...business.members].sort((left, right) => {
++      const roleDifference = (businessRolePriority.get(left.role) ?? 99) - (businessRolePriority.get(right.role) ?? 99);
++      if (roleDifference !== 0) return roleDifference;
++      return left.createdAt.getTime() - right.createdAt.getTime();
++    })[0];
++    if (!successor) continue;
++
++    await tx.businessProfile.update({ where: { id: business.id }, data: { ownerId: successor.userId } });
++    await tx.businessProfileMember.update({ where: { id: successor.id }, data: { role: 'owner' } });
++  }
++}
++
++async function completeClaimedDeletion(requestId: string, userId: string, now: Date) {
++  await cleanupOwnedMedia(userId);
++
++  await prisma.$transaction(async (tx) => {
++    const current = await tx.accountDeletionRequest.findUnique({
++      where: { id: requestId },
++      select: { id: true, userId: true, status: true, supportTicketId: true },
++    });
++    if (!current || current.status !== 'processing' || current.userId !== userId) return;
++
++    await transferOwnedBusinesses(tx, userId);
++
++    if (current.supportTicketId) {
++      await tx.supportTicket.updateMany({
++        where: { id: current.supportTicketId, userId },
++        data: { status: 'closed', resolvedAt: now },
++      });
++    }
++
++    // Keep only a non-identifying lifecycle receipt after the User row is deleted.
++    await tx.accountDeletionRequest.update({
++      where: { id: current.id },
++      data: {
++        status: 'completed',
++        reason: null,
++        details: null,
++        supportTicketId: null,
++        completedAt: now,
++      },
++    });
++
++    // User-owned rows are configured to cascade, while moderation/review references
++    // that must remain are SetNull. Business workspaces with another member are
++    // transferred above so deleting a personal login does not erase a team workspace.
++    await tx.user.delete({ where: { id: userId } });
++  });
++}
++
++export async function processDueAccountDeletions(now = new Date()) {
++  const due = await prisma.accountDeletionRequest.findMany({
++    where: {
++      status: { in: [...deletableStatuses] },
++      scheduledFor: { lte: now },
++      userId: { not: null },
++    },
++    orderBy: { scheduledFor: 'asc' },
++    take: ACCOUNT_DELETION_BATCH_SIZE,
++    select: { id: true, userId: true },
++  });
++
++  let completed = 0;
++  let failed = 0;
++  for (const candidate of due) {
++    if (!candidate.userId) continue;
++    const claimed = await prisma.accountDeletionRequest.updateMany({
++      where: {
++        id: candidate.id,
++        userId: candidate.userId,
++        status: { in: [...deletableStatuses] },
++        scheduledFor: { lte: now },
++      },
++      data: { status: 'processing', reviewedAt: now },
++    });
++    if (claimed.count !== 1) continue;
++
++    try {
++      await completeClaimedDeletion(candidate.id, candidate.userId, now);
++      completed += 1;
++    } catch (error) {
++      failed += 1;
++      console.error(`[account-deletion] automatic deletion failed for request ${candidate.id}. It will be retried.`, error);
++      await prisma.accountDeletionRequest.updateMany({
++        where: { id: candidate.id, status: 'processing' },
++        data: { status: 'in_review' },
++      }).catch(() => undefined);
++    }
++  }
++
++  return { scanned: due.length, completed, failed };
++}
++
++export function startAccountDeletionLifecycle() {
++  let running = false;
++  const run = async () => {
++    if (running) return;
++    running = true;
++    try {
++      const result = await processDueAccountDeletions();
++      if (result.completed > 0 || result.failed > 0) {
++        console.info(`[account-deletion] processed ${result.completed} deletion(s); ${result.failed} failed.`);
++      }
++    } catch (error) {
++      console.error('[account-deletion] lifecycle sweep failed.', error);
++    } finally {
++      running = false;
++    }
++  };
++
++  void run();
++  const timer = setInterval(() => { void run(); }, ACCOUNT_DELETION_PROCESS_INTERVAL_MS);
++  timer.unref?.();
++  return () => clearInterval(timer);
++}
+diff --git a/apps/api/src/modules/media/storage/localMediaStorage.ts b/apps/api/src/modules/media/storage/localMediaStorage.ts
+index 7bea47b..7746852 100644
+--- a/apps/api/src/modules/media/storage/localMediaStorage.ts
++++ b/apps/api/src/modules/media/storage/localMediaStorage.ts
+@@ -37,11 +37,27 @@ export class LocalMediaStorageProvider implements MediaStorageProvider {
+   }
+ 
+   async deleteImages(input: DeleteStoredMediaImagesInput): Promise<DeleteStoredMediaImagesResult> {
+-    // Local media cleanup is intentionally a no-op for now: existing Lightsail/local
+-    // files may still be useful for development, rollback, or old records. S3 cleanup
+-    // is handled by the S3 provider when object storage is enabled.
+-    const requested = Array.from(new Set(input.storageKeys.filter(Boolean))).length;
+-    return { requested, deleted: 0, skipped: requested };
++    const storageKeys = Array.from(new Set(input.storageKeys.map((key) => key.trim()).filter(Boolean)));
++    let deleted = 0;
++    let skipped = 0;
++    for (const storageKey of storageKeys) {
++      const filePath = this.resolveLocalPath(storageKey);
++      if (!filePath) {
++        skipped += 1;
++        continue;
++      }
++      try {
++        await fsp.unlink(filePath);
++        deleted += 1;
++      } catch (error) {
++        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
++          deleted += 1;
++          continue;
++        }
++        throw error;
++      }
++    }
++    return { requested: storageKeys.length, deleted, skipped };
+   }
+ 
+   resolveLocalPath(storageKey: string) {
+diff --git a/apps/api/src/server.ts b/apps/api/src/server.ts
+index 00a5661..3a032bd 100644
+--- a/apps/api/src/server.ts
++++ b/apps/api/src/server.ts
+@@ -1,5 +1,6 @@
+ import { createApp } from './app.js';
+ import { env, validateProductionEnv } from './config/env.js';
++import { startAccountDeletionLifecycle } from './modules/account/accountDeletion.lifecycle.js';
+ 
+ validateProductionEnv();
+ 
+@@ -7,4 +8,5 @@ const app = createApp();
+ 
+ app.listen(env.port, () => {
+   console.log(`Hellowhen API listening on ${env.port}`);
++  startAccountDeletionLifecycle();
+ });
+diff --git a/apps/mobile/src/features/account/AccountDeletionScreen.tsx b/apps/mobile/src/features/account/AccountDeletionScreen.tsx
+index df6d257..a650f99 100644
+--- a/apps/mobile/src/features/account/AccountDeletionScreen.tsx
++++ b/apps/mobile/src/features/account/AccountDeletionScreen.tsx
+@@ -17,6 +17,14 @@ import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccesso
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'AccountDeletion'>;
+ 
++
++function formatScheduledDeletionDate(value?: string | null) {
++  if (!value) return '';
++  const date = new Date(value);
++  if (!Number.isFinite(date.getTime())) return '';
++  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
++}
++
+ function normalizeRequest(payload: unknown) {
+   if (!payload || typeof payload !== 'object') return null;
+   const record = payload as { request?: unknown };
+@@ -73,7 +81,9 @@ export function AccountDeletionScreen({ navigation }: Props) {
+     }
+   }
+ 
+-  const active = request && ['requested', 'in_review'].includes(request.status);
++  const active = request && ['requested', 'in_review', 'processing'].includes(request.status);
++  const cancellable = request && ['requested', 'in_review'].includes(request.status);
++  const scheduledDate = formatScheduledDeletionDate(request?.scheduledFor);
+ 
+   return (
+     <AppScreen>
+@@ -103,10 +113,12 @@ export function AccountDeletionScreen({ navigation }: Props) {
+           <AppCard>
+             <SemanticBadge label={request.status} tone="instruction" size="sm" />
+             <AppText style={styles.sectionTitle}>{t('account.deletion.activeTitle')}</AppText>
+-            <AppText style={[styles.body, { color: theme.color.muted }]}>{t('account.deletion.activeBody')}</AppText>
+-            <Pressable accessibilityRole="button" disabled={saving} onPress={() => { void cancelRequest(); }} style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, saving && styles.disabled, pressed && styles.pressed]}>
+-              <AppText style={styles.secondaryButtonText}>{t('account.deletion.cancelRequest')}</AppText>
+-            </Pressable>
++            <AppText style={[styles.body, { color: theme.color.muted }]}>{t('account.deletion.activeBody', { date: scheduledDate || request.scheduledFor })}</AppText>
++            {cancellable ? (
++              <Pressable accessibilityRole="button" disabled={saving} onPress={() => { void cancelRequest(); }} style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, saving && styles.disabled, pressed && styles.pressed]}>
++                <AppText style={styles.secondaryButtonText}>{t('account.deletion.cancelRequest')}</AppText>
++              </Pressable>
++            ) : null}
+           </AppCard>
+         ) : (
+           <AppCard>
+diff --git a/apps/web/src/features/account/AccountDeletionClient.tsx b/apps/web/src/features/account/AccountDeletionClient.tsx
+index 9083b52..dc1af02 100644
+--- a/apps/web/src/features/account/AccountDeletionClient.tsx
++++ b/apps/web/src/features/account/AccountDeletionClient.tsx
+@@ -9,6 +9,14 @@ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ 
++
++function formatScheduledDeletionDate(value?: string | null) {
++  if (!value) return '';
++  const date = new Date(value);
++  if (!Number.isFinite(date.getTime())) return '';
++  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
++}
++
+ function normalizeRequest(payload: unknown) {
+   if (!payload || typeof payload !== 'object') return null;
+   const record = payload as { request?: unknown };
+@@ -67,7 +75,9 @@ export function AccountDeletionClient() {
+     }
+   }
+ 
+-  const active = request && ['requested', 'in_review'].includes(request.status);
++  const active = request && ['requested', 'in_review', 'processing'].includes(request.status);
++  const cancellable = request && ['requested', 'in_review'].includes(request.status);
++  const scheduledDate = formatScheduledDeletionDate(request?.scheduledFor);
+ 
+   return (
+     <div className="account-deletion-flow">
+@@ -93,8 +103,8 @@ export function AccountDeletionClient() {
+           <div>
+             <span className="semantic-badge instruction">{request?.status}</span>
+             <h3>{t('account.deletion.activeTitle')}</h3>
+-            <p>{t('account.deletion.activeBody')}</p>
+-            <button type="button" className="secondary" disabled={saving} onClick={() => void cancel()}>{t('account.deletion.cancelRequest')}</button>
++            <p>{t('account.deletion.activeBody', { date: scheduledDate || request.scheduledFor })}</p>
++            {cancellable ? <button type="button" className="secondary" disabled={saving} onClick={() => void cancel()}>{t('account.deletion.cancelRequest')}</button> : null}
+           </div>
+         ) : (
+           <form className="form-grid" onSubmit={submit}>
+diff --git a/package.json b/package.json
+index 1b1ec42..275dc93 100644
+--- a/package.json
++++ b/package.json
+@@ -26,7 +26,7 @@
+     "mobile:launch-smoke": "node scripts/mobile-launch-smoke.mjs",
+     "build:packages": "npm run build -w @hellowhen/contracts && npm run build -w @hellowhen/api-client && npm run build -w @hellowhen/i18n && npm run build -w @hellowhen/shared && npm run build -w @hellowhen/theme && npm run build -w @hellowhen/trade-domain && npm run build -w @hellowhen/ui",
+     "build:apps": "npm run build -w @hellowhen/api && npm run build -w @hellowhen/web",
+-    "mobile:store-readiness": "npm run mobile:launch-smoke && npm run mobile:store-release-smoke && npm run mobile:app-review-smoke && npm run app-update:safety && npm run mobile:release-preflight && npm run mobile:submission-preflight && npm run store:copy-scan && npm run mobile:ugc-safety-smoke && node scripts/mobile-store-readiness.mjs && npm run cash-promise:safety-smoke",
++    "mobile:store-readiness": "npm run mobile:launch-smoke && npm run mobile:store-release-smoke && npm run mobile:app-review-smoke && npm run app-update:safety && npm run mobile:release-preflight && npm run mobile:submission-preflight && npm run store:copy-scan && npm run mobile:ugc-safety-smoke && npm run account-deletion:safety-smoke && node scripts/mobile-store-readiness.mjs && npm run cash-promise:safety-smoke",
+     "cash-promise:safety-smoke": "node scripts/cash-promise-safety-smoke.mjs",
+     "starter-library:qa": "node scripts/starter-library-qa.mjs",
+     "places:smoke": "node scripts/place-library-hidden-smoke.mjs",
+@@ -50,7 +50,9 @@
+     "app-update:rollout-smoke": "node scripts/app-update-rollout-smoke.mjs",
+     "app-update:probe": "node scripts/app-update-policy-probe.mjs",
+     "app-update:safety": "npm run build -w @hellowhen/contracts && npm run app-update:policy-test && npm run app-update:native-test && npm run app-update:rollout-smoke",
+-    "places:library-seed": "npm run places:library-seed -w @hellowhen/api --"
++    "places:library-seed": "npm run places:library-seed -w @hellowhen/api --",
++    "account-deletion:test": "npm run test:account-deletion -w @hellowhen/api",
++    "account-deletion:safety-smoke": "node scripts/account-deletion-lifecycle-smoke.mjs"
+   },
+   "devDependencies": {
+     "@types/react": "~19.1.10",
+diff --git a/packages/contracts/src/account.ts b/packages/contracts/src/account.ts
+index f829471..74c4ea3 100644
+--- a/packages/contracts/src/account.ts
++++ b/packages/contracts/src/account.ts
+@@ -1,6 +1,6 @@
+ import { z } from 'zod';
+ 
+-export const accountDeletionRequestStatusSchema = z.enum(['requested', 'in_review', 'completed', 'cancelled', 'rejected']);
++export const accountDeletionRequestStatusSchema = z.enum(['requested', 'in_review', 'processing', 'completed', 'cancelled', 'rejected']);
+ 
+ export const createAccountDeletionRequestSchema = z.object({
+   reason: z.string().trim().max(120).optional(),
+@@ -9,12 +9,13 @@ export const createAccountDeletionRequestSchema = z.object({
+ 
+ export const accountDeletionRequestSchema = z.object({
+   id: z.string(),
+-  userId: z.string(),
++  userId: z.string().nullable(),
+   status: accountDeletionRequestStatusSchema,
+   reason: z.string().nullable().optional(),
+   details: z.string().nullable().optional(),
+   supportTicketId: z.string().nullable().optional(),
+   requestedAt: z.string(),
++  scheduledFor: z.string(),
+   reviewedAt: z.string().nullable().optional(),
+   completedAt: z.string().nullable().optional(),
+   cancelledAt: z.string().nullable().optional(),
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+index 1e65be6..e696e6e 100644
+--- a/packages/i18n/src/locales/en/account.ts
++++ b/packages/i18n/src/locales/en/account.ts
+@@ -98,25 +98,25 @@ export const account = {
+   deletion: {
+     title: 'Delete account',
+     badge: 'Account safety',
+-    body: 'Request account deletion from inside Hellowhen. The support team reviews deletion requests before final account removal.',
++    body: 'Request account deletion from inside Hellowhen. Your account is scheduled for automatic deletion 30 days after the request.',
+     signedOutTitle: 'Sign in to request account deletion',
+     signedOutBody: 'Account deletion requests are private and must be attached to the account owner.',
+     whatHappensTitle: 'What happens next',
+-    whatHappensBody: 'Submitting this request creates a private support record so the team can review your account deletion request safely.',
+-    pointProfile: 'Your public profile and active marketplace content can be removed or anonymized as part of the deletion process.',
++    whatHappensBody: 'Submitting schedules automatic deletion 30 days from now and creates a private support record in case you need help during the grace period.',
++    pointProfile: 'Your account and associated profile, marketplace content, sessions, and uploaded media are removed when deletion completes.',
+     pointSafety: 'Some support, report, moderation, and audit records may be retained when needed for safety, legal, or abuse-prevention reasons.',
+-    pointSupport: 'Support can contact you through the ticket if extra confirmation is needed before final deletion.',
++    pointSupport: 'Routine deletion does not require admin approval. Support remains available for account access or exceptional safety/legal questions.',
+     activeTitle: 'Deletion request active',
+-    activeBody: 'Your request is already in the support queue. You can cancel it before the team completes the deletion process.',
++    activeBody: 'Your account is scheduled for deletion on {{date}}. You can cancel the request before automatic processing begins.',
+     formTitle: 'Request account deletion',
+-    formBody: 'Tell us anything useful before the request is reviewed. This is optional.',
++    formBody: 'You may add an optional reason or note. Deletion is scheduled automatically 30 days after you submit.',
+     reason: 'Reason',
+     reasonPlaceholder: 'Optional reason',
+     details: 'Details',
+     detailsPlaceholder: 'Anything support should know?',
+     submitRequest: 'Request account deletion',
+     cancelRequest: 'Cancel deletion request',
+-    requestCreated: 'Account deletion request created.',
++    requestCreated: 'Account deletion scheduled. You can cancel during the 30-day grace period.',
+     requestCancelled: 'Account deletion request cancelled.',
+     couldNotUpdate: 'Could not update deletion request',
+     needHelpTitle: 'Need help first?',
+@@ -131,10 +131,10 @@ export const account = {
+       signedOutAction: 'Sign in to request deletion',
+       signedInBody: 'You may add a reason or details for support, but both fields are optional. Submitting creates a private deletion request linked to your account.',
+       afterTitle: 'What happens after you submit',
+-      afterBody: 'Hellowhen sends your request to the private support queue for review before the account deletion is completed.',
+-      afterReview: 'Support may contact you if additional identity or account confirmation is needed.',
+-      afterCompletion: 'The account, public profile, and active marketplace content may be deleted or anonymized during processing.',
+-      afterVerification: 'You can cancel an active request from this page until the team completes the deletion process.',
++      afterBody: 'Hellowhen schedules account deletion automatically for 30 days after your request. A private support record is also created in case you need help.',
++      afterReview: 'Routine deletion does not require admin approval. Support can assist with account access or exceptional safety/legal questions.',
++      afterCompletion: 'At the scheduled time, the account and associated personal content, sessions, and uploaded media are removed. Some narrowly required safety/legal records may be retained.',
++      afterVerification: 'You can cancel an active request from this page any time before automatic processing begins.',
+       dataTitle: 'Data associated with your account',
+       dataBody: 'A deletion request covers the Hellowhen account and data associated with your use of the service, including:',
+       dataAccount: 'Account and profile information.',
+@@ -143,7 +143,7 @@ export const account = {
+       dataMedia: 'Photos, images, and other media uploaded through Hellowhen.',
+       dataPreferences: 'Account preferences and active sessions.',
+       retentionTitle: 'Retention and exceptions',
+-      retentionBody: 'Deletion is reviewed and is not guaranteed to be immediate. Some support, report, moderation, security, fraud-prevention, audit, legal, or regulatory records may be retained when needed for those purposes.',
++      retentionBody: 'Deletion is scheduled 30 days after the request. Some support, moderation, security, fraud-prevention, audit, legal, or regulatory records may be retained only when needed for those purposes.',
+       retentionPolicyBody: 'The applicable retention depends on the record and the reason it must be kept. See the Privacy Policy for more information or contact support with questions about your request.',
+       privacyAction: 'Read the Privacy Policy',
+       supportAction: 'Contact Hellowhen support',
+diff --git a/packages/i18n/src/locales/es/account.ts b/packages/i18n/src/locales/es/account.ts
+index b0e97c3..9ee5226 100644
+--- a/packages/i18n/src/locales/es/account.ts
++++ b/packages/i18n/src/locales/es/account.ts
+@@ -112,25 +112,25 @@ export const account = {
+     ...enAccount.deletion,
+     title: 'Eliminar cuenta',
+     badge: 'Seguridad de la cuenta',
+-    body: 'Solicita la eliminación de tu cuenta desde Hellowhen. El equipo de soporte revisa las solicitudes antes de eliminar definitivamente la cuenta.',
++    body: 'Solicita la eliminación de tu cuenta desde Hellowhen. Tu cuenta se programa para eliminación automática 30 días después de la solicitud.',
+     signedOutTitle: 'Inicia sesión para solicitar la eliminación de la cuenta',
+     signedOutBody: 'Las solicitudes de eliminación son privadas y deben estar vinculadas al propietario de la cuenta.',
+     whatHappensTitle: 'Qué ocurre después',
+-    whatHappensBody: 'Al enviar esta solicitud se crea un registro privado de soporte para que el equipo pueda revisarla de forma segura.',
+-    pointProfile: 'Tu perfil público y el contenido activo del marketplace pueden eliminarse o anonimizarse como parte del proceso.',
++    whatHappensBody: 'Al enviar la solicitud se programa la eliminación automática dentro de 30 días y se crea un registro privado de soporte por si necesitas ayuda durante el periodo de gracia.',
++    pointProfile: 'Tu cuenta y el perfil, contenido, sesiones y archivos multimedia asociados se eliminan cuando termina el proceso.',
+     pointSafety: 'Algunos registros de soporte, reportes, moderación y auditoría pueden conservarse cuando sea necesario por seguridad, motivos legales o prevención de abuso.',
+-    pointSupport: 'Soporte puede contactarte en el ticket si necesita una confirmación adicional antes de la eliminación final.',
++    pointSupport: 'La eliminación normal no requiere aprobación de un administrador. Soporte sigue disponible para problemas de acceso o casos excepcionales de seguridad o legales.',
+     activeTitle: 'Solicitud de eliminación activa',
+-    activeBody: 'Tu solicitud ya está en la cola de soporte. Puedes cancelarla antes de que el equipo complete el proceso.',
++    activeBody: 'Tu cuenta está programada para eliminarse el {{date}}. Puedes cancelar la solicitud antes de que empiece el procesamiento automático.',
+     formTitle: 'Solicitar eliminación de cuenta',
+-    formBody: 'Cuéntanos algo útil antes de la revisión. Es opcional.',
++    formBody: 'Puedes añadir un motivo o una nota opcional. La eliminación se programa automáticamente 30 días después del envío.',
+     reason: 'Motivo',
+     reasonPlaceholder: 'Motivo opcional',
+     details: 'Detalles',
+     detailsPlaceholder: '¿Algo que soporte deba saber?',
+     submitRequest: 'Solicitar eliminación de cuenta',
+     cancelRequest: 'Cancelar solicitud de eliminación',
+-    requestCreated: 'Solicitud de eliminación de cuenta creada.',
++    requestCreated: 'Eliminación de cuenta programada. Puedes cancelarla durante el periodo de gracia de 30 días.',
+     requestCancelled: 'Solicitud de eliminación de cuenta cancelada.',
+     couldNotUpdate: 'No se pudo actualizar la solicitud de eliminación',
+     needHelpTitle: '¿Necesitas ayuda primero?',
+@@ -145,10 +145,10 @@ export const account = {
+       signedOutAction: 'Iniciar sesión para solicitar la eliminación',
+       signedInBody: 'Puedes añadir un motivo o detalles para soporte, pero ambos campos son opcionales. El envío crea una solicitud privada vinculada a tu cuenta.',
+       afterTitle: 'Qué ocurre después del envío',
+-      afterBody: 'Hellowhen envía tu solicitud a la cola privada de soporte para revisarla antes de completar la eliminación de la cuenta.',
+-      afterReview: 'Soporte puede contactarte si necesita confirmar tu identidad o tu cuenta.',
+-      afterCompletion: 'La cuenta, el perfil público y el contenido activo del marketplace pueden eliminarse o anonimizarse durante el proceso.',
+-      afterVerification: 'Puedes cancelar una solicitud activa desde esta página hasta que el equipo complete el proceso de eliminación.',
++      afterBody: 'Hellowhen programa automáticamente la eliminación de la cuenta 30 días después de tu solicitud. También se crea un registro privado de soporte por si necesitas ayuda.',
++      afterReview: 'La eliminación normal no requiere aprobación de un administrador. Soporte puede ayudar con el acceso a la cuenta o casos excepcionales de seguridad o legales.',
++      afterCompletion: 'En la fecha programada se eliminan la cuenta y el contenido personal, las sesiones y los archivos multimedia asociados. Algunos registros estrictamente necesarios por seguridad o motivos legales pueden conservarse.',
++      afterVerification: 'Puedes cancelar una solicitud activa desde esta página mientras no haya empezado el procesamiento automático.',
+       dataTitle: 'Datos asociados a tu cuenta',
+       dataBody: 'Una solicitud de eliminación abarca la cuenta de Hellowhen y los datos asociados a tu uso del servicio, incluidos:',
+       dataAccount: 'Información de la cuenta y del perfil.',
+@@ -157,7 +157,7 @@ export const account = {
+       dataMedia: 'Fotos, imágenes y otros archivos multimedia subidos a Hellowhen.',
+       dataPreferences: 'Preferencias de la cuenta y sesiones activas.',
+       retentionTitle: 'Conservación y excepciones',
+-      retentionBody: 'La eliminación se revisa y no se garantiza que sea inmediata. Algunos registros de soporte, reportes, moderación, seguridad, prevención del fraude, auditoría, legales o normativos pueden conservarse cuando sean necesarios para esos fines.',
++      retentionBody: 'La eliminación se programa 30 días después de la solicitud. Algunos registros de soporte, moderación, seguridad, prevención del fraude, auditoría, legales o normativos pueden conservarse solo cuando sean necesarios para esos fines.',
+       retentionPolicyBody: 'La conservación aplicable depende del registro y del motivo por el que deba mantenerse. Consulta la Política de privacidad o contacta con soporte si tienes preguntas sobre tu solicitud.',
+       privacyAction: 'Leer la Política de privacidad',
+       supportAction: 'Contactar con soporte de Hellowhen',
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+index ce1c7a6..f20d638 100644
+--- a/packages/i18n/src/locales/fr/account.ts
++++ b/packages/i18n/src/locales/fr/account.ts
+@@ -98,25 +98,25 @@ export const account = {
+   deletion: {
+     title: 'Supprimer le compte',
+     badge: 'Sécurité du compte',
+-    body: 'Demandez la suppression de votre compte depuis Hellowhen. L’équipe d’assistance examine la demande avant la suppression finale.',
++    body: 'Demandez la suppression de votre compte depuis Hellowhen. Votre compte est programmé pour une suppression automatique 30 jours après la demande.',
+     signedOutTitle: 'Connectez-vous pour demander la suppression',
+     signedOutBody: 'Les demandes de suppression sont privées et doivent être liées au compte propriétaire.',
+     whatHappensTitle: 'Suite de la demande',
+-    whatHappensBody: 'Cette demande crée un ticket privé pour que l’équipe puisse l’examiner en sécurité.',
+-    pointProfile: 'Votre profil public et vos contenus actifs peuvent être supprimés ou anonymisés pendant le traitement.',
++    whatHappensBody: 'Cette demande programme la suppression automatique dans 30 jours et crée un ticket privé si vous avez besoin d’aide pendant le délai de grâce.',
++    pointProfile: 'Votre compte ainsi que le profil, les contenus, les sessions et les médias associés sont supprimés lorsque le processus se termine.',
+     pointSafety: 'Certains dossiers d’assistance, signalements, modération et journaux peuvent être conservés si nécessaire pour la sécurité ou la prévention des abus.',
+-    pointSupport: 'L’assistance peut vous contacter via le ticket si une confirmation est nécessaire.',
++    pointSupport: 'La suppression normale ne nécessite pas l’accord d’un administrateur. L’assistance reste disponible pour l’accès au compte ou les cas exceptionnels de sécurité ou légaux.',
+     activeTitle: 'Demande de suppression active',
+-    activeBody: 'Votre demande est déjà dans la file d’assistance. Vous pouvez l’annuler avant la suppression finale.',
++    activeBody: 'Votre compte est programmé pour être supprimé le {{date}}. Vous pouvez annuler la demande avant le début du traitement automatique.',
+     formTitle: 'Demander la suppression du compte',
+-    formBody: 'Ajoutez une information utile pour l’examen. C’est optionnel.',
++    formBody: 'Vous pouvez ajouter une raison ou une note facultative. La suppression est programmée automatiquement 30 jours après l’envoi.',
+     reason: 'Raison',
+     reasonPlaceholder: 'Raison optionnelle',
+     details: 'Détails',
+     detailsPlaceholder: 'Information utile pour l’assistance ?',
+     submitRequest: 'Demander la suppression',
+     cancelRequest: 'Annuler la demande',
+-    requestCreated: 'Demande de suppression créée.',
++    requestCreated: 'Suppression du compte programmée. Vous pouvez l’annuler pendant le délai de grâce de 30 jours.',
+     requestCancelled: 'Demande de suppression annulée.',
+     couldNotUpdate: 'Impossible de mettre à jour la demande',
+     needHelpTitle: 'Besoin d’aide avant ?',
+@@ -131,10 +131,10 @@ export const account = {
+       signedOutAction: 'Se connecter pour demander la suppression',
+       signedInBody: 'Vous pouvez ajouter une raison ou des précisions pour l’assistance, mais ces deux champs sont facultatifs. L’envoi crée une demande privée liée à votre compte.',
+       afterTitle: 'Après l’envoi de votre demande',
+-      afterBody: 'Hellowhen transmet votre demande à la file privée de l’assistance pour examen avant que la suppression du compte soit terminée.',
+-      afterReview: 'L’assistance peut vous contacter si une confirmation supplémentaire de votre identité ou de votre compte est nécessaire.',
+-      afterCompletion: 'Le compte, le profil public et les contenus actifs de la place de marché peuvent être supprimés ou anonymisés pendant le traitement.',
+-      afterVerification: 'Vous pouvez annuler une demande active depuis cette page jusqu’à ce que l’équipe termine le processus de suppression.',
++      afterBody: 'Hellowhen programme automatiquement la suppression du compte 30 jours après votre demande. Un ticket privé est également créé si vous avez besoin d’aide.',
++      afterReview: 'La suppression normale ne nécessite pas l’accord d’un administrateur. L’assistance peut aider pour l’accès au compte ou les cas exceptionnels de sécurité ou légaux.',
++      afterCompletion: 'À la date prévue, le compte ainsi que les contenus personnels, sessions et médias associés sont supprimés. Certains dossiers strictement nécessaires à la sécurité ou à des obligations légales peuvent être conservés.',
++      afterVerification: 'Vous pouvez annuler une demande active depuis cette page tant que le traitement automatique n’a pas commencé.',
+       dataTitle: 'Données associées à votre compte',
+       dataBody: 'Une demande de suppression couvre le compte Hellowhen et les données associées à votre utilisation du service, notamment :',
+       dataAccount: 'Les informations de compte et de profil.',
+@@ -143,7 +143,7 @@ export const account = {
+       dataMedia: 'Les photos, images et autres médias téléversés dans Hellowhen.',
+       dataPreferences: 'Les préférences du compte et les sessions actives.',
+       retentionTitle: 'Conservation et exceptions',
+-      retentionBody: 'La suppression fait l’objet d’un examen et ne peut pas être garantie comme immédiate. Certains dossiers d’assistance, de signalement, de modération, de sécurité, de prévention de la fraude, d’audit, juridiques ou réglementaires peuvent être conservés lorsque ces finalités l’exigent.',
++      retentionBody: 'La suppression est programmée 30 jours après la demande. Certains dossiers d’assistance, de modération, de sécurité, de prévention de la fraude, d’audit, juridiques ou réglementaires peuvent être conservés uniquement lorsque ces finalités l’exigent.',
+       retentionPolicyBody: 'La durée applicable dépend du dossier et du motif justifiant sa conservation. Consultez la Politique de confidentialité pour en savoir plus ou contactez l’assistance au sujet de votre demande.',
+       privacyAction: 'Lire la Politique de confidentialité',
+       supportAction: 'Contacter l’assistance Hellowhen',
+diff --git a/scripts/account-deletion-lifecycle-smoke.mjs b/scripts/account-deletion-lifecycle-smoke.mjs
+new file mode 100644
+index 0000000..ea992b3
+--- /dev/null
++++ b/scripts/account-deletion-lifecycle-smoke.mjs
+@@ -0,0 +1,37 @@
++import fs from 'node:fs';
++import path from 'node:path';
++import { fileURLToPath } from 'node:url';
++
++const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
++function read(relativePath) {
++  return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
++}
++function assertIncludes(source, expected, label) {
++  if (!source.includes(expected)) throw new Error(`${label}: missing ${JSON.stringify(expected)}`);
++}
++
++const schema = read('apps/api/prisma/schema.prisma');
++const migration = read('apps/api/prisma/migrations/20260909083000_account_deletion_automatic_lifecycle/migration.sql');
++const lifecycle = read('apps/api/src/modules/account/accountDeletion.lifecycle.ts');
++const routes = read('apps/api/src/modules/account/account.routes.ts');
++const server = read('apps/api/src/server.ts');
++const mobile = read('apps/mobile/src/features/account/AccountDeletionScreen.tsx');
++const web = read('apps/web/src/features/account/AccountDeletionClient.tsx');
++const en = read('packages/i18n/src/locales/en/account.ts');
++
++assertIncludes(schema, 'scheduledFor    DateTime', 'Deletion schedule schema');
++assertIncludes(schema, 'user User? @relation(fields: [userId], references: [id], onDelete: SetNull)', 'Deletion receipt retention');
++assertIncludes(migration, "INTERVAL '30 days'", 'Existing request grace-period migration');
++assertIncludes(lifecycle, 'ACCOUNT_DELETION_GRACE_PERIOD_DAYS = 30', '30-day lifecycle constant');
++assertIncludes(lifecycle, "data: { status: 'processing', reviewedAt: now }", 'Atomic processing claim');
++assertIncludes(lifecycle, "await cleanupOwnedMedia(userId)", 'Owned media cleanup');
++assertIncludes(lifecycle, 'await tx.user.delete({ where: { id: userId } })', 'Final account deletion');
++assertIncludes(lifecycle, 'await transferOwnedBusinesses(tx, userId)', 'Business workspace ownership safety');
++assertIncludes(routes, 'accountDeletionScheduledFor(requestedAt)', 'Deletion request scheduling');
++assertIncludes(routes, "error: 'deletion_processing'", 'Grace-period cancellation boundary');
++assertIncludes(server, 'startAccountDeletionLifecycle()', 'Automatic lifecycle startup');
++assertIncludes(mobile, "request?.scheduledFor", 'Native scheduled date visibility');
++assertIncludes(web, "request?.scheduledFor", 'Web scheduled date visibility');
++assertIncludes(en, 'automatic deletion 30 days after the request', 'User-facing automatic deletion copy');
++
++console.log('Account deletion 30-day lifecycle: PASS');

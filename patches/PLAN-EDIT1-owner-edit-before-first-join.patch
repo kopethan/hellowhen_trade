@@ -1,0 +1,813 @@
+diff --git a/apps/api/src/modules/plans/__tests__/plans.safety.test.ts b/apps/api/src/modules/plans/__tests__/plans.safety.test.ts
+index e12cb37..721139f 100644
+--- a/apps/api/src/modules/plans/__tests__/plans.safety.test.ts
++++ b/apps/api/src/modules/plans/__tests__/plans.safety.test.ts
+@@ -6,6 +6,7 @@ import {
+   findStopGapViolation,
+   isRemoveIdempotent,
+   isCancelOnlyUpdate,
++  canOwnerEditPublishedPlan,
+   rangesConflictWithRequiredGap,
+   restoredPlanStatus,
+ } from '../plans.safety.testkit.js';
+@@ -46,6 +47,16 @@ test('created plan content remains immutable while cancellation is allowed', ()
+   assert.equal(isCancelOnlyUpdate({ places: [] }), false);
+ });
+ 
++test('owners can edit only future open Plans before any participant interaction', () => {
++  const now = at(10);
++  assert.equal(canOwnerEditPublishedPlan({ status: 'open', startsAt: at(12), participants: [] }, now), true);
++  assert.equal(canOwnerEditPublishedPlan({ status: 'open', startsAt: at(12), participants: [{ status: 'pending' }] }, now), false);
++  assert.equal(canOwnerEditPublishedPlan({ status: 'open', startsAt: at(12), participants: [{ status: 'left' }] }, now), false);
++  assert.equal(canOwnerEditPublishedPlan({ status: 'started', startsAt: at(9), participants: [] }, now), false);
++  assert.equal(canOwnerEditPublishedPlan({ status: 'open', startsAt: at(10), participants: [] }, now), false);
++  assert.equal(canOwnerEditPublishedPlan({ status: 'open', startsAt: at(12), participants: [], deletedAt: new Date() }, now), false);
++});
++
+ test('legacy deleted plans are hidden from public and owner detail access', () => {
+   const deleted = { status: 'cancelled', deletedAt: new Date() };
+   assert.equal(canReadPlan(deleted, false), false);
+diff --git a/apps/api/src/modules/plans/plans.routes.ts b/apps/api/src/modules/plans/plans.routes.ts
+index 6a3ecd4..7dfdf21 100644
+--- a/apps/api/src/modules/plans/plans.routes.ts
++++ b/apps/api/src/modules/plans/plans.routes.ts
+@@ -294,6 +294,13 @@ function cleanReusablePlaceForViewer(place: any, canSeePrivateDetails: boolean,
+   return { ...cleaned, onlineProvider, staticMap: staticMapResult.staticMap, staticMapStatus: staticMapResult.staticMapStatus };
+ }
+ 
++function isPlanOwnerEditable(plan: { status: string; deletedAt?: Date | string | null; startsAt: Date | string; participants?: Array<{ status: string }> }, now = new Date()) {
++  if (plan.deletedAt || plan.status !== 'open') return false;
++  const startsAt = new Date(plan.startsAt);
++  if (Number.isNaN(startsAt.getTime()) || startsAt.getTime() <= now.getTime()) return false;
++  return (plan.participants ?? []).length === 0;
++}
++
+ function serializePlan(plan: any, viewerId: string | null, surface: 'detail' | 'list' | 'preview' = 'detail') {
+   const isOwner = Boolean(viewerId && plan.ownerId === viewerId);
+   const myParticipant = viewerId ? (plan.participants ?? []).find((participant: any) => participant.userId === viewerId) : null;
+@@ -328,6 +335,7 @@ function serializePlan(plan: any, viewerId: string | null, surface: 'detail' | '
+     participantCount: acceptedParticipants.length,
+     pendingRequestCount: isOwner ? pendingParticipants.length : undefined,
+     myParticipantStatus: myParticipant?.status ?? null,
++    ownerCanEdit: isOwner ? isPlanOwnerEditable(plan) : undefined,
+     canSeePrivatePlaceDetails,
+   };
+ }
+@@ -747,6 +755,13 @@ function planStopsLockedResponse() {
+   };
+ }
+ 
++function planEditLockedResponse() {
++  return {
++    error: 'plan_edit_locked',
++    message: 'This Plan can only be edited before it starts and before anyone joins or requests to join.',
++  };
++}
++
+ function planDeletedResponse() {
+   return {
+     error: 'plan_deleted',
+@@ -1101,6 +1116,53 @@ plansRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req,
+   res.status(201).json({ plan: await decoratePlan(created, req.user!.id) });
+ }));
+ 
++plansRoutes.put('/:planId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
++  const now = new Date();
++  await syncDuePlanLifecycleStatuses(now, { planId: req.params.planId, ownerId: req.user!.id });
++  const input = createPlanRequestSchema.parse(req.body ?? {});
++  if (input.status !== 'open') {
++    return res.status(400).json({ error: 'plan_edit_status_invalid', message: 'Published Plan edits must remain open.' });
++  }
++
++  const existing = await prisma.plan.findFirst({
++    where: { id: req.params.planId, ownerId: req.user!.id },
++    include: { participants: true },
++  });
++  if (!existing) return res.status(404).json({ error: 'not_found' });
++  if (existing.deletedAt) return res.status(410).json(planDeletedResponse());
++  if (!isPlanOwnerEditable(existing, now)) return res.status(409).json(planEditLockedResponse());
++  if (isPlanJoinClosed(input, now)) return res.status(400).json(planJoinDeadlineClosedAtCreationResponse());
++
++  const stopGapViolation = findPlanRequestStopGapViolation(input);
++  if (stopGapViolation) return res.status(400).json(planStopGapViolationResponse(stopGapViolation));
++  const conflictingPlan = await findOwnedPlanTimeConflict(req.user!.id, input, existing.id);
++  if (conflictingPlan) return res.status(409).json(planTimeConflictResponse(conflictingPlan, input));
++
++  const inputPlaces = input.places ?? [];
++  const estimatedPlaceEndTimes = buildEstimatedPlanPlaceEndTimes(inputPlaces.map((placeInput) => placeInput.startsAt));
++  const placeDataDrafts = [] as any[];
++  for (const [index, placeInput] of inputPlaces.entries()) {
++    const draft = await placeCreateData(existing.id, req.user!.id, placeInput, index);
++    if (!draft.endsAt && estimatedPlaceEndTimes[index]) draft.endsAt = new Date(estimatedPlaceEndTimes[index]!);
++    placeDataDrafts.push(draft);
++  }
++
++  const { ownerId: _ownerId, ...replacementData } = planCreateData(existing.ownerId, { ...input, status: 'open' });
++  await prisma.$transaction(async (tx) => {
++    await tx.plan.update({
++      where: { id: existing.id },
++      data: { ...replacementData, status: 'open' as any, cancelledAt: null } as any,
++    });
++    await tx.planPlace.deleteMany({ where: { planId: existing.id } });
++    for (const placeData of placeDataDrafts) {
++      await tx.planPlace.create({ data: { ...placeData, planId: existing.id } as any });
++    }
++  });
++
++  const updated = await prisma.plan.findUnique({ where: { id: existing.id }, include: planInclude() });
++  return res.json({ plan: await decoratePlan(updated, req.user!.id) });
++}));
++
+ plansRoutes.patch('/:planId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = updatePlanRequestSchema.parse(req.body ?? {});
+   const existing = await prisma.plan.findFirst({ where: { id: req.params.planId, ownerId: req.user!.id } });
+diff --git a/apps/api/src/modules/plans/plans.safety.testkit.ts b/apps/api/src/modules/plans/plans.safety.testkit.ts
+index a213384..90ea522 100644
+--- a/apps/api/src/modules/plans/plans.safety.testkit.ts
++++ b/apps/api/src/modules/plans/plans.safety.testkit.ts
+@@ -60,6 +60,12 @@ export function isCancelOnlyUpdate(input: Record<string, unknown>) {
+   return keys.length === 1 && input.status === 'cancelled';
+ }
+ 
++export function canOwnerEditPublishedPlan(plan: { status: string; deletedAt?: Date | string | null; startsAt: string | Date; participants?: Array<{ status: string }> }, now: string | Date) {
++  if (plan.deletedAt || plan.status !== 'open') return false;
++  if (asDate(plan.startsAt).getTime() <= asDate(now).getTime()) return false;
++  return (plan.participants ?? []).length === 0;
++}
++
+ export function canReadPlan(plan: { deletedAt?: Date | string | null; status: string }, isOwner: boolean) {
+   if (plan.deletedAt) return false;
+   return isOwner || PUBLIC_PLAN_STATUSES.includes(plan.status as (typeof PUBLIC_PLAN_STATUSES)[number]);
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 91a269f..4f98106 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -967,6 +967,57 @@ function selectedPlaceFromReusable(place: PlaceDto, index: number, date = toDate
+   };
+ }
+ 
++function selectedPlaceFromPublishedPlanPlace(place: PlanPlaceDto, index: number): SelectedPlanPlaceState {
++  const startsAt = place.startsAt ? new Date(place.startsAt) : null;
++  const validStartsAt = startsAt && !Number.isNaN(startsAt.getTime()) ? startsAt : null;
++  const providerAddress: NativeProviderAddressState | null = place.mode === 'remote' || (place.kind ?? 'place') !== 'place'
++    ? null
++    : placeAddressFromReusablePlace(place as unknown as PlaceDto);
++  const sourcePlace = place.sourcePlace ?? null;
++  return {
++    id: place.id || `mobile-plan-edit-place-${Date.now()}-${index}`,
++    sourcePlaceId: (place.kind ?? 'place') === 'place' ? place.placeId ?? undefined : undefined,
++    sourcePlaceSource: place.source === 'hellowhen_library' ? 'hellowhen_library' : place.source === 'my_place' ? 'my_place' : 'custom',
++    sourcePlaceTitle: sourcePlace?.title ?? ((place.kind ?? 'place') === 'place' && place.placeId ? place.title : undefined),
++    kind: place.kind ?? 'place',
++    mode: place.mode ?? 'local',
++    date: validStartsAt ? toDateInputValue(validStartsAt.toISOString()) : toDateInputValue(),
++    time: validStartsAt ? toTimeInputValueFromDate(validStartsAt) : (index === 0 ? '13:00' : ''),
++    title: place.title ?? '',
++    location: place.mode === 'remote' ? '' : place.formattedAddress ?? place.addressPublicText ?? '',
++    providerAddress,
++    onlineLabel: place.onlineLabel ?? '',
++    onlineUrl: place.onlineUrl ?? '',
++    existingMedia: activeMedia(place.media)[0] ?? activeMedia(sourcePlace?.media)[0] ?? null,
++    existingStaticMap: place.staticMap ?? null,
++  };
++}
++
++function planJoinDeadlineStateFromPublishedPlan(plan: PlanDto): PlanJoinDeadlineState {
++  const startsAt = new Date(plan.startsAt);
++  const joinClosesAt = new Date(plan.joinClosesAt ?? plan.startsAt);
++  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(joinClosesAt.getTime())) return makePlanJoinDeadlineState();
++  const diffMinutes = Math.round((startsAt.getTime() - joinClosesAt.getTime()) / 60_000);
++  if (diffMinutes === 0) return { preset: 'start', date: '', time: '' };
++  if (diffMinutes === 60) return { preset: '1h', date: '', time: '' };
++  if (diffMinutes === 180) return { preset: '3h', date: '', time: '' };
++  if (diffMinutes === 24 * 60) return { preset: '1d', date: '', time: '' };
++  const custom = dateAndTimeFromDate(joinClosesAt);
++  return { preset: 'custom', date: custom.date, time: custom.time };
++}
++
++function planEndStateFromPublishedPlan(plan: PlanDto): PlanEndState {
++  if (!plan.endsAt) return { date: '', time: '' };
++  const planEnd = new Date(plan.endsAt);
++  if (Number.isNaN(planEnd.getTime())) return { date: '', time: '' };
++  const routeEnds = (plan.places ?? [])
++    .map((place) => place.endsAt ? new Date(place.endsAt) : null)
++    .filter((value): value is Date => Boolean(value && !Number.isNaN(value.getTime())));
++  const routeEnd = routeEnds.sort((left, right) => right.getTime() - left.getTime())[0];
++  if (routeEnd && Math.abs(routeEnd.getTime() - planEnd.getTime()) < 1000) return { date: '', time: '' };
++  return dateAndTimeFromDate(planEnd);
++}
++
+ type DraftPlaceValidationResult = {
+   draftPlaceId: string;
+   sourcePlaceId: string;
+@@ -1276,12 +1327,13 @@ function planConflictWarning(
+   schedule: ReturnType<typeof buildMobilePlanSchedule>,
+   explicitEnd: ReturnType<typeof parseOptionalMobilePlanEnd>,
+   t: PlanTranslationFunction,
++  excludePlanId?: string,
+ ) {
+   const selected = planSelectedTimeRange(schedule, explicitEnd);
+   if (!selected) return '';
+   const oneHour = 60 * 60 * 1000;
+   for (const plan of plans) {
+-    if (plan.status === 'cancelled') continue;
++    if (plan.id === excludePlanId || plan.status === 'cancelled') continue;
+     const planStart = new Date(plan.startsAt);
+     const planEnd = new Date(plan.endsAt || plan.startsAt);
+     if (Number.isNaN(planStart.getTime()) || Number.isNaN(planEnd.getTime())) continue;
+@@ -3258,6 +3310,11 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+     }
+   }
+ 
++  function editPlan() {
++    if (!plan || !plan.ownerCanEdit || busy) return;
++    navigation.navigate('CreatePlan', { editPlanId: plan.id });
++  }
++
+   function removePlan() {
+     if (!plan || !canRemovePlan || busy) return;
+     setRemoveConfirmVisible(true);
+@@ -3373,6 +3430,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+   const canJoin = Boolean(plan && auth.user && !isOwner && presentationState === 'open' && canJoinPlanFromParticipantStatus(participantStatus));
+   const canLeave = Boolean(plan && !isCancelled && presentationState !== 'completed' && !isOwner && isJoined);
+   const canRemovePlan = Boolean(plan && isOwner && plan.status !== 'cancelled' && plan.status !== 'hidden');
++  const canEditPlan = Boolean(plan && isOwner && plan.ownerCanEdit);
+   const participantStateCopy = !isOwner ? getPlanParticipantStateCopy(participantStatus, t) : '';
+   const places = plan ? sortedPlanPlaces(plan) : [];
+   const routeMaps = buildPlanRouteMapsLink(places, t);
+@@ -3547,7 +3605,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+             <View style={styles.detailSectionHeader}>
+               <View style={styles.detailSectionCopy}>
+                 <AppText style={styles.sectionTitle}>{t('plans.detail.sections.actions')}</AppText>
+-                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.actions.cancelledBody') : isOwner ? t('plans.detail.actions.ownerBody') : getPlanJoinActionCopy(plan, t, presentationState!)}</AppText>
++                <AppText style={[styles.rowBody, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.actions.cancelledBody') : isOwner ? t(canEditPlan ? 'plans.detail.actions.ownerEditableBody' : 'plans.detail.actions.ownerBody') : getPlanJoinActionCopy(plan, t, presentationState!)}</AppText>
+               </View>
+               {!isOwner ? <SemanticBadge label={getPlanJoinModeLabel(plan, t)} tone="proposal" size="sm" /> : <SemanticBadge label={t('plans.detail.values.owner')} tone="plan" size="sm" />}
+             </View>
+@@ -3557,10 +3615,15 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+                   <MobileIcon name="profile" size={18} color={theme.semantic.plan.text} />
+                   <View style={styles.feedTitleWrap}>
+                     <AppText style={styles.planOwnerManageTitle}>{t('plans.detail.actions.manageTitle')}</AppText>
+-                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.actions.manageCancelledBody') : t('plans.detail.actions.manageBody')}</AppText>
++                    <AppText style={[styles.metaText, { color: theme.color.muted }]}>{isCancelled ? t('plans.detail.actions.manageCancelledBody') : t(canEditPlan ? 'plans.detail.actions.manageEditableBody' : 'plans.detail.actions.manageBody')}</AppText>
+                   </View>
+                 </View>
+               ) : null}
++              {canEditPlan ? (
++                <Pressable disabled={busy} accessibilityRole="button" onPress={editPlan} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, busy && styles.disabled]}>
++                  <AppText style={[styles.primaryButtonText, { color: theme.semantic.plan.onBg }]}>{t('plans.detail.actions.edit')}</AppText>
++                </Pressable>
++              ) : null}
+               {isOwner ? (
+                 <Pressable disabled={sharing} accessibilityRole="button" onPress={() => { void sharePlan(); }} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, sharing && styles.disabled]}>
+                   <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{sharing ? t('plans.detail.actions.sharing') : t('plans.detail.actions.share')}</AppText>
+@@ -4763,6 +4826,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   const theme = useThemeTokens();
+   const insets = useSafeAreaInsets();
+   const { language, t } = useTranslation();
++  const editingPlanId = route.params?.editPlanId;
++  const isEditingPlan = Boolean(editingPlanId);
++  const [editingPlanLoading, setEditingPlanLoading] = useState(Boolean(editingPlanId));
++  const editHydratedPlanIdRef = useRef<string | null>(null);
+   const [places, setPlaces] = useState<SelectedPlanPlaceState[]>([]);
+   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
+   const [libraryPlaces, setLibraryPlaces] = useState<PlaceDto[]>([]);
+@@ -4827,7 +4894,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   const endSummary = useMemo(() => mobilePlanEndSummary(schedule, planEnd, t), [schedule, planEnd, t]);
+   const joinDeadlineSummary = useMemo(() => resolvePlanJoinDeadline(joinDeadline, schedule.startsAt, t), [joinDeadline, schedule.startsAt, t]);
+   const participantCapacitySummary = useMemo(() => resolvePlanParticipantCapacity(participantCapacity, t), [participantCapacity, t]);
+-  const conflictWarning = useMemo(() => planConflictWarning(myPlansForConflict, schedule, explicitPlanEnd, t), [explicitPlanEnd, myPlansForConflict, schedule, t]);
++  const conflictWarning = useMemo(() => planConflictWarning(myPlansForConflict, schedule, explicitPlanEnd, t, editingPlanId), [editingPlanId, explicitPlanEnd, myPlansForConflict, schedule, t]);
+   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
+     places: placesForGeneratedDisplay,
+     startsAt: schedule.startsAt,
+@@ -4904,9 +4971,59 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+ 
+   useFocusEffect(useCallback(() => { void loadReusablePlaces(); }, [loadReusablePlaces]));
+ 
++  useEffect(() => {
++    if (!editingPlanId || editHydratedPlanIdRef.current === editingPlanId) {
++      if (!editingPlanId) setEditingPlanLoading(false);
++      return undefined;
++    }
++    let active = true;
++    setEditingPlanLoading(true);
++    setError(null);
++    setMessage(null);
++    createPlanDraftReadyRef.current = false;
++    void (async () => {
++      try {
++        const response = await api.plans.get(editingPlanId);
++        if (!active) return;
++        const publishedPlan = response.plan;
++        if (!publishedPlan.ownerCanEdit) {
++          setError(t('plans.create.edit.locked'));
++          return;
++        }
++        editHydratedPlanIdRef.current = editingPlanId;
++        setPlaces(sortedPlanPlaces(publishedPlan).map(selectedPlaceFromPublishedPlanPlace));
++        setAdvancedDetails({
++          title: publishedPlan.title ?? '',
++          description: publishedPlan.description ?? '',
++          category: publishedPlan.category ?? '',
++          tags: (publishedPlan.tags ?? []).join(', '),
++        });
++        setPlanEnd(planEndStateFromPublishedPlan(publishedPlan));
++        setJoinDeadline(planJoinDeadlineStateFromPublishedPlan(publishedPlan));
++        setParticipantCapacity(publishedPlan.maxParticipants
++          ? { mode: 'limited', limit: String(publishedPlan.maxParticipants) }
++          : { mode: 'unlimited', limit: '' });
++        setStage('build');
++        setMessage(t('plans.create.edit.loaded'));
++      } catch (caughtError) {
++        if (!active) return;
++        setError(getFriendlyApiErrorMessage(caughtError, t('plans.create.edit.loadFailed')));
++      } finally {
++        if (active) setEditingPlanLoading(false);
++      }
++    })();
++    return () => {
++      active = false;
++    };
++  }, [editingPlanId, t]);
++
+   useEffect(() => {
+     let active = true;
+     void (async () => {
++      if (editingPlanId) {
++        createPlanDraftReadyRef.current = false;
++        return;
++      }
+       if (route.params?.initialPlanIdeaKey) {
+         createPlanDraftReadyRef.current = true;
+         return;
+@@ -4923,10 +5040,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+       active = false;
+       if (createPlanDraftSaveTimeoutRef.current) clearTimeout(createPlanDraftSaveTimeoutRef.current);
+     };
+-  }, []);
++  }, [editingPlanId]);
+ 
+   useEffect(() => {
+-    if (!createPlanDraftReadyRef.current || createPlanDraftHydratingRef.current) return undefined;
++    if (editingPlanId || !createPlanDraftReadyRef.current || createPlanDraftHydratingRef.current) return undefined;
+     if (createPlanDraftSaveTimeoutRef.current) clearTimeout(createPlanDraftSaveTimeoutRef.current);
+     const draft = buildCreatePlanDraftState(places, advancedDetails, planEnd, joinDeadline, participantCapacity, stage);
+     createPlanDraftSaveTimeoutRef.current = setTimeout(() => {
+@@ -4935,9 +5052,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     return () => {
+       if (createPlanDraftSaveTimeoutRef.current) clearTimeout(createPlanDraftSaveTimeoutRef.current);
+     };
+-  }, [advancedDetails, joinDeadline, participantCapacity, places, planEnd, stage]);
++  }, [advancedDetails, editingPlanId, joinDeadline, participantCapacity, places, planEnd, stage]);
+ 
+   useEffect(() => {
++    if (editingPlanId) return;
+     const ideaKey = parseStarterPlanIdeaKey(route.params?.initialPlanIdeaKey);
+     if (!ideaKey || handledInitialPlanIdeaRef.current === ideaKey || places.length > 0) return;
+     const idea = starterPlanIdeas[ideaKey];
+@@ -4946,7 +5064,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     setPlaces(idea.stops.map((stop, index) => selectedPlaceFromPlanIdeaStop(stop, index, date)));
+     setMessage(t('plans.create.feedback.starterLoaded'));
+     navigation.setParams({ initialPlanIdeaKey: undefined });
+-  }, [navigation, places.length, route.params?.initialPlanIdeaKey, t]);
++  }, [editingPlanId, navigation, places.length, route.params?.initialPlanIdeaKey, t]);
+ 
+   useEffect(() => {
+     setExpandedAddressPlaceIds((current) => {
+@@ -5162,10 +5280,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     setMessage(null);
+     setError(null);
+     if (place.source === 'user' && Number(place.usedInPlansCount ?? 0) === 0) {
+-      navigation.navigate('CreatePlace', { returnToCreatePlan: true, editPlace: place, targetPlaceIndex, selectPlaceAfterSave: true });
++      navigation.navigate('CreatePlace', { returnToCreatePlan: true, returnToEditPlanId: editingPlanId, editPlace: place, targetPlaceIndex, selectPlaceAfterSave: true });
+       return;
+     }
+-    navigation.navigate('CreatePlace', { returnToCreatePlan: true, copyFromPlace: place, targetPlaceIndex });
++    navigation.navigate('CreatePlace', { returnToCreatePlan: true, returnToEditPlanId: editingPlanId, copyFromPlace: place, targetPlaceIndex });
+   }
+ 
+   function chooseReusablePlace(place: PlaceDto) {
+@@ -5218,7 +5336,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     const savedPlace = place?.sourcePlaceId ? myPlaces.find((item) => item.id === place.sourcePlaceId) : undefined;
+     if (!savedPlace) return;
+     setDetailPlaceIndex(null);
+-    navigation.navigate('CreatePlace', { returnToCreatePlan: true, editPlace: savedPlace, targetPlaceIndex: index });
++    navigation.navigate('CreatePlace', { returnToCreatePlan: true, returnToEditPlanId: editingPlanId, editPlace: savedPlace, targetPlaceIndex: index });
+   }
+ 
+   function copyLibraryPlaceFromDetail(index: number) {
+@@ -5226,7 +5344,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+     const libraryPlace = place?.sourcePlaceId ? libraryPlaces.find((item) => item.id === place.sourcePlaceId) : undefined;
+     if (!libraryPlace) return;
+     setDetailPlaceIndex(null);
+-    navigation.navigate('CreatePlace', { returnToCreatePlan: true, copyFromPlace: libraryPlace, targetPlaceIndex: index });
++    navigation.navigate('CreatePlace', { returnToCreatePlan: true, returnToEditPlanId: editingPlanId, copyFromPlace: libraryPlace, targetPlaceIndex: index });
+   }
+ 
+   function updateAdvancedDetails(patch: Partial<AdvancedPlanDetailsState>) {
+@@ -5356,7 +5474,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+         mode: planModeFromSelectedPlaces(usablePlaces),
+         joinApprovalMode: 'automatic',
+       });
+-      const response = await api.plans.create({
++      const planPayload = {
+         title: customTitle || generatedPlanPayload.title,
+         description: customDescription || generatedPlanPayload.description,
+         category: customCategory || undefined,
+@@ -5366,8 +5484,8 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+         joinClosesAt: nextJoinDeadline.joinClosesAt || nextSchedule.startsAt,
+         endsAt: nextExplicitEnd.endsAt || nextSchedule.endsAt || nextSchedule.startsAt,
+         maxParticipants: nextParticipantCapacity.maxParticipants ?? undefined,
+-        joinApprovalMode: 'automatic',
+-        status: 'open',
++        joinApprovalMode: 'automatic' as const,
++        status: 'open' as const,
+         places: usablePlaces.map((place, index) => ({
+           kind: place.kind,
+           placeId: isCustomPlanStop(place) ? undefined : place.sourcePlaceId,
+@@ -5382,9 +5500,14 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+           order: index,
+           mediaIds: selectedPlaceMediaIds(place),
+         })),
+-      });
+-      cancelPendingCreatePlanDraftSave();
+-      await clearCreatePlanDraft();
++      };
++      const response = editingPlanId
++        ? await api.plans.replace(editingPlanId, planPayload)
++        : await api.plans.create(planPayload);
++      if (!editingPlanId) {
++        cancelPendingCreatePlanDraftSave();
++        await clearCreatePlanDraft();
++      }
+       navigation.replace('PlanDetail', { planId: response.plan.id, title: response.plan.title });
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError));
+@@ -5400,10 +5523,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+   return (
+     <AppFixedHeaderScreen
+       bodyStyle={styles.planCreateBody}
+-      header={<AppHeader title={t('plans.create.headerTitle')} onBack={() => navigation.goBack()} rightSlot={<HeaderAction icon="more" label={t('plans.create.optionsAccessibility')} onPress={() => setCreatePlanMenuOpen((value) => !value)} />} />}
++      header={<AppHeader title={t(isEditingPlan ? 'plans.create.edit.headerTitle' : 'plans.create.headerTitle')} onBack={() => navigation.goBack()} rightSlot={!isEditingPlan ? <HeaderAction icon="more" label={t('plans.create.optionsAccessibility')} onPress={() => setCreatePlanMenuOpen((value) => !value)} /> : undefined} />}
+     >
+       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
+-        {createPlanMenuOpen ? (
++        {!isEditingPlan && createPlanMenuOpen ? (
+           <View style={[styles.createPlanMenuPanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+             <Pressable accessibilityRole="button" onPress={() => setClearDraftConfirmVisible(true)} style={({ pressed }) => [styles.menuItem, { borderBottomColor: theme.color.border }, pressed && styles.pressed]}>
+               <View style={[styles.menuIcon, { backgroundColor: theme.semantic.warning.softBg, borderColor: theme.semantic.warning.border }]}>
+@@ -5419,7 +5542,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+         <ScrollView ref={createPlanScrollRef} contentContainerStyle={[styles.listContent, styles.planCreateScrollContent]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+           <View style={styles.planCreateCompactHeader}>
+             <SemanticBadge label={t('plans.create.badge')} tone="plan" />
+-            <AppText style={styles.heroTitle}>{t('plans.create.headerTitle')}</AppText>
++            <AppText style={styles.heroTitle}>{t(isEditingPlan ? 'plans.create.edit.headerTitle' : 'plans.create.headerTitle')}</AppText>
+           </View>
+ 
+           <View style={styles.stageSwitchRow}>
+@@ -5427,6 +5550,10 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+             <PillButton label={t('plans.create.stages.preview')} active={stage === 'preview'} onPress={showPreviewStage} />
+           </View>
+ 
++          {isEditingPlan && editingPlanLoading ? (
++            <InfoNotice tone="info" title={t('plans.create.edit.loadingTitle')} body={t('plans.create.edit.loadingBody')} />
++          ) : null}
++
+           {stage === 'build' && (restoringDraft || draftPlacesChecking.length > 0) ? (
+             <InfoNotice tone="info" title={t('plans.create.draft.checkingTitle')} body={t('plans.create.draft.checkingBody')} />
+           ) : null}
+@@ -5607,7 +5734,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+         {stage === 'build' && places.length > 0 ? (
+           <View onLayout={(event) => setCreatePlanBottomClearance(event.nativeEvent.layout.height)} style={[styles.planCreateStickyBar, { borderTopColor: theme.color.border, backgroundColor: theme.color.background, paddingBottom: Math.max(insets.bottom, 10) }]}>
+             <Pressable accessibilityRole="button" disabled={draftPlaceValidationBlocked} onPress={showPreviewStage} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, draftPlaceValidationBlocked && styles.disabled]}>
+-              <AppText style={[styles.primaryButtonText, { color: theme.semantic.plan.onBg }]}>{t('plans.create.preview.previewPlan')}</AppText>
++              <AppText style={[styles.primaryButtonText, { color: theme.semantic.plan.onBg }]}>{t(isEditingPlan ? 'plans.create.edit.previewChanges' : 'plans.create.preview.previewPlan')}</AppText>
+             </Pressable>
+           </View>
+         ) : stage === 'preview' ? (
+@@ -5618,7 +5745,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+               </View>
+               <View style={styles.planCreateStickyPrimary}>
+                 <Pressable accessibilityRole="button" disabled={saving || draftPlaceValidationBlocked} onPress={() => { void submit(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.plan.bg }, pressed && styles.pressed, (saving || draftPlaceValidationBlocked) && styles.disabled]}>
+-                  <AppText style={[styles.primaryButtonText, { color: theme.semantic.plan.onBg }]}>{saving ? t('plans.create.preview.creating') : t('plans.create.preview.create')}</AppText>
++                  <AppText style={[styles.primaryButtonText, { color: theme.semantic.plan.onBg }]}>{saving ? t(isEditingPlan ? 'plans.create.edit.saving' : 'plans.create.preview.creating') : t(isEditingPlan ? 'plans.create.edit.save' : 'plans.create.preview.create')}</AppText>
+                 </Pressable>
+               </View>
+             </View>
+@@ -5823,7 +5950,7 @@ export function CreatePlanScreen({ navigation, route }: SimpleScreenProps<'Creat
+                     <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>{t('plans.create.sourcePicker.library')}</AppText></View>
+                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+                   </Pressable>
+-                  <Pressable accessibilityRole="button" onPress={() => { closePlaceSourceSheet(); navigation.navigate('CreatePlace', { returnToCreatePlan: true, targetPlaceIndex: typeof placeSourceTarget === 'number' ? placeSourceTarget : undefined }); }} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++                  <Pressable accessibilityRole="button" onPress={() => { closePlaceSourceSheet(); navigation.navigate('CreatePlace', { returnToCreatePlan: true, returnToEditPlanId: editingPlanId, targetPlaceIndex: typeof placeSourceTarget === 'number' ? placeSourceTarget : undefined }); }} style={({ pressed }) => [styles.sourceOption, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                     <View style={[styles.sourceOptionIcon, { backgroundColor: theme.semantic.place.softBg, borderColor: theme.semantic.place.border }]}><MobileIcon name="add" color={theme.semantic.place.text} size={17} /></View>
+                     <View style={styles.sourceOptionCopy}><AppText style={styles.sourceOptionTitle}>{t('plans.create.sourcePicker.newPlace')}</AppText></View>
+                     <MobileIcon name="chevron-right" color={theme.color.muted} size={18} />
+@@ -6008,7 +6135,7 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+       });
+       applySavedPlaceBaseline(response.place);
+       if (returnToPlan) {
+-        queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params?.targetPlaceIndex, updatedPlaceNonce: Date.now(), updatedPlaceSelectAfterFix: route.params?.selectPlaceAfterSave }));
++        queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { editPlanId: route.params?.returnToEditPlanId, updatedPlace: response.place, updatedPlaceTargetIndex: route.params?.targetPlaceIndex, updatedPlaceNonce: Date.now(), updatedPlaceSelectAfterFix: route.params?.selectPlaceAfterSave }));
+         return;
+       }
+       queuePostSaveNavigation(() => navigation.goBack());
+@@ -6056,9 +6183,9 @@ export function CreatePlaceScreen({ navigation, route }: SimpleScreenProps<'Crea
+       applySavedPlaceBaseline(response.place);
+       if (route.params?.returnToCreatePlan) {
+         if (isEditing) {
+-          queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { updatedPlace: response.place, updatedPlaceTargetIndex: route.params?.targetPlaceIndex, updatedPlaceNonce: Date.now(), updatedPlaceSelectAfterFix: route.params?.selectPlaceAfterSave }));
++          queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { editPlanId: route.params?.returnToEditPlanId, updatedPlace: response.place, updatedPlaceTargetIndex: route.params?.targetPlaceIndex, updatedPlaceNonce: Date.now(), updatedPlaceSelectAfterFix: route.params?.selectPlaceAfterSave }));
+         } else {
+-          queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { createdPlace: response.place, createdPlaceTargetIndex: route.params?.targetPlaceIndex, createdPlaceNonce: Date.now() }));
++          queuePostSaveNavigation(() => navigation.navigate('CreatePlan', { editPlanId: route.params?.returnToEditPlanId, createdPlace: response.place, createdPlaceTargetIndex: route.params?.targetPlaceIndex, createdPlaceNonce: Date.now() }));
+         }
+         return;
+       }
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index ef58b1c..39ab0a6 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -107,8 +107,8 @@ export type RootStackParamList = {
+   MyPlaces: undefined;
+   PlaceLibrary: undefined;
+   HellowhenPlaceDetail: { placeId: string; title?: string };
+-  CreatePlan: { createdPlace?: PlaceDto; createdPlaceTargetIndex?: number; createdPlaceNonce?: number; updatedPlace?: PlaceDto; updatedPlaceTargetIndex?: number; updatedPlaceNonce?: number; updatedPlaceSelectAfterFix?: boolean; initialPlanIdeaKey?: string } | undefined;
+-  CreatePlace: { returnToCreatePlan?: boolean; editPlace?: PlaceDto; copyFromPlace?: PlaceDto; targetPlaceIndex?: number; selectPlaceAfterSave?: boolean } | undefined;
++  CreatePlan: { createdPlace?: PlaceDto; createdPlaceTargetIndex?: number; createdPlaceNonce?: number; updatedPlace?: PlaceDto; updatedPlaceTargetIndex?: number; updatedPlaceNonce?: number; updatedPlaceSelectAfterFix?: boolean; initialPlanIdeaKey?: string; editPlanId?: string } | undefined;
++  CreatePlace: { returnToCreatePlan?: boolean; returnToEditPlanId?: string; editPlace?: PlaceDto; copyFromPlace?: PlaceDto; targetPlaceIndex?: number; selectPlaceAfterSave?: boolean } | undefined;
+   SavedLibraryCollection: { collectionId: string; title?: string };
+   Membership: undefined;
+   ProPlans: undefined;
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 9c884bc..85d1e1b 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -75,7 +75,7 @@ export function createApiClient(options: ApiClientOptions) {
+     saved: { list: (query?: ListSavedItemsQuery) => requestJson<SavedItemsResponse>(options, `/saved${buildQueryString(query as Record<string, unknown> | undefined)}`), create: (body: CreateSavedItemRequest) => requestJson<SavedItemResponse>(options, '/saved', { method: 'POST', body: JSON.stringify(body) }), remove: (savedItemId: string) => requestJson<void>(options, `/saved/${savedItemId}`, { method: 'DELETE' }), status: (query: SavedItemStatusQuery) => requestJson<SavedItemStatusResponse>(options, `/saved/status${buildQueryString(query as Record<string, unknown>)}`), collections: () => requestJson<SavedCollectionsResponse>(options, '/saved/collections'), createCollection: (body: CreateSavedCollectionRequest) => requestJson<SavedCollectionResponse>(options, '/saved/collections', { method: 'POST', body: JSON.stringify(body) }), updateCollection: (collectionId: string, body: UpdateSavedCollectionRequest) => requestJson<SavedCollectionResponse>(options, `/saved/collections/${collectionId}`, { method: 'PATCH', body: JSON.stringify(body) }), removeCollection: (collectionId: string) => requestJson<void>(options, `/saved/collections/${collectionId}`, { method: 'DELETE' }), addCollectionItem: (collectionId: string, body: AddSavedCollectionItemRequest) => requestJson<SavedCollectionItemResponse>(options, `/saved/collections/${collectionId}/items`, { method: 'POST', body: JSON.stringify(body) }), removeCollectionItem: (collectionId: string, savedItemId: string) => requestJson<void>(options, `/saved/collections/${collectionId}/items/${savedItemId}`, { method: 'DELETE' }) },
+     agenda: { list: (query?: ListAgendaItemsQuery) => requestJson<AgendaItemsResponse>(options, `/agenda${buildQueryString(query as Record<string, unknown> | undefined)}`), exportIcs: (query?: AgendaIcsExportQuery) => requestText(options, `/agenda/ics${buildQueryString(query as Record<string, unknown> | undefined)}`), exportItemIcs: (itemId: string) => requestText(options, `/agenda/${itemId}/ics`), create: (body: CreateAgendaItemRequest) => requestJson<AgendaItemResponse>(options, '/agenda', { method: 'POST', body: JSON.stringify(body) }), update: (itemId: string, body: UpdateAgendaItemRequest) => requestJson<AgendaItemResponse>(options, `/agenda/${itemId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (itemId: string) => requestJson<void>(options, `/agenda/${itemId}`, { method: 'DELETE' }) },
+     users: { publicProfile: (userId: string) => requestJson<PublicProfileResponse>(options, `/users/${userId}/public-profile`), publicProfileByUsername: (username: string) => requestJson<PublicProfileResponse>(options, `/users/by-username/${encodeURIComponent(username)}/public-profile`), blocked: () => requestJson<UserBlocksResponse>(options, '/users/blocked'), block: (userId: string, body?: CreateUserBlockRequest) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'POST', body: JSON.stringify(body ?? {}) }), unblock: (userId: string) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'DELETE' }) },
+-    plans: { feed: (query?: ListPlansQuery) => requestJson<PlansResponse>(options, `/plans/feed${buildQueryString(query as Record<string, unknown> | undefined)}`), mine: () => requestJson<PlansResponse>(options, '/plans/mine'), joined: () => requestJson<PlansResponse>(options, '/plans/joined'), get: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`), create: (body: CreatePlanRequest) => requestJson<PlanResponse>(options, '/plans', { method: 'POST', body: JSON.stringify(body) }), update: (planId: string, body: UpdatePlanRequest) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (planId: string) => requestJson<PlanResponse & { removed: boolean; alreadyRemoved: boolean }>(options, `/plans/${planId}/remove`, { method: 'POST' }), restore: (planId: string) => requestJson<PlanResponse & { restored: boolean; alreadyRestored: boolean }>(options, `/plans/${planId}/restore`, { method: 'POST' }), delete: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'DELETE' }), createPlace: (planId: string, body: CreatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places`, { method: 'POST', body: JSON.stringify(body) }), updatePlace: (planId: string, placeId: string, body: UpdatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places/${placeId}`, { method: 'PATCH', body: JSON.stringify(body) }), join: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join`, { method: 'POST', body: JSON.stringify(body ?? {}) }), leave: (planId: string) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/leave`, { method: 'POST' }), requestJoin: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests`, { method: 'POST', body: JSON.stringify(body ?? {}) }), joinRequests: (planId: string) => requestJson<PlanParticipantsResponse>(options, `/plans/${planId}/join-requests`), updateJoinRequest: (planId: string, participantId: string, body: UpdatePlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests/${participantId}`, { method: 'PATCH', body: JSON.stringify(body) }), updateMyJoinRequest: (planId: string, body: UpdateMyPlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/my-join-request`, { method: 'PATCH', body: JSON.stringify(body) }), publicMessages: (planId: string, query?: ListPlanPublicMessagesQuery) => requestJson<PlanPublicMessagesResponse>(options, `/plans/${planId}/public-messages${buildQueryString(query as Record<string, unknown> | undefined)}`), sendPublicMessage: (planId: string, body: CreatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages`, { method: 'POST', body: JSON.stringify(body) }), updatePublicMessage: (planId: string, messageId: string, body: UpdatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePublicMessage: (planId: string, messageId: string) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'DELETE' }), verifyPlacePresence: (planId: string, planPlaceId: string, body: CreatePlacePresenceVerificationRequest) => requestJson<PlacePresenceVerificationResponse>(options, `/plans/${planId}/places/${planPlaceId}/verify-presence`, { method: 'POST', body: JSON.stringify(body) }), placeVerificationSummary: () => requestJson<PlacePresenceVerificationSummaryResponse>(options, '/plans/place-verifications/summary'), placeVerificationHistory: (query?: ListMyPlacePresenceVerificationsQuery) => requestJson<PlacePresenceVerificationHistoryResponse>(options, `/plans/place-verifications/mine${buildQueryString(query as Record<string, unknown> | undefined)}`) },
++    plans: { feed: (query?: ListPlansQuery) => requestJson<PlansResponse>(options, `/plans/feed${buildQueryString(query as Record<string, unknown> | undefined)}`), mine: () => requestJson<PlansResponse>(options, '/plans/mine'), joined: () => requestJson<PlansResponse>(options, '/plans/joined'), get: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`), create: (body: CreatePlanRequest) => requestJson<PlanResponse>(options, '/plans', { method: 'POST', body: JSON.stringify(body) }), replace: (planId: string, body: CreatePlanRequest) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'PUT', body: JSON.stringify(body) }), update: (planId: string, body: UpdatePlanRequest) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (planId: string) => requestJson<PlanResponse & { removed: boolean; alreadyRemoved: boolean }>(options, `/plans/${planId}/remove`, { method: 'POST' }), restore: (planId: string) => requestJson<PlanResponse & { restored: boolean; alreadyRestored: boolean }>(options, `/plans/${planId}/restore`, { method: 'POST' }), delete: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'DELETE' }), createPlace: (planId: string, body: CreatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places`, { method: 'POST', body: JSON.stringify(body) }), updatePlace: (planId: string, placeId: string, body: UpdatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places/${placeId}`, { method: 'PATCH', body: JSON.stringify(body) }), join: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join`, { method: 'POST', body: JSON.stringify(body ?? {}) }), leave: (planId: string) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/leave`, { method: 'POST' }), requestJoin: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests`, { method: 'POST', body: JSON.stringify(body ?? {}) }), joinRequests: (planId: string) => requestJson<PlanParticipantsResponse>(options, `/plans/${planId}/join-requests`), updateJoinRequest: (planId: string, participantId: string, body: UpdatePlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests/${participantId}`, { method: 'PATCH', body: JSON.stringify(body) }), updateMyJoinRequest: (planId: string, body: UpdateMyPlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/my-join-request`, { method: 'PATCH', body: JSON.stringify(body) }), publicMessages: (planId: string, query?: ListPlanPublicMessagesQuery) => requestJson<PlanPublicMessagesResponse>(options, `/plans/${planId}/public-messages${buildQueryString(query as Record<string, unknown> | undefined)}`), sendPublicMessage: (planId: string, body: CreatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages`, { method: 'POST', body: JSON.stringify(body) }), updatePublicMessage: (planId: string, messageId: string, body: UpdatePlanPublicMessageRequest) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePublicMessage: (planId: string, messageId: string) => requestJson<PlanPublicMessageResponse>(options, `/plans/${planId}/public-messages/${messageId}`, { method: 'DELETE' }), verifyPlacePresence: (planId: string, planPlaceId: string, body: CreatePlacePresenceVerificationRequest) => requestJson<PlacePresenceVerificationResponse>(options, `/plans/${planId}/places/${planPlaceId}/verify-presence`, { method: 'POST', body: JSON.stringify(body) }), placeVerificationSummary: () => requestJson<PlacePresenceVerificationSummaryResponse>(options, '/plans/place-verifications/summary'), placeVerificationHistory: (query?: ListMyPlacePresenceVerificationsQuery) => requestJson<PlacePresenceVerificationHistoryResponse>(options, `/plans/place-verifications/mine${buildQueryString(query as Record<string, unknown> | undefined)}`) },
+     reports: { create: (body: CreateReportRequest) => requestJson(options, '/reports', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson<UserReportsResponse>(options, '/reports/mine') },
+     usage: { heartbeat: (body: UsageHeartbeatRequest) => requestJson<void>(options, '/usage/heartbeat', { method: 'POST', body: JSON.stringify(body) }) },
+ 
+diff --git a/packages/contracts/src/plans.ts b/packages/contracts/src/plans.ts
+index 6f70194..c0e1423 100644
+--- a/packages/contracts/src/plans.ts
++++ b/packages/contracts/src/plans.ts
+@@ -898,6 +898,7 @@ export const planSchema = z
+     participantCount: z.number().int().optional(),
+     pendingRequestCount: z.number().int().optional(),
+     myParticipantStatus: planParticipantStatusSchema.nullable().optional(),
++    ownerCanEdit: z.boolean().optional(),
+     canSeePrivatePlaceDetails: z.boolean().optional(),
+   })
+   .passthrough();
+diff --git a/packages/i18n/src/locales/en/plans.ts b/packages/i18n/src/locales/en/plans.ts
+index 5756b1f..ed110f9 100644
+--- a/packages/i18n/src/locales/en/plans.ts
++++ b/packages/i18n/src/locales/en/plans.ts
+@@ -295,10 +295,13 @@ export const plans = {
+       cancelledBody: 'Read the preserved comments. This removed Plan and its discussion are private to you.',
+     },
+     actions: {
+-      ownerBody: 'Share this Plan or remove it from the public feed. Editing is locked after publishing.',
++      ownerBody: 'Share this Plan or remove it from the public feed. Editing is locked once someone joins or requests to join.',
++      ownerEditableBody: 'You can still edit this Plan because nobody has joined or requested to join yet.',
+       cancelledBody: 'Private · Removed from feed. Participation and public interactions are closed.',
+       manageTitle: 'Manage Plan',
+-      manageBody: 'Share this Plan or remove it from the feed. Places and times are locked after publishing.',
++      manageBody: 'Share this Plan or remove it from the feed. Places and times are locked once participation begins.',
++      manageEditableBody: 'Edit places, timing, capacity, and details until someone joins or requests to join.',
++      edit: 'Edit Plan',
+       manageCancelledBody: 'This Plan is private in My Plans. Restore it when it is eligible to become public again.',
+       share: 'Share Plan',
+       sharing: 'Sharing…',
+@@ -493,6 +496,17 @@ export const plans = {
+   },
+   create: {
+     headerTitle: 'Create plan',
++    edit: {
++      headerTitle: 'Edit plan',
++      loadingTitle: 'Loading Plan',
++      loadingBody: 'Hellowhen is loading the current places, timing, and details.',
++      loaded: 'Plan loaded. Review your changes before saving.',
++      locked: 'This Plan can no longer be edited because it started or someone joined or requested to join.',
++      loadFailed: 'Could not load this Plan for editing.',
++      previewChanges: 'Preview changes',
++      save: 'Save changes',
++      saving: 'Saving…',
++    },
+     optionsAccessibility: 'Create Plan options',
+     badge: 'Plan',
+     stages: {
+diff --git a/packages/i18n/src/locales/es/plans.ts b/packages/i18n/src/locales/es/plans.ts
+index 6fd8d39..fbf799c 100644
+--- a/packages/i18n/src/locales/es/plans.ts
++++ b/packages/i18n/src/locales/es/plans.ts
+@@ -293,10 +293,13 @@ export const plans = {
+       cancelledBody: 'Lee los comentarios anteriores. Las nuevas respuestas públicas están cerradas para este Plan cancelado.',
+     },
+     actions: {
+-      ownerBody: 'Comparte, cancela o elimina este Plan. La edición queda bloqueada después de publicarlo.',
++      ownerBody: 'Comparte o retira este Plan. La edición se bloquea cuando alguien se une o solicita unirse.',
++      ownerEditableBody: 'Todavía puedes editar este Plan porque nadie se ha unido ni ha solicitado unirse.',
+       cancelledBody: 'Sigue visible como contexto, pero se cierran las uniones, los cambios de participantes, las respuestas públicas y la verificación de presencia.',
+       manageTitle: 'Gestionar Plan',
+-      manageBody: 'Comparte, cancela o elimina este Plan. Los lugares y horarios quedan bloqueados después de publicarlo.',
++      manageBody: 'Comparte o retira este Plan. Los lugares y horarios se bloquean cuando empieza la participación.',
++      manageEditableBody: 'Edita lugares, horarios, capacidad y detalles hasta que alguien se una o solicite unirse.',
++      edit: 'Editar Plan',
+       manageCancelledBody: 'Comparte o elimina este Plan cancelado. Los lugares y horarios siguen bloqueados.',
+       share: 'Compartir Plan',
+       sharing: 'Compartiendo…',
+@@ -491,6 +494,17 @@ export const plans = {
+   },
+   create: {
+     headerTitle: 'Crear Plan',
++    edit: {
++      headerTitle: 'Editar Plan',
++      loadingTitle: 'Cargando Plan',
++      loadingBody: 'Hellowhen está cargando los lugares, horarios y detalles actuales.',
++      loaded: 'Plan cargado. Revisa los cambios antes de guardar.',
++      locked: 'Este Plan ya no se puede editar porque empezó o alguien se unió o solicitó unirse.',
++      loadFailed: 'No se pudo cargar este Plan para editarlo.',
++      previewChanges: 'Previsualizar cambios',
++      save: 'Guardar cambios',
++      saving: 'Guardando…',
++    },
+     optionsAccessibility: 'Opciones de creación del Plan',
+     badge: 'Plan',
+     stages: {
+diff --git a/packages/i18n/src/locales/fr/plans.ts b/packages/i18n/src/locales/fr/plans.ts
+index 0f1a253..152d588 100644
+--- a/packages/i18n/src/locales/fr/plans.ts
++++ b/packages/i18n/src/locales/fr/plans.ts
+@@ -295,10 +295,13 @@ export const plans = {
+       cancelledBody: 'Consultez les commentaires conservés. Ce Plan retiré et sa discussion sont privés.',
+     },
+     actions: {
+-      ownerBody: 'Partagez ce Plan ou retirez-le du fil public. La modification est verrouillée après publication.',
++      ownerBody: 'Partagez ce Plan ou retirez-le du fil public. La modification est verrouillée dès qu’une personne rejoint le Plan ou demande à le rejoindre.',
++      ownerEditableBody: 'Vous pouvez encore modifier ce Plan car personne ne l’a rejoint et aucune demande de participation n’est en attente.',
+       cancelledBody: 'Privé · Retiré du fil. Les participations et interactions publiques sont fermées.',
+       manageTitle: 'Gérer le Plan',
+-      manageBody: 'Partagez ce Plan ou retirez-le du fil. Les lieux et horaires sont verrouillés après publication.',
++      manageBody: 'Partagez ce Plan ou retirez-le du fil. Les lieux et horaires sont verrouillés dès que la participation commence.',
++      manageEditableBody: 'Modifiez les lieux, horaires, la capacité et les détails tant que personne n’a rejoint le Plan ou demandé à le rejoindre.',
++      edit: 'Modifier le Plan',
+       manageCancelledBody: 'Ce Plan reste privé dans Mes Plans. Restaurez-le lorsqu’il peut redevenir public.',
+       share: 'Partager le Plan',
+       sharing: 'Partage…',
+@@ -493,6 +496,17 @@ export const plans = {
+   },
+   create: {
+     headerTitle: 'Créer un Plan',
++    edit: {
++      headerTitle: 'Modifier le Plan',
++      loadingTitle: 'Chargement du Plan',
++      loadingBody: 'Hellowhen charge les lieux, horaires et détails actuels.',
++      loaded: 'Plan chargé. Vérifiez vos modifications avant de les enregistrer.',
++      locked: 'Ce Plan ne peut plus être modifié car il a commencé ou une personne l’a rejoint ou a demandé à le rejoindre.',
++      loadFailed: 'Impossible de charger ce Plan pour le modifier.',
++      previewChanges: 'Aperçu des modifications',
++      save: 'Enregistrer',
++      saving: 'Enregistrement…',
++    },
+     optionsAccessibility: 'Options de création du Plan',
+     badge: 'Plan',
+     stages: {
+diff --git a/scripts/plans-hidden-smoke.mjs b/scripts/plans-hidden-smoke.mjs
+index 314027a..a47be48 100644
+--- a/scripts/plans-hidden-smoke.mjs
++++ b/scripts/plans-hidden-smoke.mjs
+@@ -75,47 +75,49 @@ async function runEnabledSmoke() {
+   const secondStopAt = secondStopDate.toISOString();
+   const remoteStopAt = new Date(firstStopDate.getTime() + 4 * 60 * 60 * 1000).toISOString();
+ 
++  const initialPlanPayload = {
++    title: `Hidden Plans simplified smoke ${stamp}`,
++    description: 'Internal smoke test for simplified hidden Plans instant join and place timeline.',
++    category: 'Smoke test',
++    mode: 'hybrid',
++    startsAt: firstStopAt,
++    endsAt: secondStopAt,
++    joinApprovalMode: 'automatic',
++    status: 'open',
++    places: [
++      {
++        mode: 'remote',
++        title: 'Opening video call',
++        note: 'Meet and align before moving to the next stop.',
++        onlineLabel: 'Smoke video link',
++        onlineUrl: `https://meet.example/plan-opening-${encodeURIComponent(stamp)}`,
++        startsAt: firstStopAt,
++        order: 0,
++      },
++      {
++        kind: 'pause',
++        mode: 'local',
++        title: 'Smoke pause',
++        note: 'A custom non-location period should not require an address.',
++        startsAt: customStopAt,
++        order: 1,
++      },
++      {
++        mode: 'remote',
++        title: 'Second smoke stop',
++        note: 'Second public note.',
++        onlineLabel: 'Second smoke link',
++        onlineUrl: `https://meet.example/plan-second-${encodeURIComponent(stamp)}`,
++        startsAt: secondStopAt,
++        order: 2,
++      },
++    ],
++  };
++
+   const created = await request('/plans', {
+     method: 'POST',
+     headers: authHeaders(owner.token),
+-    body: JSON.stringify({
+-      title: `Hidden Plans simplified smoke ${stamp}`,
+-      description: 'Internal smoke test for simplified hidden Plans instant join and place timeline.',
+-      category: 'Smoke test',
+-      mode: 'hybrid',
+-      startsAt: firstStopAt,
+-      endsAt: secondStopAt,
+-      joinApprovalMode: 'automatic',
+-      status: 'open',
+-      places: [
+-        {
+-          mode: 'remote',
+-          title: 'Opening video call',
+-          note: 'Meet and align before moving to the next stop.',
+-          onlineLabel: 'Smoke video link',
+-          onlineUrl: `https://meet.example/plan-opening-${encodeURIComponent(stamp)}`,
+-          startsAt: firstStopAt,
+-          order: 0,
+-        },
+-        {
+-          kind: 'pause',
+-          mode: 'local',
+-          title: 'Smoke pause',
+-          note: 'A custom non-location period should not require an address.',
+-          startsAt: customStopAt,
+-          order: 1,
+-        },
+-        {
+-          mode: 'remote',
+-          title: 'Second smoke stop',
+-          note: 'Second public note.',
+-          onlineLabel: 'Second smoke link',
+-          onlineUrl: `https://meet.example/plan-second-${encodeURIComponent(stamp)}`,
+-          startsAt: secondStopAt,
+-          order: 2,
+-        },
+-      ],
+-    }),
++    body: JSON.stringify(initialPlanPayload),
+   });
+ 
+   const planId = created.plan?.id;
+@@ -127,6 +129,18 @@ async function runEnabledSmoke() {
+   assert(created.plan.places?.[1]?.kind === 'pause', 'Custom pause should persist its stop kind.');
+   assert(!created.plan.places?.[1]?.formattedAddress, 'Custom pause should not require or persist an address.');
+   assert(created.plan.places?.[2]?.mode === 'remote', 'Second real place should store remote mode.');
++  assert(created.plan.ownerCanEdit === true, 'Owner should be able to edit a future Plan before participant interaction.');
++
++  const editedTitle = `Edited Plans smoke ${stamp}`;
++  const edited = await request(`/plans/${planId}`, {
++    method: 'PUT',
++    headers: authHeaders(owner.token),
++    body: JSON.stringify({ ...initialPlanPayload, title: editedTitle }),
++  });
++  assert(edited.plan?.title === editedTitle, 'Owner edit should update Plan details before anyone joins.');
++  assert(edited.plan?.places?.length === 3, 'Owner edit should preserve the submitted route.');
++  assert(edited.plan?.ownerCanEdit === true, 'Plan should remain editable until participant interaction begins.');
++  console.log('Plan owner pre-join edit: PASS');
+ 
+   const publicPlan = await request(`/plans/${planId}`);
+   assert(publicPlan.plan?.places?.[0]?.onlineUrl?.startsWith('https://meet.example/plan-opening-'), 'Anonymous viewer should see the public online destination.');
+@@ -142,6 +156,20 @@ async function runEnabledSmoke() {
+   assert(helperAfter.plan?.myParticipantStatus === 'accepted', 'Helper should be accepted immediately after joining.');
+   assert(helperAfter.plan?.participantCount === 1, 'Participant count should increase after instant join.');
+ 
++  const ownerAfterJoin = await request(`/plans/${planId}`, { headers: authHeaders(owner.token) });
++  assert(ownerAfterJoin.plan?.ownerCanEdit === false, 'Owner edit should lock after the first participant interaction.');
++  await expectRequestError(
++    `/plans/${planId}`,
++    {
++      method: 'PUT',
++      headers: authHeaders(owner.token),
++      body: JSON.stringify({ ...initialPlanPayload, title: `Blocked edit ${stamp}` }),
++    },
++    409,
++    'plan_edit_locked',
++    'Plan owner edit lock after join',
++  );
++
+   const joinedPlans = await request('/plans/joined', { headers: authHeaders(helper.token) });
+   assert(joinedPlans.plans?.some((plan) => plan.id === planId), 'Joined plans should include the plan after free join.');
+ 

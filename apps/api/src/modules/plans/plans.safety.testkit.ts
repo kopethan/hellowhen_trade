@@ -60,6 +60,12 @@ export function isCancelOnlyUpdate(input: Record<string, unknown>) {
   return keys.length === 1 && input.status === 'cancelled';
 }
 
+export function canOwnerEditPublishedPlan(plan: { status: string; deletedAt?: Date | string | null; startsAt: string | Date; participants?: Array<{ status: string }> }, now: string | Date) {
+  if (plan.deletedAt || plan.status !== 'open') return false;
+  if (asDate(plan.startsAt).getTime() <= asDate(now).getTime()) return false;
+  return (plan.participants ?? []).length === 0;
+}
+
 export function canReadPlan(plan: { deletedAt?: Date | string | null; status: string }, isOwner: boolean) {
   if (plan.deletedAt) return false;
   return isOwner || PUBLIC_PLAN_STATUSES.includes(plan.status as (typeof PUBLIC_PLAN_STATUSES)[number]);

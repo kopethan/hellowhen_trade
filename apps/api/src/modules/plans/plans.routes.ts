@@ -28,6 +28,7 @@ import {
   PLAN_MIN_STOP_START_GAP_MINUTES,
   PLACE_OFFLINE_MODE,
   PLACE_ONLINE_MODE,
+  stripLegacyGeneratedPlanStartTime,
 } from '@hellowhen/shared';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
@@ -293,6 +294,13 @@ function cleanReusablePlaceForViewer(place: any, canSeePrivateDetails: boolean, 
   return { ...cleaned, onlineProvider, staticMap: staticMapResult.staticMap, staticMapStatus: staticMapResult.staticMapStatus };
 }
 
+function isPlanOwnerEditable(plan: { status: string; deletedAt?: Date | string | null; startsAt: Date | string; participants?: Array<{ status: string }> }, now = new Date()) {
+  if (plan.deletedAt || plan.status !== 'open') return false;
+  const startsAt = new Date(plan.startsAt);
+  if (Number.isNaN(startsAt.getTime()) || startsAt.getTime() <= now.getTime()) return false;
+  return (plan.participants ?? []).length === 0;
+}
+
 function serializePlan(plan: any, viewerId: string | null, surface: 'detail' | 'list' | 'preview' = 'detail') {
   const isOwner = Boolean(viewerId && plan.ownerId === viewerId);
   const myParticipant = viewerId ? (plan.participants ?? []).find((participant: any) => participant.userId === viewerId) : null;
@@ -306,6 +314,7 @@ function serializePlan(plan: any, viewerId: string | null, surface: 'detail' | '
 
   return {
     ...plan,
+    description: stripLegacyGeneratedPlanStartTime(plan.description),
     places: (plan.places ?? []).map((place: any) => {
       const source = planPlaceSourceForOwner(place, plan.ownerId);
       const sourcePlace = canSeeSourcePlace && source !== 'custom'
@@ -326,6 +335,7 @@ function serializePlan(plan: any, viewerId: string | null, surface: 'detail' | '
     participantCount: acceptedParticipants.length,
     pendingRequestCount: isOwner ? pendingParticipants.length : undefined,
     myParticipantStatus: myParticipant?.status ?? null,
+    ownerCanEdit: isOwner ? isPlanOwnerEditable(plan) : undefined,
     canSeePrivatePlaceDetails,
   };
 }
@@ -534,6 +544,7 @@ async function loadPlanPlaceForPresenceVerification(planId: string, planPlaceId:
           id: true,
           placeId: true,
           mode: true,
+          kind: true,
           title: true,
           latitude: true,
           longitude: true,
@@ -744,10 +755,24 @@ function planStopsLockedResponse() {
   };
 }
 
+function planEditLockedResponse() {
+  return {
+    error: 'plan_edit_locked',
+    message: 'This Plan can only be edited before it starts and before anyone joins or requests to join.',
+  };
+}
+
 function planDeletedResponse() {
   return {
     error: 'plan_deleted',
     message: 'This Plan was deleted and is no longer available.',
+  };
+}
+
+function planJoinDeadlineClosedAtCreationResponse() {
+  return {
+    error: 'plan_join_deadline_closed',
+    message: 'Join deadline must be in the future when publishing a Plan.',
   };
 }
 
@@ -803,7 +828,8 @@ function planUpdateData(input: ReturnType<typeof updatePlanRequestSchema.parse>)
   };
 }
 
-function hasPlanPlaceStaticMapCandidate(input: { mode?: string | null; latitude?: number | null; longitude?: number | null }, reusablePlace?: any | null) {
+function hasPlanPlaceStaticMapCandidate(input: { kind?: string | null; mode?: string | null; latitude?: number | null; longitude?: number | null }, reusablePlace?: any | null) {
+  if ((input.kind ?? 'place') !== 'place') return false;
   const mode = input.mode ?? reusablePlace?.mode ?? PLACE_OFFLINE_MODE;
   if (mode === PLACE_ONLINE_MODE) return false;
   if (typeof input.latitude === 'number' && typeof input.longitude === 'number') return true;
@@ -811,6 +837,7 @@ function hasPlanPlaceStaticMapCandidate(input: { mode?: string | null; latitude?
 }
 
 function assertPlanPlaceAddressPolicy(input: any) {
+  if ((input.kind ?? 'place') !== 'place') return;
   const mode = input.mode ?? PLACE_OFFLINE_MODE;
   if (mode === PLACE_ONLINE_MODE) {
     const missing = getMissingOnlineDestinationFields(input);
@@ -826,7 +853,7 @@ function assertPlanPlaceAddressPolicy(input: any) {
   }
 }
 
-function planPlaceStaticMapTemplateSnapshot(input: { mediaIds?: string[]; mode?: string | null; latitude?: number | null; longitude?: number | null }, reusablePlace?: any | null) {
+function planPlaceStaticMapTemplateSnapshot(input: { mediaIds?: string[]; kind?: string | null; mode?: string | null; latitude?: number | null; longitude?: number | null }, reusablePlace?: any | null) {
   if (reusablePlace?.staticMapTemplateFamily) {
     return {
       staticMapTemplateFamily: reusablePlace.staticMapTemplateFamily,
@@ -852,28 +879,31 @@ async function loadReusablePlaceForSnapshot(placeId: string, userId: string) {
 }
 
 function planPlaceSnapshotData(planId: string, input: ReturnType<typeof createPlanPlaceRequestSchema.parse>, fallbackOrder = 0, reusablePlace?: any | null) {
-  const mode = input.mode ?? reusablePlace?.mode ?? PLACE_OFFLINE_MODE;
-  const isOnline = mode === PLACE_ONLINE_MODE;
+  const kind = input.kind ?? 'place';
+  const isCustomStop = kind !== 'place';
+  const mode = isCustomStop ? PLACE_OFFLINE_MODE : input.mode ?? reusablePlace?.mode ?? PLACE_OFFLINE_MODE;
+  const isOnline = !isCustomStop && mode === PLACE_ONLINE_MODE;
   return {
     planId,
-    placeId: reusablePlace?.id ?? input.placeId ?? null,
+    placeId: isCustomStop ? null : reusablePlace?.id ?? input.placeId ?? null,
     order: input.order ?? fallbackOrder,
     mode,
+    kind,
     title: input.title ?? reusablePlace?.title,
     note: input.note ?? null,
-    addressPublicText: isOnline ? null : input.formattedAddress ?? reusablePlace?.formattedAddress ?? null,
-    addressPrivateText: isOnline ? null : input.addressPrivateText ?? reusablePlace?.addressPrivateText ?? null,
-    googlePlaceId: isOnline ? null : input.googlePlaceId ?? reusablePlace?.googlePlaceId ?? null,
-    googlePlaceName: isOnline ? null : input.googlePlaceName ?? reusablePlace?.googlePlaceName ?? null,
-    formattedAddress: isOnline ? null : input.formattedAddress ?? reusablePlace?.formattedAddress ?? null,
-    googleMapsUri: isOnline ? null : input.googleMapsUri ?? reusablePlace?.googleMapsUri ?? null,
-    latitude: isOnline ? null : input.latitude ?? reusablePlace?.latitude ?? null,
-    longitude: isOnline ? null : input.longitude ?? reusablePlace?.longitude ?? null,
-    locationSource: isOnline ? null : input.locationSource ?? reusablePlace?.locationSource ?? null,
-    addressValidationStatus: isOnline ? null : input.addressValidationStatus ?? reusablePlace?.addressValidationStatus ?? null,
+    addressPublicText: isCustomStop || isOnline ? null : input.formattedAddress ?? reusablePlace?.formattedAddress ?? null,
+    addressPrivateText: isCustomStop || isOnline ? null : input.addressPrivateText ?? reusablePlace?.addressPrivateText ?? null,
+    googlePlaceId: isCustomStop || isOnline ? null : input.googlePlaceId ?? reusablePlace?.googlePlaceId ?? null,
+    googlePlaceName: isCustomStop || isOnline ? null : input.googlePlaceName ?? reusablePlace?.googlePlaceName ?? null,
+    formattedAddress: isCustomStop || isOnline ? null : input.formattedAddress ?? reusablePlace?.formattedAddress ?? null,
+    googleMapsUri: isCustomStop || isOnline ? null : input.googleMapsUri ?? reusablePlace?.googleMapsUri ?? null,
+    latitude: isCustomStop || isOnline ? null : input.latitude ?? reusablePlace?.latitude ?? null,
+    longitude: isCustomStop || isOnline ? null : input.longitude ?? reusablePlace?.longitude ?? null,
+    locationSource: isCustomStop || isOnline ? null : input.locationSource ?? reusablePlace?.locationSource ?? null,
+    addressValidationStatus: isCustomStop || isOnline ? null : input.addressValidationStatus ?? reusablePlace?.addressValidationStatus ?? null,
     onlineLabel: isOnline ? input.onlineLabel ?? reusablePlace?.onlineLabel ?? null : null,
     onlineUrl: isOnline ? normalizedOnlineUrl(input.onlineUrl ?? reusablePlace?.onlineUrl) : null,
-    ...planPlaceStaticMapTemplateSnapshot(input, reusablePlace),
+    ...planPlaceStaticMapTemplateSnapshot({ ...input, kind }, reusablePlace),
     startsAt: input.startsAt ? new Date(input.startsAt) : null,
     endsAt: input.endsAt ? new Date(input.endsAt) : null,
   };
@@ -1056,8 +1086,12 @@ plansRoutes.get('/joined', requireAuth, asyncRoute(async (req, res) => {
 }));
 
 plansRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
-  await syncDuePlanLifecycleStatuses(new Date(), { ownerId: req.user!.id });
+  const now = new Date();
+  await syncDuePlanLifecycleStatuses(now, { ownerId: req.user!.id });
   const input = createPlanRequestSchema.parse(req.body ?? {});
+  if (input.status !== 'draft' && isPlanJoinClosed(input, now)) {
+    return res.status(400).json(planJoinDeadlineClosedAtCreationResponse());
+  }
   const stopGapViolation = findPlanRequestStopGapViolation(input);
   if (stopGapViolation) return res.status(400).json(planStopGapViolationResponse(stopGapViolation));
   const conflictingPlan = await findOwnedPlanTimeConflict(req.user!.id, input);
@@ -1080,6 +1114,53 @@ plansRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req, 
 
   const created = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
   res.status(201).json({ plan: await decoratePlan(created, req.user!.id) });
+}));
+
+plansRoutes.put('/:planId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const now = new Date();
+  await syncDuePlanLifecycleStatuses(now, { planId: req.params.planId, ownerId: req.user!.id });
+  const input = createPlanRequestSchema.parse(req.body ?? {});
+  if (input.status !== 'open') {
+    return res.status(400).json({ error: 'plan_edit_status_invalid', message: 'Published Plan edits must remain open.' });
+  }
+
+  const existing = await prisma.plan.findFirst({
+    where: { id: req.params.planId, ownerId: req.user!.id },
+    include: { participants: true },
+  });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  if (existing.deletedAt) return res.status(410).json(planDeletedResponse());
+  if (!isPlanOwnerEditable(existing, now)) return res.status(409).json(planEditLockedResponse());
+  if (isPlanJoinClosed(input, now)) return res.status(400).json(planJoinDeadlineClosedAtCreationResponse());
+
+  const stopGapViolation = findPlanRequestStopGapViolation(input);
+  if (stopGapViolation) return res.status(400).json(planStopGapViolationResponse(stopGapViolation));
+  const conflictingPlan = await findOwnedPlanTimeConflict(req.user!.id, input, existing.id);
+  if (conflictingPlan) return res.status(409).json(planTimeConflictResponse(conflictingPlan, input));
+
+  const inputPlaces = input.places ?? [];
+  const estimatedPlaceEndTimes = buildEstimatedPlanPlaceEndTimes(inputPlaces.map((placeInput) => placeInput.startsAt));
+  const placeDataDrafts = [] as any[];
+  for (const [index, placeInput] of inputPlaces.entries()) {
+    const draft = await placeCreateData(existing.id, req.user!.id, placeInput, index);
+    if (!draft.endsAt && estimatedPlaceEndTimes[index]) draft.endsAt = new Date(estimatedPlaceEndTimes[index]!);
+    placeDataDrafts.push(draft);
+  }
+
+  const { ownerId: _ownerId, ...replacementData } = planCreateData(existing.ownerId, { ...input, status: 'open' });
+  await prisma.$transaction(async (tx) => {
+    await tx.plan.update({
+      where: { id: existing.id },
+      data: { ...replacementData, status: 'open' as any, cancelledAt: null } as any,
+    });
+    await tx.planPlace.deleteMany({ where: { planId: existing.id } });
+    for (const placeData of placeDataDrafts) {
+      await tx.planPlace.create({ data: { ...placeData, planId: existing.id } as any });
+    }
+  });
+
+  const updated = await prisma.plan.findUnique({ where: { id: existing.id }, include: planInclude() });
+  return res.json({ plan: await decoratePlan(updated, req.user!.id) });
 }));
 
 plansRoutes.patch('/:planId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
@@ -1217,6 +1298,9 @@ plansRoutes.post('/:planId/places/:placeId/verify-presence', requireAuth, requir
   }
 
   const { plan, place } = loaded;
+  if ((place.kind ?? 'place') !== 'place') {
+    return res.status(409).json({ error: 'not_verifiable_place', message: 'Custom Plan stops do not use location presence verification.' });
+  }
   if (place.mode !== 'local') {
     return res.status(409).json({ error: 'not_offline_place', message: 'Only offline places can be verified with device location.' });
   }

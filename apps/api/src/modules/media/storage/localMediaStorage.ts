@@ -37,11 +37,27 @@ export class LocalMediaStorageProvider implements MediaStorageProvider {
   }
 
   async deleteImages(input: DeleteStoredMediaImagesInput): Promise<DeleteStoredMediaImagesResult> {
-    // Local media cleanup is intentionally a no-op for now: existing Lightsail/local
-    // files may still be useful for development, rollback, or old records. S3 cleanup
-    // is handled by the S3 provider when object storage is enabled.
-    const requested = Array.from(new Set(input.storageKeys.filter(Boolean))).length;
-    return { requested, deleted: 0, skipped: requested };
+    const storageKeys = Array.from(new Set(input.storageKeys.map((key) => key.trim()).filter(Boolean)));
+    let deleted = 0;
+    let skipped = 0;
+    for (const storageKey of storageKeys) {
+      const filePath = this.resolveLocalPath(storageKey);
+      if (!filePath) {
+        skipped += 1;
+        continue;
+      }
+      try {
+        await fsp.unlink(filePath);
+        deleted += 1;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          deleted += 1;
+          continue;
+        }
+        throw error;
+      }
+    }
+    return { requested: storageKeys.length, deleted, skipped };
   }
 
   resolveLocalPath(storageKey: string) {

@@ -110,7 +110,7 @@ function formatPlanPlaceDate(value: string | null | undefined, language: 'en' | 
 }
 
 function getPlaceLocationLabel(place: PlanPlaceDto | undefined) {
-  if (!place) return '';
+  if (!place || (place.kind ?? 'place') !== 'place') return '';
   if (place.mode === 'remote') return place.onlineLabel || place.onlineUrl || '';
   return place.addressPublicText || place.sourcePlace?.areaLabel || '';
 }
@@ -135,13 +135,14 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
   const fallback = useMemo(() => fallbackModel(card.id), [card.id]);
   const place = card.place;
   const isEmpty = card.kind === 'emptyPlace' || !place;
+  const isCustomStop = Boolean(place && (place.kind ?? 'place') !== 'place');
   const auth = useAuth();
   const { unit: temperatureUnit, toggleUnit: toggleTemperatureUnit } = useTemperatureUnitPreference();
   const weatherCandidate = usePlanPlaceWeather(
     card.plan.id,
     place,
     auth.user?.id,
-    Boolean(auth.user && place && !isEmpty && !isSyntheticPlanWeatherPlanId(card.plan.id)),
+    Boolean(auth.user && place && !isEmpty && !isCustomStop && !isSyntheticPlanWeatherPlanId(card.plan.id)),
   );
   const attributionLogoUrl = weatherCandidate
     ? (theme.mode === 'dark' ? weatherCandidate.attribution.logoDarkUrl : weatherCandidate.attribution.logoLightUrl)
@@ -157,15 +158,17 @@ function PlanPlaceDeckCardView({ card, deckIndex, deckTotal, onOpen, topBadgeLab
   const weatherVisible = Boolean(weatherCandidate && attributionLogoUrl && attributionLogoReady && !attributionLogoFailed);
   const temperatureLabel = weatherCandidate && weatherVisible ? formatPlanTemperature(weatherCandidate.temperatureC, temperatureUnit) : '';
   const cardCounter = isEmpty ? t('plans.deck.noPlacesCount') : `${String(card.placeIndex + 1).padStart(2, '0')}/${String(card.placeTotal).padStart(2, '0')}`;
-  const modeLabel = place?.mode === 'remote' ? t('plans.deck.online') : t('plans.deck.offline');
+  const modeLabel = isCustomStop
+    ? t(`plans.deck.customStop.${place?.kind === 'free_time' ? 'freeTime' : place?.kind === 'meeting_point' ? 'meetingPoint' : place?.kind === 'pause' ? 'pause' : 'custom'}`)
+    : place?.mode === 'remote' ? t('plans.deck.online') : t('plans.deck.offline');
   const modeWeatherLabel = temperatureLabel ? `${modeLabel} · ${temperatureLabel}` : modeLabel;
   const placeTitle = place?.title ?? t('plans.deck.noPlaces');
   const languageLabel = isEmpty ? '' : getPlaceLanguageLabel(place);
-  const locationLabel = isEmpty ? '' : [languageLabel, getPlaceLocationLabel(place)].filter(Boolean).join(' · ');
+  const locationLabel = isEmpty ? '' : isCustomStop ? t('plans.deck.customStop.noAddress') : [languageLabel, getPlaceLocationLabel(place)].filter(Boolean).join(' · ');
   const timeLabel = isEmpty
     ? t('plans.deck.participants', { count: getPlanParticipantCount(card.plan) })
     : formatPlanPlaceDate(place?.startsAt ?? card.plan.startsAt, language, t('plans.common.flexibleTime'));
-  const contentBadgeLabel = topBadgeLabel ?? t('plans.deck.placeBadge', { counter: cardCounter });
+  const contentBadgeLabel = topBadgeLabel ?? (isCustomStop ? t('plans.deck.customStopBadge', { counter: cardCounter }) : t('plans.deck.placeBadge', { counter: cardCounter }));
   const deckCounter = `${String(deckIndex + 1).padStart(2, '0')}/${String(Math.max(deckTotal, 1)).padStart(2, '0')}`;
   const primaryBadgeLabel = deckTotal > 1 ? `${deckCounter} · ${contentBadgeLabel}` : contentBadgeLabel;
   const presentationState = getPlanPresentationState(card.plan);

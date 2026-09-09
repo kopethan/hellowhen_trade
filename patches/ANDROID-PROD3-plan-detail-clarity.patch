@@ -1,0 +1,102 @@
+diff --git a/apps/mobile/src/features/plans/PlansScreens.tsx b/apps/mobile/src/features/plans/PlansScreens.tsx
+index 8115c43..9469dd5 100644
+--- a/apps/mobile/src/features/plans/PlansScreens.tsx
++++ b/apps/mobile/src/features/plans/PlansScreens.tsx
+@@ -1441,6 +1441,16 @@ function formatPlanDateRange(plan: PlanDto, language: SupportedLanguage, t: Plan
+   return `${formatDate(plan.startsAt, language, t)} – ${formatDate(plan.endsAt, language, t)}`;
+ }
+ 
++function formatPlanJoinClosesLabel(plan: PlanDto, language: SupportedLanguage, t: PlanTranslationFunction) {
++  const deadline = effectivePlanJoinClosesAt(plan);
++  const deadlineLabel = formatDate(deadline.toISOString(), language, t);
++  const startsAt = new Date(plan.startsAt);
++  if (!Number.isNaN(startsAt.getTime()) && deadline.getTime() === startsAt.getTime()) {
++    return t('plans.detail.values.joinClosesAtStart', { date: deadlineLabel });
++  }
++  return deadlineLabel;
++}
++
+ function getPlanModeLabel(plan: PlanDto, t: PlanTranslationFunction) {
+   if (plan.mode === 'remote') return t('plans.detail.values.online');
+   if (plan.mode === 'local') return t('plans.detail.values.local');
+@@ -3398,7 +3408,7 @@ export function PlanDetailScreen({ route, navigation }: PlanDetailProps) {
+               <PlanDetailInfoRow label={t('plans.detail.fields.joining')} value={presentationState === 'open' ? t('plans.detail.values.joiningOpen') : presentationState === 'full' ? t('plans.detail.values.joiningFull') : t('plans.detail.values.joiningClosed')} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.visibility')} value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : plan.status === 'hidden' ? t('plans.detail.values.hidden') : t('plans.detail.values.public')} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.joinMode')} value={getPlanJoinModeLabel(plan, t)} />
+-              <PlanDetailInfoRow label={t('plans.detail.fields.joinCloses')} value={formatDate(effectivePlanJoinClosesAt(plan).toISOString(), language, t)} />
++              <PlanDetailInfoRow label={t('plans.detail.fields.joinCloses')} value={formatPlanJoinClosesLabel(plan, language, t)} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.capacity')} value={plan.maxParticipants ? t('plans.detail.values.capacityLimited', { count: plan.maxParticipants }) : t('plans.detail.values.capacityUnlimited')} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.time')} value={formatPlanDateRange(plan, language, t)} />
+               <PlanDetailInfoRow label={t('plans.detail.fields.placeMode')} value={getPlanModeLabel(plan, t)} />
+diff --git a/packages/i18n/src/locales/en/plans.ts b/packages/i18n/src/locales/en/plans.ts
+index 4bfc2e8..db7d4c6 100644
+--- a/packages/i18n/src/locales/en/plans.ts
++++ b/packages/i18n/src/locales/en/plans.ts
+@@ -72,7 +72,7 @@ export const plans = {
+   deck: {
+     placeBadge: 'Place · {{counter}}',
+     online: 'Online',
+-    offline: 'Offline',
++    offline: 'In person',
+     noPlaces: 'No places yet',
+     noPlacesCount: '0 places',
+     addFirstStop: 'Add a first stop to turn this Plan into route cards.',
+@@ -174,7 +174,7 @@ export const plans = {
+       joinMode: 'Join mode',
+       joinCloses: 'Join closes',
+       capacity: 'Capacity',
+-      time: 'Time',
++      time: 'Plan time',
+       placeMode: 'Place mode',
+       created: 'Created',
+     },
+@@ -191,6 +191,7 @@ export const plans = {
+       joiningOpen: 'Open',
+       joiningFull: 'Full',
+       joiningClosed: 'Closed',
++      joinClosesAtStart: 'At Plan start · {{date}}',
+       capacityUnlimited: 'Unlimited',
+       capacityLimited: '{{count}} people max',
+     },
+diff --git a/packages/i18n/src/locales/es/plans.ts b/packages/i18n/src/locales/es/plans.ts
+index 8902e6e..46f5844 100644
+--- a/packages/i18n/src/locales/es/plans.ts
++++ b/packages/i18n/src/locales/es/plans.ts
+@@ -173,7 +173,7 @@ export const plans = {
+       joinMode: 'Modo de unión',
+       joinCloses: 'Cierre para unirse',
+       capacity: 'Capacidad',
+-      time: 'Horario',
++      time: 'Horario del Plan',
+       placeMode: 'Modalidad de lugares',
+       created: 'Creado',
+     },
+@@ -189,6 +189,7 @@ export const plans = {
+       joiningOpen: 'Abierto',
+       joiningFull: 'Completo',
+       joiningClosed: 'Cerrado',
++      joinClosesAtStart: 'Al inicio del Plan · {{date}}',
+       capacityUnlimited: 'Sin límite',
+       capacityLimited: 'Máximo {{count}} personas',
+     },
+diff --git a/packages/i18n/src/locales/fr/plans.ts b/packages/i18n/src/locales/fr/plans.ts
+index cd7b28e..acf83f0 100644
+--- a/packages/i18n/src/locales/fr/plans.ts
++++ b/packages/i18n/src/locales/fr/plans.ts
+@@ -174,7 +174,7 @@ export const plans = {
+       joinMode: 'Mode de participation',
+       joinCloses: 'Clôture des participations',
+       capacity: 'Capacité',
+-      time: 'Horaire',
++      time: 'Horaire du Plan',
+       placeMode: 'Mode des lieux',
+       created: 'Créé le',
+     },
+@@ -191,6 +191,7 @@ export const plans = {
+       joiningOpen: 'Ouverte',
+       joiningFull: 'Complet',
+       joiningClosed: 'Fermée',
++      joinClosesAtStart: 'Au début du Plan · {{date}}',
+       capacityUnlimited: 'Illimitée',
+       capacityLimited: '{{count}} personnes max',
+     },

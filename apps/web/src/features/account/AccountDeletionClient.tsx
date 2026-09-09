@@ -9,6 +9,14 @@ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 
+
+function formatScheduledDeletionDate(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '';
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+
 function normalizeRequest(payload: unknown) {
   if (!payload || typeof payload !== 'object') return null;
   const record = payload as { request?: unknown };
@@ -67,7 +75,9 @@ export function AccountDeletionClient() {
     }
   }
 
-  const active = request && ['requested', 'in_review'].includes(request.status);
+  const active = request && ['requested', 'in_review', 'processing'].includes(request.status);
+  const cancellable = request && ['requested', 'in_review'].includes(request.status);
+  const scheduledDate = formatScheduledDeletionDate(request?.scheduledFor);
 
   return (
     <div className="account-deletion-flow">
@@ -93,8 +103,8 @@ export function AccountDeletionClient() {
           <div>
             <span className="semantic-badge instruction">{request?.status}</span>
             <h3>{t('account.deletion.activeTitle')}</h3>
-            <p>{t('account.deletion.activeBody')}</p>
-            <button type="button" className="secondary" disabled={saving} onClick={() => void cancel()}>{t('account.deletion.cancelRequest')}</button>
+            <p>{t('account.deletion.activeBody', { date: scheduledDate || request.scheduledFor })}</p>
+            {cancellable ? <button type="button" className="secondary" disabled={saving} onClick={() => void cancel()}>{t('account.deletion.cancelRequest')}</button> : null}
           </div>
         ) : (
           <form className="form-grid" onSubmit={submit}>

@@ -17,6 +17,14 @@ import { KEYBOARD_DONE_ACCESSORY_ID } from '../../components/KeyboardDoneAccesso
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AccountDeletion'>;
 
+
+function formatScheduledDeletionDate(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '';
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+
 function normalizeRequest(payload: unknown) {
   if (!payload || typeof payload !== 'object') return null;
   const record = payload as { request?: unknown };
@@ -73,7 +81,9 @@ export function AccountDeletionScreen({ navigation }: Props) {
     }
   }
 
-  const active = request && ['requested', 'in_review'].includes(request.status);
+  const active = request && ['requested', 'in_review', 'processing'].includes(request.status);
+  const cancellable = request && ['requested', 'in_review'].includes(request.status);
+  const scheduledDate = formatScheduledDeletionDate(request?.scheduledFor);
 
   return (
     <AppScreen>
@@ -103,10 +113,12 @@ export function AccountDeletionScreen({ navigation }: Props) {
           <AppCard>
             <SemanticBadge label={request.status} tone="instruction" size="sm" />
             <AppText style={styles.sectionTitle}>{t('account.deletion.activeTitle')}</AppText>
-            <AppText style={[styles.body, { color: theme.color.muted }]}>{t('account.deletion.activeBody')}</AppText>
-            <Pressable accessibilityRole="button" disabled={saving} onPress={() => { void cancelRequest(); }} style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, saving && styles.disabled, pressed && styles.pressed]}>
-              <AppText style={styles.secondaryButtonText}>{t('account.deletion.cancelRequest')}</AppText>
-            </Pressable>
+            <AppText style={[styles.body, { color: theme.color.muted }]}>{t('account.deletion.activeBody', { date: scheduledDate || request.scheduledFor })}</AppText>
+            {cancellable ? (
+              <Pressable accessibilityRole="button" disabled={saving} onPress={() => { void cancelRequest(); }} style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, saving && styles.disabled, pressed && styles.pressed]}>
+                <AppText style={styles.secondaryButtonText}>{t('account.deletion.cancelRequest')}</AppText>
+              </Pressable>
+            ) : null}
           </AppCard>
         ) : (
           <AppCard>

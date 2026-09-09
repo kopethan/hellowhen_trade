@@ -35,6 +35,13 @@ export const planParticipantStatusSchema = z.enum([
   "removed",
 ]);
 export const planPlaceModeSchema = z.enum(["local", "remote"]);
+export const planPlaceKindSchema = z.enum([
+  "place",
+  "pause",
+  "free_time",
+  "meeting_point",
+  "custom",
+]);
 export const placeSourceSchema = z.enum(["user", "hellowhen_library"]);
 export const placeStatusSchema = z.enum([
   "draft",
@@ -309,6 +316,7 @@ export const listPlacesQuerySchema = z.object({
 });
 
 const planPlaceInputBaseSchema = z.object({
+  kind: planPlaceKindSchema.optional(),
   placeId: z.string().trim().min(1).max(120).optional(),
   mode: planPlaceModeSchema.optional(),
   title: z.string().trim().min(3).max(120).optional(),
@@ -340,6 +348,13 @@ export const planPlaceInputSchema = planPlaceInputBaseSchema
     message: "Choose a saved place or enter a place title.",
     path: ["title"],
   })
+  .refine(
+    (value) => value.kind === "place" || !value.placeId,
+    {
+      message: "Custom Plan stops cannot reference a saved Place.",
+      path: ["placeId"],
+    },
+  )
   .refine(
     (value) => {
       if (!value.startsAt || !value.endsAt) return true;
@@ -382,6 +397,13 @@ export const createPlanRequestSchema = z
     {
       message: "Plan end time must be after the start time.",
       path: ["endsAt"],
+    },
+  )
+  .refine(
+    (value) => !value.places?.length || value.places.some((place) => (place.kind ?? "place") === "place"),
+    {
+      message: "A Plan with custom stops must include at least one real Place.",
+      path: ["places"],
     },
   )
   .refine(
@@ -673,6 +695,7 @@ export const planPlaceSchema = z
     source: planPlaceSourceSchema.optional(),
     order: z.number().int(),
     mode: planPlaceModeSchema.default("local"),
+    kind: planPlaceKindSchema.optional(),
     title: z.string(),
     note: z.string().nullable().optional(),
     addressPublicText: z.string().nullable().optional(),
@@ -875,6 +898,7 @@ export const planSchema = z
     participantCount: z.number().int().optional(),
     pendingRequestCount: z.number().int().optional(),
     myParticipantStatus: planParticipantStatusSchema.nullable().optional(),
+    ownerCanEdit: z.boolean().optional(),
     canSeePrivatePlaceDetails: z.boolean().optional(),
   })
   .passthrough();
@@ -894,6 +918,7 @@ export type PlanStatus = z.infer<typeof planStatusSchema>;
 export type PlanJoinApprovalMode = z.infer<typeof planJoinApprovalModeSchema>;
 export type PlanParticipantStatus = z.infer<typeof planParticipantStatusSchema>;
 export type PlanPlaceMode = z.infer<typeof planPlaceModeSchema>;
+export type PlanPlaceKind = z.infer<typeof planPlaceKindSchema>;
 export type PlaceSource = z.infer<typeof placeSourceSchema>;
 export type PlaceStatus = z.infer<typeof placeStatusSchema>;
 export type PlaceVisibility = z.infer<typeof placeVisibilitySchema>;
