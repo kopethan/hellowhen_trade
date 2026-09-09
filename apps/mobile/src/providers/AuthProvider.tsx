@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import type { AuthUser, ForgotPasswordResponse, ResetPasswordResponse } from '@hellowhen/contracts';
-import { api, refreshMobileSession } from '../lib/api';
+import { api, refreshMobileSession, subscribeMobileSessionInvalidation } from '../lib/api';
 import { useAppSettings } from './AppSettingsProvider';
 import { clearAuthTokens, getAccessToken, getRefreshToken, setAccessToken, setRefreshToken } from '../lib/tokenStore';
 
@@ -14,6 +14,7 @@ type AuthContextValue = {
   user: AuthUser | null;
   hydrated: boolean;
   isAuthenticated: boolean;
+  loginRequired: boolean;
   login: (email: string, password: string) => Promise<TwoFactorRequired | void>;
   register: (email: string, password: string, displayName: string, confirmPassword: string | undefined, acceptedTerms: boolean, ageConfirmed: boolean, countryCode?: string, preferredCurrency?: 'eur' | 'usd' | 'gbp') => Promise<void>;
   loginWithGoogleIdToken: (idToken: string, launchConfirmation?: { acceptedTerms: boolean; ageConfirmed: boolean; declaredAgeBucket: '18_plus' }) => Promise<void>;
@@ -46,9 +47,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { refreshSettings } = useAppSettings();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [loginRequired, setLoginRequired] = useState(false);
 
   async function applyAuthResult(result: AuthMeResponse) {
     await persistReturnedTokens(result);
+    setLoginRequired(false);
     setUser(result.user);
     await refreshSettings().catch(() => undefined);
   }
@@ -72,6 +75,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw error;
     }
   }
+
+  useEffect(() => {
+    return subscribeMobileSessionInvalidation(() => {
+      setUser(null);
+      setLoginRequired(true);
+    });
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -98,7 +108,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         if (isAuthError(error)) {
           await clearAuthTokens();
-          if (mounted) setUser(null);
+          if (mounted) {
+            setUser(null);
+            setLoginRequired(true);
+          }
         }
       } finally {
         if (mounted) setHydrated(true);
@@ -123,7 +136,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         if (isAuthError(error)) {
           await clearAuthTokens();
-          if (mounted) setUser(null);
+          if (mounted) {
+            setUser(null);
+            setLoginRequired(true);
+          }
         }
       }
     }
@@ -146,6 +162,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     hydrated,
     isAuthenticated: Boolean(user),
+    loginRequired,
     async login(email, password) {
       const result = await api.auth.login({ email, password });
       if (isTwoFactorRequired(result)) return result;
@@ -182,15 +199,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const refreshToken = await getRefreshToken();
       if (refreshToken) await api.auth.logout({ refreshToken }).catch(() => undefined);
       await clearAuthTokens();
+      setLoginRequired(false);
       setUser(null);
     },
     async logoutAll() {
       await api.auth.logoutAll().catch(() => undefined);
       await clearAuthTokens();
+      setLoginRequired(false);
       setUser(null);
     },
     refreshMe,
-  }), [hydrated, user]);
+  }), [hydrated, loginRequired, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

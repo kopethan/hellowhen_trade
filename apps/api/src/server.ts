@@ -1,8 +1,9 @@
 import { createApp } from './app.js';
 import { env, validateProductionEnv } from './config/env.js';
-import { startAccountDeletionLifecycle } from './modules/account/accountDeletion.lifecycle.js';
+import { assertAccountDeletionRuntimeConfigSafe, startAccountDeletionLifecycle } from './modules/account/accountDeletion.lifecycle.js';
 
 validateProductionEnv();
+assertAccountDeletionRuntimeConfigSafe();
 
 const app = createApp();
 

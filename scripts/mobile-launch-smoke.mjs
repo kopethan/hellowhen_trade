@@ -256,6 +256,10 @@ function runReliabilityChecks() {
   assertContains('apps/mobile/src/features/trade/ProposalDetailScreen.tsx', 'if (actionLoading) return;', 'Proposal thread must guard duplicate message/action submissions.');
   assertContains('apps/mobile/src/features/account/NotificationsScreen.tsx', 'markingNotificationIdsRef', 'Notifications must guard duplicate mark-read requests.');
   assertContains('apps/mobile/src/features/account/NotificationsScreen.tsx', 'common.actions.tryAgain', 'Notifications must offer a retry action when loading fails.');
+  assertContains('apps/mobile/src/lib/api.ts', 'subscribeMobileSessionInvalidation', 'Mobile API auth retry must expose a definitive session-invalidated signal.');
+  assertContains('apps/mobile/src/lib/api.ts', 'await invalidateMobileSession();', 'Mobile API auth retry must clear revoked sessions after refresh rejection.');
+  assertContains('apps/mobile/src/providers/AuthProvider.tsx', 'setLoginRequired(true);', 'Auth provider must mark revoked sessions for clean login navigation.');
+  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', "initialRouteName={auth.loginRequired ? 'Login' : 'TradeTabs'}", 'Revoked mobile sessions must reset directly to Login instead of leaving stale protected screens visible.');
   console.log('Mobile reliability guards: PASS');
 }
 

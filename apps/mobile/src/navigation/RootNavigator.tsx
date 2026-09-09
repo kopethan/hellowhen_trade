@@ -302,7 +302,11 @@ export function RootNavigator() {
   }
 
   return (
-    <Stack.Navigator initialRouteName="TradeTabs" screenOptions={{ headerShown: false }}>
+    <Stack.Navigator
+      key={auth.loginRequired ? 'login-required' : 'normal-session'}
+      initialRouteName={auth.loginRequired ? 'Login' : 'TradeTabs'}
+      screenOptions={{ headerShown: false }}
+    >
       <Stack.Screen name="TradeTabs" component={TradeTabs} />
       <Stack.Screen name="Account" component={ProtectedAccountScreen} />
       <Stack.Screen name="TradeDetail" component={TradeDetailScreen} />

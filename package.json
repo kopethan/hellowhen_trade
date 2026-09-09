@@ -52,7 +52,9 @@
     "app-update:safety": "npm run build -w @hellowhen/contracts && npm run app-update:policy-test && npm run app-update:native-test && npm run app-update:rollout-smoke",
     "places:library-seed": "npm run places:library-seed -w @hellowhen/api --",
     "account-deletion:test": "npm run test:account-deletion -w @hellowhen/api",
-    "account-deletion:safety-smoke": "node scripts/account-deletion-lifecycle-smoke.mjs"
+    "account-deletion:safety-smoke": "node scripts/account-deletion-lifecycle-smoke.mjs",
+    "account-deletion:process-due": "npm run account-deletion:process-due -w @hellowhen/api",
+    "account-deletion:accelerated-smoke": "node scripts/account-deletion-accelerated-smoke.mjs"
   },
   "devDependencies": {
     "@types/react": "~19.1.10",

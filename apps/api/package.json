@@ -23,7 +23,8 @@
     "test:inventory-original": "tsx --test src/modules/__tests__/inventoryOriginalCopy.test.ts",
     "test:mobile-release": "tsx --test src/modules/mobile-release/__tests__/mobileReleasePolicy.test.ts",
     "places:library-seed": "tsx src/scripts/seedHellowhenPlaceLibrary.ts",
-    "test:account-deletion": "tsx --test src/modules/account/__tests__/accountDeletion.lifecycle.test.ts"
+    "test:account-deletion": "tsx --test src/modules/account/__tests__/accountDeletion.lifecycle.test.ts",
+    "account-deletion:process-due": "tsx src/scripts/processDueAccountDeletions.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1077.0",

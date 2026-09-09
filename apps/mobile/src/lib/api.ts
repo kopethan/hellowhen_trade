@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import { createApiClient, type HellowhenApiClient } from '@hellowhen/api-client';
 import type { AuthResponse } from '@hellowhen/contracts';
-import { getAccessToken, getRefreshToken, setAccessToken, setRefreshToken } from './tokenStore';
+import { clearAuthTokens, getAccessToken, getRefreshToken, setAccessToken, setRefreshToken } from './tokenStore';
 
 const localHostnames = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1']);
 
@@ -26,6 +26,19 @@ const authRetryBlockedMethods = new Set([
 ]);
 
 let refreshSessionPromise: Promise<AuthResponse | null> | null = null;
+const sessionInvalidationListeners = new Set<() => void>();
+
+export function subscribeMobileSessionInvalidation(listener: () => void) {
+  sessionInvalidationListeners.add(listener);
+  return () => {
+    sessionInvalidationListeners.delete(listener);
+  };
+}
+
+async function invalidateMobileSession() {
+  await clearAuthTokens();
+  for (const listener of sessionInvalidationListeners) listener();
+}
 
 function getDefaultDevApiUrl() {
   if (Platform.OS === 'android') {
@@ -89,6 +102,12 @@ function isUnauthorizedError(error: unknown) {
   return Boolean(error && typeof error === 'object' && (error as ApiLikeError).status === 401);
 }
 
+function isSessionRejectedError(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const status = (error as ApiLikeError).status;
+  return status === 401 || status === 403;
+}
+
 function shouldRetryUnauthorized(path: string[]) {
   const [namespace, method] = path;
   if (namespace === 'auth' && method && authRetryBlockedMethods.has(method)) return false;
@@ -114,7 +133,14 @@ async function refreshMobileSessionOnce() {
     body: JSON.stringify({ refreshToken }),
   });
 
-  if (!response.ok) await parseRefreshError(response);
+  if (!response.ok) {
+    try {
+      await parseRefreshError(response);
+    } catch (error) {
+      if (isSessionRejectedError(error)) await invalidateMobileSession();
+      throw error;
+    }
+  }
 
   const result = await response.json() as AuthResponse;
   await setAccessToken(result.accessToken);
@@ -139,10 +165,25 @@ function wrapApiFunction(fn: ApiFunction, path: string[]): ApiFunction {
     } catch (error) {
       if (!isUnauthorizedError(error) || !shouldRetryUnauthorized(path)) throw error;
 
-      const refreshed = await refreshMobileSession().catch(() => null);
-      if (!refreshed) throw error;
+      let refreshed: AuthResponse | null;
+      try {
+        refreshed = await refreshMobileSession();
+      } catch {
+        // refreshMobileSessionOnce clears/notifies only for definitive 401/403 rejection.
+        // Network/timeout failures must not sign the user out.
+        throw error;
+      }
+      if (!refreshed) {
+        await invalidateMobileSession();
+        throw error;
+      }
 
-      return fn(...args);
+      try {
+        return await fn(...args);
+      } catch (retryError) {
+        if (isUnauthorizedError(retryError)) await invalidateMobileSession();
+        throw retryError;
+      }
     }
   };
 }

@@ -7,6 +7,9 @@ import { getMediaStorageProvider } from '../media/storage/mediaStorageProvider.j
 export const ACCOUNT_DELETION_GRACE_PERIOD_DAYS = 30;
 export const ACCOUNT_DELETION_GRACE_PERIOD_MS = ACCOUNT_DELETION_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000;
 export const ACCOUNT_DELETION_PROCESS_INTERVAL_MS = 15 * 60 * 1000;
+export const ACCOUNT_DELETION_TEST_PROCESS_INTERVAL_MS = 60 * 1000;
+export const ACCOUNT_DELETION_TEST_GRACE_MINUTES_ENV = 'ACCOUNT_DELETE_TEST_GRACE_MINUTES';
+const ACCOUNT_DELETION_TEST_GRACE_MINUTES_MAX = 60;
 const ACCOUNT_DELETION_BATCH_SIZE = 25;
 
 const deletableStatuses = ['requested', 'in_review'] as const;
@@ -17,8 +20,40 @@ const businessRolePriority = new Map([
   ['member', 3],
 ]);
 
-export function accountDeletionScheduledFor(requestedAt = new Date()) {
-  return new Date(requestedAt.getTime() + ACCOUNT_DELETION_GRACE_PERIOD_MS);
+function accountDeletionTestGraceMinutes(runtimeEnv: NodeJS.ProcessEnv = process.env) {
+  const raw = runtimeEnv[ACCOUNT_DELETION_TEST_GRACE_MINUTES_ENV]?.trim();
+  if (!raw) return null;
+
+  if ((runtimeEnv.NODE_ENV ?? 'development').trim().toLowerCase() === 'production') {
+    throw new Error(`${ACCOUNT_DELETION_TEST_GRACE_MINUTES_ENV} is test-only and must not be set when NODE_ENV=production.`);
+  }
+
+  const minutes = Number(raw);
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > ACCOUNT_DELETION_TEST_GRACE_MINUTES_MAX) {
+    throw new Error(`${ACCOUNT_DELETION_TEST_GRACE_MINUTES_ENV} must be an integer from 1 to ${ACCOUNT_DELETION_TEST_GRACE_MINUTES_MAX} in non-production environments.`);
+  }
+  return minutes;
+}
+
+export function assertAccountDeletionRuntimeConfigSafe(runtimeEnv: NodeJS.ProcessEnv = process.env) {
+  void accountDeletionTestGraceMinutes(runtimeEnv);
+}
+
+export function accountDeletionGracePeriodMs(runtimeEnv: NodeJS.ProcessEnv = process.env) {
+  const testMinutes = accountDeletionTestGraceMinutes(runtimeEnv);
+  return testMinutes === null ? ACCOUNT_DELETION_GRACE_PERIOD_MS : testMinutes * 60 * 1000;
+}
+
+export function accountDeletionProcessIntervalMs(runtimeEnv: NodeJS.ProcessEnv = process.env) {
+  const testMinutes = accountDeletionTestGraceMinutes(runtimeEnv);
+  return testMinutes === null ? ACCOUNT_DELETION_PROCESS_INTERVAL_MS : ACCOUNT_DELETION_TEST_PROCESS_INTERVAL_MS;
+}
+
+export function accountDeletionScheduledFor(
+  requestedAt = new Date(),
+  runtimeEnv: NodeJS.ProcessEnv = process.env,
+) {
+  return new Date(requestedAt.getTime() + accountDeletionGracePeriodMs(runtimeEnv));
 }
 
 export function isAccountDeletionDue(
@@ -160,6 +195,8 @@ export async function processDueAccountDeletions(now = new Date()) {
 }
 
 export function startAccountDeletionLifecycle() {
+  assertAccountDeletionRuntimeConfigSafe();
+  const intervalMs = accountDeletionProcessIntervalMs();
   let running = false;
   const run = async () => {
     if (running) return;
@@ -177,7 +214,7 @@ export function startAccountDeletionLifecycle() {
   };
 
   void run();
-  const timer = setInterval(() => { void run(); }, ACCOUNT_DELETION_PROCESS_INTERVAL_MS);
+  const timer = setInterval(() => { void run(); }, intervalMs);
   timer.unref?.();
   return () => clearInterval(timer);
 }
