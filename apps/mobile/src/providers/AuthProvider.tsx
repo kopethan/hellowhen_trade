@@ -197,10 +197,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     async logout() {
       const refreshToken = await getRefreshToken();
-      if (refreshToken) await api.auth.logout({ refreshToken }).catch(() => undefined);
-      await clearAuthTokens();
+      // Remove the previous account from local state before waiting on the
+      // best-effort server revocation request. The logout route accepts the
+      // captured refresh token and does not require bearer authentication.
       setLoginRequired(false);
       setUser(null);
+      await clearAuthTokens();
+      if (refreshToken) await api.auth.logout({ refreshToken }).catch(() => undefined);
     },
     async logoutAll() {
       await api.auth.logoutAll().catch(() => undefined);
