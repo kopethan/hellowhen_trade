@@ -1126,7 +1126,7 @@ plansRoutes.put('/:planId', requireAuth, requireActiveAccount, asyncRoute(async 
 
   const existing = await prisma.plan.findFirst({
     where: { id: req.params.planId, ownerId: req.user!.id },
-    include: { participants: true },
+    include: { participants: true, places: true },
   });
   if (!existing) return res.status(404).json({ error: 'not_found' });
   if (existing.deletedAt) return res.status(410).json(planDeletedResponse());
@@ -1139,6 +1139,30 @@ plansRoutes.put('/:planId', requireAuth, requireActiveAccount, asyncRoute(async 
   if (conflictingPlan) return res.status(409).json(planTimeConflictResponse(conflictingPlan, input));
 
   const inputPlaces = input.places ?? [];
+  const existingPlaceIds = (existing.places ?? []).map((place) => place.id);
+  const requestedPlaceMediaIdsWithDuplicates = inputPlaces.flatMap((placeInput) => placeInput.mediaIds ?? []);
+  const requestedPlaceMediaIds = Array.from(new Set(requestedPlaceMediaIdsWithDuplicates));
+  if (requestedPlaceMediaIds.length !== requestedPlaceMediaIdsWithDuplicates.length) {
+    return res.status(400).json({ error: 'invalid_media_ids', message: 'The same image cannot be attached to more than one Plan stop.' });
+  }
+  if (requestedPlaceMediaIds.length) {
+    const selectedMedia = await prisma.mediaAsset.findMany({
+      where: {
+        id: { in: requestedPlaceMediaIds },
+        ownerId: req.user!.id,
+        status: { in: ['active', 'pending_review'] },
+      },
+      select: { id: true, entityType: true, entityId: true },
+    });
+    if (selectedMedia.length !== requestedPlaceMediaIds.length) {
+      return res.status(400).json({ error: 'invalid_media_ids', message: 'One or more selected images could not be attached. Upload the images again and retry.' });
+    }
+    const oldPlaceIds = new Set(existingPlaceIds);
+    const invalidAttachment = selectedMedia.find((media) => media.entityId && !(media.entityType === ('plan_place' as any) && oldPlaceIds.has(media.entityId)));
+    if (invalidAttachment) {
+      return res.status(400).json({ error: 'media_already_attached', message: 'One or more selected images already belong to another item. Upload a new copy if you want to reuse it.' });
+    }
+  }
   const estimatedPlaceEndTimes = buildEstimatedPlanPlaceEndTimes(inputPlaces.map((placeInput) => placeInput.startsAt));
   const placeDataDrafts = [] as any[];
   for (const [index, placeInput] of inputPlaces.entries()) {
@@ -1148,16 +1172,31 @@ plansRoutes.put('/:planId', requireAuth, requireActiveAccount, asyncRoute(async 
   }
 
   const { ownerId: _ownerId, ...replacementData } = planCreateData(existing.ownerId, { ...input, status: 'open' });
+  const replacementPlaceIds: string[] = [];
   await prisma.$transaction(async (tx) => {
     await tx.plan.update({
       where: { id: existing.id },
       data: { ...replacementData, status: 'open' as any, cancelledAt: null } as any,
     });
+    if (existingPlaceIds.length) {
+      await tx.mediaAsset.updateMany({
+        where: { ownerId: req.user!.id, entityType: 'plan_place' as any, entityId: { in: existingPlaceIds } },
+        data: { entityType: null, entityId: null, sortOrder: 0, isCover: false },
+      });
+    }
     await tx.planPlace.deleteMany({ where: { planId: existing.id } });
     for (const placeData of placeDataDrafts) {
-      await tx.planPlace.create({ data: { ...placeData, planId: existing.id } as any });
+      const createdPlace = await tx.planPlace.create({ data: { ...placeData, planId: existing.id } as any });
+      replacementPlaceIds.push(createdPlace.id);
     }
   });
+
+  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan' as any, existing.id, { syncSelection: input.mediaIds !== undefined });
+  for (const [index, placeInput] of inputPlaces.entries()) {
+    const replacementPlaceId = replacementPlaceIds[index];
+    if (!replacementPlaceId) continue;
+    await attachUploadedMediaToEntity(req.user!.id, placeInput.mediaIds, 'plan_place' as any, replacementPlaceId, { maxImages: PLAN_PLACE_MEDIA_LIMITS.plus });
+  }
 
   const updated = await prisma.plan.findUnique({ where: { id: existing.id }, include: planInclude() });
   return res.json({ plan: await decoratePlan(updated, req.user!.id) });

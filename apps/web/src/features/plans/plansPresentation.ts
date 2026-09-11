@@ -18,14 +18,14 @@ export function planParticipantStatusLabel(status?: PlanParticipantStatus | null
 
 export function planModeLabel(mode?: string | null) {
   if (!mode) return '';
-  if (mode === 'local') return 'Local';
-  if (mode === 'remote') return 'Remote';
-  if (mode === 'hybrid') return 'Mixed';
+  if (mode === 'local') return 'In person';
+  if (mode === 'remote') return 'Online';
+  if (mode === 'hybrid') return 'In person / Online';
   return mode.replace(/_/g, ' ');
 }
 
 export function planPlaceModeLabel(mode?: string | null) {
-  return mode === 'remote' ? 'Remote' : 'Local';
+  return mode === 'remote' ? 'Online' : 'In person';
 }
 
 export function planDateTime(value?: string | null) {

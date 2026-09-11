@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { isUtilityRoute, isWebThreadRoute } from '../lib/webRoutes';
+import { isUtilityRoute, isWebThreadRoute, pageOwnsWebHeader } from '../lib/webRoutes';
 import { betaFeatures } from '../lib/betaFeatures';
 import { WebBottomTabs } from './WebBottomTabs';
 import { WebTopHeader } from './WebTopHeader';
@@ -18,18 +18,30 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
   const shouldUsePublicShellForAdminNotFound = adminRoute && auth.hydrated && auth.user?.role !== 'admin';
   const utility = isUtilityRoute(pathname) && !shouldUsePublicShellForAdminNotFound;
   const threadRoute = !utility && isWebThreadRoute(pathname);
+  const pageOwnsHeader = !utility && !threadRoute && pageOwnsWebHeader(pathname, { plansMeTradeNav: betaFeatures.mainNavPlansMeTrade });
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [hideTopHeader, setHideTopHeader] = useState(false);
   const shellClassName = [
     'web-app-shell',
-    betaFeatures.mainNavPlansMeTrade ? 'web-app-shell--normal-dock' : '',
+    betaFeatures.mainNavPlansMeTrade ? 'web-app-shell--normal-nav' : '',
+    pageOwnsHeader ? 'web-app-shell--page-local-header' : '',
     threadRoute ? 'web-app-shell--thread-route' : '',
   ].filter(Boolean).join(' ');
   const scrollAreaClassName = threadRoute ? 'web-scroll-area web-scroll-area--thread-route' : 'web-scroll-area';
 
   useEffect(() => {
-    if (utility || threadRoute) {
+    setShowScrollTop(false);
+    setHideTopHeader(false);
+
+    const scrollArea = scrollAreaRef.current;
+    if (scrollArea && window.matchMedia('(max-width: 759px)').matches) {
+      scrollArea.scrollTop = 0;
+    }
+  }, [pathname]);
+
+  useEffect(() => {
+    if (utility || threadRoute || pageOwnsHeader) {
       setHideTopHeader(false);
       return;
     }
@@ -60,7 +72,7 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
     updateChromeVisibility();
     scrollArea.addEventListener('scroll', updateChromeVisibility, { passive: true });
     return () => scrollArea.removeEventListener('scroll', updateChromeVisibility);
-  }, [pathname, threadRoute, utility]);
+  }, [pageOwnsHeader, pathname, threadRoute, utility]);
 
   function scrollToTop() {
     const scrollArea = scrollAreaRef.current;
@@ -75,7 +87,7 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
 
   return (
     <main className="web-app-viewport">
-      <section className={shellClassName} data-nav-mode={betaFeatures.mainNavPlansMeTrade ? 'plans-me-trade' : 'classic'} aria-label={t('common.messages.webAppLabel')}>
+      <section className={shellClassName} data-nav-mode={betaFeatures.mainNavPlansMeTrade ? 'plans-explore-trade' : 'classic'} aria-label={t('common.messages.webAppLabel')}>
         {threadRoute ? null : <WebTopHeader hiddenOnMobile={hideTopHeader} />}
         <div ref={scrollAreaRef} className={scrollAreaClassName}>
           {auth.user?.trustTier === 'restricted' ? (

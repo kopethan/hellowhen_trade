@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { InventoryTemplateDto, PlaceDto, PlanDto } from '@hellowhen/contracts';
-import { starterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type StarterPlanIdea } from '@hellowhen/shared';
+import { buildBalancedExploreDiscoveryFeed, createExploreDiscoverySeed, starterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, type StarterPlanIdea } from '@hellowhen/shared';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
 import { AppHeaderActionButton } from '../../components/AppHeaderActionButton';
@@ -38,63 +38,6 @@ type ExploreFeedItem =
   | { kind: 'need'; key: string; template: InventoryTemplateDto }
   | { kind: 'offer'; key: string; template: InventoryTemplateDto }
   | { kind: 'place'; key: string; place: PlaceDto };
-
-const EXPLORE_MIX_KIND_ORDER: readonly ExploreConceptKind[] = ['trade', 'place', 'need', 'plan', 'offer'];
-
-function createExploreMixSeed() {
-  return (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
-}
-
-function hashExploreMixValue(value: string) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function orderExploreQueue(items: readonly ExploreFeedItem[], kind: ExploreConceptKind, seed: number) {
-  return [...items].sort((left, right) => {
-    const rankDelta = hashExploreMixValue(`${seed}:${kind}:${left.key}`) - hashExploreMixValue(`${seed}:${kind}:${right.key}`);
-    return rankDelta || left.key.localeCompare(right.key);
-  });
-}
-
-function buildBalancedMixedFeed(groups: Record<ExploreConceptKind, ExploreFeedItem[]>, seed: number) {
-  const queues = Object.fromEntries(EXPLORE_MIX_KIND_ORDER.map((kind) => (
-    [kind, orderExploreQueue(groups[kind], kind, seed)]
-  ))) as Record<ExploreConceptKind, ExploreFeedItem[]>;
-  const mixed: ExploreFeedItem[] = [];
-  let cycle = 0;
-  let previousKind: ExploreConceptKind | null = null;
-
-  while (EXPLORE_MIX_KIND_ORDER.some((kind) => queues[kind].length > 0)) {
-    const availableKinds = EXPLORE_MIX_KIND_ORDER.filter((kind) => queues[kind].length > 0);
-    const cycleKinds = [...availableKinds].sort((left, right) => (
-      hashExploreMixValue(`${seed}:${cycle}:${left}`) - hashExploreMixValue(`${seed}:${cycle}:${right}`)
-    ));
-
-    if (previousKind && cycleKinds.length > 1 && cycleKinds[0] === previousKind) {
-      const alternateIndex = cycleKinds.findIndex((kind) => kind !== previousKind);
-      if (alternateIndex > 0) {
-        const [alternate] = cycleKinds.splice(alternateIndex, 1);
-        if (alternate) cycleKinds.unshift(alternate);
-      }
-    }
-
-    for (const kind of cycleKinds) {
-      const item = queues[kind].shift();
-      if (!item) continue;
-      mixed.push(item);
-      previousKind = kind;
-    }
-    cycle += 1;
-  }
-
-  return mixed;
-}
-
 
 function normalizeExploreSearchQuery(value: string | null | undefined) {
   return (value ?? '').trim().replace(/\s+/g, ' ').slice(0, 120);
@@ -260,7 +203,7 @@ export function ExploreScreen() {
   const [draftSearchQuery, setDraftSearchQuery] = useState('');
   const [filterVisible, setFilterVisible] = useState(false);
   const discoveryRequestSequence = useRef(0);
-  const [discoveryMixSeed, setDiscoveryMixSeed] = useState(createExploreMixSeed);
+  const [discoveryMixSeed, setDiscoveryMixSeed] = useState(createExploreDiscoverySeed);
 
   const loadDiscovery = useCallback(async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
     const requestId = ++discoveryRequestSequence.current;
@@ -288,7 +231,7 @@ export function ExploreScreen() {
     setDiscoveryRefreshing(true);
     try {
       await loadDiscovery({ showLoading: false });
-      setDiscoveryMixSeed(createExploreMixSeed());
+      setDiscoveryMixSeed(createExploreDiscoverySeed());
     } finally {
       setDiscoveryRefreshing(false);
     }
@@ -324,7 +267,7 @@ export function ExploreScreen() {
     return { trade: tradeItems, plan: planItems };
   }, []);
 
-  const mixedFeedItems = useMemo<ExploreFeedItem[]>(() => buildBalancedMixedFeed({
+  const mixedFeedItems = useMemo<ExploreFeedItem[]>(() => buildBalancedExploreDiscoveryFeed({
     trade: staticConceptGroups.trade,
     plan: staticConceptGroups.plan,
     need: needTemplates.map((template) => ({ kind: 'need' as const, key: `need-idea-${template.id}`, template })),

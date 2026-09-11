@@ -3,22 +3,27 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ChangeEvent, FormEvent } from 'react';
-import type { GoogleResolvedPlace, MediaAssetDto, PlaceDto, PlaceStaticMapDto, PlanDto, PlanPlaceMode } from '@hellowhen/contracts';
-import { buildGeneratedPlanDisplay, parseStarterPlanIdeaKey, PLAN_MIN_STOP_START_GAP_MINUTES, starterPlanIdeas, type StarterPlanIdeaStop } from '@hellowhen/shared';
+import type { GoogleResolvedPlace, MediaAssetDto, PlaceDto, PlaceStaticMapDto, PlanDto, PlanPlaceDto, PlanPlaceKind, PlanPlaceMode } from '@hellowhen/contracts';
+import { buildGeneratedPlanDisplay, cascadePlanStopDateTimeChange, getOnlinePlaceProviderMetadata, isPlanJoinClosed, parseStarterPlanIdeaKey, PLAN_MIN_STOP_START_GAP_MINUTES, reorderPlanStopsPreservingTimeline, starterPlanIdeas, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+import { buildWebUserSessionStorageKey } from '../../lib/webUserSessionStorage';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { GooglePlacePicker } from './GooglePlacePicker';
-import { emptyProviderAddressFormState, offlineProviderAddressError, onlineDestinationError, onlineProviderHint, providerAddressFormStateFromGooglePlace, providerAddressFormStateFromStoredPlace, providerAddressPayloadFromFormState, providerAddressStatusLabel, type WebProviderAddressFormState } from './placeAddressForm';
+import { emptyProviderAddressFormState, offlineProviderAddressError, onlineDestinationError, providerAddressFormStateFromGooglePlace, providerAddressFormStateFromStoredPlace, providerAddressPayloadFromFormState, providerAddressStatusLabel, type WebProviderAddressFormState } from './placeAddressForm';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
 import { PlanPreviewDeck } from './PlanPreviewDeck';
-import { buildPlanSchedule, toDateInputValue } from './planSchedule';
-import { planMediaSrc, planPlaceModeLabel } from './plansPresentation';
+import { buildPlanSchedule, toDateInputValue, toTimeInputValue } from './planSchedule';
+import { planMediaSrc } from './plansPresentation';
+
+type Translator = ReturnType<typeof useWebTranslation>['t'];
 
 type PlaceFormState = {
   id: string;
+  kind: PlanPlaceKind;
   sourcePlaceId?: string;
   sourcePlaceSource?: 'custom' | 'my_place' | 'hellowhen_library';
   sourcePlaceTitle?: string;
@@ -31,6 +36,7 @@ type PlaceFormState = {
   onlineLabel: string;
   onlineUrl: string;
   existingMedia: MediaAssetDto | null;
+  existingMediaBelongsToPlanPlace?: boolean;
   existingStaticMap: PlaceStaticMapDto | null;
   media: MediaAssetDto | null;
   uploading: boolean;
@@ -40,6 +46,7 @@ function makePlace(index: number, date = toDateInputValue(), time?: string): Pla
   return {
     id: `place-${Date.now()}-${index}`,
     sourcePlaceSource: 'custom',
+    kind: 'place',
     mode: 'local',
     date,
     time: time ?? (index === 0 ? '13:00' : ''),
@@ -49,6 +56,48 @@ function makePlace(index: number, date = toDateInputValue(), time?: string): Pla
     onlineLabel: '',
     onlineUrl: '',
     existingMedia: null,
+    existingMediaBelongsToPlanPlace: false,
+    existingStaticMap: null,
+    media: null,
+    uploading: false,
+  };
+}
+
+function isCustomPlanStop(place: Pick<PlaceFormState, 'kind'>) {
+  return (place.kind ?? 'place') !== 'place';
+}
+
+
+function localizedOnlineProviderHint(value: string, t: Translator) {
+  const rawUrl = value.trim();
+  if (!rawUrl) return t('places.editor.provider.empty');
+  const metadata = getOnlinePlaceProviderMetadata(rawUrl);
+  if (!metadata) return t('places.editor.provider.invalid');
+  return t('places.editor.provider.detected', { provider: metadata.label });
+}
+
+function customPlanStopTitle(kind: CustomPlanStopKind, t: Translator) {
+  if (kind === 'pause') return t('plans.create.customStop.pause');
+  if (kind === 'free_time') return t('plans.create.customStop.freeTime');
+  if (kind === 'meeting_point') return t('plans.create.customStop.meetingPoint');
+  return t('plans.create.customStop.custom');
+}
+
+function makeCustomPlanStop(kind: CustomPlanStopKind, index: number, date = toDateInputValue(), time?: string): PlaceFormState {
+  return {
+    id: `custom-stop-${Date.now()}-${index}`,
+    sourcePlaceSource: 'custom',
+    kind,
+    mode: 'local',
+    date,
+    time: time ?? (index === 0 ? '13:00' : ''),
+    title: '',
+    location: '',
+    providerAddress: emptyProviderAddressFormState(),
+    onlineLabel: '',
+    onlineUrl: '',
+    existingMedia: null,
+    existingMediaBelongsToPlanPlace: false,
     existingStaticMap: null,
     media: null,
     uploading: false,
@@ -83,6 +132,7 @@ function makePlaceFromPlanIdeaStop(stop: StarterPlanIdeaStop, index: number, dat
   return {
     id: `plan-idea-place-${Date.now()}-${index}`,
     sourcePlaceSource: 'custom',
+    kind: 'place',
     mode: stop.mode,
     date,
     time: stop.time,
@@ -92,15 +142,47 @@ function makePlaceFromPlanIdeaStop(stop: StarterPlanIdeaStop, index: number, dat
     onlineLabel: stop.mode === 'remote' ? stop.onlineLabel ?? '' : '',
     onlineUrl: stop.mode === 'remote' ? stop.onlineUrl ?? '' : '',
     existingMedia: null,
+    existingMediaBelongsToPlanPlace: false,
     existingStaticMap: null,
     media: null,
     uploading: false,
   };
 }
 
+function placeFormFromPublishedPlanPlace(place: PlanPlaceDto, index: number): PlaceFormState {
+  const customStop = (place.kind ?? 'place') !== 'place';
+  const providerAddress = customStop || place.mode === 'remote'
+    ? emptyProviderAddressFormState()
+    : providerAddressFormStateFromStoredPlace(place);
+  const sourcePlaceSource = customStop ? 'custom' : place.source ?? (place.placeId ? 'my_place' : 'custom');
+  const localLocation = providerAddress.formattedAddress || place.formattedAddress || place.addressPublicText || '';
+  const onlineLabel = customStop ? '' : place.onlineLabel ?? '';
+  const onlineUrl = customStop ? '' : place.onlineUrl ?? '';
+  return {
+    id: place.id || `published-place-${index}`,
+    kind: place.kind ?? 'place',
+    sourcePlaceId: customStop ? undefined : place.placeId ?? undefined,
+    sourcePlaceSource,
+    sourcePlaceTitle: customStop ? undefined : place.sourcePlace?.title ?? place.title,
+    mode: customStop ? 'local' : place.mode ?? 'local',
+    date: toDateInputValue(place.startsAt ?? undefined),
+    time: toTimeInputValue(place.startsAt ?? undefined, ''),
+    title: place.title,
+    location: customStop ? '' : place.mode === 'remote' ? onlineLabel || onlineUrl : localLocation,
+    providerAddress,
+    onlineLabel,
+    onlineUrl,
+    existingMedia: customStop ? null : place.media?.[0] ?? place.sourcePlace?.media?.[0] ?? null,
+    existingMediaBelongsToPlanPlace: Boolean(!customStop && place.media?.[0]),
+    existingStaticMap: customStop ? null : place.staticMap ?? place.sourcePlace?.staticMap ?? null,
+    media: null,
+    uploading: false,
+  };
+}
 
-const PLAN_CREATE_DRAFT_STORAGE_KEY = 'hellowhen.planCreateDraft.v1';
-const PLAN_CREATE_PENDING_PLACE_INDEX_KEY = 'hellowhen.planCreateDraft.pendingPlaceIndex.v1';
+
+const PLAN_CREATE_DRAFT_SCOPE = 'plan-create-draft';
+const PLAN_CREATE_PENDING_PLACE_INDEX_SCOPE = 'plan-create-pending-place-index';
 
 type StoredPlaceFormState = Omit<PlaceFormState, 'uploading'>;
 
@@ -116,12 +198,24 @@ type PlanEndState = {
   time: string;
 };
 
+type PlanJoinDeadlinePreset = 'start' | '1h' | '3h' | '1d' | 'custom';
+
+type PlanJoinDeadlineState = {
+  preset: PlanJoinDeadlinePreset;
+  date: string;
+  time: string;
+};
+
+type PlanParticipantCapacityState = {
+  mode: 'unlimited' | 'limited';
+  limit: string;
+};
+
 type PlanCreateStage = 'build' | 'preview';
 type PlacePickerTarget = number | 'new';
-type PlacePickerView = 'source' | 'list';
+type PlacePickerView = 'source' | 'list' | 'custom_stop';
 
-const PLAN_OFFLINE_ADDRESS_TOP_ERROR = 'Some offline places need an address. Choose a verified address for each offline place, or delete the places you do not want to use.';
-const PLAN_OFFLINE_ADDRESS_INLINE_ERROR = 'Choose a verified address for this place, or delete it.';
+type CustomPlanStopKind = Exclude<PlanPlaceKind, 'place'>;
 
 const EMPTY_ADVANCED_PLAN_DETAILS: AdvancedPlanDetailsState = {
   title: '',
@@ -135,10 +229,21 @@ const EMPTY_PLAN_END_STATE: PlanEndState = {
   time: '',
 };
 
-function safeReadAdvancedPlanDetails(): AdvancedPlanDetailsState {
-  if (typeof window === 'undefined') return EMPTY_ADVANCED_PLAN_DETAILS;
+const DEFAULT_PLAN_JOIN_DEADLINE: PlanJoinDeadlineState = {
+  preset: 'start',
+  date: '',
+  time: '',
+};
+
+const DEFAULT_PLAN_PARTICIPANT_CAPACITY: PlanParticipantCapacityState = {
+  mode: 'unlimited',
+  limit: '8',
+};
+
+function safeReadAdvancedPlanDetails(storageKey: string | null): AdvancedPlanDetailsState {
+  if (typeof window === 'undefined' || !storageKey) return EMPTY_ADVANCED_PLAN_DETAILS;
   try {
-    const rawDraft = window.sessionStorage.getItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
+    const rawDraft = window.sessionStorage.getItem(storageKey);
     if (!rawDraft) return EMPTY_ADVANCED_PLAN_DETAILS;
     const parsed = JSON.parse(rawDraft) as { advanced?: Partial<AdvancedPlanDetailsState> };
     return {
@@ -152,10 +257,10 @@ function safeReadAdvancedPlanDetails(): AdvancedPlanDetailsState {
   }
 }
 
-function safeReadPlanEndState(): PlanEndState {
-  if (typeof window === 'undefined') return EMPTY_PLAN_END_STATE;
+function safeReadPlanEndState(storageKey: string | null): PlanEndState {
+  if (typeof window === 'undefined' || !storageKey) return EMPTY_PLAN_END_STATE;
   try {
-    const rawDraft = window.sessionStorage.getItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
+    const rawDraft = window.sessionStorage.getItem(storageKey);
     if (!rawDraft) return EMPTY_PLAN_END_STATE;
     const parsed = JSON.parse(rawDraft) as { end?: Partial<PlanEndState> };
     return {
@@ -167,10 +272,42 @@ function safeReadPlanEndState(): PlanEndState {
   }
 }
 
-function safeReadPlanDraft(): PlaceFormState[] {
-  if (typeof window === 'undefined') return [];
+function safeReadPlanJoinDeadline(storageKey: string | null): PlanJoinDeadlineState {
+  if (typeof window === 'undefined' || !storageKey) return DEFAULT_PLAN_JOIN_DEADLINE;
   try {
-    const rawDraft = window.sessionStorage.getItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
+    const rawDraft = window.sessionStorage.getItem(storageKey);
+    if (!rawDraft) return DEFAULT_PLAN_JOIN_DEADLINE;
+    const parsed = JSON.parse(rawDraft) as { joinDeadline?: Partial<PlanJoinDeadlineState> };
+    const preset = parsed.joinDeadline?.preset;
+    return {
+      preset: preset === '1h' || preset === '3h' || preset === '1d' || preset === 'custom' ? preset : 'start',
+      date: typeof parsed.joinDeadline?.date === 'string' ? parsed.joinDeadline.date : '',
+      time: typeof parsed.joinDeadline?.time === 'string' ? parsed.joinDeadline.time : '',
+    };
+  } catch {
+    return DEFAULT_PLAN_JOIN_DEADLINE;
+  }
+}
+
+function safeReadPlanParticipantCapacity(storageKey: string | null): PlanParticipantCapacityState {
+  if (typeof window === 'undefined' || !storageKey) return DEFAULT_PLAN_PARTICIPANT_CAPACITY;
+  try {
+    const rawDraft = window.sessionStorage.getItem(storageKey);
+    if (!rawDraft) return DEFAULT_PLAN_PARTICIPANT_CAPACITY;
+    const parsed = JSON.parse(rawDraft) as { participantCapacity?: Partial<PlanParticipantCapacityState> };
+    return {
+      mode: parsed.participantCapacity?.mode === 'limited' ? 'limited' : 'unlimited',
+      limit: typeof parsed.participantCapacity?.limit === 'string' && parsed.participantCapacity.limit ? parsed.participantCapacity.limit : '8',
+    };
+  } catch {
+    return DEFAULT_PLAN_PARTICIPANT_CAPACITY;
+  }
+}
+
+function safeReadPlanDraft(storageKey: string | null): PlaceFormState[] {
+  if (typeof window === 'undefined' || !storageKey) return [];
+  try {
+    const rawDraft = window.sessionStorage.getItem(storageKey);
     if (!rawDraft) return [];
     const parsed = JSON.parse(rawDraft) as { places?: StoredPlaceFormState[] };
     if (!Array.isArray(parsed.places)) return [];
@@ -179,6 +316,7 @@ function safeReadPlanDraft(): PlaceFormState[] {
       sourcePlaceId: place.sourcePlaceId,
       sourcePlaceSource: place.sourcePlaceSource ?? 'custom',
       sourcePlaceTitle: place.sourcePlaceTitle,
+      kind: place.kind === 'pause' || place.kind === 'free_time' || place.kind === 'meeting_point' || place.kind === 'custom' ? place.kind : 'place',
       mode: place.mode === 'remote' ? 'remote' : 'local',
       date: place.date || toDateInputValue(),
       time: place.time || '',
@@ -197,28 +335,28 @@ function safeReadPlanDraft(): PlaceFormState[] {
   }
 }
 
-function storePlanDraft(places: PlaceFormState[], advanced: AdvancedPlanDetailsState = EMPTY_ADVANCED_PLAN_DETAILS, end: PlanEndState = EMPTY_PLAN_END_STATE) {
-  if (typeof window === 'undefined') return;
+function storePlanDraft(storageKey: string | null, places: PlaceFormState[], advanced: AdvancedPlanDetailsState = EMPTY_ADVANCED_PLAN_DETAILS, end: PlanEndState = EMPTY_PLAN_END_STATE, joinDeadline: PlanJoinDeadlineState = DEFAULT_PLAN_JOIN_DEADLINE, participantCapacity: PlanParticipantCapacityState = DEFAULT_PLAN_PARTICIPANT_CAPACITY) {
+  if (typeof window === 'undefined' || !storageKey) return;
   const safePlaces: StoredPlaceFormState[] = places.map(({ uploading: _uploading, ...place }) => place);
-  window.sessionStorage.setItem(PLAN_CREATE_DRAFT_STORAGE_KEY, JSON.stringify({ places: safePlaces, advanced, end }));
+  window.sessionStorage.setItem(storageKey, JSON.stringify({ places: safePlaces, advanced, end, joinDeadline, participantCapacity }));
 }
 
-function clearPlanDraft() {
+function clearPlanDraft(storageKey: string | null, pendingPlaceIndexKey: string | null) {
   if (typeof window === 'undefined') return;
-  window.sessionStorage.removeItem(PLAN_CREATE_DRAFT_STORAGE_KEY);
-  window.sessionStorage.removeItem(PLAN_CREATE_PENDING_PLACE_INDEX_KEY);
+  if (storageKey) window.sessionStorage.removeItem(storageKey);
+  if (pendingPlaceIndexKey) window.sessionStorage.removeItem(pendingPlaceIndexKey);
 }
 
-function setPendingCreatedPlaceIndex(index: number | null) {
-  if (typeof window === 'undefined') return;
-  if (index === null) window.sessionStorage.removeItem(PLAN_CREATE_PENDING_PLACE_INDEX_KEY);
-  else window.sessionStorage.setItem(PLAN_CREATE_PENDING_PLACE_INDEX_KEY, String(index));
+function setPendingCreatedPlaceIndex(storageKey: string | null, index: number | null) {
+  if (typeof window === 'undefined' || !storageKey) return;
+  if (index === null) window.sessionStorage.removeItem(storageKey);
+  else window.sessionStorage.setItem(storageKey, String(index));
 }
 
-function takePendingCreatedPlaceIndex() {
-  if (typeof window === 'undefined') return null;
-  const rawIndex = window.sessionStorage.getItem(PLAN_CREATE_PENDING_PLACE_INDEX_KEY);
-  window.sessionStorage.removeItem(PLAN_CREATE_PENDING_PLACE_INDEX_KEY);
+function takePendingCreatedPlaceIndex(storageKey: string | null) {
+  if (typeof window === 'undefined' || !storageKey) return null;
+  const rawIndex = window.sessionStorage.getItem(storageKey);
+  window.sessionStorage.removeItem(storageKey);
   if (rawIndex === null) return null;
   const index = Number(rawIndex);
   return Number.isInteger(index) && index >= 0 ? index : null;
@@ -237,10 +375,86 @@ function selectedMediaIds(media: MediaAssetDto | null) {
 }
 
 function selectedPlanPlaceMediaIds(place: PlaceFormState) {
+  if (isCustomPlanStop(place)) return undefined;
   // Saved Place images already belong to the source Place. Plan Places can
-  // display them through the existing source-place media fallback, so only
-  // newly uploaded Plan-specific images should be attached to the Plan Place.
-  return selectedMediaIds(place.media);
+  // display them through the existing source-place media fallback. Preserve an
+  // existing Plan-specific image while editing, but never try to reattach a
+  // source Place image to the Plan Place.
+  return selectedMediaIds(place.media ?? (place.existingMediaBelongsToPlanPlace ? place.existingMedia : null));
+}
+
+function planJoinDeadlinePresetOffsetMinutes(preset: PlanJoinDeadlinePreset) {
+  if (preset === '1h') return 60;
+  if (preset === '3h') return 180;
+  if (preset === '1d') return 24 * 60;
+  return 0;
+}
+
+function planJoinDeadlinePresetLabel(preset: PlanJoinDeadlinePreset, t: Translator) {
+  if (preset === '1h') return t('plans.create.joinDeadline.oneHourBefore');
+  if (preset === '3h') return t('plans.create.joinDeadline.threeHoursBefore');
+  if (preset === '1d') return t('plans.create.joinDeadline.oneDayBefore');
+  if (preset === 'custom') return t('plans.create.joinDeadline.custom');
+  return t('plans.create.joinDeadline.atStart');
+}
+
+function planJoinDeadlineStateFromPublishedPlan(plan: PlanDto): PlanJoinDeadlineState {
+  const startsAt = new Date(plan.startsAt);
+  const joinClosesAt = new Date(plan.joinClosesAt ?? plan.startsAt);
+  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(joinClosesAt.getTime())) return DEFAULT_PLAN_JOIN_DEADLINE;
+  const diffMinutes = Math.round((startsAt.getTime() - joinClosesAt.getTime()) / 60_000);
+  if (diffMinutes === 0) return DEFAULT_PLAN_JOIN_DEADLINE;
+  if (diffMinutes === 60) return { preset: '1h', date: '', time: '' };
+  if (diffMinutes === 180) return { preset: '3h', date: '', time: '' };
+  if (diffMinutes === 24 * 60) return { preset: '1d', date: '', time: '' };
+  return { preset: 'custom', date: toDateInputValue(plan.joinClosesAt ?? plan.startsAt), time: toTimeInputValue(plan.joinClosesAt ?? plan.startsAt, '') };
+}
+
+function resolvePlanJoinDeadline(state: PlanJoinDeadlineState, startsAt: string, t: Translator) {
+  const presetLabel = planJoinDeadlinePresetLabel(state.preset, t);
+  if (!startsAt) return { joinClosesAt: '', presetLabel, deadlineLabel: '', error: t('plans.create.joinDeadline.startFirst') };
+  const start = new Date(startsAt);
+  if (Number.isNaN(start.getTime())) return { joinClosesAt: '', presetLabel, deadlineLabel: '', error: t('plans.create.joinDeadline.startFirst') };
+
+  let deadline = start;
+  if (state.preset === 'custom') {
+    if (!state.date.trim() || !state.time.trim()) return { joinClosesAt: '', presetLabel, deadlineLabel: '', error: t('plans.create.joinDeadline.customBoth') };
+    const custom = parseLocalPlanInput(state.date, state.time);
+    if (!custom) return { joinClosesAt: '', presetLabel, deadlineLabel: '', error: t('plans.create.joinDeadline.customInvalid') };
+    deadline = custom;
+  } else {
+    deadline = new Date(start.getTime() - planJoinDeadlinePresetOffsetMinutes(state.preset) * 60_000);
+  }
+
+  const deadlineLabel = formatPlanDateTime(deadline.toISOString());
+  if (deadline.getTime() > start.getTime()) return { joinClosesAt: '', presetLabel, deadlineLabel, error: t('plans.create.joinDeadline.afterStart') };
+  if (isPlanJoinClosed({ startsAt, joinClosesAt: deadline }, new Date())) return { joinClosesAt: '', presetLabel, deadlineLabel, error: t('plans.create.joinDeadline.past') };
+  return { joinClosesAt: deadline.toISOString(), presetLabel, deadlineLabel, error: '' };
+}
+
+function resolvePlanParticipantCapacity(state: PlanParticipantCapacityState, t: Translator) {
+  if (state.mode === 'unlimited') return { maxParticipants: null as number | null, label: t('plans.create.capacity.unlimited'), previewLabel: t('plans.create.capacity.previewUnlimited'), error: '' };
+  const normalized = state.limit.trim();
+  if (!/^\d+$/.test(normalized)) return { maxParticipants: null as number | null, label: t('plans.create.capacity.limited'), previewLabel: '', error: t('plans.create.capacity.invalid') };
+  const maxParticipants = Number(normalized);
+  if (!Number.isInteger(maxParticipants) || maxParticipants < 1 || maxParticipants > 100) return { maxParticipants: null as number | null, label: t('plans.create.capacity.limited'), previewLabel: '', error: t('plans.create.capacity.range') };
+  return { maxParticipants, label: t('plans.create.capacity.limitedSummary', { count: maxParticipants }), previewLabel: t('plans.create.capacity.previewLimited', { count: maxParticipants }), error: '' };
+}
+
+function planEndStateFromPublishedPlan(plan: PlanDto): PlanEndState {
+  if (!plan.endsAt) return EMPTY_PLAN_END_STATE;
+  const planEnd = new Date(plan.endsAt);
+  if (Number.isNaN(planEnd.getTime())) return EMPTY_PLAN_END_STATE;
+  const routeEnd = (plan.places ?? [])
+    .map((place) => place.endsAt ? new Date(place.endsAt) : null)
+    .filter((value): value is Date => Boolean(value && !Number.isNaN(value.getTime())))
+    .sort((left, right) => right.getTime() - left.getTime())[0];
+  if (routeEnd && Math.abs(routeEnd.getTime() - planEnd.getTime()) < 1000) return EMPTY_PLAN_END_STATE;
+  return { date: toDateInputValue(plan.endsAt), time: toTimeInputValue(plan.endsAt, '') };
+}
+
+function isPlanEditLockedError(error: unknown) {
+  return Boolean(error && typeof error === 'object' && (error as { body?: { error?: string } }).body?.error === 'plan_edit_locked');
 }
 
 function parsePlanTagsInput(value: string) {
@@ -248,7 +462,8 @@ function parsePlanTagsInput(value: string) {
 }
 
 function planModeFromPlaces(places: PlaceFormState[]) {
-  const modes = new Set(places.map((place) => place.mode));
+  const actualPlaces = places.filter((place) => !isCustomPlanStop(place));
+  const modes = new Set(actualPlaces.map((place) => place.mode));
   if (modes.size > 1) return 'hybrid' as const;
   return modes.has('remote') ? 'remote' as const : 'local' as const;
 }
@@ -258,23 +473,23 @@ function rangeLabelFromSchedule(schedule: ReturnType<typeof buildPlanSchedule>) 
   return `${new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} → ${new Date(schedule.endsAt || schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
 }
 
-function parseOptionalPlanEnd(end: PlanEndState, fallbackStartAt: string) {
+function parseOptionalPlanEnd(end: PlanEndState, fallbackStartAt: string, t: Translator) {
   if (!end.date.trim() && !end.time.trim()) return { endsAt: '', error: '' };
-  if (!end.date.trim() || !end.time.trim()) return { endsAt: '', error: 'Add both an end date and end time, or leave the end empty.' };
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(end.date.trim()) || !/^\d{2}:\d{2}$/.test(end.time.trim())) return { endsAt: '', error: 'Add a valid end date and time, or leave the end empty.' };
+  if (!end.date.trim() || !end.time.trim()) return { endsAt: '', error: t('plans.create.validation.endBoth') };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(end.date.trim()) || !/^\d{2}:\d{2}$/.test(end.time.trim())) return { endsAt: '', error: t('plans.create.validation.invalidEnd') };
   const parsed = new Date(`${end.date}T${end.time}:00`);
-  if (Number.isNaN(parsed.getTime())) return { endsAt: '', error: 'Add a valid end date and time, or leave the end empty.' };
-  if (fallbackStartAt && parsed.getTime() < new Date(fallbackStartAt).getTime()) return { endsAt: '', error: 'End time must be after the Plan start.' };
+  if (Number.isNaN(parsed.getTime())) return { endsAt: '', error: t('plans.create.validation.invalidEnd') };
+  if (fallbackStartAt && parsed.getTime() < new Date(fallbackStartAt).getTime()) return { endsAt: '', error: t('plans.create.validation.endAfterStart') };
   return { endsAt: parsed.toISOString(), error: '' };
 }
 
-function parsePlanEndOverride(end: PlanEndState, fallbackStartAt: string) {
-  return parseOptionalPlanEnd(end, fallbackStartAt);
+function parsePlanEndOverride(end: PlanEndState, fallbackStartAt: string, t: Translator) {
+  return parseOptionalPlanEnd(end, fallbackStartAt, t);
 }
 
-function rangeLabelWithEnd(schedule: ReturnType<typeof buildPlanSchedule>, end: PlanEndState) {
+function rangeLabelWithEnd(schedule: ReturnType<typeof buildPlanSchedule>, end: PlanEndState, t: Translator) {
   if (!schedule.startsAt) return '';
-  const parsedEnd = parseOptionalPlanEnd(end, schedule.startsAt);
+  const parsedEnd = parseOptionalPlanEnd(end, schedule.startsAt, t);
   return rangeLabelFromSchedule({ ...schedule, endsAt: parsedEnd.endsAt || schedule.endsAt });
 }
 
@@ -329,15 +544,15 @@ function planTimePresetValue(preset: 'morning' | 'afternoon' | 'evening') {
   return '18:00';
 }
 
-function formatPlanInputDate(value: string) {
+function formatPlanInputDate(value: string, t: Translator) {
   const parsed = parseLocalPlanInput(value, '12:00');
-  if (!parsed) return value || 'Date not set';
+  if (!parsed) return value || t('plans.create.quick.dateNotSet');
   return parsed.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-function formatPlanInputTime(value: string) {
+function formatPlanInputTime(value: string, t: Translator) {
   const parsed = parseLocalPlanInput(dateInputFromDate(new Date()), value);
-  if (!parsed) return value || 'Time not set';
+  if (!parsed) return value || t('plans.create.quick.timeNotSet');
   return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
@@ -364,11 +579,12 @@ function selectedPlanRange(schedule: ReturnType<typeof buildPlanSchedule>, expli
   return { start, end };
 }
 
-function createPlanConflictWarning(plans: PlanDto[], schedule: ReturnType<typeof buildPlanSchedule>, explicitEnd: ReturnType<typeof parsePlanEndOverride>) {
+function createPlanConflictWarning(plans: PlanDto[], schedule: ReturnType<typeof buildPlanSchedule>, explicitEnd: ReturnType<typeof parsePlanEndOverride>, t: Translator, excludePlanId?: string) {
   const selected = selectedPlanRange(schedule, explicitEnd);
   if (!selected) return '';
   const oneHour = 60 * 60 * 1000;
   for (const plan of plans) {
+    if (excludePlanId && plan.id === excludePlanId) continue;
     if (plan.status === 'cancelled') continue;
     const start = new Date(plan.startsAt);
     const end = new Date(plan.endsAt || plan.startsAt);
@@ -376,13 +592,14 @@ function createPlanConflictWarning(plans: PlanDto[], schedule: ReturnType<typeof
     const bufferedStart = start.getTime() - oneHour;
     const bufferedEnd = Math.max(start.getTime(), end.getTime()) + oneHour;
     if (selected.start.getTime() < bufferedEnd && selected.end.getTime() > bufferedStart) {
-      return `This time overlaps or sits within 1 hour of “${plan.title || 'another Plan'}”. Leave at least 1 hour between Plans before publishing.`;
+      return t('plans.create.validation.timeConflict', { plan: plan.title || t('plans.create.validation.anotherPlan') });
     }
   }
   return '';
 }
 
 function QuickDateTimeButtons({ date, time, onChange }: { date: string; time: string; onChange: (patch: Partial<Pick<PlaceFormState, 'date' | 'time'>>) => void }) {
+  const { t } = useWebTranslation();
   const today = planDatePresetValue('today');
   const tomorrow = planDatePresetValue('tomorrow');
   const weekend = planDatePresetValue('weekend');
@@ -390,33 +607,33 @@ function QuickDateTimeButtons({ date, time, onChange }: { date: string; time: st
   return (
     <div className="plan-quick-time-card">
       <div className="plan-quick-time-card__summary">
-        <strong>{formatPlanInputDate(date)}</strong>
-        <span>{formatPlanInputTime(time)}</span>
+        <strong>{formatPlanInputDate(date, t)}</strong>
+        <span>{formatPlanInputTime(time, t)}</span>
       </div>
       <div className="plan-quick-picker-group">
-        <span>Quick date</span>
+        <span>{t('plans.create.quick.date')}</span>
         <div className="plan-quick-button-row">
-          <button type="button" className={date === today ? 'is-active' : ''} onClick={() => onChange({ date: today })}>Today</button>
-          <button type="button" className={date === tomorrow ? 'is-active' : ''} onClick={() => onChange({ date: tomorrow })}>Tomorrow</button>
-          <button type="button" className={date === weekend ? 'is-active' : ''} onClick={() => onChange({ date: weekend })}>This weekend</button>
-          <button type="button" className={date === nextWeek ? 'is-active' : ''} onClick={() => onChange({ date: nextWeek })}>Next week</button>
+          <button type="button" className={date === today ? 'is-active' : ''} onClick={() => onChange({ date: today })}>{t('plans.create.quick.today')}</button>
+          <button type="button" className={date === tomorrow ? 'is-active' : ''} onClick={() => onChange({ date: tomorrow })}>{t('plans.create.quick.tomorrow')}</button>
+          <button type="button" className={date === weekend ? 'is-active' : ''} onClick={() => onChange({ date: weekend })}>{t('plans.create.quick.weekend')}</button>
+          <button type="button" className={date === nextWeek ? 'is-active' : ''} onClick={() => onChange({ date: nextWeek })}>{t('plans.create.quick.nextWeek')}</button>
         </div>
       </div>
       <div className="plan-quick-picker-group">
-        <span>Quick time</span>
+        <span>{t('plans.create.quick.time')}</span>
         <div className="plan-quick-button-row">
-          <button type="button" className={time === planTimePresetValue('morning') ? 'is-active' : ''} onClick={() => onChange({ time: planTimePresetValue('morning') })}>Morning</button>
-          <button type="button" className={time === planTimePresetValue('afternoon') ? 'is-active' : ''} onClick={() => onChange({ time: planTimePresetValue('afternoon') })}>Afternoon</button>
-          <button type="button" className={time === planTimePresetValue('evening') ? 'is-active' : ''} onClick={() => onChange({ time: planTimePresetValue('evening') })}>Evening</button>
+          <button type="button" className={time === planTimePresetValue('morning') ? 'is-active' : ''} onClick={() => onChange({ time: planTimePresetValue('morning') })}>{t('plans.create.quick.morning')}</button>
+          <button type="button" className={time === planTimePresetValue('afternoon') ? 'is-active' : ''} onClick={() => onChange({ time: planTimePresetValue('afternoon') })}>{t('plans.create.quick.afternoon')}</button>
+          <button type="button" className={time === planTimePresetValue('evening') ? 'is-active' : ''} onClick={() => onChange({ time: planTimePresetValue('evening') })}>{t('plans.create.quick.evening')}</button>
         </div>
       </div>
       <div className="plan-timeline-row__fields plan-timeline-row__fields--compact">
         <label>
-          <span>Custom date</span>
+          <span>{t('plans.create.quick.customDate')}</span>
           <input type="date" value={date} onChange={(event) => onChange({ date: event.target.value })} required />
         </label>
         <label>
-          <span>Custom time</span>
+          <span>{t('plans.create.quick.customTime')}</span>
           <input type="time" value={time} onChange={(event) => onChange({ time: event.target.value })} required />
         </label>
       </div>
@@ -425,12 +642,13 @@ function QuickDateTimeButtons({ date, time, onChange }: { date: string; time: st
 }
 
 function DurationButtons({ startsAt, onSelect }: { startsAt: string; onSelect: (minutes: number) => void }) {
+  const { t } = useWebTranslation();
   return (
     <div className="plan-quick-picker-group plan-quick-picker-group--duration">
-      <span>Duration helper</span>
+      <span>{t('plans.create.duration.helper')}</span>
       <div className="plan-quick-button-row">
         {[30, 60, 90, 120].map((minutes) => <button key={minutes} type="button" disabled={!startsAt} onClick={() => onSelect(minutes)}>{durationLabel(minutes)}</button>)}
-        <button type="button" disabled={!startsAt}>Custom</button>
+        <button type="button" disabled={!startsAt}>{t('plans.create.duration.custom')}</button>
       </div>
     </div>
   );
@@ -446,9 +664,9 @@ function formatDurationMinutes(minutes?: number | null) {
   return `${remainder}m`;
 }
 
-function planEndSummary(schedule: ReturnType<typeof buildPlanSchedule>, end: PlanEndState) {
+function planEndSummary(schedule: ReturnType<typeof buildPlanSchedule>, end: PlanEndState, t: Translator) {
   if (!schedule.startsAt) return null;
-  const parsedEnd = parseOptionalPlanEnd(end, schedule.startsAt);
+  const parsedEnd = parseOptionalPlanEnd(end, schedule.startsAt, t);
   const hasManualInput = hasPlanEndOverride(end);
   if (hasManualInput && parsedEnd.error) return null;
   const manual = hasManualInput && Boolean(parsedEnd.endsAt);
@@ -457,12 +675,12 @@ function planEndSummary(schedule: ReturnType<typeof buildPlanSchedule>, end: Pla
   const endLabel = formatPlanDateTime(endsAt);
   const estimatedDuration = formatDurationMinutes(schedule.estimatedFinalEnd?.roundedGapMinutes);
   const detail = manual
-    ? 'Manual override is active. Clear it to use the automatic estimate from the place times.'
+    ? t('plans.create.duration.manualDetail')
     : schedule.estimatedFinalEnd?.placeCount === 1
-      ? `Estimated from the single-place default${estimatedDuration ? ` (${estimatedDuration})` : ''}.`
-      : `Estimated from the average gap between places${estimatedDuration ? ` (${estimatedDuration})` : ''}.`;
+      ? t('plans.create.duration.singleEstimate', { duration: estimatedDuration ? ` (${estimatedDuration})` : '' })
+      : t('plans.create.duration.multipleEstimate', { duration: estimatedDuration ? ` (${estimatedDuration})` : '' });
   return {
-    label: manual ? 'Manual end' : 'Estimated end',
+    label: manual ? t('plans.create.duration.manualLabel') : t('plans.create.duration.estimatedLabel'),
     endsAt,
     endLabel,
     detail,
@@ -470,8 +688,8 @@ function planEndSummary(schedule: ReturnType<typeof buildPlanSchedule>, end: Pla
   };
 }
 
-function placeSourceLabel(place: PlaceDto) {
-  return place.source === 'hellowhen_library' ? 'hellowhen library' : 'my place';
+function placeSourceLabel(place: PlaceDto, t: Translator) {
+  return place.source === 'hellowhen_library' ? t('plans.create.placeDetail.sourceLibrary') : t('plans.create.placeDetail.sourceMine');
 }
 
 function libraryPlaceSource(place: PlaceDto): PlaceFormState['sourcePlaceSource'] {
@@ -482,25 +700,26 @@ function placeLocationForForm(place: PlaceDto) {
   return place.mode === 'remote' ? '' : place.formattedAddress ?? place.addressPublicText ?? place.areaLabel ?? '';
 }
 
-function placePreviewLocation(place: PlaceFormState) {
+function placePreviewLocation(place: PlaceFormState, t: Translator) {
+  if (isCustomPlanStop(place)) return t('plans.create.customStop.noAddressRequired');
   if (place.mode === 'remote') return place.onlineLabel.trim() || place.onlineUrl.trim() || place.location.trim();
   return place.location.trim();
 }
 
 
-function planPreviewTimeLabel(place: PlaceFormState) {
+function planPreviewTimeLabel(place: PlaceFormState, t: Translator) {
   if (place.date && place.time) return `${place.date} · ${place.time}`;
   if (place.time) return place.time;
-  return 'Time required';
+  return t('plans.create.time.timeRequired');
 }
 
-function planPreviewPlaceTitle(place: PlaceFormState, index: number) {
-  return place.title.trim() || place.sourcePlaceTitle?.trim() || `Place ${index + 1}`;
+function planPreviewPlaceTitle(place: PlaceFormState, index: number, t: Translator) {
+  return place.title.trim() || place.sourcePlaceTitle?.trim() || (isCustomPlanStop(place) ? customPlanStopTitle(place.kind as CustomPlanStopKind, t) : t('plans.create.place.label', { index: index + 1 }));
 }
 
 function incompleteOfflinePlaceIndexes(places: PlaceFormState[]) {
   return places.reduce<number[]>((indexes, place, index) => {
-    if (place.mode === 'local' && offlineProviderAddressError(place.providerAddress)) indexes.push(index);
+    if (!isCustomPlanStop(place) && place.mode === 'local' && offlineProviderAddressError(place.providerAddress)) indexes.push(index);
     return indexes;
   }, []);
 }
@@ -514,6 +733,7 @@ function applyReusablePlacePatch(place: PlaceDto): Partial<PlaceFormState> {
     sourcePlaceId: place.id,
     sourcePlaceSource: libraryPlaceSource(place),
     sourcePlaceTitle: place.title,
+    kind: 'place',
     mode: place.mode ?? 'local',
     title: place.title,
     location: placeLocationForForm(place),
@@ -521,6 +741,7 @@ function applyReusablePlacePatch(place: PlaceDto): Partial<PlaceFormState> {
     onlineLabel: place.onlineLabel ?? '',
     onlineUrl: place.onlineUrl ?? '',
     existingMedia: place.media?.[0] ?? null,
+    existingMediaBelongsToPlanPlace: false,
     existingStaticMap: place.staticMap ?? null,
     media: null,
   };
@@ -529,9 +750,11 @@ function applyReusablePlacePatch(place: PlaceDto): Partial<PlaceFormState> {
 function resetToCustomPatch(): Partial<PlaceFormState> {
   return {
     sourcePlaceId: undefined,
+    kind: 'place',
     sourcePlaceSource: 'custom',
     sourcePlaceTitle: undefined,
     existingMedia: null,
+    existingMediaBelongsToPlanPlace: false,
     existingStaticMap: null,
     providerAddress: emptyProviderAddressFormState(),
   };
@@ -545,57 +768,61 @@ function filterPlaces(places: PlaceDto[], query: string) {
 }
 
 function PlaceModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (value: PlanPlaceMode) => void }) {
+  const { t } = useWebTranslation();
   return (
-    <div className="plan-mode-segment" aria-label="Place type">
-      <button type="button" className={value === 'local' ? 'is-active' : ''} onClick={() => onChange('local')}>Local</button>
-      <button type="button" className={value === 'remote' ? 'is-active' : ''} onClick={() => onChange('remote')}>Remote</button>
+    <div className="plan-mode-segment" aria-label={t('plans.filters.groups.mode.title')}>
+      <button type="button" className={value === 'local' ? 'is-active' : ''} onClick={() => onChange('local')}>{t('plans.detail.values.local')}</button>
+      <button type="button" className={value === 'remote' ? 'is-active' : ''} onClick={() => onChange('remote')}>{t('plans.detail.values.online')}</button>
     </div>
   );
 }
 
 function PlaceImagePicker({ place, onUpload, onRemove }: { place: PlaceFormState; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; onRemove: () => void }) {
+  const { t } = useWebTranslation();
   const visibleMedia = place.media ?? place.existingMedia;
   return (
     <div className="plan-place-image-picker">
       <label className="image-upload-button">
         <input type="file" accept="image/jpeg,image/png,image/webp" disabled={place.uploading || Boolean(visibleMedia)} onChange={onUpload} />
-        {place.uploading ? 'Uploading...' : visibleMedia ? 'One image selected' : 'Add place image'}
+        {place.uploading ? t('plans.create.image.uploading') : visibleMedia ? t('plans.create.image.selected') : t('plans.create.image.add')}
       </label>
       {visibleMedia ? (
         <figure>
-          <img src={planMediaSrc(visibleMedia)} alt={visibleMedia.filename ?? 'Place image'} />
+          <img src={planMediaSrc(visibleMedia)} alt={visibleMedia.filename ?? t('plans.create.place.name')} />
           <figcaption>
-            <span className="semantic-badge instruction">1 image</span>
-            {place.media ? <button type="button" className="secondary" onClick={onRemove}>Remove new image</button> : <span className="meta">Saved place image</span>}
+            <span className="semantic-badge instruction">{t('plans.create.image.selectedBadge')}</span>
+            {place.media ? <button type="button" className="secondary" onClick={onRemove}>{t('plans.create.image.removeNew')}</button> : <span className="meta">{t('plans.create.image.saved')}</span>}
           </figcaption>
         </figure>
-      ) : <p className="meta">One image per place for this first version.</p>}
+      ) : <p className="meta">{t('plans.create.image.firstVersion')}</p>}
     </div>
   );
 }
 
 function PlanPlaceTimelineButton({ place, index, onOpen }: { place: PlaceFormState; index: number; onOpen: () => void }) {
-  const imageSrc = planMediaSrc(place.media ?? place.existingMedia);
+  const { t } = useWebTranslation();
+  const customStop = isCustomPlanStop(place);
+  const imageSrc = customStop ? '' : planMediaSrc(place.media ?? place.existingMedia);
   return (
     <button type="button" className="plan-timeline-row__main plan-timeline-row__main--button plan-place-summary-button" onClick={onOpen}>
       <span className="plan-place-summary-button__media" aria-hidden="true">
-        {imageSrc ? <img src={imageSrc} alt="" loading="lazy" /> : <WebIcon name="location-on" size={24} decorative />}
+        {imageSrc ? <img src={imageSrc} alt="" loading="lazy" /> : <WebIcon name={customStop && place.kind === 'meeting_point' ? 'location-on' : customStop ? 'plan' : 'location-on'} size={24} decorative />}
       </span>
       <span className="plan-place-summary-button__copy">
         <span className="plan-timeline-row__heading">
-          <span className="semantic-badge place">Place {index + 1}</span>
-          {place.sourcePlaceId ? <span className="semantic-badge place">{place.sourcePlaceSource === 'hellowhen_library' ? 'Library' : 'My Place'}</span> : <span className="semantic-badge place">Custom</span>}
+          <span className={`semantic-badge ${customStop ? 'time' : 'place'}`}>{customStop ? t('plans.create.customStop.detailTitle', { index: index + 1 }) : t('plans.create.place.label', { index: index + 1 })}</span>
+          {customStop ? <span className="semantic-badge time">{customPlanStopTitle(place.kind as CustomPlanStopKind, t)}</span> : place.sourcePlaceId ? <span className="semantic-badge place">{place.sourcePlaceSource === 'hellowhen_library' ? t('plans.create.placeDetail.sourceLibrary') : t('plans.create.placeDetail.sourceMine')}</span> : <span className="semantic-badge place">{t('plans.create.placeDetail.sourceCustom')}</span>}
         </span>
-        <strong>{planPreviewPlaceTitle(place, index)}</strong>
-        <small>{placePreviewLocation(place) || 'No location yet'}</small>
+        <strong>{planPreviewPlaceTitle(place, index, t)}</strong>
+        <small>{placePreviewLocation(place, t) || (customStop ? t('plans.create.customStop.noAddressTitle') : t('plans.create.place.noLocation'))}</small>
       </span>
     </button>
   );
 }
 
-function reusablePlaceAddressError(place: PlaceDto) {
-  if (place.mode === 'remote') return onlineDestinationError({ onlineUrl: place.onlineUrl });
-  return offlineProviderAddressError(providerAddressFormStateFromStoredPlace(place));
+function reusablePlaceAddressError(place: PlaceDto, t: Translator) {
+  if (place.mode === 'remote') return onlineDestinationError({ onlineUrl: place.onlineUrl }) ? t('plans.create.sourcePicker.addOnlineUrl') : '';
+  return offlineProviderAddressError(providerAddressFormStateFromStoredPlace(place)) ? t('plans.create.sourcePicker.fixAddress') : '';
 }
 
 function PlacePickerList({
@@ -607,13 +834,14 @@ function PlacePickerList({
   emptyLabel: string;
   onChoose: (place: PlaceDto) => void;
 }) {
+  const { t } = useWebTranslation();
   if (!places.length) return <p className="meta">{emptyLabel}</p>;
   return (
     <div className="plan-place-picker-list">
       {places.map((place) => {
         const media = place.media?.[0] ?? null;
-        const addressError = reusablePlaceAddressError(place);
-        const meta = [planPlaceModeLabel(place.mode), place.category, place.formattedAddress || place.addressPublicText || place.onlineLabel]
+        const addressError = reusablePlaceAddressError(place, t);
+        const meta = [place.mode === 'remote' ? t('plans.detail.values.online') : t('plans.detail.values.local'), place.category, place.formattedAddress || place.addressPublicText || place.onlineLabel]
           .filter((value): value is string => Boolean(value && value.trim()))
           .join(' · ');
         return (
@@ -623,9 +851,9 @@ function PlacePickerList({
             </span>
             <span className="plan-place-picker-card__body">
               <strong>{place.title}</strong>
-              <small>{addressError || meta || placeSourceLabel(place)}</small>
+              <small>{addressError || meta || placeSourceLabel(place, t)}</small>
             </span>
-            <span className="semantic-badge instruction">{addressError ? 'Fix first' : 'Use'}</span>
+            <span className="semantic-badge instruction">{addressError ? t('plans.create.place.fix') : t('common.actions.continue')}</span>
           </button>
         );
       })}
@@ -636,6 +864,7 @@ function PlacePickerList({
 type PlanCreateClientProps = {
   plansEnabled?: boolean;
   plansVisible?: boolean;
+  editingPlanId?: string;
 };
 
 function AdvancedPlanDetailsCard({
@@ -653,6 +882,7 @@ function AdvancedPlanDetailsCard({
   onToggle: () => void;
   onChange: (patch: Partial<AdvancedPlanDetailsState>) => void;
 }) {
+  const { t } = useWebTranslation();
   return (
     <section className="plan-advanced-details">
       <button
@@ -661,41 +891,46 @@ function AdvancedPlanDetailsCard({
         aria-expanded={open}
         onClick={onToggle}
       >
-        <span>More options</span>
-        <small>{open ? 'Hide custom Plan details' : 'Optional title, description, category, tags'}</small>
+        <span>{t('plans.create.advanced.title')}</span>
+        <small>{open ? t('plans.create.advanced.hide') : t('plans.create.advanced.show')}</small>
         <strong>{open ? '−' : '+'}</strong>
       </button>
       {open ? (
         <div className="plan-advanced-details__panel">
           <label>
-            <span>Custom Plan title</span>
+            <span>{t('plans.create.advanced.planTitle')}</span>
             <input value={details.title} onChange={(event) => onChange({ title: event.target.value })} minLength={3} maxLength={120} placeholder={generatedTitle} />
           </label>
           <label>
-            <span>Custom Plan description</span>
+            <span>{t('plans.create.advanced.planDescription')}</span>
             <textarea value={details.description} onChange={(event) => onChange({ description: event.target.value })} minLength={10} maxLength={2000} placeholder={generatedDescription} />
           </label>
           <div className="plan-form__row">
             <label>
-              <span>Category</span>
-              <input value={details.category} onChange={(event) => onChange({ category: event.target.value })} maxLength={80} placeholder="Culture, food, startup..." />
+              <span>{t('plans.create.advanced.category')}</span>
+              <input value={details.category} onChange={(event) => onChange({ category: event.target.value })} maxLength={80} placeholder={t('plans.create.advanced.categoryPlaceholder')} />
             </label>
             <label>
-              <span>Tags</span>
-              <input value={details.tags} onChange={(event) => onChange({ tags: event.target.value })} maxLength={280} placeholder="Paris, coffee, weekend" />
+              <span>{t('plans.create.advanced.tags')}</span>
+              <input value={details.tags} onChange={(event) => onChange({ tags: event.target.value })} maxLength={280} placeholder={t('plans.create.advanced.tagsPlaceholder')} />
             </label>
           </div>
-          <p className="meta">Leave these empty to use the generated place/time summary. Tags can be separated by commas.</p>
+          <p className="meta">{t('plans.create.advanced.help')}</p>
         </div>
       ) : null}
     </section>
   );
 }
 
-export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClientProps) {
+export function PlanCreateClient({ plansEnabled, plansVisible, editingPlanId }: PlanCreateClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const auth = useWebAuth();
+  const { t } = useWebTranslation();
+  const isEditing = Boolean(editingPlanId);
+  const authenticatedUserId = auth.user?.id ?? null;
+  const planDraftStorageKey = useMemo(() => authenticatedUserId ? buildWebUserSessionStorageKey(authenticatedUserId, PLAN_CREATE_DRAFT_SCOPE) : null, [authenticatedUserId]);
+  const pendingPlaceIndexStorageKey = useMemo(() => authenticatedUserId ? buildWebUserSessionStorageKey(authenticatedUserId, PLAN_CREATE_PENDING_PLACE_INDEX_SCOPE) : null, [authenticatedUserId]);
   const createdPlaceId = searchParams.get('createdPlaceId');
   const updatedPlaceId = searchParams.get('updatedPlaceId');
   const initialPlanIdeaKey = parseStarterPlanIdeaKey(searchParams.get('idea'));
@@ -703,9 +938,13 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   const handledCreatedPlaceIdRef = useRef<string | null>(null);
   const handledUpdatedPlaceIdRef = useRef<string | null>(null);
   const creatingPlanRef = useRef(false);
-  const [places, setPlaces] = useState<PlaceFormState[]>(() => safeReadPlanDraft());
-  const [advancedDetails, setAdvancedDetails] = useState<AdvancedPlanDetailsState>(() => safeReadAdvancedPlanDetails());
-  const [planEnd, setPlanEnd] = useState<PlanEndState>(() => safeReadPlanEndState());
+  const reusablePlacesLoadVersionRef = useRef(0);
+  const [draftHydratedUserId, setDraftHydratedUserId] = useState<string | null>(null);
+  const [places, setPlaces] = useState<PlaceFormState[]>([]);
+  const [advancedDetails, setAdvancedDetails] = useState<AdvancedPlanDetailsState>(EMPTY_ADVANCED_PLAN_DETAILS);
+  const [planEnd, setPlanEnd] = useState<PlanEndState>(EMPTY_PLAN_END_STATE);
+  const [joinDeadline, setJoinDeadline] = useState<PlanJoinDeadlineState>(DEFAULT_PLAN_JOIN_DEADLINE);
+  const [participantCapacity, setParticipantCapacity] = useState<PlanParticipantCapacityState>(DEFAULT_PLAN_PARTICIPANT_CAPACITY);
   const [stage, setStage] = useState<PlanCreateStage>('build');
   const [advancedDetailsOpen, setAdvancedDetailsOpen] = useState(false);
   const [myPlaces, setMyPlaces] = useState<PlaceDto[]>([]);
@@ -719,6 +958,9 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   const [placeQuery, setPlaceQuery] = useState('');
   const [saving, setSaving] = useState(false);
   const [createdPlanId, setCreatedPlanId] = useState<string | null>(null);
+  const [editingPlan, setEditingPlan] = useState<PlanDto | null>(null);
+  const [editingPlanLoading, setEditingPlanLoading] = useState(Boolean(editingPlanId));
+  const [editingPlanLocked, setEditingPlanLocked] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [addressGuidanceNotice, setAddressGuidanceNotice] = useState('');
@@ -729,10 +971,12 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   const placesForGeneratedDisplay = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceTitle?.trim()), [places]);
   const schedulablePlaces = useMemo(() => places.filter((place) => place.title.trim() || place.sourcePlaceId), [places]);
   const schedule = useMemo(() => buildPlanSchedule(schedulablePlaces), [schedulablePlaces]);
-  const explicitPlanEnd = useMemo(() => parsePlanEndOverride(planEnd, schedule.startsAt), [planEnd, schedule.startsAt]);
-  const endSummary = useMemo(() => planEndSummary(schedule, planEnd), [schedule, planEnd]);
-  const conflictWarning = useMemo(() => createPlanConflictWarning(myPlansForConflict, schedule, explicitPlanEnd), [explicitPlanEnd, myPlansForConflict, schedule]);
-  const rangeLabel = rangeLabelWithEnd(schedule, planEnd);
+  const explicitPlanEnd = useMemo(() => parsePlanEndOverride(planEnd, schedule.startsAt, t), [planEnd, schedule.startsAt, t]);
+  const endSummary = useMemo(() => planEndSummary(schedule, planEnd, t), [schedule, planEnd, t]);
+  const joinDeadlineSummary = useMemo(() => resolvePlanJoinDeadline(joinDeadline, schedule.startsAt, t), [joinDeadline, schedule.startsAt, t]);
+  const participantCapacitySummary = useMemo(() => resolvePlanParticipantCapacity(participantCapacity, t), [participantCapacity, t]);
+  const conflictWarning = useMemo(() => createPlanConflictWarning(myPlansForConflict, schedule, explicitPlanEnd, t, editingPlanId), [editingPlanId, explicitPlanEnd, myPlansForConflict, schedule, t]);
+  const rangeLabel = rangeLabelWithEnd(schedule, planEnd, t);
   const generatedPlanDisplay = useMemo(() => buildGeneratedPlanDisplay({
     places: placesForGeneratedDisplay,
     startsAt: schedule.startsAt,
@@ -749,7 +993,39 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   const incompleteOfflineIds = useMemo(() => incompleteOfflineIndexes.map((index) => places[index]?.id).filter((id): id is string => Boolean(id)), [incompleteOfflineIndexes, places]);
   const validationNotice = error || addressGuidanceNotice;
 
+  useEffect(() => {
+    handledPlanIdeaKeyRef.current = null;
+    handledCreatedPlaceIdRef.current = null;
+    handledUpdatedPlaceIdRef.current = null;
+    if (!isEditing) {
+      setStage('build');
+      setMessage('');
+      setError('');
+    }
+  }, [authenticatedUserId, isEditing]);
+
+  useEffect(() => {
+    if (isEditing || !auth.hydrated) return;
+    if (!authenticatedUserId || !planDraftStorageKey) {
+      setDraftHydratedUserId(null);
+      setPlaces([]);
+      setAdvancedDetails(EMPTY_ADVANCED_PLAN_DETAILS);
+      setPlanEnd(EMPTY_PLAN_END_STATE);
+      setJoinDeadline(DEFAULT_PLAN_JOIN_DEADLINE);
+      setParticipantCapacity(DEFAULT_PLAN_PARTICIPANT_CAPACITY);
+      return;
+    }
+    setPlaces(safeReadPlanDraft(planDraftStorageKey));
+    setAdvancedDetails(safeReadAdvancedPlanDetails(planDraftStorageKey));
+    setPlanEnd(safeReadPlanEndState(planDraftStorageKey));
+    setJoinDeadline(safeReadPlanJoinDeadline(planDraftStorageKey));
+    setParticipantCapacity(safeReadPlanParticipantCapacity(planDraftStorageKey));
+    setDraftHydratedUserId(authenticatedUserId);
+  }, [auth.hydrated, authenticatedUserId, isEditing, planDraftStorageKey]);
+
   async function loadReusablePlaces() {
+    const loadVersion = reusablePlacesLoadVersionRef.current + 1;
+    reusablePlacesLoadVersionRef.current = loadVersion;
     setLoadingPlaces(true);
     try {
       const [mineResponse, libraryResponse, plansResponse] = await Promise.all([
@@ -757,33 +1033,108 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
         api.places.library({ take: 100 }),
         api.plans.mine(),
       ]);
+      if (loadVersion !== reusablePlacesLoadVersionRef.current) return;
       setMyPlaces(mineResponse.places);
       setLibraryPlaces(libraryResponse.places);
       setMyPlansForConflict(plansResponse.plans ?? []);
     } catch (loadError) {
-      setError(getFriendlyApiErrorMessage(loadError, 'Could not load Place Library. You can still add custom places.'));
+      if (loadVersion !== reusablePlacesLoadVersionRef.current) return;
+      setError(getFriendlyApiErrorMessage(loadError, t('plans.create.sourcePicker.loadFailed')));
     } finally {
-      setLoadingPlaces(false);
+      if (loadVersion === reusablePlacesLoadVersionRef.current) setLoadingPlaces(false);
     }
   }
 
   useEffect(() => {
-    if (!auth.hydrated || !auth.isAuthenticated) return;
+    if (!auth.hydrated) return;
+    if (!auth.isAuthenticated || !authenticatedUserId) {
+      reusablePlacesLoadVersionRef.current += 1;
+      setLoadingPlaces(false);
+      setMyPlaces([]);
+      setLibraryPlaces([]);
+      setMyPlansForConflict([]);
+      return;
+    }
+    setMyPlaces([]);
+    setLibraryPlaces([]);
+    setMyPlansForConflict([]);
     void loadReusablePlaces();
-  }, [auth.hydrated, auth.isAuthenticated]);
+  }, [auth.hydrated, auth.isAuthenticated, authenticatedUserId]);
 
   useEffect(() => {
-    if (!initialPlanIdeaKey || handledPlanIdeaKeyRef.current === initialPlanIdeaKey || places.length > 0) return;
+    if (!editingPlanId) {
+      setEditingPlanLoading(false);
+      return undefined;
+    }
+    if (!auth.hydrated) return undefined;
+    if (!auth.isAuthenticated) {
+      setEditingPlanLoading(false);
+      return undefined;
+    }
+    let active = true;
+    setEditingPlanLoading(true);
+    setEditingPlanLocked(false);
+    setError('');
+    setMessage('');
+    void (async () => {
+      try {
+        const response = await api.plans.get(editingPlanId);
+        if (!active) return;
+        const publishedPlan = response.plan;
+        setEditingPlan(publishedPlan);
+        if (publishedPlan.ownerId !== auth.user?.id) {
+          setEditingPlanLocked(true);
+          setError(t('plans.create.edit.ownerOnly'));
+          setPlaces([]);
+          return;
+        }
+        if (!publishedPlan.ownerCanEdit) {
+          setEditingPlanLocked(true);
+          setError(t('plans.create.edit.locked'));
+          setPlaces([]);
+          return;
+        }
+        setPlaces([...(publishedPlan.places ?? [])]
+          .sort((left, right) => left.order - right.order)
+          .map((place, index) => placeFormFromPublishedPlanPlace(place, index)));
+        setAdvancedDetails({
+          title: publishedPlan.title ?? '',
+          description: publishedPlan.description ?? '',
+          category: publishedPlan.category ?? '',
+          tags: (publishedPlan.tags ?? []).join(', '),
+        });
+        setPlanEnd(planEndStateFromPublishedPlan(publishedPlan));
+        setJoinDeadline(planJoinDeadlineStateFromPublishedPlan(publishedPlan));
+        setParticipantCapacity(publishedPlan.maxParticipants ? { mode: 'limited', limit: String(publishedPlan.maxParticipants) } : DEFAULT_PLAN_PARTICIPANT_CAPACITY);
+        setAdvancedDetailsOpen(Boolean(publishedPlan.title || publishedPlan.description || publishedPlan.category || publishedPlan.tags?.length));
+        setStage('build');
+        setMessage(t('plans.create.edit.loaded'));
+      } catch (loadError) {
+        if (!active) return;
+        setEditingPlan(null);
+        setError(getFriendlyApiErrorMessage(loadError, t('plans.create.edit.loadFailed')));
+      } finally {
+        if (active) setEditingPlanLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [auth.hydrated, auth.isAuthenticated, auth.user?.id, editingPlanId]);
+
+  useEffect(() => {
+    if (isEditing || !authenticatedUserId || draftHydratedUserId !== authenticatedUserId || !initialPlanIdeaKey || handledPlanIdeaKeyRef.current === initialPlanIdeaKey || places.length > 0) return;
     const idea = starterPlanIdeas[initialPlanIdeaKey];
     const date = toDateInputValue();
     handledPlanIdeaKeyRef.current = initialPlanIdeaKey;
     setPlaces(idea.stops.map((stop, index) => makePlaceFromPlanIdeaStop(stop, index, date)));
-    setMessage('Starter Plan idea loaded. Offline stops are prompts only: select real address suggestions, and add online links before publishing.');
-  }, [initialPlanIdeaKey, places.length]);
+    setMessage(t('plans.create.feedback.starterLoaded'));
+  }, [authenticatedUserId, draftHydratedUserId, initialPlanIdeaKey, isEditing, places.length]);
 
   useEffect(() => {
-    storePlanDraft(places, advancedDetails, planEnd);
-  }, [places, advancedDetails, planEnd]);
+    if (isEditing || !authenticatedUserId || draftHydratedUserId !== authenticatedUserId) return;
+    storePlanDraft(planDraftStorageKey, places, advancedDetails, planEnd, joinDeadline, participantCapacity);
+  }, [advancedDetails, authenticatedUserId, draftHydratedUserId, isEditing, joinDeadline, participantCapacity, places, planDraftStorageKey, planEnd]);
 
 
   useEffect(() => {
@@ -804,6 +1155,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   }, [addressFocusPlaceId, expandedAddressPlaceIds.length, stage]);
 
   useEffect(() => {
+    if (isEditing) return;
     const returnedPlaceId = createdPlaceId || updatedPlaceId;
     const isUpdateReturn = Boolean(updatedPlaceId);
     const handledRef = isUpdateReturn ? handledUpdatedPlaceIdRef : handledCreatedPlaceIdRef;
@@ -811,7 +1163,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     const returnedPlace = myPlaces.find((place) => place.id === returnedPlaceId);
     if (!returnedPlace) return;
     handledRef.current = returnedPlaceId;
-    const pendingIndex = takePendingCreatedPlaceIndex();
+    const pendingIndex = takePendingCreatedPlaceIndex(pendingPlaceIndexStorageKey);
     setPlaces((current) => {
       if (pendingIndex !== null && current[pendingIndex]) {
         return current.map((place, placeIndex) => placeIndex === pendingIndex ? { ...place, ...applyReusablePlacePatch(returnedPlace) } : place);
@@ -828,12 +1180,17 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
         },
       ];
     });
-    setMessage(isUpdateReturn ? 'Place updated in this Plan.' : 'Place saved and added to this Plan.');
+    setMessage(isUpdateReturn ? t('plans.create.feedback.placeUpdated') : t('plans.create.feedback.placeAdded'));
     router.replace('/plans/new', { scroll: false });
-  }, [createdPlaceId, myPlaces, router, updatedPlaceId]);
+  }, [createdPlaceId, isEditing, myPlaces, pendingPlaceIndexStorageKey, router, updatedPlaceId]);
 
   function updatePlace(index: number, update: Partial<PlaceFormState>) {
     setPlaces((current) => current.map((place, placeIndex) => placeIndex === index ? { ...place, ...update } : place));
+    setError('');
+  }
+
+  function updatePlaceSchedule(index: number, update: Partial<Pick<PlaceFormState, 'date' | 'time'>>) {
+    setPlaces((current) => cascadePlanStopDateTimeChange(current, index, update));
     setError('');
   }
 
@@ -856,6 +1213,11 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     setPlaceQuery('');
   }
 
+  function openCustomStopPicker() {
+    setPickerView('custom_stop');
+    setPlaceQuery('');
+  }
+
   function useCustomPlaceFromPicker() {
     if (pickerTarget === 'new') {
       const nextIndex = places.length;
@@ -872,23 +1234,36 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     closePlacePicker();
   }
 
+  function useCustomStopFromPicker(kind: CustomPlanStopKind) {
+    if (pickerTarget === null) return;
+    if (pickerTarget === 'new') {
+      const nextIndex = places.length;
+      setPlaces((current) => {
+        const nextStart = nextPlaceStartParts(current);
+        return [...current, makeCustomPlanStop(kind, current.length, nextStart.date, nextStart.time)];
+      });
+      setDetailPlaceIndex(nextIndex);
+    } else {
+      const targetIndex = pickerTarget;
+      setPlaces((current) => current.map((item, index) => {
+        if (index !== targetIndex) return item;
+        const next = makeCustomPlanStop(kind, index, item.date || toDateInputValue(), item.time);
+        return { ...next, id: item.id, date: item.date || next.date, time: item.time || next.time };
+      }));
+      setDetailPlaceIndex(targetIndex);
+    }
+    closePlacePicker();
+    setMessage(t('plans.create.feedback.customStopAdded'));
+    setError('');
+  }
+
   function removePlace(index: number) {
     setPlaces((current) => current.filter((_, placeIndex) => placeIndex !== index));
     setDetailPlaceIndex(null);
   }
 
   function movePlace(index: number, direction: -1 | 1) {
-    setPlaces((current) => {
-      const nextIndex = index + direction;
-      if (nextIndex < 0 || nextIndex >= current.length) return current;
-      const next = [...current];
-      const currentPlace = next[index];
-      const targetPlace = next[nextIndex];
-      if (!currentPlace || !targetPlace) return current;
-      next[index] = targetPlace;
-      next[nextIndex] = currentPlace;
-      return next;
-    });
+    setPlaces((current) => reorderPlanStopsPreservingTimeline(current, index, direction));
   }
 
   function openPicker(index: number) {
@@ -900,16 +1275,26 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   }
 
   function openCreatePlaceFromPicker() {
-    storePlanDraft(places, advancedDetails, planEnd);
-    setPendingCreatedPlaceIndex(typeof pickerTarget === 'number' ? pickerTarget : null);
+    if (isEditing) {
+      setError(t('plans.create.sourcePicker.finishEditFirst'));
+      closePlacePicker();
+      return;
+    }
+    storePlanDraft(planDraftStorageKey, places, advancedDetails, planEnd, joinDeadline, participantCapacity);
+    setPendingCreatedPlaceIndex(pendingPlaceIndexStorageKey, typeof pickerTarget === 'number' ? pickerTarget : null);
     router.push('/places/new?returnTo=plan');
   }
 
   function openEditMyPlaceFromDetail(index: number) {
     const place = places[index];
     if (!place?.sourcePlaceId || place.sourcePlaceSource !== 'my_place') return;
-    storePlanDraft(places, advancedDetails, planEnd);
-    setPendingCreatedPlaceIndex(index);
+    if (isEditing) {
+      setError(t('plans.create.sourcePicker.editSavedFirst'));
+      setDetailPlaceIndex(null);
+      return;
+    }
+    storePlanDraft(planDraftStorageKey, places, advancedDetails, planEnd, joinDeadline, participantCapacity);
+    setPendingCreatedPlaceIndex(pendingPlaceIndexStorageKey, index);
     setDetailPlaceIndex(null);
     router.push(`/places/${encodeURIComponent(place.sourcePlaceId)}/edit?returnTo=plan`);
   }
@@ -917,8 +1302,13 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
   function openCopyLibraryPlaceFromDetail(index: number) {
     const place = places[index];
     if (!place?.sourcePlaceId || place.sourcePlaceSource !== 'hellowhen_library') return;
-    storePlanDraft(places, advancedDetails, planEnd);
-    setPendingCreatedPlaceIndex(index);
+    if (isEditing) {
+      setError(t('plans.create.sourcePicker.copyEditFirst'));
+      setDetailPlaceIndex(null);
+      return;
+    }
+    storePlanDraft(planDraftStorageKey, places, advancedDetails, planEnd, joinDeadline, participantCapacity);
+    setPendingCreatedPlaceIndex(pendingPlaceIndexStorageKey, index);
     setDetailPlaceIndex(null);
     router.push(`/places/new?returnTo=plan&copyFromPlaceId=${encodeURIComponent(place.sourcePlaceId)}`);
   }
@@ -940,7 +1330,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
       updatePlace(pickerTarget, applyReusablePlacePatch(place));
     }
     closePlacePicker();
-    setMessage(`Added ${place.title} from ${placeSourceLabel(place)}.`);
+    setMessage(t('plans.create.feedback.placeAddedFrom', { place: place.title, source: placeSourceLabel(place, t) }));
   }
 
   function updateAdvancedDetails(update: Partial<AdvancedPlanDetailsState>) {
@@ -954,7 +1344,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
 
   function applyDuration(minutes: number) {
     if (!schedule.startsAt) {
-      setError('Choose a start date and time before selecting a duration.');
+      setError(t('plans.create.validation.chooseStartForDuration'));
       return;
     }
     updatePlanEnd(endStateFromDuration(schedule.startsAt, minutes));
@@ -971,15 +1361,18 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     setExpandedAddressPlaceIds((current) => mergeUniquePlaceIds(current, nextMissingIds));
     setAddressFocusPlaceId(nextMissingIds[0] ?? null);
     setError('');
-    setAddressGuidanceNotice(PLAN_OFFLINE_ADDRESS_TOP_ERROR);
+    setAddressGuidanceNotice(t('plans.create.validation.offlineTop'));
     return true;
   }
 
   function showPreviewStage() {
     setError('');
-    if (places.length === 0) { setError('Add at least one place before preview.'); return; }
+    if (places.length === 0) { setError(t('plans.create.validation.addBeforePreview')); return; }
+    if (!places.some((place) => !isCustomPlanStop(place))) { setError(t('plans.create.validation.addRealPlace')); return; }
     if (schedule.error) { setError(schedule.error); return; }
     if (explicitPlanEnd.error) { setError(explicitPlanEnd.error); return; }
+    if (joinDeadlineSummary.error) { setError(joinDeadlineSummary.error); return; }
+    if (participantCapacitySummary.error) { setError(participantCapacitySummary.error); return; }
     if (focusMissingOfflineAddresses()) return;
     const destinationError = validatePlaceDestinations(schedulablePlaces);
     if (destinationError) { setError(destinationError); return; }
@@ -999,9 +1392,9 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
       const response = await api.media.uploadImage(formData);
       const uploaded = normalizePlanMediaUpload(response);
       if (uploaded) updatePlace(index, { media: uploaded, existingMedia: null });
-      setMessage('Place image uploaded.');
+      setMessage(t('plans.create.image.uploaded'));
     } catch (uploadError) {
-      setError(getFriendlyApiErrorMessage(uploadError, 'Could not upload place image.'));
+      setError(getFriendlyApiErrorMessage(uploadError, t('plans.create.image.uploadFailed')));
     } finally {
       updatePlace(index, { uploading: false });
     }
@@ -1040,12 +1433,13 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
 
   function validatePlaceDestinations(usablePlaces: PlaceFormState[]) {
     for (const [index, place] of usablePlaces.entries()) {
+      if (isCustomPlanStop(place)) continue;
       if (place.mode === 'remote') {
         const destinationError = onlineDestinationError({ onlineUrl: place.onlineUrl });
-        if (destinationError) return `Place ${index + 1}: ${destinationError}`;
+        if (destinationError) return `${t('plans.create.place.label', { index: index + 1 })}: ${t('plans.create.sourcePicker.addOnlineUrl')}`;
       } else {
         const addressError = offlineProviderAddressError(place.providerAddress);
-        if (addressError) return `Place ${index + 1}: select a confirmed address suggestion before creating this offline stop.`;
+        if (addressError) return `${t('plans.create.place.label', { index: index + 1 })}: ${t('plans.create.validation.offlineInline')}`;
       }
     }
     return '';
@@ -1059,7 +1453,11 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     }
     if (creatingPlanRef.current) return;
     if (!auth.isAuthenticated) {
-      router.push('/auth?next=/plans/new');
+      router.push(`/auth?next=${encodeURIComponent(editingPlanId ? `/plans/${editingPlanId}/edit` : '/plans/new')}`);
+      return;
+    }
+    if (isEditing && (!editingPlan || editingPlanLocked)) {
+      setError(t('plans.create.edit.locked'));
       return;
     }
     const usablePlaces = places.filter((place) => place.title.trim() || place.sourcePlaceId);
@@ -1068,25 +1466,39 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     const customDescription = advancedDetails.description.trim();
     const customCategory = advancedDetails.category.trim();
     const customTags = parsePlanTagsInput(advancedDetails.tags);
-    const nextExplicitEnd = parsePlanEndOverride(planEnd, nextSchedule.startsAt);
+    const nextExplicitEnd = parsePlanEndOverride(planEnd, nextSchedule.startsAt, t);
+    const nextJoinDeadline = resolvePlanJoinDeadline(joinDeadline, nextSchedule.startsAt, t);
+    const nextParticipantCapacity = resolvePlanParticipantCapacity(participantCapacity, t);
     if (nextSchedule.error || !nextSchedule.startsAt || usablePlaces.length === 0) {
-      setError(nextSchedule.error || 'Add at least one place with a valid date and time.');
+      setError(nextSchedule.error || t('plans.create.validation.addValidPlace'));
+      return;
+    }
+    if (!usablePlaces.some((place) => !isCustomPlanStop(place))) {
+      setError(t('plans.create.validation.addRealPlace'));
       return;
     }
     if (nextExplicitEnd.error) {
       setError(nextExplicitEnd.error);
       return;
     }
+    if (nextJoinDeadline.error) {
+      setError(nextJoinDeadline.error);
+      return;
+    }
+    if (nextParticipantCapacity.error) {
+      setError(nextParticipantCapacity.error);
+      return;
+    }
     if (customTitle && customTitle.length < 3) {
-      setError('Custom Plan title must be at least 3 characters.');
+      setError(t('plans.create.validation.titleTooShort'));
       return;
     }
     if (customDescription && customDescription.length < 10) {
-      setError('Custom Plan description must be at least 10 characters, or leave it empty.');
+      setError(t('plans.create.validation.descriptionTooShort'));
       return;
     }
     if (customTags.length > 8 || customTags.some((tag) => tag.length > 32)) {
-      setError('Use up to 8 tags, each 32 characters or less.');
+      setError(t('plans.create.validation.tagsInvalid'));
       return;
     }
     if (focusMissingOfflineAddresses()) return;
@@ -1106,23 +1518,29 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
         mode: planModeFromPlaces(usablePlaces),
         joinApprovalMode: 'automatic',
       });
-      const response = await api.plans.create({
+      const planPayload = {
         title: customTitle || generatedPlanPayload.title,
         description: customDescription || generatedPlanPayload.description,
         category: customCategory || undefined,
         tags: customTags.length ? customTags : undefined,
         mode: planModeFromPlaces(usablePlaces),
+        locationLabel: editingPlan?.locationLabel ?? undefined,
         startsAt: nextSchedule.startsAt,
+        joinClosesAt: nextJoinDeadline.joinClosesAt || nextSchedule.startsAt,
         endsAt: nextExplicitEnd.endsAt || nextSchedule.endsAt,
-        joinApprovalMode: 'automatic',
-        status: 'open',
+        maxParticipants: nextParticipantCapacity.maxParticipants ?? undefined,
+        joinApprovalMode: isEditing ? editingPlan?.joinApprovalMode ?? 'automatic' : 'automatic',
+        status: 'open' as const,
+        mediaIds: isEditing && editingPlan?.media?.length ? editingPlan.media.map((media) => media.id) : undefined,
         places: usablePlaces.map((place, index) => {
-          const providerAddressPayload = place.mode === 'local' ? providerAddressPayloadFromFormState(place.providerAddress) : null;
+          const customStop = isCustomPlanStop(place);
+          const providerAddressPayload = !customStop && place.mode === 'local' ? providerAddressPayloadFromFormState(place.providerAddress) : null;
           return {
-            placeId: place.sourcePlaceId,
+            kind: place.kind,
+            placeId: customStop ? undefined : place.sourcePlaceId,
             mode: place.mode,
             title: place.title,
-            addressPublicText: place.mode === 'local' ? providerAddressPayload?.formattedAddress : undefined,
+            addressPublicText: !customStop && place.mode === 'local' ? providerAddressPayload?.formattedAddress : undefined,
             googlePlaceId: providerAddressPayload?.googlePlaceId,
             googlePlaceName: providerAddressPayload?.googlePlaceName,
             formattedAddress: providerAddressPayload?.formattedAddress,
@@ -1131,29 +1549,37 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
             longitude: providerAddressPayload?.longitude,
             locationSource: providerAddressPayload?.locationSource,
             addressValidationStatus: providerAddressPayload?.addressValidationStatus,
-            onlineLabel: place.mode === 'remote' ? place.onlineLabel.trim() || undefined : undefined,
-            onlineUrl: place.mode === 'remote' ? place.onlineUrl.trim() || undefined : undefined,
+            onlineLabel: !customStop && place.mode === 'remote' ? place.onlineLabel.trim() || undefined : undefined,
+            onlineUrl: !customStop && place.mode === 'remote' ? place.onlineUrl.trim() || undefined : undefined,
             startsAt: nextSchedule.placeStartsAt[index],
             endsAt: nextSchedule.placeEndsAt[index],
             order: index,
             mediaIds: selectedPlanPlaceMediaIds(place),
           };
         }),
-      });
+      };
+      const response = editingPlanId
+        ? await api.plans.replace(editingPlanId, planPayload)
+        : await api.plans.create(planPayload);
       const nextPlanId = response.plan.id;
       setCreatedPlanId(nextPlanId);
-      clearPlanDraft();
-      setMessage('Plan created. Opening the detail page...');
+      if (!isEditing) clearPlanDraft(planDraftStorageKey, pendingPlaceIndexStorageKey);
+      setMessage(isEditing ? t('plans.create.feedback.updated') : t('plans.create.feedback.created'));
       router.replace(`/plans/${encodeURIComponent(nextPlanId)}`);
     } catch (saveError) {
       creatingPlanRef.current = false;
-      setError(getFriendlyApiErrorMessage(saveError, 'Could not create Plan.'));
+      if (isPlanEditLockedError(saveError)) {
+        setEditingPlanLocked(true);
+        setError(t('plans.create.edit.saveLocked'));
+      } else {
+        setError(getFriendlyApiErrorMessage(saveError, isEditing ? t('plans.create.edit.updateFailed') : t('plans.create.feedback.createFailed')));
+      }
       setSaving(false);
     }
   }
 
   const pickerIsOpen = pickerTarget !== null;
-  const pickerTitle = pickerTarget === 'new' ? 'Add place' : `Place ${typeof pickerTarget === 'number' ? pickerTarget + 1 : ''}`;
+  const pickerTitle = pickerTarget === 'new' ? t('plans.create.timeline.addStop') : t('plans.create.customStop.detailTitle', { index: typeof pickerTarget === 'number' ? pickerTarget + 1 : '' });
   const detailPlace = detailPlaceIndex !== null ? places[detailPlaceIndex] : null;
 
   return (
@@ -1161,18 +1587,18 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
       <main className="mobile-page plans-page web-app-page web-app-page--create web-app-page--plans app-create-shell app-create-shell--plan">
         <header className="app-create-header">
           <div className="app-create-header__title-row">
-            <Link className="web-back-button app-create-back" href="/plans" aria-label="Back to Plans"><WebIcon name="back" size={18} decorative /></Link>
+            <Link className="web-back-button app-create-back" href={editingPlanId ? `/plans/${editingPlanId}` : '/plans'} aria-label={editingPlanId ? t('plans.create.intro.backToPlan') : t('plans.create.intro.backToPlans')}><WebIcon name="back" size={18} decorative /></Link>
             <div className="app-create-header__copy">
               <div className="app-create-header__eyebrow">
                 <PlansInternalBadge plansVisible={plansVisible} />
               </div>
-              <h1>Create Plan</h1>
-              <p>Build a simple plan from places, dates, and times.</p>
+              <h1>{isEditing ? t('plans.create.edit.headerTitle') : t('plans.create.headerTitle')}</h1>
+              <p>{isEditing ? t('plans.create.intro.edit') : t('plans.create.intro.create')}</p>
             </div>
           </div>
-          <div className="app-create-progress" aria-label={stage === 'build' ? 'Step 1 of 2' : 'Step 2 of 2'}>
+          <div className="app-create-progress" aria-label={stage === 'build' ? t('plans.create.intro.stepOne') : t('plans.create.intro.stepTwo')}>
             <div className="app-create-progress__label-row">
-              <span>{stage === 'build' ? 'Step 1 of 2' : 'Step 2 of 2'}</span>
+              <span>{stage === 'build' ? t('plans.create.intro.stepOne') : t('plans.create.intro.stepTwo')}</span>
             </div>
             <div className="app-create-progress__track" aria-hidden="true">
               <span className="app-create-progress__fill" style={{ width: stage === 'build' ? '50%' : '100%' }} />
@@ -1180,66 +1606,74 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
           </div>
         </header>
 
-        {!auth.hydrated ? <section className="mobile-card"><p className="meta">Checking session...</p></section> : null}
+        {!auth.hydrated || editingPlanLoading ? <section className="mobile-card"><p className="meta">{isEditing ? t('plans.create.edit.loadingTitle') : t('plans.create.intro.checkingSession')}</p></section> : null}
         {auth.hydrated && !auth.isAuthenticated ? (
           <section className="mobile-card mobile-card--soft">
-            <h3>Log in required</h3>
-            <p>Sign in with an account that has access to create Plans.</p>
-            <button type="button" className="button primary" onClick={() => router.push('/auth?next=/plans/new')}>Log in</button>
+            <h3>{t('plans.create.intro.loginRequired')}</h3>
+            <p>{isEditing ? t('plans.create.intro.loginEdit') : t('plans.create.intro.loginCreate')}</p>
+            <button type="button" className="button primary" onClick={() => router.push(`/auth?next=${encodeURIComponent(editingPlanId ? `/plans/${editingPlanId}/edit` : '/plans/new')}`)}>{t('plans.create.intro.login')}</button>
           </section>
         ) : null}
 
-        {auth.isAuthenticated ? (
+        {auth.isAuthenticated && isEditing && editingPlanLocked ? (
+          <section className="mobile-card mobile-card--soft">
+            <h3>{t('plans.create.edit.locked')}</h3>
+            <p>{error || t('plans.create.edit.lockedBody')}</p>
+            <Link className="button secondary" href={`/plans/${editingPlanId}`}>{t('plans.create.intro.backToPlan')}</Link>
+          </section>
+        ) : null}
+
+        {auth.isAuthenticated && (!isEditing || (!editingPlanLoading && !editingPlanLocked && editingPlan)) ? (
           <form className="plan-form plan-form--timeline plan-form--clean" onSubmit={submit}>
-            <div className="plan-stage-tabs" aria-label="Create Plan stages">
-              <button type="button" className={stage === 'build' ? 'is-active' : ''} onClick={() => setStage('build')}>Build</button>
-              <button type="button" className={stage === 'preview' ? 'is-active' : ''} onClick={showPreviewStage}>Preview</button>
+            <div className="plan-stage-tabs" aria-label={t('plans.create.optionsAccessibility')}>
+              <button type="button" className={stage === 'build' ? 'is-active' : ''} onClick={() => setStage('build')}>{t('plans.create.stages.build')}</button>
+              <button type="button" className={stage === 'preview' ? 'is-active' : ''} onClick={showPreviewStage}>{t('plans.create.stages.preview')}</button>
             </div>
 
             {stage === 'build' ? (
               <>
                 {addressGuidanceNotice ? <p className="form-error">{addressGuidanceNotice}</p> : null}
-                <section className="plan-build-timeline" aria-label="Build Plan timeline">
+                <section className="plan-build-timeline" aria-label={t('plans.create.timeline.buildAccessibility')}>
                   {places.map((place, index) => (
                     <div className="plan-place-time-group" key={place.id}>
                       <div className="plan-timeline-row plan-timeline-row--time plan-timeline-row--place-time">
                         <div className="plan-timeline-row__main">
-                          <span className="semantic-badge time">Date / time</span>
-                          <h3>Place {index + 1}</h3>
+                          <span className="semantic-badge time">{t('plans.create.timeline.dateTime')}</span>
+                          <h3>{isCustomPlanStop(place) ? t('plans.create.customStop.detailTitle', { index: index + 1 }) : t('plans.create.place.label', { index: index + 1 })}</h3>
                         </div>
-                        <QuickDateTimeButtons date={place.date} time={place.time} onChange={(patch) => updatePlace(index, patch)} />
+                        <QuickDateTimeButtons date={place.date} time={place.time} onChange={(patch) => updatePlaceSchedule(index, patch)} />
                       </div>
 
                       <div className="plan-timeline-row plan-timeline-row--place">
                         <PlanPlaceTimelineButton place={place} index={index} onOpen={() => setDetailPlaceIndex(index)} />
                         <div className="plan-timeline-row__actions">
-                          <button type="button" className="button secondary" onClick={() => setDetailPlaceIndex(index)}>Details</button>
+                          <button type="button" className="button secondary" onClick={() => setDetailPlaceIndex(index)}>{t('plans.create.place.openDetails')}</button>
                         </div>
                       </div>
 
-                      {expandedAddressPlaceIds.includes(place.id) && place.mode === 'local' ? (
+                      {expandedAddressPlaceIds.includes(place.id) && !isCustomPlanStop(place) && place.mode === 'local' ? (
                         <div
                           className="plan-starter-address-guidance"
                           ref={addressFocusPlaceId === place.id ? firstMissingOfflinePlaceRef : undefined}
                           tabIndex={-1}
                         >
                           <div className="plan-starter-address-guidance__copy">
-                            <span className="semantic-badge place">Address needed</span>
-                            <p className="form-error">{PLAN_OFFLINE_ADDRESS_INLINE_ERROR}</p>
+                            <span className="semantic-badge place">{t('plans.create.timeline.addressNeeded')}</span>
+                            <p className="form-error">{t('plans.create.validation.offlineInline')}</p>
                           </div>
                           <GooglePlacePicker
                             value={place.location}
                             onValueChange={(location) => updatePlaceManualLocation(index, location)}
                             onResolvedPlace={(resolvedPlace) => updatePlaceResolvedAddress(index, resolvedPlace)}
                             disabled={saving || place.uploading}
-                            label={`Verified address for Place ${index + 1}`}
-                            placeholder="Café, park, address, station..."
-                            helperText="Type at least 3 characters, then select a provider suggestion. Starter offline stops cannot use placeholder addresses."
+                            label={t('plans.create.place.verifiedAddress', { index: index + 1 })}
+                            placeholder={t('plans.create.google.defaultPlaceholder')}
+                            helperText={t('plans.create.place.starterAddressHelp')}
                             autoFocus={addressFocusPlaceId === place.id}
                           />
                           <div className="plan-starter-address-guidance__actions">
-                            <button type="button" className="button secondary" onClick={() => removePlace(index)}>Delete this place</button>
-                            <button type="button" className="button secondary" onClick={() => setDetailPlaceIndex(index)}>Open details</button>
+                            <button type="button" className="button secondary" onClick={() => removePlace(index)}>{t('plans.create.place.deleteThis')}</button>
+                            <button type="button" className="button secondary" onClick={() => setDetailPlaceIndex(index)}>{t('plans.create.place.openDetails')}</button>
                           </div>
                         </div>
                       ) : null}
@@ -1248,26 +1682,26 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
 
                   <div className="plan-timeline-row plan-timeline-row--add">
                     <button type="button" className={`plan-add-place-row ${places.length === 0 ? 'plan-add-place-row--first' : ''}`} onClick={addPlaceAndOpenPicker}>
-                      <span>+ Add place</span>
-                      <small>{places.length === 0 ? 'Choose the first stop' : 'Choose the next stop'}</small>
+                      <span>{t('plans.create.timeline.addStop')}</span>
+                      <small>{places.length === 0 ? t('plans.create.timeline.firstStop') : t('plans.create.timeline.nextStop')}</small>
                     </button>
                   </div>
 
                   {places.length > 0 ? (
                     <div className="plan-timeline-row plan-timeline-row--time plan-timeline-row--optional-end">
                       <div className="plan-timeline-row__main">
-                        <span className="semantic-badge time">Optional</span>
-                        <h3>Plan end time</h3>
-                        <p className="meta">Leave empty to use the estimated end from your place times.</p>
+                        <span className="semantic-badge time">{t('plans.create.timeline.optional')}</span>
+                        <h3>{t('plans.create.timeline.planEndTitle')}</h3>
+                        <p className="meta">{t('plans.create.timeline.planEndBody')}</p>
                       </div>
                       <DurationButtons startsAt={schedule.startsAt} onSelect={applyDuration} />
                       <div className="plan-timeline-row__fields">
                         <label>
-                          <span>Custom end date</span>
+                          <span>{t('plans.create.duration.endDate')}</span>
                           <input type="date" value={planEnd.date} onChange={(event) => updatePlanEnd({ date: event.target.value })} />
                         </label>
                         <label>
-                          <span>Custom end time</span>
+                          <span>{t('plans.create.duration.endTime')}</span>
                           <input type="time" value={planEnd.time} onChange={(event) => updatePlanEnd({ time: event.target.value })} />
                         </label>
                       </div>
@@ -1278,45 +1712,104 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                             <strong>{endSummary.endLabel}</strong>
                             <p>{endSummary.detail}</p>
                           </div>
-                          {endSummary.manual ? <button type="button" className="button secondary" onClick={() => updatePlanEnd(EMPTY_PLAN_END_STATE)}>Use estimate</button> : null}
+                          {endSummary.manual ? <button type="button" className="button secondary" onClick={() => updatePlanEnd(EMPTY_PLAN_END_STATE)}>{t('plans.create.duration.useEstimate')}</button> : null}
                         </div>
                       ) : null}
+                    </div>
+                  ) : null}
+
+                  {places.length > 0 ? (
+                    <div className="plan-timeline-row plan-timeline-row--time plan-timeline-row--optional-end">
+                      <div className="plan-timeline-row__main">
+                        <span className="semantic-badge plan">{t('plans.create.timeline.joining')}</span>
+                        <h3>{t('plans.create.timeline.joinDeadlineTitle')}</h3>
+                        <p className="meta">{t('plans.create.timeline.joinDeadlineBody')}</p>
+                      </div>
+                      <div className="plan-quick-picker-group">
+                        <span>{t('plans.create.timeline.closeJoining')}</span>
+                        <div className="plan-quick-button-row">
+                          {(['start', '1h', '3h', '1d'] as PlanJoinDeadlinePreset[]).map((preset) => (
+                            <button key={preset} type="button" className={joinDeadline.preset === preset ? 'is-active' : ''} onClick={() => setJoinDeadline({ preset, date: '', time: '' })}>{planJoinDeadlinePresetLabel(preset, t)}</button>
+                          ))}
+                          <button type="button" className={joinDeadline.preset === 'custom' ? 'is-active' : ''} onClick={() => setJoinDeadline((current) => ({ ...current, preset: 'custom' }))}>{t('plans.create.joinDeadline.custom')}</button>
+                        </div>
+                      </div>
+                      {joinDeadline.preset === 'custom' ? (
+                        <div className="plan-timeline-row__fields">
+                          <label>
+                            <span>{t('plans.create.joinDeadline.date')}</span>
+                            <input type="date" value={joinDeadline.date} onChange={(event) => setJoinDeadline((current) => ({ ...current, date: event.target.value }))} />
+                          </label>
+                          <label>
+                            <span>{t('plans.create.joinDeadline.time')}</span>
+                            <input type="time" value={joinDeadline.time} onChange={(event) => setJoinDeadline((current) => ({ ...current, time: event.target.value }))} />
+                          </label>
+                        </div>
+                      ) : null}
+                      <p className={joinDeadlineSummary.error ? 'form-error' : 'meta'}>{joinDeadlineSummary.error || `${joinDeadlineSummary.presetLabel} · ${joinDeadlineSummary.deadlineLabel}`}</p>
+                    </div>
+                  ) : null}
+
+                  {places.length > 0 ? (
+                    <div className="plan-timeline-row plan-timeline-row--time plan-timeline-row--optional-end">
+                      <div className="plan-timeline-row__main">
+                        <span className="semantic-badge proposal">{t('plans.create.timeline.people')}</span>
+                        <h3>{t('plans.create.capacity.title')}</h3>
+                        <p className="meta">{t('plans.create.timeline.capacityBody')}</p>
+                      </div>
+                      <div className="plan-quick-picker-group">
+                        <span>{t('plans.create.timeline.capacity')}</span>
+                        <div className="plan-quick-button-row">
+                          <button type="button" className={participantCapacity.mode === 'unlimited' ? 'is-active' : ''} onClick={() => setParticipantCapacity((current) => ({ ...current, mode: 'unlimited' }))}>{t('plans.create.capacity.unlimited')}</button>
+                          <button type="button" className={participantCapacity.mode === 'limited' ? 'is-active' : ''} onClick={() => setParticipantCapacity((current) => ({ ...current, mode: 'limited', limit: current.limit || '8' }))}>{t('plans.create.capacity.limited')}</button>
+                        </div>
+                      </div>
+                      {participantCapacity.mode === 'limited' ? (
+                        <div className="plan-timeline-row__fields plan-timeline-row__fields--optional">
+                          <label>
+                            <span>{t('plans.create.capacity.maximum')}</span>
+                            <input type="number" min={1} max={100} inputMode="numeric" value={participantCapacity.limit} onChange={(event) => setParticipantCapacity((current) => ({ ...current, limit: event.target.value.replace(/\D/g, '').slice(0, 3) }))} placeholder="8" />
+                          </label>
+                        </div>
+                      ) : null}
+                      <p className={participantCapacitySummary.error ? 'form-error' : 'meta'}>{participantCapacitySummary.error || (participantCapacity.mode === 'unlimited' ? t('plans.create.capacity.unlimitedHelp') : participantCapacitySummary.label)}</p>
                     </div>
                   ) : null}
                 </section>
 
                 {conflictWarning ? <p className="form-error">{conflictWarning}</p> : null}
                 {error ? <p className="form-error">{error}</p> : null}
-                {places.length > 0 ? <button className="button primary full" type="button" onClick={showPreviewStage} disabled={places.some((place) => place.uploading)}>Preview Plan</button> : null}
+                {places.length > 0 ? <button className="button primary full" type="button" onClick={showPreviewStage} disabled={places.some((place) => place.uploading)}>{t('plans.create.edit.previewChanges')}</button> : null}
               </>
             ) : (
               <>
                 <section className="plan-form__preview plan-preview-stage">
                   <div className="plan-preview-confirm-hero plan-preview-confirm-hero--simple">
                     <div className="plan-preview-confirm-hero__copy">
-                      <span className="semantic-badge plan">Preview</span>
+                      <span className="semantic-badge plan">{t('plans.create.stages.preview')}</span>
                       <h3>{previewTitle}</h3>
                       <p>{previewDescription}</p>
                     </div>
-                    <div className="plan-preview-inline-meta" aria-label="Plan confirmation summary">
-                      <span>{schedule.startsAt ? new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Start not set'}</span>
+                    <div className="plan-preview-inline-meta" aria-label={t('plans.create.preview.summaryAccessibility')}>
+                      <span>{schedule.startsAt ? new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : t('plans.create.preview.startNotSet')}</span>
                       {endSummary ? <span>{endSummary.label}: {endSummary.endLabel}</span> : null}
-                      <span>{places.length} {places.length === 1 ? 'place' : 'places'}</span>
-                      <span>Free join</span>
-                      <span>Open</span>
+                      <span>{places.some((place) => isCustomPlanStop(place)) ? (places.length === 1 ? t('plans.row.stopOne', { count: places.length }) : t('plans.row.stopMany', { count: places.length })) : (places.length === 1 ? t('plans.row.placeOne', { count: places.length }) : t('plans.row.placeMany', { count: places.length }))}</span>
+                      <span>{t('plans.detail.fields.joinCloses')}: {joinDeadlineSummary.deadlineLabel || t('plans.detail.values.notSet')}</span>
+                      <span>{participantCapacitySummary.previewLabel}</span>
+                      <span>{t('plans.detail.values.freeJoin')}</span>
                     </div>
                   </div>
 
                   <div className="plan-preview-deck-section">
                     <div className="plan-preview-section-heading">
-                      <span className="semantic-badge plan">Feed preview</span>
+                      <span className="semantic-badge plan">{t('plans.create.preview.feedPreview')}</span>
                     </div>
                     <div className="trade-create-preview__deck">
                       <PlanPreviewDeck
                         title={previewTitle}
                         description={previewDescription}
                         rangeLabel={rangeLabel}
-                        places={places.map((place, index) => ({ id: place.id, mode: place.mode, title: planPreviewPlaceTitle(place, index), location: placePreviewLocation(place), date: place.date, time: place.time, media: place.media ?? place.existingMedia, staticMap: place.existingStaticMap }))}
+                        places={places.map((place, index) => ({ id: place.id, kind: place.kind, mode: place.mode, title: planPreviewPlaceTitle(place, index, t), location: placePreviewLocation(place, t), date: place.date, time: place.time, media: isCustomPlanStop(place) ? null : place.media ?? place.existingMedia, staticMap: isCustomPlanStop(place) ? null : place.existingStaticMap }))}
                         className="trade-stack-deck--create-preview"
                       />
                     </div>
@@ -1330,16 +1823,16 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                     </div>
                   ) : null}
 
-                  <div className="plan-preview-itinerary" aria-label="Plan itinerary confirmation">
+                  <div className="plan-preview-itinerary" aria-label={t('plans.create.preview.itineraryAccessibility')}>
                     <div className="plan-preview-section-heading">
-                      <span className="semantic-badge place">Route</span>
+                      <span className="semantic-badge place">{t('plans.create.preview.route')}</span>
                     </div>
                     {places.map((place, index) => (
                       <div className="plan-preview-itinerary-row" key={`confirm-${place.id}`}>
                         <span className="plan-preview-itinerary-row__number">{index + 1}</span>
                         <div>
-                          <strong>{planPreviewPlaceTitle(place, index)}</strong>
-                          <small>{planPreviewTimeLabel(place)}{placePreviewLocation(place) ? ` · ${placePreviewLocation(place)}` : ''}</small>
+                          <strong>{planPreviewPlaceTitle(place, index, t)}</strong>
+                          <small>{planPreviewTimeLabel(place, t)}{placePreviewLocation(place, t) ? ` · ${placePreviewLocation(place, t)}` : ''}</small>
                         </div>
                       </div>
                     ))}
@@ -1348,11 +1841,11 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                 {message ? <p className="success-message">{message}</p> : null}
                 {validationNotice ? <p className="form-error">{validationNotice}</p> : null}
                 <div className="plan-preview-actions">
-                  <button type="button" className="button secondary" disabled={saving || Boolean(createdPlanId)} onClick={() => setStage('build')}>Back</button>
+                  <button type="button" className="button secondary" disabled={saving || Boolean(createdPlanId)} onClick={() => setStage('build')}>{t('plans.create.preview.back')}</button>
                   {createdPlanId ? (
-                    <Link className="button primary" href={`/plans/${encodeURIComponent(createdPlanId)}`}>Open created Plan</Link>
+                    <Link className="button primary" href={`/plans/${encodeURIComponent(createdPlanId)}`}>{t('plans.create.preview.openCreated')}</Link>
                   ) : (
-                    <button className="button primary" type="submit" disabled={saving || places.some((place) => place.uploading)}>{saving ? 'Creating Plan...' : 'Create Plan'}</button>
+                    <button className="button primary" type="submit" disabled={saving || places.some((place) => place.uploading)}>{saving ? (isEditing ? t('plans.create.edit.saving') : t('plans.create.preview.creating')) : (isEditing ? t('plans.create.edit.save') : t('plans.create.preview.create'))}</button>
                   )}
                 </div>
               </>
@@ -1362,35 +1855,73 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
 
         {detailPlace && detailPlaceIndex !== null ? (
           <div className="plan-place-source-overlay" role="presentation">
-            <button type="button" className="plan-place-source-backdrop" aria-label="Close place details" onClick={() => setDetailPlaceIndex(null)} />
-            <section className="plan-place-source-sheet plan-place-detail-sheet" role="dialog" aria-modal="true" aria-label={`Place ${detailPlaceIndex + 1} details`}>
+            <button type="button" className="plan-place-source-backdrop" aria-label={t('plans.create.placeDetail.closeAccessibility')} onClick={() => setDetailPlaceIndex(null)} />
+            <section className="plan-place-source-sheet plan-place-detail-sheet" role="dialog" aria-modal="true" aria-label={isCustomPlanStop(detailPlace) ? t('plans.create.customStop.detailTitle', { index: detailPlaceIndex + 1 }) : t('plans.create.place.label', { index: detailPlaceIndex + 1 })}>
               <div className="plan-detail-topbar">
                 <div>
-                  <h3>Place {detailPlaceIndex + 1}</h3>
+                  <h3>{isCustomPlanStop(detailPlace) ? t('plans.create.customStop.detailTitle', { index: detailPlaceIndex + 1 }) : t('plans.create.place.label', { index: detailPlaceIndex + 1 })}</h3>
                 </div>
-                <button type="button" className="plans-feed-icon-button" onClick={() => setDetailPlaceIndex(null)} aria-label="Close Place details">×</button>
+                <button type="button" className="plans-feed-icon-button" onClick={() => setDetailPlaceIndex(null)} aria-label={t('plans.create.placeDetail.closeAccessibility')}>×</button>
               </div>
               <div className="plan-place-picker-panel">
                 <div className="plan-timeline-row__heading">
-                  {detailPlace.sourcePlaceId ? <span className="semantic-badge place">{detailPlace.sourcePlaceSource === 'hellowhen_library' ? 'Library' : 'My Place'}</span> : <span className="semantic-badge place">Custom</span>}
+                  {isCustomPlanStop(detailPlace) ? <span className="semantic-badge time">{t('plans.create.customStop.badge')}</span> : detailPlace.sourcePlaceId ? <span className="semantic-badge place">{detailPlace.sourcePlaceSource === 'hellowhen_library' ? t('plans.create.placeDetail.sourceLibrary') : t('plans.create.placeDetail.sourceMine')}</span> : <span className="semantic-badge place">{t('plans.create.sourcePicker.customPlace')}</span>}
                 </div>
-                {!detailPlace.sourcePlaceId ? (
+                {isCustomPlanStop(detailPlace) ? (
+                  <>
+                    <div>
+                      <span className="meta">{t('plans.create.customStop.type')}</span>
+                      <div className="plans-tabs" role="group" aria-label={t('plans.create.customStop.type')}>
+                        {(['pause', 'free_time', 'meeting_point', 'custom'] as CustomPlanStopKind[]).map((kind) => (
+                          <button
+                            type="button"
+                            key={kind}
+                            className={detailPlace.kind === kind ? 'is-active' : ''}
+                            onClick={() => updatePlace(detailPlaceIndex, {
+                              kind,
+                              mode: 'local',
+                              sourcePlaceId: undefined,
+                              sourcePlaceTitle: undefined,
+                              location: '',
+                              providerAddress: emptyProviderAddressFormState(),
+                              onlineLabel: '',
+                              onlineUrl: '',
+                              existingMedia: null,
+                              existingStaticMap: null,
+                              media: null,
+                              title: detailPlace.title.trim() ? detailPlace.title : kind === 'custom' ? '' : customPlanStopTitle(kind, t),
+                            })}
+                          >
+                            {customPlanStopTitle(kind, t)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <label>
+                      <span>{t('plans.create.customStop.label')}</span>
+                      <input value={detailPlace.title} onChange={(event) => updatePlace(detailPlaceIndex, { title: event.target.value })} minLength={3} maxLength={120} required placeholder={t('plans.create.customStop.labelPlaceholder')} />
+                    </label>
+                    <section className="notice-box info">
+                      <strong>{t('plans.create.customStop.noAddressTitle')}</strong> {t('plans.create.customStop.noAddressBody')}
+                    </section>
+                  </>
+                ) : !detailPlace.sourcePlaceId ? (
                   <>
                     <PlaceModeSegment value={detailPlace.mode} onChange={(mode) => updateCustomPlaceMode(detailPlaceIndex, mode)} />
                     <label>
-                      <span>Place name</span>
-                      <input value={detailPlace.title} onChange={(event) => updatePlace(detailPlaceIndex, { title: event.target.value })} minLength={3} maxLength={120} required placeholder={detailPlace.mode === 'remote' ? 'Planning call' : 'Coffee meeting point'} />
+                      <span>{t('plans.create.place.name')}</span>
+                      <input value={detailPlace.title} onChange={(event) => updatePlace(detailPlaceIndex, { title: event.target.value })} minLength={3} maxLength={120} required placeholder={detailPlace.mode === 'remote' ? t('plans.create.place.nameOnlinePlaceholder') : t('plans.create.place.nameOfflinePlaceholder')} />
                     </label>
                     {detailPlace.mode === 'remote' ? (
                       <div className="plan-form__row">
                         <label>
-                          <span>Online label</span>
-                          <input value={detailPlace.onlineLabel} onChange={(event) => updatePlace(detailPlaceIndex, { onlineLabel: event.target.value })} maxLength={120} placeholder="Zoom, Discord, website" />
+                          <span>{t('plans.create.place.onlineLabel')}</span>
+                          <input value={detailPlace.onlineLabel} onChange={(event) => updatePlace(detailPlaceIndex, { onlineLabel: event.target.value })} maxLength={120} placeholder={t('plans.create.place.onlineLabelPlaceholder')} />
                         </label>
                         <label>
-                          <span>Online URL</span>
+                          <span>{t('plans.create.place.onlineUrl')}</span>
                           <input type="url" value={detailPlace.onlineUrl} onChange={(event) => updatePlace(detailPlaceIndex, { onlineUrl: event.target.value })} maxLength={500} placeholder="https://..." />
-                          <small>{onlineProviderHint({ onlineUrl: detailPlace.onlineUrl })}</small>
+                          <small>{localizedOnlineProviderHint(detailPlace.onlineUrl, t)}</small>
                         </label>
                       </div>
                     ) : (
@@ -1400,40 +1931,42 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
                           onValueChange={(location) => updatePlaceManualLocation(detailPlaceIndex, location)}
                           onResolvedPlace={(place) => updatePlaceResolvedAddress(detailPlaceIndex, place)}
                           disabled={saving || detailPlace.uploading}
-                          label="Search and select address or place"
-                          placeholder="Café, park, address, station..."
-                          helperText="Type at least 3 characters, then select a provider suggestion. Typed text alone cannot be saved as an offline Plan stop."
+                          label={t('plans.create.google.defaultLabel')}
+                          placeholder={t('plans.create.google.defaultPlaceholder')}
+                          helperText={t('plans.create.google.defaultHelp', { count: 3 })}
                         />
-                        {detailPlace.location.trim() && !providerAddressStatusLabel(detailPlace.providerAddress) ? <p className="form-error">Select a confirmed address suggestion before publishing.</p> : null}
+                        {detailPlace.location.trim() && !providerAddressStatusLabel(detailPlace.providerAddress) ? <p className="form-error">{t('plans.create.validation.offlineInline')}</p> : null}
                       </>
                     )}
                   </>
                 ) : (
                   <div className="plan-source-place-strip">
                     <strong>{detailPlace.sourcePlaceTitle || detailPlace.title}</strong>
-                    <span>{detailPlace.sourcePlaceSource === 'my_place' ? 'Updates your saved Place.' : 'Copied into My Places before editing.'}</span>
+                    <span>{detailPlace.sourcePlaceSource === 'my_place' ? t('plans.create.placeDetail.savedUpdateBody') : t('plans.create.placeDetail.libraryCopyBody')}</span>
                     <div className="cta-row">
                       {detailPlace.sourcePlaceSource === 'my_place' ? (
-                        <button type="button" className="button secondary" onClick={() => openEditMyPlaceFromDetail(detailPlaceIndex)}>Edit saved</button>
+                        <button type="button" className="button secondary" onClick={() => openEditMyPlaceFromDetail(detailPlaceIndex)}>{t('plans.create.placeDetail.editSaved')}</button>
                       ) : null}
                       {detailPlace.sourcePlaceSource === 'hellowhen_library' ? (
-                        <button type="button" className="button secondary" onClick={() => openCopyLibraryPlaceFromDetail(detailPlaceIndex)}>Copy to edit</button>
+                        <button type="button" className="button secondary" onClick={() => openCopyLibraryPlaceFromDetail(detailPlaceIndex)}>{t('plans.create.placeDetail.copyToEdit')}</button>
                       ) : null}
-                      <button type="button" className="button secondary" onClick={() => updatePlace(detailPlaceIndex, resetToCustomPatch())}>Make custom</button>
+                      <button type="button" className="button secondary" onClick={() => updatePlace(detailPlaceIndex, resetToCustomPatch())}>{t('plans.create.placeDetail.makeCustom')}</button>
                     </div>
                   </div>
                 )}
-                <PlaceImagePicker
-                  place={detailPlace}
-                  onUpload={(event) => { const files = event.target.files; event.currentTarget.value = ''; void uploadPlaceImage(detailPlaceIndex, files); }}
-                  onRemove={() => updatePlace(detailPlaceIndex, { media: null })}
-                />
+                {!isCustomPlanStop(detailPlace) ? (
+                  <PlaceImagePicker
+                    place={detailPlace}
+                    onUpload={(event) => { const files = event.target.files; event.currentTarget.value = ''; void uploadPlaceImage(detailPlaceIndex, files); }}
+                    onRemove={() => updatePlace(detailPlaceIndex, { media: null })}
+                  />
+                ) : null}
                 <div className="plan-place-detail-actions">
-                  <button type="button" className="button secondary" disabled={detailPlaceIndex === 0} onClick={() => { movePlace(detailPlaceIndex, -1); setDetailPlaceIndex(detailPlaceIndex - 1); }}>Move up</button>
-                  <button type="button" className="button secondary" disabled={detailPlaceIndex === places.length - 1} onClick={() => { movePlace(detailPlaceIndex, 1); setDetailPlaceIndex(detailPlaceIndex + 1); }}>Move down</button>
-                  <button type="button" className="button secondary" onClick={() => openPicker(detailPlaceIndex)}>Change place</button>
-                  <button type="button" className="button secondary" onClick={() => removePlace(detailPlaceIndex)}>Remove</button>
-                  <button type="button" className="button primary" onClick={() => setDetailPlaceIndex(null)}>Done</button>
+                  <button type="button" className="button secondary" disabled={detailPlaceIndex === 0} onClick={() => { movePlace(detailPlaceIndex, -1); setDetailPlaceIndex(detailPlaceIndex - 1); }}>{t('plans.create.placeDetail.moveUp')}</button>
+                  <button type="button" className="button secondary" disabled={detailPlaceIndex === places.length - 1} onClick={() => { movePlace(detailPlaceIndex, 1); setDetailPlaceIndex(detailPlaceIndex + 1); }}>{t('plans.create.placeDetail.moveDown')}</button>
+                  <button type="button" className="button secondary" onClick={() => openPicker(detailPlaceIndex)}>{isCustomPlanStop(detailPlace) ? t('plans.create.time.changeStopType') : t('plans.create.placeDetail.changePlace')}</button>
+                  <button type="button" className="button secondary" onClick={() => removePlace(detailPlaceIndex)}>{t('plans.create.placeDetail.remove')}</button>
+                  <button type="button" className="button primary" onClick={() => setDetailPlaceIndex(null)}>{t('plans.create.placeDetail.done')}</button>
                 </div>
               </div>
             </section>
@@ -1442,55 +1975,74 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
 
         {pickerIsOpen ? (
           <div className="plan-place-source-overlay" role="presentation">
-            <button type="button" className="plan-place-source-backdrop" aria-label="Close place source" onClick={closePlacePicker} />
+            <button type="button" className="plan-place-source-backdrop" aria-label={t('plans.create.sourcePicker.closeAccessibility')} onClick={closePlacePicker} />
             <section className="plan-place-source-sheet plan-place-source-sheet--compact" role="dialog" aria-modal="true" aria-label={pickerTitle}>
               <div className="plan-detail-topbar">
                 <div>
-                  <h3>{pickerView === 'source' ? 'Add place' : pickerTab === 'mine' ? 'My Places' : 'Hellowhen Library'}</h3>
+                  <h3>{pickerView === 'source' ? t('plans.create.timeline.addStop') : pickerView === 'custom_stop' ? t('plans.create.sourcePicker.customStop') : pickerTab === 'mine' ? t('plans.create.sourcePicker.myPlaces') : t('plans.create.sourcePicker.library')}</h3>
                 </div>
-                <button type="button" className="plans-feed-icon-button" onClick={closePlacePicker} aria-label="Close Place picker">×</button>
+                <button type="button" className="plans-feed-icon-button" onClick={closePlacePicker} aria-label={t('plans.create.sourcePicker.closeAccessibility')}>×</button>
               </div>
 
               {pickerView === 'source' ? (
                 <div className="plan-place-source-grid">
                   <button type="button" className="plan-place-source-option plan-place-source-option--primary" onClick={() => openPickerList('mine')}>
                     <span className="plan-place-source-option__icon"><WebIcon name="location-on" size={16} decorative /></span>
-                    <span><strong>My Places</strong></span>
+                    <span><strong>{t('plans.create.sourcePicker.myPlaces')}</strong></span>
                   </button>
                   <button type="button" className="plan-place-source-option" onClick={() => openPickerList('library')}>
                     <span className="plan-place-source-option__icon">✦</span>
-                    <span><strong>Hellowhen Library</strong></span>
+                    <span><strong>{t('plans.create.sourcePicker.library')}</strong></span>
                   </button>
                   <button type="button" className="plan-place-source-option" onClick={openCreatePlaceFromPicker}>
                     <span className="plan-place-source-option__icon"><WebIcon name="location-on" size={16} decorative /></span>
-                    <span><strong>New Place</strong></span>
+                    <span><strong>{t('plans.create.sourcePicker.newPlace')}</strong></span>
                   </button>
                   <button type="button" className="plan-place-source-option" onClick={useCustomPlaceFromPicker}>
-                    <span className="plan-place-source-option__icon">•••</span>
-                    <span><strong>Custom stop</strong></span>
+                    <span className="plan-place-source-option__icon"><WebIcon name="location-on" size={16} decorative /></span>
+                    <span><strong>{t('plans.create.sourcePicker.customPlace')}</strong></span>
                   </button>
+                  <button type="button" className="plan-place-source-option" onClick={openCustomStopPicker}>
+                    <span className="plan-place-source-option__icon">•••</span>
+                    <span><strong>{t('plans.create.sourcePicker.customStop')}</strong></span>
+                  </button>
+                </div>
+              ) : pickerView === 'custom_stop' ? (
+                <div className="plan-place-picker-panel">
+                  <p className="meta">{t('plans.create.customStop.helper')}</p>
+                  <div className="plan-place-source-grid">
+                    {(['pause', 'free_time', 'meeting_point', 'custom'] as CustomPlanStopKind[]).map((kind) => (
+                      <button type="button" className="plan-place-source-option" key={kind} onClick={() => useCustomStopFromPicker(kind)}>
+                        <span className="plan-place-source-option__icon"><WebIcon name={kind === 'meeting_point' ? 'location-on' : 'plan'} size={16} decorative /></span>
+                        <span><strong>{customPlanStopTitle(kind, t)}</strong><small>{kind === 'pause' ? t('plans.create.customStop.pauseBody') : kind === 'free_time' ? t('plans.create.customStop.freeTimeBody') : kind === 'meeting_point' ? t('plans.create.customStop.meetingPointBody') : t('plans.create.customStop.customBody')}</small></span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="plan-place-picker-actions">
+                    <button type="button" className="button secondary" onClick={() => setPickerView('source')}>{t('plans.create.sourcePicker.sources')}</button>
+                  </div>
                 </div>
               ) : (
                 <div className="plan-place-picker-panel">
                   <div className="plan-place-picker-toolbar">
-                    <div className="plans-tabs" role="tablist" aria-label="Place Library source">
-                      <button type="button" className={pickerTab === 'mine' ? 'is-active' : ''} onClick={() => openPickerList('mine')}>My Places</button>
-                      <button type="button" className={pickerTab === 'library' ? 'is-active' : ''} onClick={() => openPickerList('library')}>Hellowhen Library</button>
+                    <div className="plans-tabs" role="tablist" aria-label={t('plans.create.sourcePicker.library')}>
+                      <button type="button" className={pickerTab === 'mine' ? 'is-active' : ''} onClick={() => openPickerList('mine')}>{t('plans.create.sourcePicker.myPlaces')}</button>
+                      <button type="button" className={pickerTab === 'library' ? 'is-active' : ''} onClick={() => openPickerList('library')}>{t('plans.create.sourcePicker.library')}</button>
                     </div>
-                    <button type="button" className="button secondary plan-place-picker-refresh" onClick={loadReusablePlaces}>Refresh</button>
+                    <button type="button" className="button secondary plan-place-picker-refresh" onClick={loadReusablePlaces}>{t('plans.create.sourcePicker.refresh')}</button>
                   </div>
                   <label>
-                    <span>Search Places</span>
-                    <input value={placeQuery} onChange={(event) => setPlaceQuery(event.target.value)} placeholder="Search Places" />
+                    <span>{t('plans.create.sourcePicker.searchLabel')}</span>
+                    <input value={placeQuery} onChange={(event) => setPlaceQuery(event.target.value)} placeholder={t('plans.create.sourcePicker.searchPlaceholder')} />
                   </label>
                   {pickerTab === 'mine' ? (
-                    <PlacePickerList places={filteredMyPlaces} emptyLabel="No matching My Places yet." onChoose={chooseReusablePlace} />
+                    <PlacePickerList places={filteredMyPlaces} emptyLabel={t('plans.create.sourcePicker.noMineBody')} onChoose={chooseReusablePlace} />
                   ) : (
-                    <PlacePickerList places={filteredLibraryPlaces} emptyLabel="No matching Hellowhen Library Places yet." onChoose={chooseReusablePlace} />
+                    <PlacePickerList places={filteredLibraryPlaces} emptyLabel={t('plans.create.sourcePicker.noLibraryBody')} onChoose={chooseReusablePlace} />
                   )}
                   <div className="plan-place-picker-actions">
-                    <button type="button" className="button secondary" onClick={() => setPickerView('source')}>Sources</button>
-                    <button type="button" className="button secondary" onClick={openCreatePlaceFromPicker}>New Place</button>
+                    <button type="button" className="button secondary" onClick={() => setPickerView('source')}>{t('plans.create.sourcePicker.sources')}</button>
+                    <button type="button" className="button secondary" onClick={openCreatePlaceFromPicker}>{t('plans.create.sourcePicker.newPlace')}</button>
                   </div>
                 </div>
               )}

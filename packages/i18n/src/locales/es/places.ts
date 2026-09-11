@@ -5,6 +5,15 @@ export const places = {
     es: 'Español',
   },
   list: {
+    usage: {
+      one: 'Usado en 1 Plan',
+      many: 'Usado en {{count}} Planes',
+      lockedNote: 'Los lugares usados en tus Planes están bloqueados para que esos Planes conserven los datos guardados.',
+      editLocked: 'Edición bloqueada',
+      editLockedTitle: 'Este lugar ya se usa en uno de tus Planes.',
+      manageAccessibility: 'Gestionar {{title}}',
+    },
+    authBody: 'Crea, edita y elimina lugares privados reutilizables después de iniciar sesión.',
     headers: {
       places: 'Lugares',
       myPlaces: 'Mis lugares',
@@ -73,6 +82,24 @@ export const places = {
       libraryTitle: 'La biblioteca está vacía',
       libraryBody: 'Los lugares de la biblioteca de Hellowhen aparecerán aquí más adelante.',
     },
+    mapTemplate: {
+      title: 'Plantilla de mapa estático',
+      plusBody: 'Los usuarios Plus pueden elegir manualmente la familia del mapa. Las variantes clara y oscura siguen el tema de la aplicación.',
+      freeBody: 'Los usuarios Free reciben un estilo de mapa automático después de guardar.',
+      accessibility: 'Familia de plantilla de mapa estático',
+      system: 'Selección automática',
+      systemBody: 'Hellowhen elige automáticamente un estilo gratuito.',
+      families: {
+        clean_local: { label: 'Local limpio', body: 'Calles luminosas y sencillas para encuentros cotidianos.' },
+        night_social: { label: 'Noche social', body: 'Estilo violeta nocturno para Planes sociales.' },
+        soft_pastel: { label: 'Pastel suave', body: 'Color cálido y amigable para lugares informales.' },
+        minimal_address: { label: 'Dirección mínima', body: 'Mapa limpio centrado en el marcador.' },
+        city_grid: { label: 'Cuadrícula urbana', body: 'Trama de calles más definida para lugares urbanos.' },
+        green_outdoor: { label: 'Exterior verde', body: 'Estilo inspirado en el terreno para parques y paradas al aire libre.' },
+        warm_travel: { label: 'Viaje cálido', body: 'Ambiente soleado de tarjeta de viaje para explorar.' },
+        premium_mono: { label: 'Mono premium', body: 'Aspecto monocromo pulido para tarjetas Plus.' },
+      },
+    },
     actions: {
       create: 'Crear lugar',
       edit: 'Editar',
@@ -90,7 +117,38 @@ export const places = {
       confirm: 'Eliminar lugar',
     },
   },
+  googlePicker: {
+    label: 'Dirección o lugar',
+    placeholder: 'Busca una dirección o un lugar real',
+    helper: 'Escribe al menos {{count}} caracteres y selecciona una sugerencia del proveedor. El texto escrito por sí solo no se puede guardar como dirección presencial.',
+    minCharacters: 'Escribe al menos {{count}} caracteres para buscar lugares de Google.',
+    noSuggestions: 'Todavía no hay sugerencias confirmadas. Prueba con un nombre de lugar o una dirección más precisa.',
+    searchUnavailable: 'La búsqueda de direcciones no está disponible. Los lugares presenciales necesitan una dirección seleccionada del proveedor; inténtalo más tarde o cambia este lugar a En línea.',
+    confirmFailed: 'No se pudo confirmar este lugar de Google. Prueba otra sugerencia.',
+    suggestionsAccessibility: 'Sugerencias de lugares de Google',
+    checking: 'Comprobando…',
+    select: 'Seleccionar',
+    searching: 'Buscando lugares de Google…',
+    status: {
+      confirmed: 'Dirección confirmada por Google',
+      review: 'Sugerencia de Google · revisar detalles',
+      selected: 'Lugar de Google seleccionado',
+    },
+  },
   editor: {
+    auth: {
+      loginRequired: 'Inicio de sesión requerido',
+      body: 'Crea y edita lugares privados reutilizables después de iniciar sesión.',
+      login: 'Iniciar sesión',
+      loading: 'Cargando lugar…',
+      checking: 'Comprobando sesión…',
+    },
+    return: {
+      planDraft: 'Volver al borrador del Plan',
+      myPlaces: 'Volver a Mis lugares',
+      updatePlanDraft: 'Actualizar y volver al borrador del Plan',
+      savePlanDraft: 'Guardar y volver al borrador del Plan',
+    },
     header: {
       create: 'Crear lugar',
       edit: 'Editar lugar',
@@ -111,6 +169,7 @@ export const places = {
       subtitle: 'Este lugar se usa en un Plan, así que solo se pueden actualizar sus traducciones manuales.',
       body: 'Los datos principales, el idioma original, la dirección, el destino en línea y la imagen están bloqueados porque este lugar ya se usa en un Plan. Aún puedes añadir, editar o eliminar traducciones manuales.',
       originalLanguage: 'El idioma original del lugar está bloqueado mientras este lugar se use en un Plan.',
+      createCopy: 'Crear copia editable',
     },
     unsaved: {
       title: '¿Descartar los cambios del lugar?',
@@ -178,6 +237,14 @@ export const places = {
       reviewBody: 'Las imágenes del lugar son opcionales y deben mostrar la ubicación o el contexto en línea sin información privada o sensible.',
       uploading: 'Subiendo imagen',
       uploadProgress: 'Subiendo imagen {{current}}/{{total}}…',
+      stepBadge: 'Paso 2/2',
+      selectedAlt: 'Lugar seleccionado',
+      selected: 'Imagen seleccionada',
+      saveToKeep: 'Guarda el lugar para conservar esta imagen.',
+      emptyTitle: 'Todavía no hay imagen',
+      emptyBody: 'Añade una foto que represente este lugar. Evita información privada o sensible.',
+      replace: 'Reemplazar imagen',
+      upload: 'Subir imagen',
     },
     actions: {
       continueToImage: 'Continuar a la imagen',
@@ -195,6 +262,8 @@ export const places = {
     messages: {
       updated: 'Se actualizó {{title}}.',
       saved: 'Se guardó {{title}} en Mis lugares.',
+      imageUploaded: 'Imagen del lugar subida. Guarda el lugar para conservarla.',
+      imageRemoved: 'Imagen eliminada. Guarda el lugar para conservar este cambio.',
     },
     errors: {
       addNameBeforeImage: 'Añade un nombre de lugar antes de agregar una imagen.',
@@ -205,6 +274,10 @@ export const places = {
       translationNameTooShort: 'El nombre del lugar traducido debe tener al menos 3 caracteres.',
       lockedByPlan: 'Este lugar ya se usa en un Plan. Sus datos principales están bloqueados, pero todavía puedes actualizar sus traducciones manuales.',
       uploadFailed: 'Error al subir la imagen ({{current}}/{{total}}). Prueba con una imagen más pequeña o vuelve a intentarlo.',
+      load: 'No se pudo cargar el lugar.',
+      copy: 'No se pudo copiar el lugar.',
+      update: 'No se pudo actualizar el lugar.',
+      create: 'No se pudo crear el lugar.',
     },
     provider: {
       empty: 'Añade un enlace http:// o https:// válido. Todavía no obtenemos vistas previas.',

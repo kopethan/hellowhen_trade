@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { WebIcon } from '../../components/WebIcon';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
@@ -21,9 +22,9 @@ function nextAuthHref(path: string) {
   return `/auth?next=${encodeURIComponent(path)}`;
 }
 
-function placeMeta(place: PlaceDto) {
+function placeMeta(place: PlaceDto, onlineLabel: string, inPersonLabel: string) {
   return [
-    place.mode === 'remote' ? 'Online' : 'Offline',
+    place.mode === 'remote' ? onlineLabel : inPersonLabel,
     place.category,
     place.mode === 'remote' ? place.onlineLabel || place.onlineUrl : place.areaLabel || place.addressPublicText,
   ].filter((value): value is string => Boolean(value && value.trim())).join(' · ');
@@ -39,12 +40,10 @@ function placeLanguageBadge(place: PlaceDto) {
   return place.displayLanguage.languageCode.toUpperCase();
 }
 
-function placeUsageLabel(count: number) {
-  return count === 1 ? 'Used in 1 Plan' : `Used in ${count} Plans`;
-}
 
 function PlaceManageCard({ place, onArchive, archiving, themeMode }: { place: PlaceDto; onArchive: (place: PlaceDto) => void; archiving?: boolean; themeMode: PlaceVisualThemeMode }) {
-  const meta = placeMeta(place);
+  const { t } = useWebTranslation();
+  const meta = placeMeta(place, t('places.list.badges.online'), t('places.list.badges.offline'));
   const placeVisual = resolvePlaceVisual({ media: place.media?.[0] ?? null, staticMap: place.staticMap ?? null, themeMode });
   const usedInPlansCount = placeUsedInPlansCount(place);
   const isLocked = usedInPlansCount > 0;
@@ -56,26 +55,26 @@ function PlaceManageCard({ place, onArchive, archiving, themeMode }: { place: Pl
         </div>
         <div className="place-manage-card__copy">
           <div className="place-manage-card__top">
-            <span className="semantic-badge place">My Place</span>
-            <span className="semantic-badge muted">{place.mode === 'remote' ? 'Online' : 'Offline'}</span>
+            <span className="semantic-badge place">{t('places.list.badges.mine')}</span>
+            <span className="semantic-badge muted">{place.mode === 'remote' ? t('places.list.badges.online') : t('places.list.badges.offline')}</span>
             {placeLanguageBadge(place) ? <span className="semantic-badge instruction">{placeLanguageBadge(place)}</span> : null}
-            {isLocked ? <span className="semantic-badge warning">{placeUsageLabel(usedInPlansCount)}</span> : null}
+            {isLocked ? <span className="semantic-badge warning">{usedInPlansCount === 1 ? t('places.list.usage.one') : t('places.list.usage.many', { count: usedInPlansCount })}</span> : null}
           </div>
           <div className="place-manage-card__body">
             <h3>{place.title}</h3>
-            <p>{place.description || 'Reusable Place for future Plans.'}</p>
-            <small>{meta || 'Private reusable Place'}</small>
-            {isLocked ? <small className="place-manage-card__locked-note">Places used in your Plans are locked so those Plans keep their saved details.</small> : null}
+            <p>{place.description || t('places.list.fallback.description')}</p>
+            <small>{meta || t('places.list.notice.title')}</small>
+            {isLocked ? <small className="place-manage-card__locked-note">{t('places.list.usage.lockedNote')}</small> : null}
           </div>
         </div>
       </div>
-      <div className="place-manage-card__actions" aria-label={`Manage ${place.title}`}>
+      <div className="place-manage-card__actions" aria-label={t('places.list.usage.manageAccessibility', { title: place.title })}>
         {isLocked ? (
-          <button type="button" className="button secondary compact" disabled title="This Place is already used in one of your Plans.">Edit locked</button>
+          <button type="button" className="button secondary compact" disabled title={t('places.list.usage.editLockedTitle')}>{t('places.list.usage.editLocked')}</button>
         ) : (
-          <Link className="button secondary compact" href={`/places/${place.id}/edit`}>Edit</Link>
+          <Link className="button secondary compact" href={`/places/${place.id}/edit`}>{t('places.list.actions.edit')}</Link>
         )}
-        <button type="button" className="button danger compact" disabled={archiving} onClick={() => onArchive(place)}>{archiving ? 'Deleting...' : 'Delete'}</button>
+        <button type="button" className="button danger compact" disabled={archiving} onClick={() => onArchive(place)}>{archiving ? t('places.list.actions.deleting') : t('places.list.actions.delete')}</button>
       </div>
     </article>
   );
@@ -84,6 +83,7 @@ function PlaceManageCard({ place, onArchive, archiving, themeMode }: { place: Pl
 export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageClientProps) {
   const router = useRouter();
   const auth = useWebAuth();
+  const { t } = useWebTranslation();
   const [places, setPlaces] = useState<PlaceDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -107,11 +107,11 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
       setPlaces((response.places ?? []).filter((place) => place.status !== 'archived'));
     } catch (caughtError) {
       setPlaces([]);
-      setError(getFriendlyApiErrorMessage(caughtError, 'Could not load My Places.'));
+      setError(getFriendlyApiErrorMessage(caughtError, t('places.list.errors.load')));
     } finally {
       setLoading(false);
     }
-  }, [auth.hydrated, auth.isAuthenticated]);
+  }, [auth.hydrated, auth.isAuthenticated, t]);
 
   useEffect(() => {
     void loadPlaces();
@@ -126,10 +126,10 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
     try {
       await api.places.archive(place.id);
       setPlaces((current) => current.filter((item) => item.id !== place.id));
-      setMessage(`${place.title} was removed from My Places.`);
+      setMessage(t('places.list.messages.removed', { title: place.title }));
       setDeleteDialogPlace(null);
     } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError, 'Could not delete Place.'));
+      setError(getFriendlyApiErrorMessage(caughtError, t('places.list.errors.delete')));
     } finally {
       setArchivingPlaceId(null);
     }
@@ -141,42 +141,42 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
         <section className="page-intro plan-create-intro place-create-intro">
           <div>
             <PlansInternalBadge plansVisible={plansVisible} />
-            <h2>My Places</h2>
-            <p>Edit saved Places or delete ones you no longer want in future Plan pickers.</p>
+            <h2>{t('places.list.messages.title')}</h2>
+            <p>{t('places.list.notice.body')}</p>
           </div>
           <div className="cta-row place-manage-header-actions">
-            <button type="button" className="button secondary" onClick={() => router.push('/plans')}>Back to Plans</button>
-            <Link className="button primary" href={createPlaceHref}>Create Place</Link>
+            <button type="button" className="button secondary" onClick={() => router.push('/plans')}>{t('plans.create.intro.backToPlans')}</button>
+            <Link className="button primary" href={createPlaceHref}>{t('places.list.actions.create')}</Link>
           </div>
         </section>
 
-        {!auth.hydrated ? <section className="mobile-card"><p className="meta">Checking session...</p></section> : null}
+        {!auth.hydrated ? <section className="mobile-card"><p className="meta">{t('common.states.loading')}</p></section> : null}
         {auth.hydrated && !auth.isAuthenticated ? (
           <section className="mobile-card mobile-card--soft">
-            <h3>Log in required</h3>
-            <p>Create, edit, and delete private reusable Places after signing in.</p>
-            <Link className="button primary" href={nextAuthHref('/places')}>Log in</Link>
+            <h3>{t('plans.create.intro.loginRequired')}</h3>
+            <p>{t('places.list.authBody')}</p>
+            <Link className="button primary" href={nextAuthHref('/places')}>{t('plans.create.intro.login')}</Link>
           </section>
         ) : null}
 
         {auth.isAuthenticated ? (
           <>
             <section className="mobile-card mobile-card--soft place-manage-note">
-              <strong>Safe delete</strong>
-              <span>Deleting a Place archives it from My Places and future pickers. Places used in your Plans are locked for editing, and those Plans still show the saved snapshot.</span>
+              <strong>{t('places.list.notice.title')}</strong>
+              <span>{t('places.list.notice.body')}</span>
             </section>
             {message ? <p className="success-message">{message}</p> : null}
             {error ? <p className="form-error">{error}</p> : null}
-            {loading ? <section className="mobile-card"><p className="meta">Loading My Places...</p></section> : null}
+            {loading ? <section className="mobile-card"><p className="meta">{t('places.list.loading')}</p></section> : null}
             {!loading && sortedPlaces.length === 0 ? (
               <section className="inventory-empty-state">
                 <span className="inventory-empty-state__plus">+</span>
-                <strong>No Places yet</strong>
-                <span>Create reusable Places first, then pick them while creating a Plan.</span>
-                <Link className="button secondary" href={createPlaceHref}>Create Place</Link>
+                <strong>{t('places.list.empty.mineTitle')}</strong>
+                <span>{t('places.list.empty.mineBody')}</span>
+                <Link className="button secondary" href={createPlaceHref}>{t('places.list.actions.create')}</Link>
               </section>
             ) : null}
-            <section className="place-manage-list" aria-label="My Places">
+            <section className="place-manage-list" aria-label={t('places.list.messages.title')}>
               {sortedPlaces.map((place) => (
                 <PlaceManageCard
                   key={place.id}
@@ -191,13 +191,11 @@ export function PlacesManageClient({ plansEnabled, plansVisible }: PlacesManageC
         ) : null}
         <ConfirmDialog
           open={Boolean(deleteDialogPlace)}
-          eyebrow="Safe delete"
-          title="Delete this Place?"
-          body={deleteDialogPlace
-            ? `This archives ${deleteDialogPlace.title} from My Places and future pickers. Existing Plans keep their saved Place snapshot.`
-            : 'This archives the Place from My Places and future pickers. Existing Plans keep their saved Place snapshot.'}
+          eyebrow={t('places.list.notice.title')}
+          title={t('places.list.confirmDelete.title')}
+          body={t('places.list.confirmDelete.body')}
           variant="danger"
-          confirmLabel="Delete Place"
+          confirmLabel={t('places.list.confirmDelete.confirm')}
           loading={Boolean(deleteDialogPlace && archivingPlaceId === deleteDialogPlace.id)}
           onCancel={() => {
             if (archivingPlaceId) return;

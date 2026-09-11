@@ -5,11 +5,11 @@ export const onboarding = {
     title: 'Guides',
     eyebrow: 'Guide library',
     heroTitle: 'Replay guides anytime',
-    heroBody: 'Choose the App, Plans, or Trade guide. Public feeds stay open, and these guides are always available from Me.',
+    heroBody: 'Choose the App, Plans, or Trade guide. Public feeds stay open, and these guides are always available from Account.',
     choices: {
       global: {
         title: 'App guide',
-        body: 'Replay the global app guide for navigation, Me, public feeds, and safety basics.',
+        body: 'Replay the global app guide for Plans, Explore, Trade, Account, and safety basics.',
         badge: 'App',
         action: 'Replay app guide',
       },
@@ -44,7 +44,7 @@ export const onboarding = {
   guides: {
     global: {
       title: 'Hellowhen Guide',
-      summary: 'A quick overview of Trade, Plans, Me, and safety.',
+      summary: 'A quick overview of Plans, Explore, Trade, Account, and safety.',
     },
     trade: {
       title: 'Trade Guide',
@@ -78,18 +78,18 @@ export const onboarding = {
   slides: {
     globalWelcome: {
       title: 'Welcome to Hellowhen',
-      body: 'Hellowhen helps people connect around clear needs, offers, plans, and safe conversations.',
+      body: 'Hellowhen brings Plans, Explore, Trade, and safe conversations into one simple app.',
       caption: 'Start with the big picture, then explore each area when you need it.',
     },
     globalWorlds: {
-      title: 'Trade, Plans, and Me',
-      body: 'Use Trade for one exchange, Plans for bigger goals or routes, and Me for your activity, tools, and profile.',
-      caption: 'Three main areas keep the app simple.',
+      title: 'Plans, Explore, and Trade',
+      body: 'Use Plans for bigger goals and routes, Explore for Hellowhen ideas and places, and Trade for one exchange.',
+      caption: 'Three main areas keep discovery and activity clear.',
     },
-    globalMeHub: {
-      title: 'Your activity lives in Me',
-      body: 'Find your trades, proposals, plans, saved items, Agenda, notifications, settings, and support from Me.',
-      caption: 'Me is your personal hub.',
+    globalAccountHub: {
+      title: 'Account is one tap away',
+      body: 'Use the profile button from Plans, Explore, or Trade to open your activity, tools, notifications, settings, and support.',
+      caption: 'Account stays separate from the three main discovery areas.',
     },
     globalSafety: {
       title: 'Keep agreements clear',
@@ -143,7 +143,7 @@ export const onboarding = {
     },
     plansPlaces: {
       title: 'Places inside Plans',
-      body: 'Plans can include offline addresses and online places, so users can understand the route or activity clearly.',
+      body: 'Plans can include in-person addresses and online places, so users can understand the route or activity clearly.',
       caption: 'Places help make a Plan concrete.',
     },
     plansCreateJoin: {

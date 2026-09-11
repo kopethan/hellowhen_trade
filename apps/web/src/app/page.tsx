@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { DEFAULT_NORMAL_APP_NAV_WEB_HREF } from '@hellowhen/shared';
 import { TradeFeedClient } from '../features/trade/TradeFeedClient';
 import { betaFeatures } from '../lib/betaFeatures';
 import { publicPageMetadata } from '../lib/seo';
@@ -10,6 +11,6 @@ export const metadata = publicPageMetadata({
 });
 
 export default function HomePage() {
-  if (betaFeatures.mainNavPlansMeTrade) redirect('/account');
+  if (betaFeatures.mainNavPlansMeTrade) redirect(DEFAULT_NORMAL_APP_NAV_WEB_HREF);
   return <TradeFeedClient showHomeIntro />;
 }

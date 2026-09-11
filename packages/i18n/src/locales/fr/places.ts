@@ -5,6 +5,15 @@ export const places = {
     es: 'Espagnol',
   },
   list: {
+    usage: {
+      one: 'Utilisé dans 1 Plan',
+      many: 'Utilisé dans {{count}} Plans',
+      lockedNote: 'Les lieux utilisés dans vos Plans sont verrouillés afin que ces Plans conservent leurs informations enregistrées.',
+      editLocked: 'Modification verrouillée',
+      editLockedTitle: 'Ce lieu est déjà utilisé dans l’un de vos Plans.',
+      manageAccessibility: 'Gérer {{title}}',
+    },
+    authBody: 'Créez, modifiez et supprimez des lieux privés réutilisables après vous être connecté.',
     headers: {
       places: 'Lieux',
       myPlaces: 'Mes lieux',
@@ -73,6 +82,24 @@ export const places = {
       libraryTitle: 'La bibliothèque est vide',
       libraryBody: 'Les lieux de la bibliothèque Hellowhen apparaîtront ici ultérieurement.',
     },
+    mapTemplate: {
+      title: 'Modèle de carte statique',
+      plusBody: 'Les membres Plus peuvent choisir manuellement la famille de carte. Les variantes claire et sombre suivent toujours le thème de l’application.',
+      freeBody: 'Les membres Free obtiennent automatiquement un style de carte après l’enregistrement.',
+      accessibility: 'Famille du modèle de carte statique',
+      system: 'Choix automatique',
+      systemBody: 'Hellowhen choisit automatiquement un style gratuit.',
+      families: {
+        clean_local: { label: 'Local épuré', body: 'Rues claires et simples pour les rendez-vous du quotidien.' },
+        night_social: { label: 'Soirée sociale', body: 'Style violet du soir pour les Plans sociaux.' },
+        soft_pastel: { label: 'Pastel doux', body: 'Couleurs chaleureuses pour les lieux décontractés.' },
+        minimal_address: { label: 'Adresse minimale', body: 'Carte épurée centrée sur le repère.' },
+        city_grid: { label: 'Grille urbaine', body: 'Trame de rues plus nette pour les lieux urbains.' },
+        green_outdoor: { label: 'Nature verte', body: 'Style inspiré du terrain pour les parcs et étapes extérieures.' },
+        warm_travel: { label: 'Voyage chaleureux', body: 'Ambiance ensoleillée de carnet de voyage pour l’exploration.' },
+        premium_mono: { label: 'Mono premium', body: 'Rendu monochrome soigné pour les cartes Plus.' },
+      },
+    },
     actions: {
       create: 'Créer un lieu',
       edit: 'Modifier',
@@ -90,7 +117,38 @@ export const places = {
       confirm: 'Supprimer le lieu',
     },
   },
+  googlePicker: {
+    label: 'Adresse ou lieu',
+    placeholder: 'Rechercher une adresse ou un lieu réel',
+    helper: 'Saisissez au moins {{count}} caractères puis sélectionnez une suggestion du fournisseur. Le texte saisi seul ne peut pas être enregistré comme adresse sur place.',
+    minCharacters: 'Saisissez au moins {{count}} caractères pour rechercher des lieux Google.',
+    noSuggestions: 'Aucune suggestion confirmée pour le moment. Essayez un nom de lieu ou une adresse plus précise.',
+    searchUnavailable: 'La recherche d’adresse est indisponible. Les lieux sur place nécessitent une adresse sélectionnée auprès du fournisseur ; réessayez plus tard ou passez ce lieu en En ligne.',
+    confirmFailed: 'Impossible de confirmer ce lieu Google. Essayez une autre suggestion.',
+    suggestionsAccessibility: 'Suggestions de lieux Google',
+    checking: 'Vérification…',
+    select: 'Sélectionner',
+    searching: 'Recherche de lieux Google…',
+    status: {
+      confirmed: 'Adresse confirmée par Google',
+      review: 'Suggestion Google · vérifier les détails',
+      selected: 'Lieu Google sélectionné',
+    },
+  },
   editor: {
+    auth: {
+      loginRequired: 'Connexion requise',
+      body: 'Créez et modifiez des lieux privés réutilisables après vous être connecté.',
+      login: 'Se connecter',
+      loading: 'Chargement du lieu…',
+      checking: 'Vérification de la session…',
+    },
+    return: {
+      planDraft: 'Retour au brouillon du Plan',
+      myPlaces: 'Retour à Mes lieux',
+      updatePlanDraft: 'Mettre à jour et revenir au brouillon du Plan',
+      savePlanDraft: 'Enregistrer et revenir au brouillon du Plan',
+    },
     header: {
       create: 'Créer un lieu',
       edit: 'Modifier le lieu',
@@ -111,6 +169,7 @@ export const places = {
       subtitle: 'Ce lieu est utilisé dans un Plan : seules ses traductions manuelles peuvent être modifiées.',
       body: 'Les informations principales, la langue originale, l’adresse, la destination en ligne et l’image sont verrouillées, car ce lieu est déjà utilisé dans un Plan. Vous pouvez toujours ajouter, modifier ou retirer des traductions manuelles.',
       originalLanguage: 'La langue originale du lieu est verrouillée tant que ce lieu est utilisé dans un Plan.',
+      createCopy: 'Créer une copie modifiable',
     },
     unsaved: {
       title: 'Abandonner les modifications du lieu ?',
@@ -178,6 +237,14 @@ export const places = {
       reviewBody: 'Les images de lieu sont facultatives et doivent montrer le lieu ou le contexte en ligne sans information privée ou sensible.',
       uploading: 'Importation de l’image',
       uploadProgress: 'Importation de l’image {{current}}/{{total}}…',
+      stepBadge: 'Étape 2/2',
+      selectedAlt: 'Lieu sélectionné',
+      selected: 'Image sélectionnée',
+      saveToKeep: 'Enregistrez le lieu pour conserver cette image.',
+      emptyTitle: 'Aucune image',
+      emptyBody: 'Ajoutez une photo qui représente ce lieu. Évitez les informations privées ou sensibles.',
+      replace: 'Remplacer l’image',
+      upload: 'Importer une image',
     },
     actions: {
       continueToImage: 'Continuer vers l’image',
@@ -195,6 +262,8 @@ export const places = {
     messages: {
       updated: '{{title}} a été mis à jour.',
       saved: '{{title}} a été enregistré dans Mes lieux.',
+      imageUploaded: 'Image du lieu importée. Enregistrez le lieu pour la conserver.',
+      imageRemoved: 'Image retirée. Enregistrez le lieu pour conserver ce changement.',
     },
     errors: {
       addNameBeforeImage: 'Ajoutez un nom de lieu avant d’ajouter une image.',
@@ -205,6 +274,10 @@ export const places = {
       translationNameTooShort: 'Le nom du lieu traduit doit contenir au moins 3 caractères.',
       lockedByPlan: 'Ce lieu est déjà utilisé dans un Plan. Ses informations principales sont verrouillées, mais vous pouvez toujours modifier ses traductions manuelles.',
       uploadFailed: 'Échec de l’importation de l’image ({{current}}/{{total}}). Essayez une image plus petite ou recommencez.',
+      load: 'Impossible de charger le lieu.',
+      copy: 'Impossible de copier le lieu.',
+      update: 'Impossible de mettre à jour le lieu.',
+      create: 'Impossible de créer le lieu.',
     },
     provider: {
       empty: 'Ajoutez un lien http:// ou https:// valide. Les aperçus ne sont pas encore récupérés.',

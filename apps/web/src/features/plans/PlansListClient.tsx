@@ -3,13 +3,14 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { PlanDto } from '@hellowhen/contracts';
-import { buildPlanFeedItems, getNormalWorkspaceMenuItems, mergeRecentStarterPlanIdeaIds, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaRequirementCounts, starterPlanIdeaRequirementSummary, starterPlanIdeaStopDestinationPrompt, type NormalWorkspaceMenuItem, type StarterPlanIdeaKey } from '@hellowhen/shared';
+import { buildPlanFeedItems, getNormalWorkspaceMenuItems, mergeRecentStarterPlanIdeaIds, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, type NormalWorkspaceMenuItem, type StarterPlanIdeaKey } from '@hellowhen/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { WebIcon } from '../../components/WebIcon';
+import { WebAccountHeaderAction } from '../../components/WebAccountHeaderAction';
 import { hasCompletedWebOnboardingGuideForVisitor } from '../onboarding-guide/onboardingGuideStorage';
 import { PlansFeatureGate } from './PlansFeatureGate';
 import { PlanDtoPreviewDeck, PlanPreviewDeck } from './PlanPreviewDeck';
@@ -24,13 +25,15 @@ type PlanCardProps = {
 
 function PlanCard({ plan }: PlanCardProps) {
   const router = useRouter();
-  const participantText = `${plan.participantCount ?? 0} joined`;
-  const placeText = `${plan.places?.length ?? 0} place${plan.places?.length === 1 ? '' : 's'}`;
+  const { t } = useWebTranslation();
+  const participantText = t('plans.row.joined', { count: plan.participantCount ?? 0 });
+  const placeCount = plan.places?.length ?? 0;
+  const placeText = placeCount === 1 ? t('plans.row.placeOne', { count: placeCount }) : t('plans.row.placeMany', { count: placeCount });
   return (
-    <article className="plan-deck-link" aria-label={`Open ${plan.title}`}>
+    <article className="plan-deck-link" aria-label={t('plans.row.openAccessibility', { title: plan.title })}>
       <PlanDtoPreviewDeck plan={plan} onOpen={() => router.push(`/plans/${plan.id}`)} />
       <Link href={`/plans/${plan.id}`} className="plan-deck-link__meta">
-        {placeText} · {participantText} · By {planOwnerName(plan)}
+        {placeText} · {participantText} · {t('plans.row.by', { owner: planOwnerName(plan) })}
       </Link>
     </article>
   );
@@ -38,19 +41,31 @@ function PlanCard({ plan }: PlanCardProps) {
 
 function PlanIdeaCard({ ideaKey, onOpen }: { ideaKey: StarterPlanIdeaKey; onOpen?: () => void }) {
   const router = useRouter();
+  const { t } = useWebTranslation();
   const idea = starterPlanIdeas[ideaKey];
   const requirementCounts = starterPlanIdeaRequirementCounts(idea);
+  const requirementParts = [
+    requirementCounts.addressStops
+      ? t(requirementCounts.addressStops === 1 ? 'plans.deck.realAddressOne' : 'plans.deck.realAddressMany', { count: requirementCounts.addressStops })
+      : '',
+    requirementCounts.onlineLinkStops
+      ? t(requirementCounts.onlineLinkStops === 1 ? 'plans.deck.onlineLinkOne' : 'plans.deck.onlineLinkMany', { count: requirementCounts.onlineLinkStops })
+      : '',
+  ].filter(Boolean);
+  const requirementSummary = requirementParts.length
+    ? t('plans.deck.requirementsNeeded', { requirements: requirementParts.join(' + ') })
+    : t('plans.deck.reviewBeforePublishing');
   function openIdea() {
     onOpen?.();
     router.push(`/plans/ideas/${idea.id}`);
   }
   return (
-    <article className="plan-deck-link plan-idea-card" aria-label={`Open Plan idea ${idea.title}`}>
+    <article className="plan-deck-link plan-idea-card" aria-label={t('plans.ideaDetail.openAccessibility', { title: idea.title })}>
       <PlanPreviewDeck
         title={idea.title}
         description={idea.description}
-        rangeLabel="Starter Plan idea"
-        badgeLabel={`Plan idea · ${idea.pack}`}
+        rangeLabel={t('plans.ideaDetail.starterLabel')}
+        badgeLabel={t('plans.ideaDetail.badge', { pack: idea.pack })}
         places={idea.stops.map((stop, index) => ({
           id: `${idea.id}-${index}`,
           mode: stop.mode,
@@ -59,15 +74,15 @@ function PlanIdeaCard({ ideaKey, onOpen }: { ideaKey: StarterPlanIdeaKey; onOpen
           time: stop.time,
         }))}
         onOpen={openIdea}
-        actionLabel="Open Plan idea"
+        actionLabel={t('plans.ideaDetail.openAction')}
       />
       <Link href={`/plans/ideas/${idea.id}`} className="plan-deck-link__meta" onClick={onOpen}>
-        {idea.stops.length} starter stops · {starterPlanIdeaRequirementSummary(idea)}
+        {t('plans.ideaDetail.starterStops', { count: idea.stops.length })} · {requirementSummary}
       </Link>
-      <div className="plan-idea-card__requirements" aria-label="Plan idea requirements before publishing">
-        {requirementCounts.addressStops ? <span className="semantic-badge warning">{requirementCounts.addressStops} real address{requirementCounts.addressStops === 1 ? '' : 'es'}</span> : null}
-        {requirementCounts.onlineLinkStops ? <span className="semantic-badge info">{requirementCounts.onlineLinkStops} online link{requirementCounts.onlineLinkStops === 1 ? '' : 's'}</span> : null}
-        <span className="plan-idea-card__hint">Review first · no fake locations</span>
+      <div className="plan-idea-card__requirements" aria-label={t('plans.ideaDetail.requirements.accessibility')}>
+        {requirementCounts.addressStops ? <span className="semantic-badge warning">{requirementCounts.addressStops === 1 ? t('plans.ideaDetail.requirements.realAddressOne', { count: requirementCounts.addressStops }) : t('plans.ideaDetail.requirements.realAddressMany', { count: requirementCounts.addressStops })}</span> : null}
+        {requirementCounts.onlineLinkStops ? <span className="semantic-badge info">{requirementCounts.onlineLinkStops === 1 ? t('plans.ideaDetail.requirements.onlineLinkOne', { count: requirementCounts.onlineLinkStops }) : t('plans.ideaDetail.requirements.onlineLinkMany', { count: requirementCounts.onlineLinkStops })}</span> : null}
+        <span className="plan-idea-card__hint">{t('plans.ideaDetail.review.hint')}</span>
       </div>
     </article>
   );
@@ -76,12 +91,6 @@ function PlanIdeaCard({ ideaKey, onOpen }: { ideaKey: StarterPlanIdeaKey; onOpen
 type PlansListClientProps = {
   plansEnabled?: boolean;
   plansVisible?: boolean;
-};
-
-const viewLabels: Record<PlansView, string> = {
-  feed: 'Open plans',
-  mine: 'My plans',
-  joined: 'Joined plans',
 };
 
 function nextAuthHref(path: string) {
@@ -135,7 +144,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
   const activeFilters = useMemo(() => planFiltersFromSearchParams(searchParams), [searchParamKey, searchParams]);
   const activeSearchQuery = useMemo(() => planSearchQueryFromSearchParams(searchParams), [searchParamKey, searchParams]);
   const activeFilterCount = activePlanFilterCount(activeFilters, activeSearchQuery);
-  const activeFilterSummary = useMemo(() => planFilterSummary(activeFilters, activeSearchQuery), [activeFilters, activeSearchQuery]);
+  const activeFilterSummary = useMemo(() => planFilterSummary(activeFilters, activeSearchQuery, t), [activeFilters, activeSearchQuery, t]);
   const filterHref = useMemo(() => buildPlanFilterHref('/plans/filter', activeFilters, activeSearchQuery), [activeFilters, activeSearchQuery]);
 
   const canLoadPrivateViews = auth.hydrated && auth.isAuthenticated;
@@ -167,14 +176,15 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
     if (requestedView === 'mine' || requestedView === 'joined' || requestedView === 'feed') setView(requestedView);
   }, [searchParamKey, searchParams]);
 
-  const emptyTitle = activeView === 'mine' ? 'No Plans created yet' : activeView === 'joined' ? 'No joined Plans yet' : 'No open Plans yet';
+  const emptyTitle = activeView === 'mine' ? t('plans.list.empty.mineTitle') : activeView === 'joined' ? t('plans.list.empty.joinedTitle') : t('plans.list.empty.feedTitle');
   const emptyBody = activeView === 'mine'
-    ? 'Create your first Plan when you are ready.'
+    ? t('plans.list.empty.mine')
     : activeView === 'joined'
-      ? 'Plans you join will appear here.'
+      ? t('plans.list.empty.joined')
       : activeFilterCount
-        ? 'No Plans match this search and filters yet. Try changing the search words or resetting one or two filters.'
-        : 'Open Plans will appear here when they are available.';
+        ? t('plans.list.empty.filtered')
+        : t('plans.list.empty.feed');
+  const viewLabel = activeView === 'mine' ? t('plans.collections.myPlans') : activeView === 'joined' ? t('plans.collections.joinedPlans') : t('plans.list.openPlans');
 
   useEffect(() => {
     let mounted = true;
@@ -195,7 +205,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
       } catch (loadError) {
         if (!mounted) return;
         setPlans([]);
-        setError(getFriendlyApiErrorMessage(loadError, 'Could not load Plans.'));
+        setError(getFriendlyApiErrorMessage(loadError, t('plans.list.errors.body')));
       } finally {
         if (mounted) setLoading(false);
       }
@@ -267,33 +277,34 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
   return (
     <PlansFeatureGate plansEnabled={plansEnabled}>
       <main className="mobile-page plans-page plans-feed-page web-app-page web-app-page--feed web-app-page--plans">
-        <section className="plans-feed-shell" aria-label="Plans feed">
+        <section className="plans-feed-shell" aria-label={t('plans.list.openPlans')}>
           <header className="feed-world-header plans-feed-header">
             <div className="feed-world-header__copy">
-              <h1>Plans</h1>
+              <h1>{t('plans.common.title')}</h1>
             </div>
-            <div className="feed-world-header__actions plans-feed-header__actions" aria-label="Plan actions">
-              <Link className="feed-world-action plans-feed-icon-button plans-feed-icon-button--with-badge" href={filterHref} aria-label={activeFilterCount ? `Filter Plans, ${activeFilterCount} active` : 'Filter Plans'}>
+            <div className="feed-world-header__actions plans-feed-header__actions" aria-label={t('plans.feed.actions.menu')}>
+              <Link className="feed-world-action plans-feed-icon-button plans-feed-icon-button--with-badge" href={filterHref} aria-label={activeFilterCount ? t('plans.feed.actions.filterActive', { count: activeFilterCount }) : t('plans.feed.actions.filter')}>
                 <WebIcon name="filter" size={18} decorative />
                 {activeFilterCount ? <span className="plans-feed-icon-button__badge">{activeFilterCount}</span> : null}
               </Link>
               <button
                 type="button"
-                className="feed-world-action plans-feed-icon-button"
-                aria-label="Open Plans menu"
+                className="feed-world-action plans-feed-icon-button plans-feed-icon-button--workspace"
+                aria-label={t('plans.feed.actions.menu')}
                 aria-expanded={menuOpen}
                 onClick={() => setMenuOpen((current) => !current)}
               >
                 <WebIcon name="activity" size={18} decorative />
               </button>
-              <Link className="feed-world-action plans-feed-icon-button plans-feed-icon-button--primary" href={createPlanHref} aria-label="Create Plan">
+              <Link className="feed-world-action plans-feed-icon-button plans-feed-icon-button--primary" href={createPlanHref} aria-label={t('plans.feed.actions.create')}>
                 <WebIcon name="add" size={21} decorative />
               </Link>
+              <WebAccountHeaderAction local />
             </div>
           </header>
 
           {menuOpen ? (
-            <section className="plans-feed-menu plans-workspace-menu normal-workspace-menu normal-workspace-menu--plans" aria-label="Plans workspace menu">
+            <section className="plans-feed-menu plans-workspace-menu normal-workspace-menu normal-workspace-menu--plans" aria-label={t('plans.feed.actions.menu')}>
               {workspaceItems.map((item) => (
                 <button key={item.id} type="button" className="plans-workspace-menu__item" onClick={() => openWorkspaceItem(item)} disabled={!canLoadPrivateViews && item.id !== 'plan_ideas' && item.id !== 'plan_guide'}>
                   <span className={`plans-workspace-menu__icon plans-workspace-menu__icon--${item.tone}`}><WebIcon name={item.icon} size={17} decorative /></span>
@@ -312,25 +323,25 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
         {shouldShowGuideIntro ? <PlansGuideIntroBanner onDismiss={dismissGuideIntro} /> : null}
 
         {activeView === 'feed' && activeFilterCount ? (
-          <section className="plans-active-filter-card" aria-label="Active Plan filters">
+          <section className="plans-active-filter-card" aria-label={activeFilterCount === 1 ? t('plans.feed.activeFilters.one') : t('plans.feed.activeFilters.many', { count: activeFilterCount })}>
             <div>
-              <strong>{activeFilterCount} active Plan filter{activeFilterCount === 1 ? '' : 's'}</strong>
-              <span>{activeFilterSummary || 'Filtered Plan results'}</span>
+              <strong>{activeFilterCount === 1 ? t('plans.feed.activeFilters.one') : t('plans.feed.activeFilters.many', { count: activeFilterCount })}</strong>
+              <span>{activeFilterSummary || t('plans.feed.activeFilters.fallback')}</span>
             </div>
-            <Link href="/plans">Reset</Link>
+            <Link href="/plans">{t('plans.filters.reset')}</Link>
           </section>
         ) : null}
         {error ? <section className="mobile-card mobile-card--soft"><p>{error}</p></section> : null}
-        {loading ? <section className="mobile-card"><p className="meta">Loading Plans...</p></section> : null}
+        {loading ? <section className="mobile-card"><p className="meta">{t('plans.list.loading')}</p></section> : null}
         {!loading && !error && sortedPlans.length === 0 && starterIdeaKeys.length === 0 ? (
           <section className="inventory-empty-state">
             <span className="inventory-empty-state__plus">+</span>
             <strong>{emptyTitle}</strong>
             <span>{emptyBody}</span>
-            <Link className="button secondary" href={createPlanHref}>Create Plan</Link>
+            <Link className="button secondary" href={createPlanHref}>{t('plans.feed.actions.create')}</Link>
           </section>
         ) : null}
-        <section className="mobile-list plans-feed-deck-list" aria-label={viewLabels[activeView]}>
+        <section className="mobile-list plans-feed-deck-list" aria-label={viewLabel}>
           {activeView === 'feed' ? feedItems.map((item) => {
             if (item.type === 'idea') return <PlanIdeaCard key={`idea-${item.ideaKey}`} ideaKey={item.ideaKey} onOpen={() => markStarterIdeaSeen(item.ideaKey)} />;
             const plan = sortedPlans[item.planIndex];
@@ -338,7 +349,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
           }) : activeOwnedPlans.map((plan) => <PlanCard key={plan.id} plan={plan} />)}
         </section>
         {activeView === 'mine' && removedOwnedPlans.length ? (
-          <section className="mobile-list plans-feed-deck-list" aria-label="Removed Plans">
+          <section className="mobile-list plans-feed-deck-list" aria-label={t('plans.list.removed')}>
             <div className="plan-section-heading">
               <div>
                 <p className="eyebrow">{t('plans.detail.values.private')}</p>
@@ -354,17 +365,18 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
 }
 
 function PlansGuideIntroBanner({ onDismiss }: { onDismiss: () => void }) {
+  const { t } = useWebTranslation();
   return (
     <section className="home-guide-entry home-guide-entry--plans" aria-labelledby="plans-guide-entry-title">
       <span className="home-guide-entry__icon" aria-hidden="true"><WebIcon name="plan" size={18} decorative /></span>
       <div className="home-guide-entry__copy">
-        <span className="semantic-badge instruction">Plans guide</span>
-        <h2 id="plans-guide-entry-title">New to Plans?</h2>
-        <p>Learn how plans, places, joining, creating, and safety work.</p>
+        <span className="semantic-badge instruction">{t('plans.feed.guide.badge')}</span>
+        <h2 id="plans-guide-entry-title">{t('plans.feed.guide.title')}</h2>
+        <p>{t('plans.feed.guide.body')}</p>
       </div>
       <div className="home-guide-entry__actions">
-        <Link href="/onboarding-guide?guide=plans&replay=1&next=/plans" className="button primary">Start guide</Link>
-        <button type="button" className="button secondary" onClick={onDismiss}>Dismiss</button>
+        <Link href="/onboarding-guide?guide=plans&replay=1&next=/plans" className="button primary">{t('onboarding.guide.start')}</Link>
+        <button type="button" className="button secondary" onClick={onDismiss}>{t('onboarding.guide.dismiss')}</button>
       </div>
     </section>
   );

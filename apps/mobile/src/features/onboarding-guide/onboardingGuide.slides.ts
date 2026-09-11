@@ -4,7 +4,7 @@ export type OnboardingGuideSlideKey =
   | 'welcome'
   | 'globalWelcome'
   | 'globalWorlds'
-  | 'globalMeHub'
+  | 'globalAccountHub'
   | 'createNeed'
   | 'createOffer'
   | 'discoverTrades'
@@ -53,11 +53,11 @@ export const ONBOARDING_GUIDE_PACKS: Record<OnboardingGuideType, OnboardingGuide
         illustrationCaptionKey: 'onboarding.slides.globalWorlds.caption',
       },
       {
-        id: 'global-me-hub',
-        illustrationKey: 'globalMeHub',
-        titleKey: 'onboarding.slides.globalMeHub.title',
-        bodyKey: 'onboarding.slides.globalMeHub.body',
-        illustrationCaptionKey: 'onboarding.slides.globalMeHub.caption',
+        id: 'global-account',
+        illustrationKey: 'globalAccountHub',
+        titleKey: 'onboarding.slides.globalAccountHub.title',
+        bodyKey: 'onboarding.slides.globalAccountHub.body',
+        illustrationCaptionKey: 'onboarding.slides.globalAccountHub.caption',
       },
       {
         id: 'global-safety',

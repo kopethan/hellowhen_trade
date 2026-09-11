@@ -12,16 +12,16 @@ export function WebBottomTabs() {
   const pathname = usePathname() || '/trades';
   const auth = useWebAuth();
   const { t } = useWebTranslation();
-  const usePlansMeTradeNav = betaFeatures.mainNavPlansMeTrade;
-  const tabs = getWebTabs(usePlansMeTradeNav);
-  const className = usePlansMeTradeNav ? 'web-bottom-tabs web-bottom-tabs--dock' : 'web-bottom-tabs';
-  const navMode = usePlansMeTradeNav ? 'plans-me-trade' : 'classic';
+  const useNormalAppNav = betaFeatures.mainNavPlansMeTrade;
+  const tabs = getWebTabs(useNormalAppNav);
+  const className = useNormalAppNav ? 'web-bottom-tabs web-bottom-tabs--normal' : 'web-bottom-tabs';
+  const navMode = useNormalAppNav ? 'plans-explore-trade' : 'classic';
 
   return (
     <nav className={className} data-nav-mode={navMode} aria-label={t('navigation.primary')} style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
       {tabs.map((tab) => {
         const active = tab.match(pathname);
-        const publicTab = tab.key === 'trades' || tab.key === 'trade' || tab.key === 'plans' || (usePlansMeTradeNav && tab.key === 'me');
+        const publicTab = tab.key === 'trades' || tab.key === 'trade' || tab.key === 'plans' || tab.key === 'explore';
         const shouldGate = !publicTab && (!auth.hydrated || !auth.isAuthenticated);
         const href = shouldGate ? `/auth?next=${encodeURIComponent(tab.href)}` : tab.href;
         return (

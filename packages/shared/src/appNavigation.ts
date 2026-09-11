@@ -1,7 +1,7 @@
-export const normalAppNavItemIds = ['plans', 'me', 'trade'] as const;
+export const normalAppNavItemIds = ['plans', 'explore', 'trade'] as const;
 export type NormalAppNavItemId = typeof normalAppNavItemIds[number];
 
-export type NormalAppNavIcon = 'plan' | 'profile' | 'trade';
+export type NormalAppNavIcon = 'compass' | 'plan' | 'trade';
 
 export type NormalAppNavItem = {
   id: NormalAppNavItemId;
@@ -11,8 +11,8 @@ export type NormalAppNavItem = {
   webHref: string;
 };
 
-// Web keeps the existing Plans / Me / Trade contract while mobile now uses
-// its independent Plans / Explore / Trade contract.
+// Normal app navigation is shared across web and native mobile:
+// Plans / Explore / Trade. Account remains a separate identity/tool destination.
 export const normalAppNavItems = [
   {
     id: 'plans',
@@ -22,11 +22,11 @@ export const normalAppNavItems = [
     webHref: '/plans',
   },
   {
-    id: 'me',
-    labelKey: 'navigation.tabs.me',
-    routeTitleKey: 'navigation.routes.me',
-    icon: 'profile',
-    webHref: '/account',
+    id: 'explore',
+    labelKey: 'navigation.tabs.explore',
+    routeTitleKey: 'navigation.routes.explore',
+    icon: 'compass',
+    webHref: '/explore',
   },
   {
     id: 'trade',
@@ -74,8 +74,8 @@ export const normalMobileAppNavItems = [
   },
 ] as const satisfies readonly NormalMobileAppNavItem[];
 
-export const DEFAULT_NORMAL_APP_NAV_ITEM_ID: NormalAppNavItemId = 'me';
-export const DEFAULT_NORMAL_APP_NAV_WEB_HREF = '/account';
+export const DEFAULT_NORMAL_APP_NAV_ITEM_ID: NormalAppNavItemId = 'explore';
+export const DEFAULT_NORMAL_APP_NAV_WEB_HREF = '/explore';
 export const DEFAULT_NORMAL_MOBILE_APP_NAV_ITEM_ID: NormalMobileAppNavItemId = 'explore';
 export const DEFAULT_NORMAL_MOBILE_APP_NAV_TAB_NAME: NormalMobileAppTabName = 'ExploreTab';
 

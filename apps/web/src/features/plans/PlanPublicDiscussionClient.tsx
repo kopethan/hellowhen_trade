@@ -29,7 +29,7 @@ import {
   type PublicDiscussionNotice,
   type PublicDiscussionView,
 } from '../publicDiscussion/PublicDiscussionThreadPieces';
-import { planMetadata, planStatusLabel } from './plansPresentation';
+import { planMetadata } from './plansPresentation';
 
 function isPlanPublicMessage(value: unknown): value is PlanPublicMessageDto {
   return isRecord(value) && typeof value.id === 'string' && typeof value.planId === 'string' && typeof value.authorId === 'string' && typeof value.body === 'string';
@@ -41,13 +41,13 @@ function normalizePlan(value: unknown): PlanDto | null {
   return null;
 }
 
-function planContextMeta(plan: PlanDto | null, count: number) {
-  const countLabel = `${count} public comment${count === 1 ? '' : 's'}`;
+function planContextMeta(plan: PlanDto | null, count: number, t: ReturnType<typeof useWebTranslation>['t']) {
+  const countLabel = count === 1 ? t('plans.discussion.meta.commentOne', { count }) : t('plans.discussion.meta.commentMany', { count });
   if (!plan) return countLabel;
   const placeCount = plan.places?.length ?? 0;
-  const placeLabel = `${placeCount} ${placeCount === 1 ? 'place' : 'places'}`;
+  const placeLabel = placeCount === 1 ? t('plans.row.placeOne', { count: placeCount }) : t('plans.row.placeMany', { count: placeCount });
   const metadata = planMetadata(plan);
-  return [planStatusLabel(plan.status), placeLabel, metadata, countLabel].filter(Boolean).join(' · ');
+  return [t(`plans.status.${plan.status}`), placeLabel, metadata, countLabel].filter(Boolean).join(' · ');
 }
 
 export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
@@ -73,9 +73,9 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
   const trimmedEditingBody = editingBody.trim();
   const composerReady = trimmedBody.length > 0;
   const composerDisabled = sending || !composerReady;
-  const planHeadline = plan?.title || 'Plan discussion';
-  const planContextLabel = 'Plan context';
-  const planMeta = planContextMeta(plan, messages.length);
+  const planHeadline = plan?.title || t('plans.discussion.guide.header');
+  const planContextLabel = t('plans.discussion.context');
+  const planMeta = planContextMeta(plan, messages.length, t);
 
   const groupedMessages = useMemo(() => groupPublicDiscussionMessages(messages), [messages]);
 
@@ -91,7 +91,7 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
       setMessages(nextMessages);
       if (!options?.quiet) setNotice(null);
     } catch (cause) {
-      if (!options?.quiet) setNotice({ tone: 'warning', body: getFriendlyApiErrorMessage(cause, 'Could not load the Plan discussion.') });
+      if (!options?.quiet) setNotice({ tone: 'warning', body: getFriendlyApiErrorMessage(cause, t('plans.discussion.errors.load')) });
     } finally {
       if (!options?.quiet) setLoading(false);
     }
@@ -132,7 +132,7 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
       setBody('');
       window.requestAnimationFrame(() => resizePublicDiscussionComposer(composerTextareaRef.current));
     } catch (cause) {
-      setNotice({ tone: 'danger', body: getFriendlyApiErrorMessage(cause, 'Could not send this public comment. Try again.') });
+      setNotice({ tone: 'danger', body: getFriendlyApiErrorMessage(cause, t('plans.discussion.errors.send')) });
     } finally {
       setSending(false);
     }
@@ -162,7 +162,7 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
       if (message) setMessages((current) => mergePublicDiscussionMessages(current, [message]));
       cancelEdit();
     } catch (cause) {
-      setNotice({ tone: 'danger', body: getFriendlyApiErrorMessage(cause, 'Could not update this public comment. Try again.') });
+      setNotice({ tone: 'danger', body: getFriendlyApiErrorMessage(cause, t('plans.discussion.errors.update')) });
     } finally {
       setSending(false);
     }
@@ -178,7 +178,7 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
       setOpenMenuId(null);
       setDeleteConfirmTarget(null);
     } catch (cause) {
-      setNotice({ tone: 'danger', body: getFriendlyApiErrorMessage(cause, 'Could not delete this public comment. Try again.') });
+      setNotice({ tone: 'danger', body: getFriendlyApiErrorMessage(cause, t('plans.discussion.errors.delete')) });
     } finally {
       setSending(false);
     }
@@ -219,30 +219,30 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
   }
 
   if (!auth.hydrated || loading) {
-    return <PublicDiscussionLoadingShell label={t('common.states.loading')} title="Public discussion" />;
+    return <PublicDiscussionLoadingShell label={t('common.states.loading')} title={t('plans.discussion.title')} />;
   }
 
   if (view === 'menu') {
     return (
       <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only public-discussion-page--menu">
-        <PublicDiscussionHeader backLabel={t('common.actions.back')} title="Thread options" onBack={closeSubpage} />
+        <PublicDiscussionHeader backLabel={t('common.actions.back')} title={t('plans.discussion.options')} onBack={closeSubpage} />
         <WebOptionPickerPanel className="web-thread-options-picker">
           <WebOptionPickerCard
             href={`/plans/${planId}`}
             iconName="plan"
-            title="See Plan"
-            description="Open the full Plan detail page."
+            title={t('plans.discussion.menu.details')}
+            description={t('plans.discussion.menu.detailsHelper')}
           />
           <WebOptionPickerCard
             iconName="help"
-            title="See guide"
-            description="How public Plan discussion works."
+            title={t('plans.discussion.menu.guide')}
+            description={t('plans.discussion.menu.guideHelper')}
             onClick={() => setView('guide')}
           />
           <WebOptionPickerDangerCard
             iconName="report-flag"
-            title="Report thread"
-            description="Report the public discussion or Plan context to moderators."
+            title={t('plans.discussion.menu.reportPlan')}
+            description={t('plans.discussion.menu.reportPlanHelper')}
             onClick={() => setView('report-thread')}
           />
         </WebOptionPickerPanel>
@@ -253,13 +253,13 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
   if (view === 'guide') {
     return (
       <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
-        <PublicDiscussionHeader backLabel={t('common.actions.back')} title="Public thread guide" onBack={() => setView('menu')} />
+        <PublicDiscussionHeader backLabel={t('common.actions.back')} title={t('plans.discussion.guide.title')} onBack={() => setView('menu')} />
         <section className="web-thread-info-page web-thread-guide-page">
           <ul className="web-thread-guide-list web-thread-guide-list--cards">
-            <PublicDiscussionGuideCard iconName="help">Public Plan comments are for visible questions that help everyone understand the Plan better.</PublicDiscussionGuideCard>
-            <PublicDiscussionGuideCard iconName="plan">Ask about the route, timing, places, joining, and general requirements.</PublicDiscussionGuideCard>
-            <PublicDiscussionGuideCard iconName="proposal">Use private or direct follow-up areas later for personal details, addresses, files, or private coordination.</PublicDiscussionGuideCard>
-            <PublicDiscussionGuideCard iconName="warning" warning>Do not share passwords, payment details, private contact details, or sensitive documents in public comments.</PublicDiscussionGuideCard>
+            <PublicDiscussionGuideCard iconName="help">{t('plans.discussion.guide.publicBody')}</PublicDiscussionGuideCard>
+            <PublicDiscussionGuideCard iconName="plan">{t('plans.discussion.guide.questionsBody')}</PublicDiscussionGuideCard>
+            <PublicDiscussionGuideCard iconName="proposal">{t('plans.discussion.guide.body')}</PublicDiscussionGuideCard>
+            <PublicDiscussionGuideCard iconName="warning" warning>{t('plans.discussion.guide.safetyBody')}</PublicDiscussionGuideCard>
           </ul>
         </section>
       </article>
@@ -269,7 +269,7 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
   if (view === 'report-thread') {
     return (
       <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
-        <PublicDiscussionHeader backLabel={t('common.actions.back')} title="Report public thread" onBack={() => setView('menu')} />
+        <PublicDiscussionHeader backLabel={t('common.actions.back')} title={t('plans.discussion.menu.reportPlanTitle')} onBack={() => setView('menu')} />
         <section className="web-thread-info-page">
           <ReportContentButton targetType="plan" targetId={planId} labelKey="report.content" helperKey="report.helper.content" initialOpen />
         </section>
@@ -280,7 +280,7 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
   if (view === 'report-message' && reportMessageId) {
     return (
       <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
-        <PublicDiscussionHeader backLabel={t('common.actions.back')} title="Report comment" onBack={closeSubpage} />
+        <PublicDiscussionHeader backLabel={t('common.actions.back')} title={t('plans.discussion.actions.report')} onBack={closeSubpage} />
         <section className="web-thread-info-page">
           <ReportContentButton targetType="public_message" targetId={reportMessageId} labelKey="report.publicMessage" helperKey="report.helper.publicMessage" initialOpen />
         </section>
@@ -293,14 +293,14 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
       <PublicDiscussionHeader
         backHref={`/plans/${planId}`}
         backLabel={t('common.actions.back')}
-        title="Public discussion"
-        menuLabel="Thread options"
+        title={t('plans.discussion.title')}
+        menuLabel={t('plans.discussion.options')}
         onMenu={() => setView('menu')}
       />
 
       <PublicDiscussionContextStrip
         href={`/plans/${planId}`}
-        ariaLabel="View Plan"
+        ariaLabel={t('plans.discussion.viewPlan')}
         eyebrow={planContextLabel}
         title={planHeadline}
         meta={planMeta}
@@ -310,11 +310,11 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
       {deleteConfirmTarget ? (
         <PublicDiscussionDeleteConfirm
           titleId="delete-plan-public-message-title"
-          badge="Delete comment"
-          title="Delete this comment?"
-          body="This cannot be undone. The public thread will keep a deleted-comment marker for moderation context."
+          badge={t('plans.discussion.actions.delete')}
+          title={t('plans.discussion.confirmDelete.title')}
+          body={t('plans.discussion.confirmDelete.body')}
           cancelLabel={t('common.actions.cancel')}
-          deleteLabel="Delete comment"
+          deleteLabel={t('plans.discussion.actions.delete')}
           workingLabel={t('common.states.working')}
           sending={sending}
           onCancel={() => setDeleteConfirmTarget(null)}
@@ -336,17 +336,17 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
             trimmedEditingBody={trimmedEditingBody}
             openMenuId={openMenuId}
             labels={{
-              unknownDate: 'Date unknown',
-              you: 'You',
-              messageActions: 'Comment actions',
-              reply: 'Reply',
-              reportMessage: 'Report comment',
-              edited: (date) => `edited ${date}`,
-              messageDeleted: 'Comment deleted',
+              unknownDate: t('plans.discussion.unknownDate'),
+              you: t('plans.discussion.you'),
+              messageActions: t('plans.discussion.actions.title'),
+              reply: t('plans.discussion.actions.reply'),
+              reportMessage: t('plans.discussion.actions.report'),
+              edited: (date) => t('plans.discussion.editedAt', { time: date }),
+              messageDeleted: t('plans.discussion.feedback.deleted'),
               save: t('common.actions.save'),
               cancel: t('common.actions.cancel'),
               edit: t('common.actions.edit'),
-              deleteMessage: 'Delete comment',
+              deleteMessage: t('plans.discussion.actions.delete'),
             }}
             onSaveEdit={saveEdit}
             onEditingBodyChange={setEditingBody}
@@ -358,12 +358,12 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
             onReport={openReportMessage}
           />
         ) : (
-          <p className="public-discussion-empty-text">No public comments yet</p>
+          <p className="public-discussion-empty-text">{t('plans.discussion.empty.title')}</p>
         )}
       </section>
 
       {discussionClosed ? (
-        <p className="notice-box warning public-discussion-bottom-notice">Private · Removed from feed. Earlier comments are preserved for the owner, but new replies and comment edits are closed.</p>
+        <p className="notice-box warning public-discussion-bottom-notice">{t('plans.discussion.cancelled.body')}</p>
       ) : canWrite ? (
         <PublicDiscussionComposer
           id="plan-public-discussion-message"
@@ -371,8 +371,8 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
           sending={sending}
           disabled={composerDisabled}
           value={body}
-          label="Comment publicly on this Plan"
-          placeholder="Comment publicly on this Plan..."
+          label={t('plans.discussion.composer.label')}
+          placeholder={t('plans.discussion.composer.placeholder')}
           sendLabel={t('common.actions.send')}
           sendingLabel={t('common.states.sending')}
           textareaRef={composerTextareaRef}
@@ -381,11 +381,11 @@ export function PlanPublicDiscussionClient({ planId }: { planId: string }) {
         />
       ) : !auth.isAuthenticated ? (
         <div className="notice-box warning public-discussion-bottom-notice public-discussion-bottom-notice--auth">
-          <span>Log in to comment or report in this Plan discussion.</span>
-          <Link className="button secondary compact" href={`/auth?next=${encodeURIComponent(`/plans/${planId}/discussion`)}`}>Log in</Link>
+          <span>{t('plans.discussion.auth.loginBody')}</span>
+          <Link className="button secondary compact" href={`/auth?next=${encodeURIComponent(`/plans/${planId}/discussion`)}`}>{t('plans.discussion.auth.login')}</Link>
         </div>
       ) : (
-        <p className="notice-box warning public-discussion-bottom-notice">Your account is restricted, so you cannot post public comments right now.</p>
+        <p className="notice-box warning public-discussion-bottom-notice">{t('plans.discussion.auth.restricted')}</p>
       )}
     </article>
   );

@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import type { MediaAssetDto, PlacePresenceVerificationResponse, PlanDto, PlanJoinApprovalMode, PlanParticipantDto, PlanPlaceDto, PlanStatus } from '@hellowhen/contracts';
+import { effectivePlanJoinClosesAt, isPlanJoinClosed } from '@hellowhen/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { ReportContentButton } from '../../components/ReportContentButton';
 import { WebIcon } from '../../components/WebIcon';
@@ -13,7 +13,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { UserIdentityLink } from '../users/UserIdentityLink';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
-import { planDateTime, planMediaSrc, planMetadata, planOwnerName, planParticipantStatusLabel, planStatusLabel } from './plansPresentation';
+import { planDateTime, planMediaSrc, planOwnerName, planRangeLabel } from './plansPresentation';
 import { resolvePlaceVisual, useResolvedPlaceVisualTheme } from './placeVisuals';
 import { ContentLanguageDetailControls, useContentLanguageDetailSelection } from '../inventory/ContentLanguageDetailControls';
 
@@ -23,28 +23,31 @@ type ActionState = {
   error: string;
 };
 
+type WebTranslate = ReturnType<typeof useWebTranslation>['t'];
+
 function isPlanUnavailableError(error: unknown) {
   if (!error || typeof error !== 'object') return false;
   const candidate = error as { status?: number; body?: { error?: string } };
   return candidate.status === 404 || candidate.status === 410 || candidate.body?.error === 'not_found' || candidate.body?.error === 'plan_deleted';
 }
 
-function participantName(participant: PlanParticipantDto) {
-  return participant.user?.profile?.displayName || participant.user?.profile?.handle || 'Hellowhen user';
+function participantName(participant: PlanParticipantDto, t: WebTranslate) {
+  return participant.user?.profile?.displayName || participant.user?.profile?.handle || t('plans.detail.people.memberFallback');
 }
 
 function ParticipantRow({ participant, ownerControls, onRemove }: { participant: PlanParticipantDto; ownerControls: boolean; onRemove: (participantId: string) => void }) {
-  const name = participantName(participant);
+  const { t } = useWebTranslation();
+  const name = participantName(participant, t);
   return (
     <article className="plan-participant-row plan-participant-row--social">
       <div className="plan-participant-row__avatar" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</div>
       <div className="plan-participant-row__body">
         <strong>{name}</strong>
-        <p className="meta">{planParticipantStatusLabel(participant.status)}</p>
+        <p className="meta">{t(`plans.participantStatus.${participant.status}`)}</p>
         {participant.message ? <p>{participant.message}</p> : null}
       </div>
       {ownerControls && participant.status === 'accepted' ? (
-        <button type="button" className="button secondary compact" onClick={() => onRemove(participant.id)}>Remove</button>
+        <button type="button" className="button secondary compact" onClick={() => onRemove(participant.id)}>{t('plans.detail.actions.removeParticipant')}</button>
       ) : null}
     </article>
   );
@@ -60,55 +63,115 @@ function planPlaceDisplayMedia(place: PlanPlaceDto) {
   return place.media?.[0] ?? place.sourcePlace?.media?.[0] ?? null;
 }
 
-function detailStatusTone(status: PlanStatus) {
-  if (status === 'open' || status === 'started') return 'success';
-  if (status === 'cancelled' || status === 'expired' || status === 'hidden') return 'danger';
+type PlanDetailPresentationState = PlanStatus | 'join_closed';
+
+function planTimeValue(value?: string | null) {
+  if (!value) return null;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
+function acceptedParticipantCount(plan: PlanDto) {
+  return plan.participantCount ?? plan.participants?.filter((participant) => participant.status === 'accepted').length ?? 0;
+}
+
+function planDetailPresentationState(plan: PlanDto, now = new Date()): PlanDetailPresentationState {
+  if (plan.status === 'cancelled' || plan.status === 'draft' || plan.status === 'expired' || plan.status === 'hidden') return plan.status;
+  if (plan.status === 'completed') return 'completed';
+
+  const nowTime = now.getTime();
+  const startsAt = planTimeValue(plan.startsAt);
+  const endsAt = planTimeValue(plan.endsAt ?? plan.startsAt);
+  if (Number.isFinite(nowTime) && endsAt !== null && nowTime >= endsAt) return 'completed';
+  if (plan.status === 'started') return 'started';
+  if (Number.isFinite(nowTime) && startsAt !== null && nowTime >= startsAt) return 'started';
+  if (isPlanJoinClosed(plan, now)) return 'join_closed';
+
+  const participantCount = acceptedParticipantCount(plan);
+  if (plan.status === 'full' || (plan.maxParticipants && participantCount >= plan.maxParticipants)) return 'full';
+  return 'open';
+}
+
+function detailStatusTone(status: PlanDetailPresentationState) {
+  if (status === 'open') return 'success';
+  if (status === 'full') return 'warning';
+  if (status === 'join_closed' || status === 'expired') return 'time';
+  if (status === 'started') return 'plan';
+  if (status === 'cancelled' || status === 'hidden') return 'danger';
   return 'neutral';
 }
 
-function planModeLabel(plan: PlanDto) {
-  if (plan.mode === 'remote') return 'Online';
-  if (plan.mode === 'hybrid') return 'Local/Online';
-  return 'Local';
+function planModeLabel(plan: PlanDto, t: WebTranslate) {
+  if (plan.mode === 'remote') return t('plans.detail.values.online');
+  if (plan.mode === 'hybrid') return t('plans.detail.values.hybrid');
+  return t('plans.detail.values.local');
 }
 
-function planVisibilityLabel(plan: PlanDto) {
-  if (plan.status === 'cancelled') return 'Private · Removed from feed';
-  return plan.status === 'hidden' ? 'Hidden' : 'Public';
+function planVisibilityLabel(plan: PlanDto, t: WebTranslate) {
+  if (plan.status === 'cancelled') return t('plans.detail.actions.cancelledTitle');
+  return plan.status === 'hidden' ? t('plans.detail.values.hidden') : t('plans.detail.values.public');
 }
 
-function planJoinModeLabel(mode: PlanJoinApprovalMode) {
-  return mode === 'owner_approval' ? 'Approval needed' : 'Free join';
+function planJoinModeLabel(mode: PlanJoinApprovalMode, t: WebTranslate) {
+  return mode === 'owner_approval' ? t('plans.detail.values.approvalNeeded') : t('plans.detail.values.freeJoin');
 }
 
-function planJoinActionCopy(plan: PlanDto) {
-  if (plan.status === 'full') return 'This plan is full right now.';
-  if (plan.status === 'started') return 'This plan has already started.';
-  if (plan.status !== 'open') return `This plan is ${planStatusLabel(plan.status).toLowerCase()}.`;
-  return plan.joinApprovalMode === 'automatic' ? 'Free join is open. You can leave later.' : 'Send your interest to join this plan.';
+function planJoinClosesLabel(plan: PlanDto, t: WebTranslate) {
+  const deadline = effectivePlanJoinClosesAt(plan);
+  if (!Number.isFinite(deadline.getTime())) return t('plans.detail.values.notSet');
+  const startsAt = new Date(plan.startsAt);
+  const deadlineLabel = planDateTime(deadline.toISOString());
+  if (Number.isFinite(startsAt.getTime()) && deadline.getTime() === startsAt.getTime()) return t('plans.detail.values.whenPlanStarts', { date: deadlineLabel });
+  return deadlineLabel;
 }
 
-function participantStateCopy(status: PlanDto['myParticipantStatus']) {
-  if (status === 'pending') return 'Your join request is waiting for the owner.';
-  if (status === 'left') return 'You left this plan.';
-  if (status === 'removed') return 'The owner removed you from this plan.';
-  if (status === 'declined') return 'The owner declined this request.';
-  if (status === 'cancelled') return 'Your join request was cancelled.';
-  return status ? `Your status: ${planParticipantStatusLabel(status)}` : '';
+function planCapacityLabel(plan: PlanDto, t: WebTranslate) {
+  const joined = acceptedParticipantCount(plan);
+  if (!plan.maxParticipants) return t('plans.detail.values.capacityUnlimitedJoined', { count: joined });
+  return t('plans.detail.values.capacityLimitedJoined', { joined, max: plan.maxParticipants });
+}
+
+function planJoinActionCopy(plan: PlanDto, presentationState: PlanDetailPresentationState, t: WebTranslate) {
+  if (presentationState === 'join_closed') return t('plans.detail.actions.joinClosed');
+  if (presentationState === 'full') return t('plans.detail.actions.full');
+  if (presentationState === 'started') return t('plans.detail.actions.started');
+  if (presentationState === 'completed') return t('plans.detail.actions.completed');
+  if (presentationState !== 'open') return t('plans.detail.actions.statusUnavailable', { status: t(`plans.status.${presentationState}`) });
+  return plan.joinApprovalMode === 'automatic' ? t('plans.detail.actions.freeJoinOpen') : t('plans.detail.actions.requestJoinOpen');
+}
+
+function participantStateCopy(status: PlanDto['myParticipantStatus'], t: WebTranslate) {
+  if (status === 'pending') return t('plans.detail.participantState.pending');
+  if (status === 'left') return t('plans.detail.participantState.left');
+  if (status === 'removed') return t('plans.detail.participantState.removed');
+  if (status === 'declined') return t('plans.detail.participantState.declined');
+  if (status === 'cancelled') return t('plans.detail.participantState.cancelled');
+  return status ? t('plans.detail.participantState.other', { status: t(`plans.participantStatus.${status}`) }) : '';
 }
 
 function canJoinFromParticipantStatus(status: PlanDto['myParticipantStatus']) {
   return !status || status === 'left' || status === 'cancelled' || status === 'declined';
 }
 
-function planPlaceModeDisplay(place: PlanPlaceDto) {
-  return place.mode === 'remote' ? 'Online' : 'Local';
+function planPlaceModeDisplay(place: PlanPlaceDto, t: WebTranslate) {
+  const kind = place.kind ?? 'place';
+  if (kind === 'pause') return t('plans.detail.customStop.pause');
+  if (kind === 'free_time') return t('plans.detail.customStop.freeTime');
+  if (kind === 'meeting_point') return t('plans.detail.customStop.meetingPoint');
+  if (kind === 'custom') return t('plans.detail.customStop.custom');
+  return place.mode === 'remote' ? t('plans.detail.values.online') : t('plans.detail.values.local');
 }
 
-function planPlaceSourceLabel(place: PlanPlaceDto) {
-  if (place.source === 'hellowhen_library') return 'Library place';
-  if (place.source === 'my_place') return 'My place';
-  return 'Custom stop';
+function planRouteUnitLabel(places: PlanPlaceDto[], t: WebTranslate) {
+  const hasCustomStops = places.some((place) => (place.kind ?? 'place') !== 'place');
+  if (hasCustomStops) return places.length === 1 ? t('plans.row.stopOne', { count: places.length }) : t('plans.row.stopMany', { count: places.length });
+  return places.length === 1 ? t('plans.row.placeOne', { count: places.length }) : t('plans.row.placeMany', { count: places.length });
+}
+
+function planPlaceSourceLabel(place: PlanPlaceDto, t: WebTranslate) {
+  if (place.source === 'hellowhen_library') return t('plans.detail.placeSource.library');
+  if (place.source === 'my_place') return t('plans.detail.placeSource.mine');
+  return t('plans.detail.placeSource.custom');
 }
 
 function planPlaceTimeRange(place: PlanPlaceDto, planStartsAt: string) {
@@ -160,16 +223,17 @@ type PlanPlaceLocationDisplay = {
   actionLabel?: string;
 };
 
-function planPlaceLocation(place: PlanPlaceDto): PlanPlaceLocationDisplay | null {
+function planPlaceLocation(place: PlanPlaceDto, t: WebTranslate): PlanPlaceLocationDisplay | null {
+  if ((place.kind ?? 'place') !== 'place') return null;
   if (place.mode === 'remote') {
     const value = place.onlineUrl || place.onlineLabel || '';
     if (!value) return null;
     return {
       kind: 'remote',
-      label: place.onlineLabel && place.onlineUrl ? place.onlineLabel : 'Online place',
+      label: place.onlineLabel && place.onlineUrl ? place.onlineLabel : t('plans.detail.location.onlinePlace'),
       value,
       href: place.onlineUrl || undefined,
-      actionLabel: place.onlineUrl ? 'Open link' : undefined,
+      actionLabel: place.onlineUrl ? t('plans.detail.location.openLink') : undefined,
     };
   }
 
@@ -177,10 +241,10 @@ function planPlaceLocation(place: PlanPlaceDto): PlanPlaceLocationDisplay | null
   if (!value) return null;
   return {
     kind: 'local',
-    label: 'Offline address',
+    label: t('plans.detail.location.offlineAddress'),
     value,
     href: buildMapsSearchUrl(value),
-    actionLabel: 'Open in Maps',
+    actionLabel: t('plans.detail.location.openMaps'),
   };
 }
 
@@ -191,20 +255,20 @@ type PlanPlacePresenceNotice = {
 };
 
 function isOfflinePlanPlace(place: PlanPlaceDto) {
-  return place.mode !== 'remote';
+  return (place.kind ?? 'place') === 'place' && place.mode !== 'remote';
 }
 
 function planPlaceStaticMapStatus(place: PlanPlaceDto) {
   return place.staticMapStatus ?? place.sourcePlace?.staticMapStatus ?? null;
 }
 
-function planPlaceMapPausedCopy(place: PlanPlaceDto) {
+function planPlaceMapPausedCopy(place: PlanPlaceDto, t: WebTranslate) {
   const status = planPlaceStaticMapStatus(place);
   if (!isOfflinePlanPlace(place) || !status || status.state !== 'unavailable') return null;
   if (status.reason !== 'hard_limit' && status.reason !== 'soft_limit') return null;
   return {
-    title: status.reason === 'hard_limit' ? 'Map preview paused' : 'Map preview limited',
-    body: status.message || 'Map preview paused. Open in Google Maps.',
+    title: status.reason === 'hard_limit' ? t('plans.detail.route.mapPreviewPaused') : t('plans.detail.route.mapPreviewLimited'),
+    body: status.message || t('plans.detail.route.mapPreviewBody'),
   };
 }
 
@@ -222,20 +286,20 @@ function planPlaceMapsQuery(place: PlanPlaceDto) {
   return place.addressPublicText || place.sourcePlace?.addressPublicText || place.sourcePlace?.areaLabel || null;
 }
 
-function buildPlanRouteMapsLink(places: PlanPlaceDto[]): PlanRouteMapsLink | null {
+function buildPlanRouteMapsLink(places: PlanPlaceDto[], t: WebTranslate): PlanRouteMapsLink | null {
   const offlineQueries = places.map(planPlaceMapsQuery).filter((value): value is string => Boolean(value));
   if (!offlineQueries.length) return null;
   const includedQueries = offlineQueries.slice(0, GOOGLE_MAPS_MAX_ROUTE_STOPS);
-  const skippedOnlineCount = places.filter((place) => place.mode === 'remote').length;
+  const skippedOnlineCount = places.filter((place) => (place.kind ?? 'place') === 'place' && place.mode === 'remote').length;
   const truncatedCount = Math.max(offlineQueries.length - includedQueries.length, 0);
   const bodyParts = [
-    includedQueries.length > 1 ? `${includedQueries.length} offline stops` : '1 offline stop',
-    skippedOnlineCount ? `${skippedOnlineCount} online ${skippedOnlineCount === 1 ? 'place is' : 'places are'} skipped` : '',
-    truncatedCount ? `${truncatedCount} later ${truncatedCount === 1 ? 'stop is' : 'stops are'} skipped` : '',
+    includedQueries.length === 1 ? t('plans.detail.route.offlineStopOne', { count: 1 }) : t('plans.detail.route.offlineStopMany', { count: includedQueries.length }),
+    skippedOnlineCount ? (skippedOnlineCount === 1 ? t('plans.detail.route.skippedOnlineOne', { count: skippedOnlineCount }) : t('plans.detail.route.skippedOnlineMany', { count: skippedOnlineCount })) : '',
+    truncatedCount ? (truncatedCount === 1 ? t('plans.detail.route.skippedLaterOne', { count: truncatedCount }) : t('plans.detail.route.skippedLaterMany', { count: truncatedCount })) : '',
   ].filter(Boolean);
   return {
     href: buildGoogleMapsDirectionsUrl(includedQueries),
-    label: includedQueries.length > 1 ? 'Open route in Google Maps' : 'Open in Google Maps',
+    label: includedQueries.length > 1 ? t('plans.detail.route.openRoute') : t('plans.detail.route.openSingle'),
     body: bodyParts.join(' · '),
     stopCount: includedQueries.length,
     totalStopCount: offlineQueries.length,
@@ -245,59 +309,39 @@ function buildPlanRouteMapsLink(places: PlanPlaceDto[]): PlanRouteMapsLink | nul
 
 function formatPresenceDistance(value?: number | null) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '';
-  if (value < 1000) return `${Math.round(value)}m away`;
-  return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}km away`;
+  if (value < 1000) return `${Math.round(value)} m`;
+  return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)} km`;
 }
 
-function presenceNoticeFromVerificationResponse(response: PlacePresenceVerificationResponse): PlanPlacePresenceNotice {
+function presenceNoticeFromVerificationResponse(response: PlacePresenceVerificationResponse, t: WebTranslate): PlanPlacePresenceNotice {
   const distanceLabel = formatPresenceDistance(response.distanceMeters ?? response.verification.distanceMeters);
   if (response.accepted) {
     return {
       tone: 'success',
-      title: response.alreadyVerified ? 'Already verified here' : 'Verified at this place',
-      body: distanceLabel ? `Your browser location was accepted · ${distanceLabel}.` : 'Your browser location was accepted for this offline place.',
+      title: response.alreadyVerified ? t('plans.detail.presence.alreadyVerifiedTitle') : t('plans.detail.presence.verifiedTitle'),
+      body: distanceLabel ? t('plans.detail.presence.acceptedWithDistance', { distance: distanceLabel }) : t('plans.detail.presence.acceptedBody'),
     };
   }
   if (response.verification.rejectionReason === 'gps_accuracy_too_low') {
-    return {
-      tone: 'warning',
-      title: 'Location accuracy too low',
-      body: 'Move closer to the place, step outside if possible, and try again with a stronger location signal.',
-    };
+    return { tone: 'warning', title: t('plans.detail.presence.lowAccuracyTitle'), body: t('plans.detail.presence.lowAccuracyBody') };
   }
   if (response.verification.rejectionReason === 'too_far_from_place') {
     return {
       tone: 'warning',
-      title: 'Too far from this place',
-      body: distanceLabel ? `Your device seems ${distanceLabel}. Move closer and try again.` : 'Move closer to the selected offline place and try again.',
+      title: t('plans.detail.presence.tooFarTitle'),
+      body: distanceLabel ? t('plans.detail.presence.tooFarWithDistance', { distance: distanceLabel }) : t('plans.detail.presence.tooFarBody'),
     };
   }
   if (response.verification.rejectionReason === 'mock_location_detected') {
-    return {
-      tone: 'warning',
-      title: 'Mock location detected',
-      body: 'Turn off mock location tools and try again from your real device location.',
-    };
+    return { tone: 'warning', title: t('plans.detail.presence.mockTitle'), body: t('plans.detail.presence.mockBody') };
   }
   if (response.verification.rejectionReason === 'location_timestamp_stale' || response.verification.rejectionReason === 'location_timestamp_future') {
-    return {
-      tone: 'warning',
-      title: 'Location check expired',
-      body: 'Refresh this device location and try again. We only accept fresh browser location checks.',
-    };
+    return { tone: 'warning', title: t('plans.detail.presence.expiredTitle'), body: t('plans.detail.presence.expiredBody') };
   }
   if (response.verification.rejectionReason === 'suspicious_location_jump') {
-    return {
-      tone: 'warning',
-      title: 'Location jump looks unusual',
-      body: 'Wait a bit before verifying again. This protects offline trust stats from impossible travel patterns.',
-    };
+    return { tone: 'warning', title: t('plans.detail.presence.jumpTitle'), body: t('plans.detail.presence.jumpBody') };
   }
-  return {
-    tone: 'warning',
-    title: 'Could not verify presence',
-    body: 'Try again when this device has a stronger location signal.',
-  };
+  return { tone: 'warning', title: t('plans.detail.presence.failedTitle'), body: t('plans.detail.presence.failedBody') };
 }
 
 function webVerificationPlatform() {
@@ -305,14 +349,14 @@ function webVerificationPlatform() {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile_web' : 'web';
 }
 
-function getBrowserLocationErrorMessage(cause: unknown) {
+function getBrowserLocationErrorMessage(cause: unknown, t: WebTranslate) {
   const apiMessage = getFriendlyApiErrorMessage(cause, '');
   if (apiMessage) return apiMessage;
   const geolocationError = cause && typeof cause === 'object' && 'code' in cause ? cause as { code?: number } : null;
-  if (geolocationError?.code === 1) return 'Allow location access only when you want to verify that you are at this place.';
-  if (geolocationError?.code === 2) return 'This device could not provide a usable location. Try again with a stronger signal.';
-  if (geolocationError?.code === 3) return 'Location check timed out. Move closer, wait a moment, and try again.';
-  return 'This browser could not confirm your location. Try again from a phone or another device.';
+  if (geolocationError?.code === 1) return t('plans.detail.presence.permissionBody');
+  if (geolocationError?.code === 2) return t('plans.detail.presence.deviceUnavailableBody');
+  if (geolocationError?.code === 3) return t('plans.detail.presence.timeoutBody');
+  return t('plans.detail.presence.browserUnavailableBody');
 }
 
 function getCurrentBrowserPosition(): Promise<GeolocationPosition> {
@@ -340,6 +384,7 @@ function PlanDetailItem({ label, value }: { label: string; value: string }) {
 }
 
 function PlanRoutePreview({ places, planStartsAt, routeMapsLink }: { places: PlanPlaceDto[]; planStartsAt: string; routeMapsLink: PlanRouteMapsLink | null }) {
+  const { t } = useWebTranslation();
   const themeMode = useResolvedPlaceVisualTheme();
   const preview = useMemo(() => {
     const entries = places.map((place) => {
@@ -353,10 +398,10 @@ function PlanRoutePreview({ places, planStartsAt, routeMapsLink }: { places: Pla
 
   if (!preview) return null;
 
-  const location = planPlaceLocation(preview.place);
+  const location = planPlaceLocation(preview.place, t);
   const previewDescription = planPlaceDescription(preview.place);
-  const previewTitle = routeMapsLink ? (routeMapsLink.totalStopCount > 1 ? 'Route preview' : 'Location preview') : 'Place preview';
-  const previewBody = routeMapsLink?.body ?? `${places.length} ${places.length === 1 ? 'place' : 'places'} in this Plan.`;
+  const previewTitle = routeMapsLink ? (routeMapsLink.totalStopCount > 1 ? t('plans.detail.route.previewRoute') : t('plans.detail.route.previewLocation')) : t('plans.detail.route.previewPlace');
+  const previewBody = routeMapsLink?.body ?? (places.length === 1 ? t('plans.detail.route.previewBodyOne') : t('plans.detail.route.previewBodyMany', { count: places.length }));
 
   return (
     <aside className="plan-route-preview" aria-label={previewTitle}>
@@ -381,13 +426,13 @@ function PlanRoutePreview({ places, planStartsAt, routeMapsLink }: { places: Pla
         ) : null}
       </div>
       {places.length > 1 ? (
-        <div className="plan-route-preview__stops" aria-label="Plan route stops">
+        <div className="plan-route-preview__stops" aria-label={t('plans.detail.route.stopsAccessibility')}>
           {places.map((place, index) => (
             <div key={`route-preview-stop-${place.id}`} className={`plan-route-preview__stop${place.id === preview.place.id ? ' is-active' : ''}`}>
               <span aria-hidden="true">{index + 1}</span>
               <div>
                 <strong>{place.title}</strong>
-                <small>{planPlaceTimeRange(place, planStartsAt)} · {planPlaceModeDisplay(place)}</small>
+                <small>{planPlaceTimeRange(place, planStartsAt)} · {planPlaceModeDisplay(place, t)}</small>
               </div>
             </div>
           ))}
@@ -416,9 +461,11 @@ function PlanPlaceCard({
   presenceNotice?: PlanPlacePresenceNotice;
   onVerifyPresence: (place: PlanPlaceDto) => void;
 }) {
+  const { t } = useWebTranslation();
   const displayMedia = planPlaceDisplayMedia(place);
   const themeMode = useResolvedPlaceVisualTheme();
-  const placeVisual = resolvePlaceVisual({ media: displayMedia, staticMap: place.staticMap ?? place.sourcePlace?.staticMap ?? null, themeMode });
+  const isPlaceStop = (place.kind ?? 'place') === 'place';
+  const placeVisual = resolvePlaceVisual({ media: displayMedia, staticMap: isPlaceStop ? place.staticMap ?? place.sourcePlace?.staticMap ?? null : null, themeMode });
   const placeTime = planPlaceTimeRange(place, planStartsAt);
   const description = planPlaceDescription(place);
   const languageSelection = useContentLanguageDetailSelection({
@@ -426,8 +473,8 @@ function PlanPlaceCard({
     fallbackTitle: place.title,
     fallbackDescription: description,
   });
-  const location = planPlaceLocation(place);
-  const mapPausedCopy = !placeVisual.url ? planPlaceMapPausedCopy(place) : null;
+  const location = planPlaceLocation(place, t);
+  const mapPausedCopy = !placeVisual.url ? planPlaceMapPausedCopy(place, t) : null;
   const [locationCopyNotice, setLocationCopyNotice] = useState('');
   const hasVerificationCoordinates = Boolean(planPlaceVerificationCoordinates(place));
   const showPresenceVerification = isOfflinePlanPlace(place) && (canVerifyPresence || presenceNotice || hasVerificationCoordinates);
@@ -435,7 +482,7 @@ function PlanPlaceCard({
 
   async function copyLocationValue(value: string) {
     const copied = await copyTextToClipboard(value);
-    setLocationCopyNotice(copied ? 'Copied.' : 'Could not copy.');
+    setLocationCopyNotice(copied ? t('plans.detail.location.copied') : t('plans.detail.location.copyFailed'));
   }
 
   return (
@@ -444,8 +491,8 @@ function PlanPlaceCard({
       <div className="plan-route-stop__body">
         <div className="plan-route-stop__topline">
           <span>{placeTime}</span>
-          <span>{planPlaceModeDisplay(place)}</span>
-          <span>{planPlaceSourceLabel(place)}</span>
+          <span>{planPlaceModeDisplay(place, t)}</span>
+          <span>{planPlaceSourceLabel(place, t)}</span>
         </div>
         <div className="plan-route-stop__content">
           <div className="plan-route-stop__copy">
@@ -474,7 +521,7 @@ function PlanPlaceCard({
                       </a>
                     ) : null}
                     <button type="button" className="plan-route-stop__location-action" onClick={() => { void copyLocationValue(location.value); }}>
-                      {location.kind === 'local' ? 'Copy address' : 'Copy link'}
+                      {location.kind === 'local' ? t('plans.detail.location.copyAddress') : t('plans.detail.location.copyLink')}
                     </button>
                   </div>
                   {locationCopyNotice ? <p className="plan-route-stop__location-notice" role="status">{locationCopyNotice}</p> : null}
@@ -495,7 +542,7 @@ function PlanPlaceCard({
                 </div>
                 {location?.href ? (
                   <a href={location.href} target="_blank" rel="noreferrer">
-                    Open in Google Maps
+                    {t('plans.detail.route.openGoogleMaps')}
                     <WebIcon name="arrow-right" size={13} decorative />
                   </a>
                 ) : null}
@@ -504,8 +551,8 @@ function PlanPlaceCard({
             {showPresenceVerification ? (
               <div className={`plan-route-stop__presence plan-route-stop__presence--${presenceNotice?.tone ?? 'info'}`}>
                 <div className="plan-route-stop__presence-copy">
-                  <strong>{presenceNotice?.title ?? (hasVerificationCoordinates ? 'GPS verification' : 'GPS unavailable')}</strong>
-                  <p>{presenceNotice?.body ?? (hasVerificationCoordinates ? 'Use this device location when you reach this place. Mobile web usually works best.' : 'Google-confirmed map position needed before browser location verification can work.')}</p>
+                  <strong>{presenceNotice?.title ?? (hasVerificationCoordinates ? t('plans.detail.presence.title') : t('plans.detail.presence.unavailableTitle'))}</strong>
+                  <p>{presenceNotice?.body ?? (hasVerificationCoordinates ? t('plans.detail.presence.readyBody') : t('plans.detail.presence.unavailableBody'))}</p>
                 </div>
                 {hasVerificationCoordinates ? (
                   <button
@@ -515,7 +562,7 @@ function PlanPlaceCard({
                     onClick={() => onVerifyPresence(place)}
                   >
                     <WebIcon name="location-on" size={14} decorative />
-                    <span>{isVerifyingPresence ? 'Checking...' : 'Verify here'}</span>
+                    <span>{isVerifyingPresence ? t('plans.detail.presence.checking') : t('plans.detail.presence.verify')}</span>
                   </button>
                 ) : null}
               </div>
@@ -537,7 +584,6 @@ type PlanDetailClientProps = {
 export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDetailClientProps) {
   const auth = useWebAuth();
   const { t } = useWebTranslation();
-  const router = useRouter();
   const [plan, setPlan] = useState<PlanDto | null>(null);
   const [joinRequests, setJoinRequests] = useState<PlanParticipantDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -551,18 +597,21 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
   const isOwner = Boolean(auth.user?.id && plan?.ownerId === auth.user.id);
   const isCancelled = plan?.status === 'cancelled';
   const currentParticipantStatus = plan?.myParticipantStatus ?? null;
-  const canJoin = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner && plan.status === 'open' && canJoinFromParticipantStatus(currentParticipantStatus));
-  const canLeave = Boolean(!isCancelled && !isOwner && currentParticipantStatus === 'accepted');
-  const canVerifyPresence = Boolean(!isCancelled && auth.hydrated && auth.isAuthenticated && plan && (isOwner || currentParticipantStatus === 'accepted'));
+  const presentationState = plan ? planDetailPresentationState(plan) : null;
+  const canJoin = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner && presentationState === 'open' && canJoinFromParticipantStatus(currentParticipantStatus));
+  const canLeave = Boolean(!isCancelled && presentationState !== 'completed' && !isOwner && currentParticipantStatus === 'accepted');
+  const canVerifyPresence = Boolean(!isCancelled && auth.hydrated && auth.isAuthenticated && plan && presentationState !== 'completed' && ['open', 'full', 'started'].includes(plan.status) && (isOwner || currentParticipantStatus === 'accepted'));
   const canRemovePlan = Boolean(isOwner && plan && plan.status !== 'cancelled' && plan.status !== 'hidden');
-  const participantCopy = !isOwner ? participantStateCopy(currentParticipantStatus) : '';
+  const canEditPlan = Boolean(isOwner && plan?.ownerCanEdit);
+  const participantCopy = !isOwner ? participantStateCopy(currentParticipantStatus, t) : '';
   const showReportActions = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner);
-  const places = plan?.places ?? [];
-  const routeMapsLink = buildPlanRouteMapsLink(places);
+  const places = useMemo(() => [...(plan?.places ?? [])].sort((left, right) => left.order - right.order), [plan?.places]);
+  const routeMapsLink = buildPlanRouteMapsLink(places, t);
   const shouldShowRoutePreview = Boolean(routeMapsLink && routeMapsLink.totalStopCount >= 2);
   const joinedCount = plan?.participantCount ?? 0;
   const hasAffectedParticipants = Boolean(plan?.participants?.some((participant) => participant.status === 'accepted' || participant.status === 'pending'));
-  const placeCount = places.length;
+  const routeUnitLabel = planRouteUnitLabel(places, t);
+  const planStatusDisplay = presentationState === 'join_closed' ? t('plans.status.joinClosed') : (presentationState ? t(`plans.status.${presentationState}`) : '');
   const capacityLabel = plan?.maxParticipants ? `${joinedCount}/${plan.maxParticipants}` : String(joinedCount);
 
   async function loadPlan() {
@@ -573,7 +622,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
       setPlan(response.plan);
     } catch (loadError) {
       setPlan(null);
-      setError(getFriendlyApiErrorMessage(loadError, 'Could not load Plan.'));
+      setError(getFriendlyApiErrorMessage(loadError, t('plans.detail.errors.loadBody')));
     } finally {
       setLoading(false);
     }
@@ -608,10 +657,10 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
     setAction({ loading: true, message: '', error: '' });
     try {
       await api.plans.join(planId, {});
-      setAction({ loading: false, message: 'You joined this Plan.', error: '' });
+      setAction({ loading: false, message: t('plans.detail.feedback.joined'), error: '' });
       await loadPlan();
     } catch (joinError) {
-      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(joinError, 'Could not join this Plan.') });
+      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(joinError, t('plans.detail.errors.join')) });
     }
   }
 
@@ -619,10 +668,10 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
     setAction({ loading: true, message: '', error: '' });
     try {
       await api.plans.leave(planId);
-      setAction({ loading: false, message: 'You left this Plan.', error: '' });
+      setAction({ loading: false, message: t('plans.detail.feedback.left'), error: '' });
       await loadPlan();
     } catch (statusError) {
-      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(statusError, 'Could not leave this Plan.') });
+      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(statusError, t('plans.detail.errors.leave')) });
     }
   }
 
@@ -630,10 +679,10 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
     setAction({ loading: true, message: '', error: '' });
     try {
       await api.plans.updateJoinRequest(planId, participantId, { status: 'removed' });
-      setAction({ loading: false, message: 'Participant removed.', error: '' });
+      setAction({ loading: false, message: t('plans.detail.feedback.participantRemoved'), error: '' });
       await Promise.all([loadPlan(), loadJoinRequests()]);
     } catch (statusError) {
-      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(statusError, 'Could not remove participant.') });
+      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(statusError, t('plans.detail.errors.removeParticipant')) });
     }
   }
 
@@ -648,7 +697,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
         currentPlan = response.plan;
         setPlan(currentPlan);
       } catch (cause) {
-        const message = getFriendlyApiErrorMessage(cause, 'Could not confirm that this Plan is still available.');
+        const message = getFriendlyApiErrorMessage(cause, t('plans.detail.errors.shareAvailability'));
         if (isPlanUnavailableError(cause)) {
           setPlan(null);
           setError(message);
@@ -659,23 +708,23 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
       }
 
       const url = buildPublicPlanUrl(currentPlan.id);
-      const shareData = { title: currentPlan.title, text: `Open this Plan on Hellowhen: ${currentPlan.title}`, url };
+      const shareData = { title: currentPlan.title, text: t('plans.detail.share.text', { title: currentPlan.title }), url };
       const webNavigator = typeof navigator !== 'undefined' ? navigator as Navigator & { share?: (data: typeof shareData) => Promise<void> } : null;
 
       try {
         if (webNavigator?.share) {
           await webNavigator.share(shareData);
-          setShareNotice('Share sheet opened.');
+          setShareNotice(t('plans.detail.feedback.shareOpened'));
           return;
         }
 
         const copied = await copyTextToClipboard(url);
-        setShareNotice(copied ? 'Plan link copied.' : 'Could not copy the Plan link.');
+        setShareNotice(copied ? t('plans.detail.feedback.linkCopied') : t('plans.detail.feedback.linkCopyFailed'));
       } catch (cause) {
         const aborted = typeof DOMException !== 'undefined' && cause instanceof DOMException && cause.name === 'AbortError';
         if (!aborted) {
           const copied = await copyTextToClipboard(url);
-          setShareNotice(copied ? 'Plan link copied.' : 'Could not copy the Plan link.');
+          setShareNotice(copied ? t('plans.detail.feedback.linkCopied') : t('plans.detail.feedback.linkCopyFailed'));
         }
       }
     } finally {
@@ -695,7 +744,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
       setPlan(response.plan);
       setAction({ loading: false, message: t('plans.detail.feedback.removed'), error: '' });
     } catch (removeError) {
-      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(removeError, 'Could not remove this Plan from the feed.') });
+      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(removeError, t('plans.detail.errors.remove')) });
     }
   }
 
@@ -707,7 +756,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
       setPlan(response.plan);
       setAction({ loading: false, message: t('plans.detail.feedback.restored'), error: '' });
     } catch (restoreError) {
-      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(restoreError, 'Could not restore this Plan to the feed.') });
+      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(restoreError, t('plans.detail.errors.restore')) });
     }
   }
 
@@ -716,14 +765,14 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
     if (!auth.isAuthenticated) {
       setPresenceNotices((current) => ({
         ...current,
-        [place.id]: { tone: 'info', title: 'Log in to verify', body: 'Log in first, then use this device location when you reach this offline place.' },
+        [place.id]: { tone: 'info', title: t('plans.detail.presence.loginTitle'), body: t('plans.detail.presence.loginBody') },
       }));
       return;
     }
     if (!isOwner && currentParticipantStatus !== 'accepted') {
       setPresenceNotices((current) => ({
         ...current,
-        [place.id]: { tone: 'info', title: 'Join this Plan first', body: 'Presence verification is only available to the owner or joined participants.' },
+        [place.id]: { tone: 'info', title: t('plans.detail.presence.joinFirstTitle'), body: t('plans.detail.presence.joinFirstBody') },
       }));
       return;
     }
@@ -731,7 +780,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
     if (!planPlaceVerificationCoordinates(place)) {
       setPresenceNotices((current) => ({
         ...current,
-        [place.id]: { tone: 'warning', title: 'Map position needed', body: 'This offline place needs a Google-confirmed map position before browser location verification can work.' },
+        [place.id]: { tone: 'warning', title: t('plans.detail.presence.mapPositionTitle'), body: t('plans.detail.presence.mapPositionBody') },
       }));
       return;
     }
@@ -747,11 +796,11 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
         locationCapturedAt: new Date(position.timestamp).toISOString(),
         platform: webVerificationPlatform(),
       });
-      setPresenceNotices((current) => ({ ...current, [place.id]: presenceNoticeFromVerificationResponse(response) }));
+      setPresenceNotices((current) => ({ ...current, [place.id]: presenceNoticeFromVerificationResponse(response, t) }));
     } catch (caughtError) {
       setPresenceNotices((current) => ({
         ...current,
-        [place.id]: { tone: 'warning', title: 'Verification failed', body: getBrowserLocationErrorMessage(caughtError) },
+        [place.id]: { tone: 'warning', title: t('plans.detail.presence.failedTitle'), body: getBrowserLocationErrorMessage(caughtError, t) },
       }));
     } finally {
       setVerifyingPlaceId(null);
@@ -761,53 +810,53 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
   return (
     <PlansFeatureGate plansEnabled={plansEnabled}>
       <main className="plan-detail-page plan-detail-page--web">
-        <header className="plan-detail-toolbar" aria-label="Plan navigation">
+        <header className="plan-detail-toolbar" aria-label={t('plans.detail.navigation')}>
           <Link href="/plans" className="plan-detail-back-link">
             <WebIcon name="back" size={17} decorative />
-            <span>Plan</span>
+            <span>{t('plans.detail.headerTitle')}</span>
           </Link>
           <div className="plan-detail-toolbar__actions">
             <PlansInternalBadge plansVisible={plansVisible} />
             {plan && !isCancelled ? (
               <button type="button" className="plan-detail-icon-button" onClick={() => void sharePlan()} disabled={shareLoading}>
                 <WebIcon name="share" size={17} decorative />
-                <span>{shareLoading ? 'Sharing...' : 'Share'}</span>
+                <span>{shareLoading ? t('plans.detail.actions.sharing') : t('plans.detail.actions.share')}</span>
               </button>
             ) : null}
           </div>
         </header>
 
-        {loading ? <section className="plan-social-section"><p className="meta">Loading Plan...</p></section> : null}
+        {loading ? <section className="plan-social-section"><p className="meta">{t('plans.detail.loading')}</p></section> : null}
         {error ? <section className="plan-social-section plan-social-section--soft"><p>{error}</p></section> : null}
 
         {plan ? (
           <>
             <section className="plan-detail-hero-social">
               <div className="status-row plan-detail-status-row">
-                <span className={`semantic-badge ${detailStatusTone(plan.status)}`}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status)}</span>
-                <span className="semantic-badge trade">Plan</span>
+                <span className={`semantic-badge ${detailStatusTone(presentationState ?? plan.status)}`}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusDisplay}</span>
+                <span className="semantic-badge trade">{t('plans.detail.headerTitle')}</span>
               </div>
               <h1>{plan.title}</h1>
               {plan.description ? <p className="plan-detail-hero-description">{plan.description}</p> : null}
               <div className="plan-detail-owner-row">
-                <span className="meta">Starts {planDateTime(plan.startsAt)}</span>
+                <span className="meta">{t('plans.detail.hero.starts', { date: planDateTime(plan.startsAt) })}</span>
                 <span className="meta">·</span>
-                <span className="meta">Posted by</span>
+                <span className="meta">{t('plans.detail.hero.postedBy')}</span>
                 <UserIdentityLink
                   user={plan.owner}
                   userId={plan.ownerId}
                   variant="chip"
                   avatarSize="sm"
-                  statusText="Owner"
+                  statusText={t('plans.detail.values.owner')}
                   showHandle={false}
                   disabled={!plan.owner}
                 />
               </div>
-              <div className="plan-detail-chip-row" aria-label="Plan summary">
-                <span className={`semantic-badge ${detailStatusTone(plan.status)}`}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status)}</span>
-                <span className="semantic-badge instruction">{planJoinModeLabel(plan.joinApprovalMode)}</span>
-                <span className="semantic-badge neutral">{placeCount} {placeCount === 1 ? 'place' : 'places'}</span>
-                <span className="semantic-badge neutral">{planModeLabel(plan)}</span>
+              <div className="plan-detail-chip-row" aria-label={t('plans.detail.summaryAccessibility')}>
+                <span className={`semantic-badge ${detailStatusTone(presentationState ?? plan.status)}`}>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusDisplay}</span>
+                <span className="semantic-badge instruction">{planJoinModeLabel(plan.joinApprovalMode, t)}</span>
+                <span className="semantic-badge neutral">{routeUnitLabel}</span>
+                <span className="semantic-badge neutral">{planModeLabel(plan, t)}</span>
               </div>
               {shareNotice ? <p className="plan-share-notice" role="status" aria-live="polite">{shareNotice}</p> : null}
             </section>
@@ -815,18 +864,18 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
             <section className="plan-social-section trade-thread-split-section trade-thread-split-section--clean plan-discussion-entry-section" aria-labelledby="plan-conversations-title">
               <div className="plan-section-heading trade-thread-section-heading trade-thread-section-heading--clean">
                 <div>
-                  <p className="eyebrow">Discussion</p>
-                  <h2 id="plan-conversations-title">{isCancelled && isOwner ? 'Saved discussion' : 'Public discussion'}</h2>
+                  <p className="eyebrow">{t('plans.detail.sections.discussion')}</p>
+                  <h2 id="plan-conversations-title">{isCancelled && isOwner ? t('plans.detail.discussion.history') : t('plans.detail.sections.discussion')}</h2>
                 </div>
               </div>
               <div className="trade-thread-action-grid trade-thread-action-grid--simple trade-thread-action-grid--clean">
-                <Link href={`/plans/${plan.id}/discussion`} className="trade-thread-action-card trade-thread-action-card--public" aria-label="Open public discussion">
+                <Link href={`/plans/${plan.id}/discussion`} className="trade-thread-action-card trade-thread-action-card--public" aria-label={t('plans.detail.discussion.openAccessibility')}>
                   <span className="trade-thread-action-card__icon trade-thread-action-card__icon--public"><WebIcon name="activity" size={20} decorative /></span>
                   <span className="trade-thread-action-card__body">
-                    <strong>{isCancelled && isOwner ? 'Private discussion history' : 'Public discussion'}</strong>
-                    <small>{isCancelled ? 'Read the preserved comments. Other users cannot open this removed Plan or its discussion.' : 'Ask visible questions about joining, timing, places, or plan details.'}</small>
+                    <strong>{isCancelled && isOwner ? t('plans.detail.discussion.history') : t('plans.detail.sections.discussion')}</strong>
+                    <small>{isCancelled ? t('plans.detail.discussion.cancelledBody') : t('plans.detail.discussion.body')}</small>
                   </span>
-                  <span className="trade-thread-action-card__cta">Open<WebIcon name="arrow-right" size={14} decorative /></span>
+                  <span className="trade-thread-action-card__cta">{t('plans.detail.discussion.open')}<WebIcon name="arrow-right" size={14} decorative /></span>
                 </Link>
               </div>
             </section>
@@ -834,8 +883,8 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
             <section className="plan-social-section plan-route-section plan-route-section--list">
               <div className="plan-section-heading">
                 <div>
-                  <p className="eyebrow">Route</p>
-                  <h2>Places and times</h2>
+                  <p className="eyebrow">{t('plans.detail.sections.route')}</p>
+                  <h2>{places.some((place) => (place.kind ?? 'place') !== 'place') ? t('plans.detail.route.stopsAndTimes') : t('plans.detail.route.placesAndTimes')}</h2>
                 </div>
               </div>
               <div className="plan-route-shell">
@@ -853,7 +902,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
                       onVerifyPresence={(nextPlace) => { void verifyPlanPlacePresence(nextPlace); }}
                     />
                   ))}
-                  {places.length === 0 ? <p className="meta">No places added yet.</p> : null}
+                  {places.length === 0 ? <p className="meta">{t('plans.detail.route.emptyBody')}</p> : null}
                 </div>
                 {shouldShowRoutePreview ? <PlanRoutePreview places={places.filter(isOfflinePlanPlace)} planStartsAt={plan.startsAt} routeMapsLink={routeMapsLink} /> : null}
               </div>
@@ -861,23 +910,25 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
 
             <section className="plan-social-section">
               <div className="plan-section-heading">
-                <p className="eyebrow">Details</p>
-                <h2>Plan info</h2>
+                <p className="eyebrow">{t('plans.detail.sections.details')}</p>
+                <h2>{t('plans.detail.infoTitle')}</h2>
               </div>
               <dl className="plan-detail-list">
-                <PlanDetailItem label="Status" value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusLabel(plan.status)} />
-                <PlanDetailItem label="Visibility" value={planVisibilityLabel(plan)} />
-                <PlanDetailItem label="Join mode" value={planJoinModeLabel(plan.joinApprovalMode)} />
-                <PlanDetailItem label="Time" value={planMetadata(plan)} />
-                <PlanDetailItem label="Place mode" value={planModeLabel(plan)} />
-                <PlanDetailItem label="Created" value={planDateTime(plan.createdAt)} />
+                <PlanDetailItem label={t('plans.detail.fields.status')} value={isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : planStatusDisplay} />
+                <PlanDetailItem label={t('plans.detail.fields.visibility')} value={planVisibilityLabel(plan, t)} />
+                <PlanDetailItem label={t('plans.detail.fields.joinMode')} value={planJoinModeLabel(plan.joinApprovalMode, t)} />
+                <PlanDetailItem label={t('plans.detail.fields.joinCloses')} value={planJoinClosesLabel(plan, t)} />
+                <PlanDetailItem label={t('plans.detail.fields.capacity')} value={planCapacityLabel(plan, t)} />
+                <PlanDetailItem label={t('plans.detail.fields.time')} value={planRangeLabel(plan)} />
+                <PlanDetailItem label={t('plans.detail.fields.format')} value={planModeLabel(plan, t)} />
+                <PlanDetailItem label={t('plans.detail.fields.created')} value={planDateTime(plan.createdAt)} />
               </dl>
             </section>
 
             <section className="plan-social-section">
               <div className="plan-section-heading">
-                <p className="eyebrow">Owner</p>
-                <h2>Posted by {planOwnerName(plan)}</h2>
+                <p className="eyebrow">{t('plans.detail.sections.owner')}</p>
+                <h2>{t('plans.detail.hero.postedBy')} {planOwnerName(plan)}</h2>
               </div>
               <div className="plan-owner-row">
                 <UserIdentityLink
@@ -885,7 +936,7 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
                   userId={plan.ownerId}
                   variant="row"
                   avatarSize="md"
-                  statusText="Plan owner"
+                  statusText={t('plans.detail.owner.planOwner')}
                   disabled={!plan.owner}
                 />
                 {showReportActions ? <ReportContentButton targetType="plan" targetId={plan.id} /> : null}
@@ -894,21 +945,30 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
 
             <section className="plan-social-section plan-actions-section">
               <div className="plan-section-heading">
-                <p className="eyebrow">Actions</p>
-                <h2>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : isOwner ? 'Manage this Plan' : canLeave ? 'You joined this Plan' : 'Join this Plan'}</h2>
-                <p>{isCancelled && isOwner ? t('plans.detail.actions.cancelledLongBody') : isOwner && plan ? t('plans.detail.actions.ownerBody') : plan ? planJoinActionCopy(plan) : ''}</p>
+                <p className="eyebrow">{t('plans.detail.sections.actions')}</p>
+                <h2>{isCancelled && isOwner ? t('plans.detail.actions.cancelledTitle') : isOwner ? t('plans.detail.actions.manageTitle') : canLeave ? t('plans.detail.actions.joinedTitle') : presentationState === 'join_closed' ? t('plans.status.joinClosed') : t('plans.detail.actions.join')}</h2>
+                <p>{isCancelled && isOwner ? t('plans.detail.actions.cancelledLongBody') : isOwner && plan ? t('plans.detail.actions.ownerBody') : plan ? planJoinActionCopy(plan, presentationState ?? plan.status, t) : ''}</p>
               </div>
               <div className="plan-detail-actions plan-detail-actions--social">
                 {isOwner ? (
                   <div className="plan-action-status plan-action-status--owner">
-                    <span className="semantic-badge trade">Owner</span>
-                    <strong>Manage Plan</strong>
+                    <span className="semantic-badge trade">{t('plans.detail.values.owner')}</span>
+                    <strong>{t('plans.detail.actions.manageTitle')}</strong>
                     <p className="meta">{isCancelled ? t('plans.detail.actions.manageCancelledBody') : t('plans.detail.actions.manageBody')}</p>
                   </div>
                 ) : null}
+                {isOwner && !isCancelled && !canEditPlan ? (
+                  <div className="plan-action-status">
+                    <span className="semantic-badge neutral">{t('plans.detail.actions.editingLocked')}</span>
+                    <p className="meta">{t('plans.create.edit.locked')}</p>
+                  </div>
+                ) : null}
+                {canEditPlan ? (
+                  <Link className="button primary" href={`/plans/${plan.id}/edit`}>{t('plans.detail.actions.edit')}</Link>
+                ) : null}
                 {isOwner && !isCancelled ? (
                   <button type="button" className="button secondary" onClick={() => void sharePlan()} disabled={shareLoading}>
-                    {shareLoading ? 'Sharing...' : 'Share Plan'}
+                    {shareLoading ? t('plans.detail.actions.sharing') : t('plans.detail.actions.share')}
                   </button>
                 ) : null}
                 {canRemovePlan ? (
@@ -928,21 +988,21 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
                     <p className="meta">{t('plans.detail.actions.cancelledLongBody')}</p>
                   </div>
                 ) : null}
-                {!auth.isAuthenticated && plan.status === 'open' ? <Link className="button primary" href={`/auth?next=/plans/${plan.id}`}>Log in to join</Link> : null}
+                {!auth.isAuthenticated && presentationState === 'open' ? <Link className="button primary" href={`/auth?next=/plans/${plan.id}`}>{t('plans.detail.actions.loginTitle')}</Link> : null}
                 {canJoin ? (
                   <div className="plan-action-primary">
-                    <button type="button" className="button primary" disabled={action.loading} onClick={joinPlan}>{action.loading ? 'Joining...' : 'Join Plan'}</button>
-                    <p className="meta">{plan.joinApprovalMode === 'automatic' ? 'Free join · leave anytime.' : 'Join request · owner review.'}</p>
+                    <button type="button" className="button primary" disabled={action.loading} onClick={joinPlan}>{action.loading ? t('plans.detail.actions.joining') : t('plans.detail.actions.join')}</button>
+                    <p className="meta">{plan.joinApprovalMode === 'automatic' ? t('plans.detail.actions.freeJoinFootnote') : t('plans.detail.actions.requestJoinFootnote')}</p>
                   </div>
                 ) : null}
                 {canLeave ? (
                   <div className="plan-action-status plan-action-status--joined">
-                    <span className="semantic-badge success">Joined</span>
-                    <strong>You joined this Plan</strong>
-                    <p className="meta">You can leave if this Plan is no longer useful.</p>
+                    <span className="semantic-badge success">{t('plans.participantStatus.accepted')}</span>
+                    <strong>{t('plans.detail.actions.joinedTitle')}</strong>
+                    <p className="meta">{t('plans.detail.actions.joinedBody')}</p>
                   </div>
                 ) : null}
-                {canLeave ? <button type="button" className="button secondary" disabled={action.loading} onClick={leavePlan}>Leave Plan</button> : null}
+                {canLeave ? <button type="button" className="button secondary" disabled={action.loading} onClick={leavePlan}>{t('plans.detail.actions.leave')}</button> : null}
               </div>
               {!isCancelled && !isOwner && auth.isAuthenticated && participantCopy && !canLeave ? <p className="plan-action-note meta">{participantCopy}</p> : null}
               {action.message ? <p className="success-message">{action.message}</p> : null}
@@ -951,12 +1011,12 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
 
             <section className="plan-social-section">
               <div className="plan-section-heading">
-                <p className="eyebrow">People</p>
-                <h2>{capacityLabel} joined</h2>
+                <p className="eyebrow">{t('plans.detail.sections.joinedPeople')}</p>
+                <h2>{t('plans.detail.people.joinedHeading', { capacity: capacityLabel })}</h2>
               </div>
               <div className="plan-participant-list">
                 {visibleParticipants.map((participant) => <ParticipantRow key={participant.id} participant={participant} ownerControls={isOwner && !isCancelled} onRemove={removeParticipant} />)}
-                {visibleParticipants.length === 0 ? <p className="meta">No participants yet.</p> : null}
+                {visibleParticipants.length === 0 ? <p className="meta">{t('plans.detail.people.empty')}</p> : null}
               </div>
             </section>
           </>

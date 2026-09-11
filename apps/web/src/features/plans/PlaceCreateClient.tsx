@@ -83,17 +83,12 @@ function formStateFromPlace(place: { mode?: PlanPlaceMode | null; title?: string
   };
 }
 
-const placeStaticMapTemplateCopy: Record<PlaceStaticMapTemplateFamily, { label: string; description: string }> = {
-  clean_local: { label: 'Clean Local', description: 'Bright, simple streets for everyday meetups.' },
-  night_social: { label: 'Night Social', description: 'Purple evening style for social plans.' },
-  soft_pastel: { label: 'Soft Pastel', description: 'Warm friendly color for casual places.' },
-  minimal_address: { label: 'Minimal Address', description: 'Low-noise map focused on the marker.' },
-  city_grid: { label: 'City Grid', description: 'Sharper street grid for urban places.' },
-  green_outdoor: { label: 'Green Outdoor', description: 'Terrain-inspired style for parks and outdoor stops.' },
-  warm_travel: { label: 'Warm Travel', description: 'Sunny travel-card mood for exploration.' },
-  premium_mono: { label: 'Premium Mono', description: 'Polished monochrome look for Plus cards.' },
-};
-
+function placeStaticMapTemplateCopy(templateFamily: PlaceStaticMapTemplateFamily, t: ReturnType<typeof useWebTranslation>['t']) {
+  return {
+    label: t(`places.list.mapTemplate.families.${templateFamily}.label`),
+    description: t(`places.list.mapTemplate.families.${templateFamily}.body`),
+  };
+}
 
 const placeLanguageOptions: DiscoveryLanguage[] = ['en', 'fr', 'es'];
 
@@ -102,10 +97,8 @@ function normalizePlaceLanguage(value?: string | null): DiscoveryLanguage {
   return 'en';
 }
 
-function placeLanguageLabel(language: DiscoveryLanguage) {
-  if (language === 'fr') return 'French';
-  if (language === 'es') return 'Spanish';
-  return 'English';
+function placeLanguageLabel(language: DiscoveryLanguage, t: ReturnType<typeof useWebTranslation>['t']) {
+  return t(`places.languages.${language}`);
 }
 
 function availablePlaceTranslationLanguages(state: PlaceCreateFormState) {
@@ -142,19 +135,21 @@ function normalizePlaceTranslationsForPayload(state: PlaceCreateFormState) {
     .map((translation) => ({ languageCode: translation.languageCode, title: translation.title.trim(), description: translation.description.trim() }));
 }
 
-function validatePlaceTranslations(state: PlaceCreateFormState) {
+function validatePlaceTranslations(state: PlaceCreateFormState, t: ReturnType<typeof useWebTranslation>['t']) {
   for (const translation of normalizePlaceTranslationsForPayload(state)) {
-    if (!translation.title || !translation.description) return 'Complete both translated title and description, or remove that language.';
-    if (translation.title.length < 3) return 'Translated Place name must be at least 3 characters.';
+    if (!translation.title || !translation.description) return t('places.editor.errors.translationIncomplete');
+    if (translation.title.length < 3) return t('places.editor.errors.translationNameTooShort');
   }
   return '';
 }
 
 
-function placeTranslationSummary(state: PlaceCreateFormState) {
+function placeTranslationSummary(state: PlaceCreateFormState, t: ReturnType<typeof useWebTranslation>['t']) {
+  const original = placeLanguageLabel(state.defaultLanguage, t);
   const draftCount = state.translations.length;
-  if (!draftCount) return `Original: ${placeLanguageLabel(state.defaultLanguage)} · Optional`;
-  return `Original: ${placeLanguageLabel(state.defaultLanguage)} · ${draftCount} translation${draftCount === 1 ? '' : 's'}`;
+  if (!draftCount) return t('places.editor.language.summaryNone', { original });
+  if (draftCount === 1) return t('places.editor.language.summaryDraftOne', { original, translation: placeLanguageLabel(state.translations[0]?.languageCode ?? state.defaultLanguage, t) });
+  return t('places.editor.language.summaryDraftMany', { original, count: draftCount });
 }
 
 function placeHasTranslations(place: { translations?: InventoryTranslationDto[] | null }) {
@@ -166,10 +161,11 @@ function activePlaceMedia(media?: MediaAssetDto[] | null) {
 }
 
 function PlaceModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (value: PlanPlaceMode) => void }) {
+  const { t } = useWebTranslation();
   return (
-    <div className="plan-mode-segment place-mode-segment" aria-label="Place type">
-      <button type="button" className={value === 'local' ? 'is-active' : ''} onClick={() => onChange('local')}>Offline</button>
-      <button type="button" className={value === 'remote' ? 'is-active' : ''} onClick={() => onChange('remote')}>Online</button>
+    <div className="plan-mode-segment place-mode-segment" aria-label={t('places.list.filters.mode')}>
+      <button type="button" className={value === 'local' ? 'is-active' : ''} onClick={() => onChange('local')}>{t('places.editor.mode.offline')}</button>
+      <button type="button" className={value === 'remote' ? 'is-active' : ''} onClick={() => onChange('remote')}>{t('places.editor.mode.online')}</button>
     </div>
   );
 }
@@ -178,13 +174,13 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
   const router = useRouter();
   const searchParams = useSearchParams();
   const auth = useWebAuth();
-  const { language } = useWebTranslation();
+  const { language, t } = useWebTranslation();
   const returnToPlan = searchParams.get('returnTo') === 'plan';
   const copyFromPlaceId = searchParams.get('copyFromPlaceId');
   const isEditing = Boolean(placeId);
   const returnHref = returnToPlan ? '/plans/new' : '/places';
-  const returnLabel = returnToPlan ? 'Back to Plan draft' : 'Back to My Places';
-  const saveLabel = returnToPlan ? (isEditing ? 'Update and return to Plan draft' : 'Save and return to Plan draft') : isEditing ? 'Update Place' : 'Save Place';
+  const returnLabel = returnToPlan ? t('places.editor.return.planDraft') : t('places.editor.return.myPlaces');
+  const saveLabel = returnToPlan ? (isEditing ? t('places.editor.return.updatePlanDraft') : t('places.editor.return.savePlanDraft')) : isEditing ? t('places.editor.actions.update') : t('places.editor.actions.save');
   const [state, setState] = useState<PlaceCreateFormState>(() => makePlaceCreateForm(normalizePlaceLanguage(language)));
   const [step, setStep] = useState<PlaceCreateStep>('details');
   const [translationPanelOpen, setTranslationPanelOpen] = useState(false);
@@ -245,30 +241,30 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
       })
       .catch((caughtError) => {
         if (cancelled) return;
-        setError(getFriendlyApiErrorMessage(caughtError, isEditing ? 'Could not load Place.' : 'Could not copy Place.'));
+        setError(getFriendlyApiErrorMessage(caughtError, isEditing ? t('places.editor.errors.load') : t('places.editor.errors.copy')));
       })
       .finally(() => {
         if (!cancelled) setLoadingPlace(false);
       });
 
     return () => { cancelled = true; };
-  }, [auth.hydrated, auth.isAuthenticated, copyFromPlaceId, isEditing, placeId]);
+  }, [auth.hydrated, auth.isAuthenticated, copyFromPlaceId, isEditing, placeId, t]);
 
   function nextUrl() {
     return returnToPlan ? (isEditing && placeId ? `/places/${placeId}/edit?returnTo=plan` : '/places/new?returnTo=plan') : isEditing && placeId ? `/places/${placeId}/edit` : '/places/new';
   }
 
   function validateDetails() {
-    if (state.title.trim().length < 3) return 'Add a Place name.';
+    if (state.title.trim().length < 3) return t('places.editor.errors.addName');
     if (state.mode === 'local') {
       const addressError = offlineProviderAddressError(state.providerAddress);
-      if (addressError) return 'Select a confirmed address suggestion before saving an offline Place.';
+      if (addressError) return t('places.editor.errors.confirmedAddress');
     }
     if (state.mode === 'remote') {
       const destinationError = onlineDestinationError({ onlineUrl: state.onlineUrl });
       if (destinationError) return destinationError;
     }
-    const translationError = validatePlaceTranslations(state);
+    const translationError = validatePlaceTranslations(state, t);
     if (translationError) setTranslationPanelOpen(true);
     return translationError;
   }
@@ -299,9 +295,9 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
       const uploaded = normalizeMediaUpload(response);
       if (!uploaded) throw new Error('Upload returned no image.');
       setMedia([{ ...uploaded, sortOrder: 0, isCover: true }]);
-      setMessage('Place image uploaded. Save the Place to keep it.');
+      setMessage(t('places.editor.messages.imageUploaded'));
     } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError, 'Could not upload Place image.'));
+      setError(getFriendlyApiErrorMessage(caughtError, t('places.editor.image.uploading')));
     } finally {
       setUploading(false);
     }
@@ -315,7 +311,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
   function removeImage() {
     if (saving || uploading) return;
     setMedia([]);
-    setMessage('Image removed. Save the Place to keep this change.');
+    setMessage(t('places.editor.messages.imageRemoved'));
   }
 
   function applyResolvedAddress(place: GoogleResolvedPlace | null) {
@@ -385,7 +381,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
         return;
       }
 
-      setMessage(isEditing ? `${response.place.title} was updated.` : `${response.place.title} was saved to My Places.`);
+      setMessage(isEditing ? t('places.editor.messages.updated', { title: response.place.title }) : t('places.editor.messages.saved', { title: response.place.title }));
       if (!isEditing) {
         setState(makePlaceCreateForm(normalizePlaceLanguage(language)));
         setTranslationPanelOpen(false);
@@ -393,7 +389,7 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
         setStep('details');
       }
     } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError, isEditing ? 'Could not update Place.' : 'Could not create Place.'));
+      setError(getFriendlyApiErrorMessage(caughtError, isEditing ? t('places.editor.errors.update') : t('places.editor.errors.create')));
     } finally {
       setSaving(false);
     }
@@ -418,65 +414,65 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
         <section className="page-intro plan-create-intro place-create-intro">
           <div>
             <PlansInternalBadge plansVisible={plansVisible} />
-            <h2>{isEditing ? 'Edit Place' : 'Create Place'}</h2>
-            <p>{returnToPlan ? (isEditing ? 'Update this Place and return to your Plan draft.' : 'Save this Place and return to your Plan draft.') : 'Reusable Place for My Places and future Plans.'}</p>
+            <h2>{isEditing ? t('places.editor.title.edit') : t('places.editor.title.create')}</h2>
+            <p>{returnToPlan ? t('places.editor.subtitle.copy') : isEditing ? t('places.editor.subtitle.edit') : t('places.editor.subtitle.create')}</p>
           </div>
         </section>
 
-        {!auth.hydrated ? <section className="mobile-card"><p className="meta">Checking session...</p></section> : null}
+        {!auth.hydrated ? <section className="mobile-card"><p className="meta">{t('places.editor.auth.checking')}</p></section> : null}
         {auth.hydrated && !auth.isAuthenticated ? (
           <section className="mobile-card mobile-card--soft">
-            <h3>Log in required</h3>
-            <p>Create and edit private reusable Places after signing in.</p>
-            <button type="button" className="button primary" onClick={() => router.push(`/auth?next=${encodeURIComponent(nextUrl())}`)}>Log in</button>
+            <h3>{t('places.editor.auth.loginRequired')}</h3>
+            <p>{t('places.editor.auth.body')}</p>
+            <button type="button" className="button primary" onClick={() => router.push(`/auth?next=${encodeURIComponent(nextUrl())}`)}>{t('places.editor.auth.login')}</button>
           </section>
         ) : null}
 
-        {auth.isAuthenticated && loadingPlace ? <section className="mobile-card"><p className="meta">Loading Place...</p></section> : null}
+        {auth.isAuthenticated && loadingPlace ? <section className="mobile-card"><p className="meta">{t('places.editor.auth.loading')}</p></section> : null}
 
         {auth.isAuthenticated && !loadingPlace && editingLockedByPlans ? (
           <section className="mobile-card mobile-card--soft place-edit-locked-card">
-            <span className="semantic-badge warning">Used in {usedInPlansCount === 1 ? '1 Plan' : `${usedInPlansCount} Plans`}</span>
-            <h3>This Place is locked</h3>
-            <p>It is already used inside a Plan, so its saved details cannot be edited. Existing Plans keep their saved Place snapshot.</p>
+            <span className="semantic-badge warning">{usedInPlansCount === 1 ? t('places.list.usage.one') : t('places.list.usage.many', { count: usedInPlansCount })}</span>
+            <h3>{t('places.editor.locked.title')}</h3>
+            <p>{t('places.editor.locked.body')}</p>
             <div className="cta-row">
               <Link className="button secondary" href={returnHref}>{returnLabel}</Link>
-              <Link className="button primary" href={`/places/new?copyFromPlaceId=${encodeURIComponent(placeId ?? '')}`}>Create editable copy</Link>
+              <Link className="button primary" href={`/places/new?copyFromPlaceId=${encodeURIComponent(placeId ?? '')}`}>{t('places.editor.locked.createCopy')}</Link>
             </div>
           </section>
         ) : null}
 
         {auth.isAuthenticated && !loadingPlace && !editingLockedByPlans ? (
           <form className="mobile-card plan-form place-clean-form" onSubmit={handleSubmit} noValidate>
-            <div className="place-step-tabs" aria-label="Create Place steps">
-              <button type="button" className={step === 'details' ? 'is-active' : ''} onClick={() => setStep('details')} disabled={saving || uploading}>1. Details</button>
-              <button type="button" className={step === 'image' ? 'is-active' : ''} onClick={goToImageStep} disabled={saving || uploading}>2. Image</button>
+            <div className="place-step-tabs" aria-label={t('places.editor.title.create')}>
+              <button type="button" className={step === 'details' ? 'is-active' : ''} onClick={() => setStep('details')} disabled={saving || uploading}>{t('places.editor.steps.details')}</button>
+              <button type="button" className={step === 'image' ? 'is-active' : ''} onClick={goToImageStep} disabled={saving || uploading}>{t('places.editor.steps.image')}</button>
             </div>
 
             {step === 'details' ? (
               <>
                 <div className="plan-form__section-title place-form__section-title">
                   <div>
-                    <h3>Place details</h3>
-                    <p className="meta">Private by default.</p>
+                    <h3>{t('places.editor.details.title')}</h3>
+                    <p className="meta">{t('places.editor.details.privateByDefault')}</p>
                   </div>
-                  <span className="semantic-badge place">My Place</span>
+                  <span className="semantic-badge place">{t('places.editor.badge')}</span>
                 </div>
                 <div className="place-form__divider">
                   <PlaceModeSegment value={state.mode} onChange={changeMode} />
                 </div>
                 <label>
-                  <span>Place name</span>
-                  <input value={state.title} onChange={(event) => setState((current) => ({ ...current, title: event.target.value }))} minLength={3} maxLength={120} required placeholder="Quiet coffee near République" />
+                  <span>{t('places.editor.fields.name')}</span>
+                  <input value={state.title} onChange={(event) => setState((current) => ({ ...current, title: event.target.value }))} minLength={3} maxLength={120} required placeholder={t('places.editor.fields.namePlaceholder')} />
                 </label>
                 {state.mode === 'remote' ? (
                   <div className="plan-form__row">
                     <label>
-                      <span>Online label</span>
-                      <input value={state.onlineLabel} onChange={(event) => setState((current) => ({ ...current, onlineLabel: event.target.value }))} maxLength={120} placeholder="Zoom, Discord, website" />
+                      <span>{t('places.editor.fields.onlineLabel')}</span>
+                      <input value={state.onlineLabel} onChange={(event) => setState((current) => ({ ...current, onlineLabel: event.target.value }))} maxLength={120} placeholder={t('places.editor.fields.onlineLabelPlaceholder')} />
                     </label>
                     <label>
-                      <span>Online URL</span>
+                      <span>{t('places.editor.fields.onlineUrl')}</span>
                       <input type="url" value={state.onlineUrl} onChange={(event) => setState((current) => ({ ...current, onlineUrl: event.target.value }))} maxLength={500} placeholder="https://..." />
                       <small>{onlineProviderHint({ onlineUrl: state.onlineUrl })}</small>
                     </label>
@@ -488,17 +484,17 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
                       onValueChange={clearResolvedAddress}
                       onResolvedPlace={applyResolvedAddress}
                       disabled={saving || uploading}
-                      label="Search and select address or place"
-                      placeholder="Café, park, address, station..."
-                      helperText="Type at least 3 characters, then select a provider suggestion. Typed text alone cannot be saved as an offline Place."
+                      label={t('places.editor.fields.address')}
+                      placeholder={t('places.editor.fields.addressPlaceholder')}
+                      helperText={t('places.editor.fields.addressHelp')}
                       languageCode={state.defaultLanguage}
                     />
-                    {state.location.trim() && !providerAddressStatusLabel(state.providerAddress) ? <p className="form-error">Select a confirmed address suggestion before continuing.</p> : null}
+                    {state.location.trim() && !providerAddressStatusLabel(state.providerAddress) ? <p className="form-error">{t('places.editor.errors.confirmedAddress')}</p> : null}
                   </>
                 )}
                 <label className="place-description-field">
-                  <span>Description <small>Optional</small></span>
-                  <textarea value={state.description} onChange={(event) => setState((current) => ({ ...current, description: event.target.value }))} maxLength={2000} placeholder="Useful details for this Place." />
+                  <span>{t('places.editor.fields.description')}</span>
+                  <textarea value={state.description} onChange={(event) => setState((current) => ({ ...current, description: event.target.value }))} maxLength={2000} placeholder={t('places.editor.fields.descriptionPlaceholder')} />
                 </label>
 
                 <section className="inventory-translation-compact place-translation-compact">
@@ -508,26 +504,26 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
                     aria-expanded={translationPanelOpen}
                     onClick={() => setTranslationPanelOpen((open) => !open)}
                   >
-                    <span>{translationPanelOpen ? 'Hide language options' : 'Language & translations'}</span>
-                    <strong>{placeTranslationSummary(state)}</strong>
+                    <span>{translationPanelOpen ? t('places.editor.language.hideOptions') : t('places.editor.language.panelTitle')}</span>
+                    <strong>{placeTranslationSummary(state, t)}</strong>
                   </button>
 
                   {translationPanelOpen ? (
                     <section className="mobile-card mobile-card--soft inventory-translation-panel inventory-translation-panel--compact place-translation-panel">
                       <div className="inventory-translation-panel__header place-translation-summary">
                         <div className="inventory-form__helper-copy">
-                          <strong>Languages</strong>
-                          <span>Choose the language used for the main Place name and description. Add translations only when you write them manually.</span>
+                          <strong>{t('places.editor.language.sectionTitle')}</strong>
+                          <span>{t('places.editor.language.sectionBody')}</span>
                         </div>
-                        <span className="inventory-language-summary">Original content: {placeLanguageLabel(state.defaultLanguage)}</span>
+                        <span className="inventory-language-summary">{t('places.editor.language.originalBadge', { language: placeLanguageLabel(state.defaultLanguage, t) })}</span>
                       </div>
 
                       <label className="field-label inventory-original-language-field">
-                        <span className="field-label__row"><span>Original Place language</span><small>Default fallback</small></span>
+                        <span className="field-label__row"><span>{t('places.editor.language.originalLabel')}</span></span>
                         <select value={state.defaultLanguage} onChange={(event) => setState((current) => setPlaceOriginalLanguage(current, normalizePlaceLanguage(event.target.value)))}>
-                          {placeLanguageOptions.map((languageCode) => <option key={languageCode} value={languageCode}>{placeLanguageLabel(languageCode)}</option>)}
+                          {placeLanguageOptions.map((languageCode) => <option key={languageCode} value={languageCode}>{placeLanguageLabel(languageCode, t)}</option>)}
                         </select>
-                        <small>This is the language of the main Place text. Viewers fall back to it when their preferred languages are not available.</small>
+                        <small>{t('places.editor.language.originalHelp')}</small>
                       </label>
 
                       {state.translations.length ? (
@@ -535,39 +531,39 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
                           <div className="inventory-translation-panel__fields place-translation-fields" key={translation.languageCode}>
                             <div className="inventory-translation-panel__row">
                               <div>
-                                <p className="eyebrow">Manual translation for {placeLanguageLabel(translation.languageCode)}</p>
-                                <small>Complete both fields, or leave both empty and remove this language.</small>
+                                <p className="eyebrow">{t('places.editor.language.manualFor', { language: placeLanguageLabel(translation.languageCode, t) })}</p>
+                                <small>{t('places.editor.language.manualHelp')}</small>
                               </div>
-                              <button type="button" className="button secondary compact" onClick={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))}>Remove translation</button>
+                              <button type="button" className="button secondary compact" onClick={() => setState((current) => removePlaceTranslationDraft(current, translation.languageCode))}>{t('places.editor.language.remove')}</button>
                             </div>
                             <label>
-                              <span>Translated Place name <small>Optional</small></span>
+                              <span>{t('places.editor.language.translatedName')}</span>
                               <input
                                 value={translation.title}
                                 onChange={(event) => setState((current) => setPlaceTranslationDraft(current, { ...translation, title: event.target.value }))}
                                 minLength={translation.title ? 3 : undefined}
                                 maxLength={120}
-                                placeholder="Translated place name"
+                                placeholder={t('places.editor.language.translatedNamePlaceholder')}
                               />
                             </label>
                             <label>
-                              <span>Translated description <small>Optional</small></span>
+                              <span>{t('places.editor.language.translatedDescription')}</span>
                               <textarea
                                 value={translation.description}
                                 onChange={(event) => setState((current) => setPlaceTranslationDraft(current, { ...translation, description: event.target.value }))}
                                 maxLength={2000}
-                                placeholder="Translated description"
+                                placeholder={t('places.editor.language.translatedDescriptionPlaceholder')}
                               />
                             </label>
                           </div>
                         ))
                       ) : (
-                        <p className="meta place-translation-empty">Translations are optional. Add a language only if you want to write a manual translation for this Place.</p>
+                        <p className="meta place-translation-empty">{t('places.editor.language.optionalBody')}</p>
                       )}
 
                       {availablePlaceTranslationLanguages(state).length ? (
                         <div className="inventory-language-actions place-translation-language-actions">
-                          <span>{state.translations.length ? 'Add another language' : 'Add language'}</span>
+                          <span>{state.translations.length ? t('places.editor.language.addAnotherLanguage') : t('places.editor.language.addLanguage')}</span>
                           <div className="inventory-language-picker__buttons">
                             {availablePlaceTranslationLanguages(state).map((languageCode) => (
                               <button
@@ -576,13 +572,13 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
                                 className="button secondary compact"
                                 onClick={() => setState((current) => addPlaceTranslationDraft(current, languageCode))}
                               >
-                                {placeLanguageLabel(languageCode)}
+                                {placeLanguageLabel(languageCode, t)}
                               </button>
                             ))}
                           </div>
                         </div>
                       ) : (
-                        <small className="inventory-language-complete">All supported languages are already added.</small>
+                        <small className="inventory-language-complete">{t('places.editor.language.allAdded')}</small>
                       )}
                     </section>
                   ) : null}
@@ -592,42 +588,42 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
               <section className="place-image-step">
                 <div className="plan-form__section-title place-form__section-title">
                   <div>
-                    <h3>Place image</h3>
-                    <p className="meta">Optional. One image can become the background for this Place in Plan cards later.</p>
+                    <h3>{t('places.editor.image.title')}</h3>
+                    <p className="meta">{t('places.editor.image.body')}</p>
                   </div>
-                  <span className="semantic-badge place">Step 2/2</span>
+                  <span className="semantic-badge place">{t('places.editor.image.stepBadge')}</span>
                 </div>
                 <div className="place-image-picker-panel">
                   {imagePreviewSrc ? (
                     <figure className="place-image-preview-card">
-                      <img src={imagePreviewSrc} alt="Selected Place" />
+                      <img src={imagePreviewSrc} alt={t('places.editor.image.selectedAlt')} />
                       <figcaption>
                         <div>
-                          <strong>Selected image</strong>
-                          <span>Save the Place to keep this image.</span>
+                          <strong>{t('places.editor.image.selected')}</strong>
+                          <span>{t('places.editor.image.saveToKeep')}</span>
                         </div>
-                        <button type="button" className="button secondary compact" onClick={removeImage} disabled={saving || uploading}>Remove</button>
+                        <button type="button" className="button secondary compact" onClick={removeImage} disabled={saving || uploading}>{t('places.editor.actions.remove')}</button>
                       </figcaption>
                     </figure>
                   ) : (
                     <div className="place-image-empty">
-                      <strong>No image yet</strong>
-                      <span>Add one photo that represents this Place. Avoid private/sensitive information.</span>
+                      <strong>{t('places.editor.image.emptyTitle')}</strong>
+                      <span>{t('places.editor.image.emptyBody')}</span>
                     </div>
                   )}
                   <label className="image-upload-button image-upload-button--full">
                     <input type="file" accept="image/jpeg,image/png,image/webp" disabled={saving || uploading} onChange={handleImageChange} />
-                    {uploading ? 'Uploading...' : imagePreviewSrc ? 'Replace image' : 'Upload image'}
+                    {uploading ? t('places.editor.actions.uploading') : imagePreviewSrc ? t('places.editor.image.replace') : t('places.editor.image.upload')}
                   </label>
                 </div>
 
                 {betaFeatures.plusSubscriptionFeatures.customizationEnabled && state.mode === 'local' ? (
                   <section className="place-map-template-picker">
                     <div className="inventory-form__helper-copy">
-                      <strong>Static map template</strong>
-                      <span>{canCustomizeMapTemplates ? 'Plus users can manually choose the map family. Light/dark variants still follow the app theme.' : 'Free users get an automatic map style after saving.'}</span>
+                      <strong>{t('places.list.mapTemplate.title')}</strong>
+                      <span>{canCustomizeMapTemplates ? t('places.list.mapTemplate.plusBody') : t('places.list.mapTemplate.freeBody')}</span>
                     </div>
-                    <div className="place-map-template-picker__grid" aria-label="Static map template family">
+                    <div className="place-map-template-picker__grid" aria-label={t('places.list.mapTemplate.accessibility')}>
                       <button
                         type="button"
                         className={["place-map-template-option", !state.staticMapTemplateFamily ? 'is-selected' : null].filter(Boolean).join(' ')}
@@ -636,12 +632,12 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
                         aria-pressed={!state.staticMapTemplateFamily}
                       >
                         <span className="place-map-template-option__swatch is-system" aria-hidden="true" />
-                        <strong>System pick</strong>
-                        <small>Hellowhen chooses a free style automatically.</small>
+                        <strong>{t('places.list.mapTemplate.system')}</strong>
+                        <small>{t('places.list.mapTemplate.systemBody')}</small>
                       </button>
                       {PLACE_STATIC_MAP_TEMPLATE_FAMILIES.map((templateFamily) => {
                         const selected = state.staticMapTemplateFamily === templateFamily;
-                        const copy = placeStaticMapTemplateCopy[templateFamily];
+                        const copy = placeStaticMapTemplateCopy(templateFamily, t);
                         return (
                           <button
                             key={templateFamily}
@@ -667,11 +663,11 @@ export function PlaceCreateClient({ plansEnabled, plansVisible, placeId }: Place
             {error ? <p className="form-error">{error}</p> : null}
             <div className="cta-row place-save-row">
               {step === 'details' ? (
-                <button className="button primary" type="submit" disabled={saving || uploading}>Continue to image</button>
+                <button className="button primary" type="submit" disabled={saving || uploading}>{t('places.editor.actions.continueToImage')}</button>
               ) : (
-                <button className="button primary" type="submit" disabled={saving || uploading}>{saving ? 'Saving...' : saveLabel}</button>
+                <button className="button primary" type="submit" disabled={saving || uploading}>{saving ? t('places.editor.actions.saving') : saveLabel}</button>
               )}
-              {step === 'image' ? <button type="button" className="button secondary" onClick={() => setStep('details')} disabled={saving || uploading}>Back to details</button> : null}
+              {step === 'image' ? <button type="button" className="button secondary" onClick={() => setStep('details')} disabled={saving || uploading}>{t('places.editor.actions.back')}</button> : null}
               <Link className="button secondary" href={returnHref}>{returnLabel}</Link>
             </div>
           </form>

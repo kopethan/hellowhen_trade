@@ -128,7 +128,7 @@ function runNavigationChecks() {
     assert(!configuredMobileTabNames.includes(tabName) && !literalPrimaryTabPattern.test(bottomTabSource), `Legacy primary tab ${tabName} must not be registered.`);
   }
 
-  assertContains('packages/shared/src/appNavigation.ts', "normalAppNavItemIds = ['plans', 'me', 'trade']", 'Web public navigation must stay Plans / Me / Trade during the mobile Explore migration.');
+  assertContains('packages/shared/src/appNavigation.ts', "normalAppNavItemIds = ['plans', 'explore', 'trade']", 'Shared web navigation must be Plans / Explore / Trade.');
   assertContains('packages/shared/src/appNavigation.ts', "normalMobileAppNavItemIds = ['plans', 'explore', 'trade']", 'Mobile primary navigation must be Plans / Explore / Trade.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'normalMobileAppNavItems.map((item)', 'Native bottom tabs must be generated from the mobile-specific navigation contract.');
   assertContains('apps/mobile/src/navigation/RootNavigator.tsx', 'initialRouteName={DEFAULT_NORMAL_MOBILE_APP_NAV_TAB_NAME}', 'Native public navigation must keep the mobile-specific default tab.');
@@ -152,7 +152,7 @@ function runNavigationChecks() {
   assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'movePlanIdea(', 'Explore must not use global previous/next controls to switch Plan concepts.');
   assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'deckControls', 'Explore must not reintroduce global concept navigation buttons.');
   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<AppText accessibilityRole="header" style={styles.title}>', 'Explore must keep a semantic page heading after discovery concepts are mixed.');
-  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'buildBalancedMixedFeed(', 'Explore must compose discovery concepts as one balanced mixed feed.');
+  assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'buildBalancedExploreDiscoveryFeed(', 'Explore must compose discovery concepts as one balanced mixed feed through the shared helper.');
   assertNotContains('apps/mobile/src/features/explore/ExploreScreen.tsx', 'minHeight: MOBILE_TRADE_DECK_AVAILABLE_HEIGHT', 'Explore must not reserve an extra empty production deck stage around every mixed-feed concept.');
   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '<AppSmartHeaderScreen header={header} resetKey={typeFilter}>', 'Explore alone must use the direction-aware smart header shell.');
   assertContains('apps/mobile/src/features/explore/ExploreScreen.tsx', '...scrollProps.scrollViewProps', 'Explore must connect its virtualized feed to the smart-header scroll events.');

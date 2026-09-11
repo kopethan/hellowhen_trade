@@ -18,6 +18,7 @@ import { WebIcon, type WebIconName } from "../../components/WebIcon";
 import { WebOptionPickerCard, WebOptionPickerDangerCard, WebOptionPickerPanel } from "../../components/WebOptionPicker";
 import { api } from "../../lib/api";
 import { formatWebDateTime, formatWebMoney } from "../../lib/webFormat";
+import { buildWebUserSessionStorageKey } from "../../lib/webUserSessionStorage";
 import { useWebAuth } from "../../providers/WebAuthProvider";
 import { useWebTranslation } from "../../providers/WebI18nProvider";
 import { UserIdentityLink } from "../users/UserIdentityLink";
@@ -64,14 +65,17 @@ function resizePrivateReplyComposer(textarea: HTMLTextAreaElement | null) {
   textarea.style.overflowY = textarea.scrollHeight > PRIVATE_REPLY_COMPOSER_MAX_HEIGHT_PX ? "auto" : "hidden";
 }
 
-function proposalEditDraftKey(proposalId: string) {
-  return `proposal-edit-draft:${proposalId}`;
+function proposalEditDraftKey(userId: string | null | undefined, proposalId: string) {
+  if (!userId) return null;
+  return buildWebUserSessionStorageKey(userId, "proposal-edit-draft", proposalId);
 }
 
-function readProposalEditDraft(proposalId: string): ProposalEditDraftSnapshot | null {
+function readProposalEditDraft(userId: string | null | undefined, proposalId: string): ProposalEditDraftSnapshot | null {
   if (typeof window === "undefined") return null;
+  const storageKey = proposalEditDraftKey(userId, proposalId);
+  if (!storageKey) return null;
   try {
-    const raw = window.sessionStorage.getItem(proposalEditDraftKey(proposalId));
+    const raw = window.sessionStorage.getItem(storageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ProposalEditDraftSnapshot;
     return parsed && typeof parsed === "object" ? parsed : null;
@@ -80,19 +84,23 @@ function readProposalEditDraft(proposalId: string): ProposalEditDraftSnapshot | 
   }
 }
 
-function writeProposalEditDraft(proposalId: string, draft: ProposalEditDraftSnapshot) {
+function writeProposalEditDraft(userId: string | null | undefined, proposalId: string, draft: ProposalEditDraftSnapshot) {
   if (typeof window === "undefined") return;
+  const storageKey = proposalEditDraftKey(userId, proposalId);
+  if (!storageKey) return;
   try {
-    window.sessionStorage.setItem(proposalEditDraftKey(proposalId), JSON.stringify(draft));
+    window.sessionStorage.setItem(storageKey, JSON.stringify(draft));
   } catch {
     // Ignore storage failures; the picker will still work with the saved proposal.
   }
 }
 
-function clearProposalEditDraft(proposalId: string) {
+function clearProposalEditDraft(userId: string | null | undefined, proposalId: string) {
   if (typeof window === "undefined") return;
+  const storageKey = proposalEditDraftKey(userId, proposalId);
+  if (!storageKey) return;
   try {
-    window.sessionStorage.removeItem(proposalEditDraftKey(proposalId));
+    window.sessionStorage.removeItem(storageKey);
   } catch {
     // Ignore storage failures.
   }
@@ -927,7 +935,7 @@ export function ProposalConversationClient({
     if (!initialEditProposal || initialEditAppliedRef.current) return;
     if (!proposal || !canEditProposalContent) return;
     initialEditAppliedRef.current = true;
-    const storedDraft = readProposalEditDraft(proposalId);
+    const storedDraft = readProposalEditDraft(auth.user?.id, proposalId);
     startProposalEdit({
       message: storedDraft?.message,
       needId: initialProposalNeedId || storedDraft?.needId || proposal.proposedNeedId || "",
@@ -943,6 +951,7 @@ export function ProposalConversationClient({
     initialProposalOfferId,
     proposal,
     proposalId,
+    auth.user?.id,
   ]);
 
   async function loadProposal(options?: { quiet?: boolean }) {
@@ -1232,7 +1241,7 @@ export function ProposalConversationClient({
   }
 
   function stashProposalEditDraft() {
-    writeProposalEditDraft(proposalId, {
+    writeProposalEditDraft(auth.user?.id, proposalId, {
       message: proposalDraft,
       needId: proposalDraftNeedId,
       offerId: proposalDraftOfferId,
@@ -1262,7 +1271,7 @@ export function ProposalConversationClient({
       setProposal(updated);
       setEditingProposal(false);
       setProposalEditError(null);
-      clearProposalEditDraft(proposal.id);
+      clearProposalEditDraft(auth.user?.id, proposal.id);
       setNotice(t("trade.proposals.proposalUpdated"));
       await loadMessages({ quiet: true });
     } catch {
@@ -1890,7 +1899,7 @@ export function ProposalConversationClient({
                 {proposalEditError ? <p className="field-error" role="alert">{proposalEditError}</p> : null}
                 <div className="proposal-edit-form__actions">
                   <button type="submit" disabled={Boolean(actionLoading) || proposalSideLoading}>{t("trade.proposals.saveProposal")}</button>
-                  <button type="button" className="secondary" onClick={() => { setEditingProposal(false); setProposalEditError(null); clearProposalEditDraft(proposal.id); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
+                  <button type="button" className="secondary" onClick={() => { setEditingProposal(false); setProposalEditError(null); clearProposalEditDraft(auth.user?.id, proposal.id); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
                 </div>
               </form>
             </section>

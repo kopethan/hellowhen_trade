@@ -54,7 +54,16 @@
     "account-deletion:test": "npm run test:account-deletion -w @hellowhen/api",
     "account-deletion:safety-smoke": "node scripts/account-deletion-lifecycle-smoke.mjs",
     "account-deletion:process-due": "npm run account-deletion:process-due -w @hellowhen/api",
-    "account-deletion:accelerated-smoke": "node scripts/account-deletion-accelerated-smoke.mjs"
+    "account-deletion:accelerated-smoke": "node scripts/account-deletion-accelerated-smoke.mjs",
+    "web:auth-isolation-smoke": "node scripts/web-auth-isolation-smoke.mjs",
+    "web:navigation-parity-smoke": "node scripts/web-navigation-parity-smoke.mjs",
+    "web:explore-parity-smoke": "node scripts/web-explore-parity-smoke.mjs",
+    "web:account-header-parity-smoke": "node scripts/web-account-header-parity-smoke.mjs",
+    "web:header-ownership-smoke": "node scripts/web-header-ownership-smoke.mjs",
+    "web:explore-return-context-smoke": "node scripts/web-explore-return-context-smoke.mjs",
+    "web:plan-place-i18n-smoke": "node scripts/web-plan-place-i18n-smoke.mjs",
+    "web:onboarding-explore-era-smoke": "node scripts/web-onboarding-explore-era-smoke.mjs",
+    "web:runtime-responsive-smoke": "node scripts/web-runtime-responsive-smoke.mjs"
   },
   "devDependencies": {
     "@types/react": "~19.1.10",

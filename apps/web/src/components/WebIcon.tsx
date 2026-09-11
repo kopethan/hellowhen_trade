@@ -8,6 +8,7 @@ export type WebIconName =
   | 'bell'
   | 'calendar'
   | 'clock'
+  | 'compass'
   | 'deck-advance'
   | 'deck-back'
   | 'dispute'

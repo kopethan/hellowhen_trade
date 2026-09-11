@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { WebIcon } from '../../components/WebIcon';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { PlansFeatureGate } from './PlansFeatureGate';
 import { activePlanFilterCount, buildPlanFilterHref, normalizePlanSearchQuery, planFilterGroups, planFiltersFromSearchParams, planSearchQueryFromSearchParams, togglePlanFilterValue } from './planFilters';
 
@@ -13,6 +14,7 @@ type PlanFilterClientProps = {
 
 export function PlanFilterClient({ plansEnabled }: PlanFilterClientProps) {
   const searchParams = useSearchParams();
+  const { t } = useWebTranslation();
   const searchParamKey = searchParams.toString();
   const incomingFilters = useMemo(() => planFiltersFromSearchParams(searchParams), [searchParamKey, searchParams]);
   const incomingFilterKey = incomingFilters.join('|');
@@ -23,6 +25,29 @@ export function PlanFilterClient({ plansEnabled }: PlanFilterClientProps) {
   const activeCount = activePlanFilterCount(selectedFilters, normalizedSearchQuery);
   const plansHref = useMemo(() => buildPlanFilterHref('/plans', selectedFilters, normalizedSearchQuery), [selectedFilters, normalizedSearchQuery]);
   const backHref = useMemo(() => buildPlanFilterHref('/plans', incomingFilters, incomingQuery), [incomingFilters, incomingQuery]);
+  const translatedGroups = useMemo(() => planFilterGroups.map((group, groupIndex) => {
+    const groupKeys = ['status', 'mode', 'join', 'places', 'time'] as const;
+    const groupKey = groupKeys[groupIndex];
+    const optionKeys: Record<string, string> = {
+      'status:open': 'open', 'status:full': 'full', 'status:started': 'started',
+      'mode:local': 'local', 'mode:remote': 'remote', 'join:automatic': 'automatic',
+      'places:one': 'one', 'places:multiple': 'multiple',
+      'time:today': 'today', 'time:week': 'week', 'time:month': 'month',
+    };
+    return {
+      ...group,
+      title: t(`plans.filters.groups.${groupKey}.title`),
+      body: t(`plans.filters.groups.${groupKey}.body`),
+      options: group.options.map((option) => {
+        const optionKey = optionKeys[option.value];
+        return {
+          ...option,
+          label: optionKey ? t(`plans.filters.groups.${groupKey}.${optionKey}.label`) : option.label,
+          body: optionKey && option.body ? t(`plans.filters.groups.${groupKey}.${optionKey}.body`) : option.body,
+        };
+      }),
+    };
+  }), [t]);
 
   useEffect(() => {
     setSelectedFilters(incomingFilters);
@@ -34,23 +59,23 @@ export function PlanFilterClient({ plansEnabled }: PlanFilterClientProps) {
     <PlansFeatureGate plansEnabled={plansEnabled}>
       <main className="mobile-page plans-page plans-filter-page app-filter-page app-filter-page--plans web-app-page web-app-page--filter web-app-page--plans">
         <header className="plans-filter-header app-filter-header">
-          <Link className="plans-feed-icon-button app-filter-back" href={backHref} aria-label="Back to Plans"><WebIcon name="back" size={18} decorative /></Link>
+          <Link className="plans-feed-icon-button app-filter-back" href={backHref} aria-label={t('plans.create.intro.backToPlans')}><WebIcon name="back" size={18} decorative /></Link>
           <div>
-            <h1>Plan filters</h1>
-            <p>Choose simple filters for public Plans.</p>
+            <h1>{t('plans.filters.title')}</h1>
+            <p>{t('plans.filters.groups.status.body')}</p>
           </div>
         </header>
 
-        <section className="plans-filter-hero app-filter-hero" aria-label="Plan filter summary">
+        <section className="plans-filter-hero app-filter-hero" aria-label={t('plans.filters.title')}>
           <span className="plans-filter-hero__icon app-filter-hero__icon" aria-hidden="true">◇</span>
           <div>
-            <strong>Find the right Plan</strong>
-            <span>Search words and filter choices stay attached to the feed so we can learn what people look for later.</span>
+            <strong>{t('plans.filters.heroTitle')}</strong>
+            <span>{t('plans.filters.heroBody')}</span>
           </div>
         </section>
 
-        <section className="plans-filter-search app-filter-search" aria-label="Search Plans">
-          <label htmlFor="plan-filter-search">Search</label>
+        <section className="plans-filter-search app-filter-search" aria-label={t('plans.filters.searchLabel')}>
+          <label htmlFor="plan-filter-search">{t('plans.filters.searchLabel')}</label>
           <div className="plans-filter-search__inputWrap app-filter-search__input-wrap">
             <input
               id="plan-filter-search"
@@ -58,15 +83,15 @@ export function PlanFilterClient({ plansEnabled }: PlanFilterClientProps) {
               value={searchQuery}
               maxLength={120}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search plans, places, titles..."
+              placeholder={t('plans.filters.searchPlaceholder')}
             />
-            {normalizedSearchQuery ? <button type="button" onClick={() => setSearchQuery('')}>Clear</button> : null}
+            {normalizedSearchQuery ? <button type="button" onClick={() => setSearchQuery('')}>{t('plans.filters.clear')}</button> : null}
           </div>
-          <p>Search words are preserved with your filters. Result counts are logged privately for future Plan suggestions.</p>
+          <p>{t('plans.filters.searchHelp')}</p>
         </section>
 
-        <section className="plans-filter-groups app-filter-groups" aria-label="Plan filter options">
-          {planFilterGroups.map((group) => (
+        <section className="plans-filter-groups app-filter-groups" aria-label={t('plans.filters.title')}>
+          {translatedGroups.map((group) => (
             <article key={group.title} className="plans-filter-group app-filter-group">
               <div className="plans-filter-group__header app-filter-group__header">
                 <h2>{group.title}</h2>
@@ -97,8 +122,8 @@ export function PlanFilterClient({ plansEnabled }: PlanFilterClientProps) {
         </section>
 
         <footer className="plans-filter-footer app-filter-footer">
-          <button type="button" className="button secondary" disabled={activeCount === 0} onClick={() => { setSelectedFilters([]); setSearchQuery(''); }}>Reset</button>
-          <Link className="button primary" href={plansHref}>{activeCount ? `Show plans (${activeCount})` : 'Show plans'}</Link>
+          <button type="button" className="button secondary" disabled={activeCount === 0} onClick={() => { setSelectedFilters([]); setSearchQuery(''); }}>{t('plans.filters.reset')}</button>
+          <Link className="button primary" href={plansHref}>{activeCount ? t('plans.filters.showCount', { count: activeCount }) : t('plans.filters.show')}</Link>
         </footer>
       </main>
     </PlansFeatureGate>

@@ -4,6 +4,7 @@ import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type GooglePlacePrediction, type 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 
 type GooglePlacePickerProps = {
   value: string;
@@ -30,10 +31,10 @@ function placeAddressLabel(place: GoogleResolvedPlace) {
   return place.formattedAddress || place.name || '';
 }
 
-function placeStatusLabel(place: GoogleResolvedPlace) {
-  if (place.validationStatus === 'confirmed') return 'Google-confirmed address';
-  if (place.validationStatus === 'needs_review') return 'Google suggestion · review details';
-  return 'Google place selected';
+function placeStatusLabel(place: GoogleResolvedPlace, t: ReturnType<typeof useWebTranslation>['t']) {
+  if (place.validationStatus === 'confirmed') return t('places.googlePicker.status.confirmed');
+  if (place.validationStatus === 'needs_review') return t('places.googlePicker.status.review');
+  return t('places.googlePicker.status.selected');
 }
 
 export function GooglePlacePicker({
@@ -41,14 +42,18 @@ export function GooglePlacePicker({
   onValueChange,
   onResolvedPlace,
   disabled,
-  label = 'Address or place',
-  placeholder = 'Search a real address or place',
-  helperText = `Type at least ${GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH} characters, then select a provider suggestion. Typed text alone cannot be saved as an offline address.`,
+  label,
+  placeholder,
+  helperText,
   languageCode,
   country,
   inputMaxLength = 240,
   autoFocus = false,
 }: GooglePlacePickerProps) {
+  const { t } = useWebTranslation();
+  const resolvedLabel = label ?? t('places.googlePicker.label');
+  const resolvedPlaceholder = placeholder ?? t('places.googlePicker.placeholder');
+  const resolvedHelperText = helperText ?? t('places.googlePicker.helper', { count: GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH });
   const [query, setQuery] = useState(value);
   const [predictions, setPredictions] = useState<GooglePlacePrediction[]>([]);
   const [selectedPlace, setSelectedPlace] = useState<GoogleResolvedPlace | null>(null);
@@ -87,7 +92,7 @@ export function GooglePlacePicker({
     if (trimmed.length < GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH) {
       setPredictions([]);
       setSearching(false);
-      setNotice(trimmed ? `Type at least ${GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH} characters to search Google places.` : '');
+      setNotice(trimmed ? t('places.googlePicker.minCharacters', { count: GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH }) : '');
       return undefined;
     }
 
@@ -105,12 +110,12 @@ export function GooglePlacePicker({
         .then((response) => {
           if (cancelled) return;
           setPredictions(response.predictions ?? []);
-          if (!(response.predictions ?? []).length) setNotice('No confirmed suggestions yet. Try a more precise place name or address.');
+          if (!(response.predictions ?? []).length) setNotice(t('places.googlePicker.noSuggestions'));
         })
         .catch((error) => {
           if (cancelled) return;
           setPredictions([]);
-          setNotice(getFriendlyApiErrorMessage(error, 'Address search is unavailable. Offline places need a selected provider address; try again later or switch this Place to Online.'));
+          setNotice(getFriendlyApiErrorMessage(error, t('places.googlePicker.searchUnavailable')));
         })
         .finally(() => {
           if (!cancelled) setSearching(false);
@@ -121,7 +126,7 @@ export function GooglePlacePicker({
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [country, disabled, languageCode, query, selectedPlace]);
+  }, [country, disabled, languageCode, query, selectedPlace, t]);
 
   const selectedAddress = useMemo(() => selectedPlace ? placeAddressLabel(selectedPlace) : '', [selectedPlace]);
 
@@ -153,7 +158,7 @@ export function GooglePlacePicker({
       onResolvedPlace?.(place);
       sessionTokenRef.current = makeSessionToken();
     } catch (error) {
-      setNotice(getFriendlyApiErrorMessage(error, 'Could not confirm this Google place. Try another suggestion.'));
+      setNotice(getFriendlyApiErrorMessage(error, t('places.googlePicker.confirmFailed')));
     } finally {
       setResolvingPlaceId('');
     }
@@ -162,27 +167,27 @@ export function GooglePlacePicker({
   return (
     <div className="google-place-picker">
       <label className="google-place-picker__field">
-        <span>{label}</span>
+        <span>{resolvedLabel}</span>
         <input
           ref={inputRef}
           value={query}
           onChange={(event) => handleInputChange(event.target.value)}
           disabled={disabled}
           maxLength={inputMaxLength}
-          placeholder={placeholder}
+          placeholder={resolvedPlaceholder}
           autoComplete="off"
         />
       </label>
-      {helperText ? <p className="google-place-picker__helper">{helperText}</p> : null}
+      {resolvedHelperText ? <p className="google-place-picker__helper">{resolvedHelperText}</p> : null}
       {selectedPlace && selectedAddress ? (
         <div className="google-place-picker__selected">
-          <span className="semantic-badge place">{placeStatusLabel(selectedPlace)}</span>
+          <span className="semantic-badge place">{placeStatusLabel(selectedPlace, t)}</span>
           <strong>{selectedPlace.name || selectedAddress}</strong>
           {selectedPlace.name && selectedPlace.formattedAddress ? <small>{selectedPlace.formattedAddress}</small> : null}
         </div>
       ) : null}
       {predictions.length ? (
-        <div className="google-place-picker__suggestions" role="listbox" aria-label="Google place suggestions">
+        <div className="google-place-picker__suggestions" role="listbox" aria-label={t('places.googlePicker.suggestionsAccessibility')}>
           {predictions.map((prediction) => (
             <button
               key={prediction.placeId}
@@ -198,12 +203,12 @@ export function GooglePlacePicker({
                 <strong>{prediction.mainText || prediction.description}</strong>
                 {prediction.secondaryText ? <small>{prediction.secondaryText}</small> : null}
               </span>
-              <em>{resolvingPlaceId === prediction.placeId ? 'Checking...' : 'Select'}</em>
+              <em>{resolvingPlaceId === prediction.placeId ? t('places.googlePicker.checking') : t('places.googlePicker.select')}</em>
             </button>
           ))}
         </div>
       ) : null}
-      {searching ? <p className="google-place-picker__status">Searching Google places...</p> : null}
+      {searching ? <p className="google-place-picker__status">{t('places.googlePicker.searching')}</p> : null}
       {notice ? <p className="google-place-picker__notice">{notice}</p> : null}
     </div>
   );

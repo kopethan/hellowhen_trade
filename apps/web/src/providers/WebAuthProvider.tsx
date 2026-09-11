@@ -4,6 +4,7 @@ import type { AuthUser, ForgotPasswordResponse, ResetPasswordResponse } from '@h
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { clearAuthTokens, getAccessToken, getRefreshToken, setAccessToken, setRefreshToken } from '../lib/webTokenStore';
+import { clearLegacyUnscopedWebUserSessionStorage, clearWebUserSessionStorage } from '../lib/webUserSessionStorage';
 import { useWebAppSettings } from './WebAppSettingsProvider';
 
 type AuthProfilePatch = Partial<NonNullable<AuthUser['profile']>>;
@@ -65,13 +66,18 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
-  const clearAuthenticatedState = useCallback(() => {
+  const clearAuthenticatedState = useCallback((userId?: string | null) => {
+    const cachedUser = readCachedUser();
+    clearWebUserSessionStorage(userId ?? cachedUser?.id);
     clearAuthTokens();
     saveCachedUser(null);
     setUser(null);
   }, []);
 
   const applyAuthResult = useCallback(async (result: AuthMeResponse) => {
+    const previousUser = readCachedUser();
+    if (previousUser?.id && previousUser.id !== result.user.id) clearWebUserSessionStorage(previousUser.id);
+    clearLegacyUnscopedWebUserSessionStorage();
     persistReturnedTokens(result);
     setUser(result.user);
     saveCachedUser(result.user);
@@ -99,19 +105,20 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
           const refreshed = await refreshSession();
           if (refreshed) return;
         } catch {
-          clearAuthenticatedState();
+          clearAuthenticatedState(user?.id);
           return;
         }
-        clearAuthenticatedState();
+        clearAuthenticatedState(user?.id);
         return;
       }
       throw error;
     }
-  }, [applyAuthResult, clearAuthenticatedState, refreshSession]);
+  }, [applyAuthResult, clearAuthenticatedState, refreshSession, user?.id]);
 
   useEffect(() => {
     let mounted = true;
     async function hydrateSession() {
+      clearLegacyUnscopedWebUserSessionStorage();
       try {
         const token = getAccessToken();
         const refreshToken = getRefreshToken();
@@ -133,9 +140,13 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error) {
         if (isAuthError(error)) {
-          clearAuthTokens();
-          saveCachedUser(null);
-          if (mounted) setUser(null);
+          if (mounted) clearAuthenticatedState();
+          else {
+            const cachedUser = readCachedUser();
+            clearWebUserSessionStorage(cachedUser?.id);
+            clearAuthTokens();
+            saveCachedUser(null);
+          }
         }
       } finally {
         if (mounted) setHydrated(true);
@@ -143,7 +154,7 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
     }
     void hydrateSession();
     return () => { mounted = false; };
-  }, [applyAuthResult]);
+  }, [applyAuthResult, clearAuthenticatedState]);
 
 
   useEffect(() => {
@@ -205,13 +216,16 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
     },
     async logout() {
       const refreshToken = getRefreshToken();
-      if (refreshToken) await api.auth.logout({ refreshToken }).catch(() => undefined);
+      const currentUserId = user?.id ?? readCachedUser()?.id;
+      clearWebUserSessionStorage(currentUserId);
       clearAuthTokens();
       saveCachedUser(null);
       setUser(null);
+      if (refreshToken) await api.auth.logout({ refreshToken }).catch(() => undefined);
     },
     async logoutAll() {
       await api.auth.logoutAll().catch(() => undefined);
+      clearWebUserSessionStorage(user?.id ?? readCachedUser()?.id);
       clearAuthTokens();
       saveCachedUser(null);
       setUser(null);

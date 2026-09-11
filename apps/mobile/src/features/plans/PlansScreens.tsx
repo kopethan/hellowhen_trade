@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import { GOOGLE_PLACE_SEARCH_MIN_QUERY_LENGTH, type DiscoveryLanguage, type GooglePlacePrediction, type GoogleResolvedPlace, type InventoryTranslationDto, type ListPlansQuery, type ListPlacesQuery, type MediaAssetDto, type PlaceDto, type PlacePresenceVerificationResponse, type PlaceStaticMapDto, type PlanDto, type PlanParticipantDto, type PlanPlaceDto, type PlanPlaceKind, type PlanPlaceMode } from '@hellowhen/contracts';
 import { formatLocalizedDateTime, type SupportedLanguage, type TranslationValues } from '@hellowhen/i18n';
-import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, buildGeneratedPlanDisplay, buildPlanFeedItems, effectivePlanJoinClosesAt, isPlanJoinClosed, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, resolveInventoryOriginalCopy, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
+import { buildEstimatedPlanPlaceEndTimes, estimateFinalPlanPlaceEndTime, cascadePlanStopDateTimeChange, reorderPlanStopsPreservingTimeline, buildGeneratedPlanDisplay, buildPlanFeedItems, effectivePlanJoinClosesAt, isPlanJoinClosed, getOnlinePlaceProviderMetadata, hasConfirmedProviderOfflineAddress, hasOnlineDestination, mergeRecentStarterPlanIdeaIds, parseStarterPlanIdeaKey, resolveInventoryOriginalCopy, PLACE_ADDRESS_CONFIRMED_STATUS, PLACE_ADDRESS_PROVIDER_SOURCE, PLAN_MIN_STOP_START_GAP_MINUTES, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaMode, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, starterPlanIdeaStopRequirementLabel, type PlaceProviderAddressInput, type StarterPlanIdea, type StarterPlanIdeaKey, type StarterPlanIdeaStop } from '@hellowhen/shared';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import type { AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
 import { AppSmartHeaderScreen } from '../../components/AppSmartHeaderScreen';
@@ -1267,78 +1267,6 @@ function resolvePlanJoinDeadline(state: PlanJoinDeadlineState, startsAt: string,
     deadlineLabel: formatCompactIsoDateTime(deadline.toISOString()),
     error: '',
   };
-}
-
-function cascadePlanStopDateTimeChange(
-  places: SelectedPlanPlaceState[],
-  index: number,
-  patch: Pick<Partial<SelectedPlanPlaceState>, 'date' | 'time'>,
-) {
-  const selectedPlace = places[index];
-  if (!selectedPlace) return places;
-
-  const nextSelectedPlace = { ...selectedPlace, ...patch };
-  const previousDateTime = parseLocalDateTime(selectedPlace.date, selectedPlace.time);
-  const nextDateTime = parseLocalDateTime(nextSelectedPlace.date, nextSelectedPlace.time);
-  if (!previousDateTime || !nextDateTime) {
-    return places.map((place, placeIndex) => placeIndex === index ? nextSelectedPlace : place);
-  }
-
-  const deltaMs = nextDateTime.getTime() - previousDateTime.getTime();
-  return places.map((place, placeIndex) => {
-    if (placeIndex < index) return place;
-    if (placeIndex === index) return nextSelectedPlace;
-    if (deltaMs === 0) return place;
-
-    const downstreamDateTime = parseLocalDateTime(place.date, place.time);
-    if (!downstreamDateTime) return place;
-    return { ...place, ...dateAndTimeFromDate(new Date(downstreamDateTime.getTime() + deltaMs)) };
-  });
-}
-
-function reorderPlanStopsPreservingTimeline(
-  places: SelectedPlanPlaceState[],
-  index: number,
-  direction: -1 | 1,
-) {
-  const nextIndex = index + direction;
-  if (nextIndex < 0 || nextIndex >= places.length) return places;
-
-  const reordered = [...places];
-  const movingPlace = reordered[index];
-  const displacedPlace = reordered[nextIndex];
-  if (!movingPlace || !displacedPlace) return places;
-
-  reordered[index] = displacedPlace;
-  reordered[nextIndex] = movingPlace;
-
-  // A Plan stop's end is inferred from the next stop's start, so reordering
-  // changes which stop occupies each timeline slot rather than moving an old
-  // timestamp with the stop. Sorting the existing slots also repairs drafts
-  // created before this rule that may already be out of chronological order.
-  const scheduleSlots = places.map((place, slotIndex) => {
-    const dateTime = parseLocalDateTime(place.date, place.time);
-    return dateTime
-      ? { date: place.date, time: place.time, timestamp: dateTime.getTime(), slotIndex }
-      : null;
-  });
-
-  if (scheduleSlots.every((slot): slot is NonNullable<typeof slot> => Boolean(slot))) {
-    const orderedSlots = [...scheduleSlots].sort((left, right) => left.timestamp - right.timestamp || left.slotIndex - right.slotIndex);
-    return reordered.map((place, slotIndex) => ({
-      ...place,
-      date: orderedSlots[slotIndex]!.date,
-      time: orderedSlots[slotIndex]!.time,
-    }));
-  }
-
-  // Drafts with an unfinished date/time still keep the schedule attached to
-  // the route positions being swapped, without inventing a new time.
-  return reordered.map((place, placeIndex) => {
-    if (placeIndex === index) return { ...place, date: movingPlace.date, time: movingPlace.time };
-    if (placeIndex === nextIndex) return { ...place, date: displacedPlace.date, time: displacedPlace.time };
-    return place;
-  });
 }
 
 function nextPlanStopDateTimeFromPlaces(places: SelectedPlanPlaceState[], fallbackDate = toDateInputValue()) {

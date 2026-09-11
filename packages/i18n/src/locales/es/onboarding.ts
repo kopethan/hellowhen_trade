@@ -8,11 +8,11 @@ export const onboarding = {
     title: 'Guías',
     eyebrow: 'Biblioteca de guías',
     heroTitle: 'Repite las guías cuando quieras',
-    heroBody: 'Elige la guía de la app, de Plans o de Trade. Los feeds públicos siguen abiertos y estas guías siempre están disponibles desde Me.',
+    heroBody: 'Elige la guía de la app, de Plans o de Trade. Los feeds públicos siguen abiertos y estas guías siempre están disponibles desde Cuenta.',
     choices: {
       global: {
         title: 'Guía de la app',
-        body: 'Repite la guía general sobre navegación, Me, feeds públicos y seguridad básica.',
+        body: 'Repite la guía general sobre Plans, Explore, Trade, Cuenta y seguridad básica.',
         badge: 'App',
         action: 'Repetir guía de la app',
       },
@@ -51,7 +51,7 @@ export const onboarding = {
     global: {
       ...enOnboarding.guides.global,
       title: 'Guía de Hellowhen',
-      summary: 'Una vista rápida de Trade, Plans, Me y seguridad.',
+      summary: 'Una vista rápida de Plans, Explore, Trade, Cuenta y seguridad.',
     },
     trade: {
       ...enOnboarding.guides.trade,
@@ -89,20 +89,20 @@ export const onboarding = {
     globalWelcome: {
       ...enOnboarding.slides.globalWelcome,
       title: 'Bienvenido a Hellowhen',
-      body: 'Hellowhen ayuda a las personas a conectar alrededor de necesidades, ofertas, planes y conversaciones más seguras.',
+      body: 'Hellowhen reúne Plans, Explore, Trade y conversaciones más seguras en una app sencilla.',
       caption: 'Empieza con la idea general y luego explora cada área cuando lo necesites.',
     },
     globalWorlds: {
       ...enOnboarding.slides.globalWorlds,
-      title: 'Trade, Plans y Me',
-      body: 'Usa Trade para un intercambio, Plans para objetivos o rutas más grandes, y Me para tu actividad, herramientas y perfil.',
-      caption: 'Tres áreas principales mantienen la app simple.',
+      title: 'Plans, Explore y Trade',
+      body: 'Usa Plans para objetivos y rutas más grandes, Explore para ideas y lugares de Hellowhen, y Trade para un intercambio.',
+      caption: 'Tres áreas principales mantienen claras la exploración y la actividad.',
     },
-    globalMeHub: {
-      ...enOnboarding.slides.globalMeHub,
-      title: 'Tu actividad vive en Me',
-      body: 'Encuentra tus intercambios, propuestas, planes, elementos guardados, Agenda, notificaciones, ajustes y soporte desde Me.',
-      caption: 'Me es tu centro personal.',
+    globalAccountHub: {
+      ...enOnboarding.slides.globalAccountHub,
+      title: 'Tu cuenta está a un toque',
+      body: 'Usa el botón de perfil desde Plans, Explore o Trade para abrir tu actividad, herramientas, notificaciones, ajustes y soporte.',
+      caption: 'La cuenta permanece separada de las tres áreas principales de exploración.',
     },
     globalSafety: {
       ...enOnboarding.slides.globalSafety,
@@ -161,7 +161,7 @@ export const onboarding = {
     plansPlaces: {
       ...enOnboarding.slides.plansPlaces,
       title: 'Lugares dentro de Plans',
-      body: 'Plans puede incluir direcciones offline y lugares online para que los usuarios entiendan claramente la ruta o actividad.',
+      body: 'Plans puede incluir direcciones presenciales y lugares en línea para que los usuarios entiendan claramente la ruta o actividad.',
       caption: 'Los lugares hacen que un Plan sea concreto.',
     },
     plansCreateJoin: {

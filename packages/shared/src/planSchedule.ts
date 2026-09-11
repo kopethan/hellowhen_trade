@@ -32,6 +32,108 @@ export const PLAN_MIN_STOP_START_GAP_MINUTES = 15;
 
 const MINUTE_MS = 60_000;
 
+export type PlanScheduleDraftStop = {
+  date: string;
+  time: string;
+};
+
+function parsePlanScheduleDraftDateTime(dateValue: string, timeValue: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue.trim()) || !/^\d{2}:\d{2}$/.test(timeValue.trim())) return null;
+  const date = new Date(`${dateValue}T${timeValue}:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function planScheduleDraftPartsFromDate(value: Date) {
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return {
+    date: `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`,
+    time: `${pad(value.getHours())}:${pad(value.getMinutes())}`,
+  };
+}
+
+/**
+ * Move one Plan stop in time and shift every downstream stop by the same delta.
+ * Earlier stops are never changed. If either the old or new selected time is
+ * incomplete, only the selected stop is updated and no downstream time is
+ * invented.
+ */
+export function cascadePlanStopDateTimeChange<T extends PlanScheduleDraftStop>(
+  stops: T[],
+  index: number,
+  patch: Partial<Pick<PlanScheduleDraftStop, 'date' | 'time'>>,
+): T[] {
+  const selectedStop = stops[index];
+  if (!selectedStop) return stops;
+
+  const nextSelectedStop = { ...selectedStop, ...patch };
+  const previousDateTime = parsePlanScheduleDraftDateTime(selectedStop.date, selectedStop.time);
+  const nextDateTime = parsePlanScheduleDraftDateTime(nextSelectedStop.date, nextSelectedStop.time);
+  if (!previousDateTime || !nextDateTime) {
+    return stops.map((stop, stopIndex) => stopIndex === index ? nextSelectedStop : stop);
+  }
+
+  const deltaMs = nextDateTime.getTime() - previousDateTime.getTime();
+  return stops.map((stop, stopIndex) => {
+    if (stopIndex < index) return stop;
+    if (stopIndex === index) return nextSelectedStop;
+    if (deltaMs === 0) return stop;
+
+    const downstreamDateTime = parsePlanScheduleDraftDateTime(stop.date, stop.time);
+    if (!downstreamDateTime) return stop;
+    return {
+      ...stop,
+      ...planScheduleDraftPartsFromDate(new Date(downstreamDateTime.getTime() + deltaMs)),
+    };
+  });
+}
+
+/**
+ * Reorder Plan stop content without moving timestamps with that content. Each
+ * route position keeps a chronological schedule slot, matching native Plan
+ * behavior. Existing valid slots are sorted first so older out-of-order drafts
+ * are repaired instead of preserving an invalid chronology.
+ */
+export function reorderPlanStopsPreservingTimeline<T extends PlanScheduleDraftStop>(
+  stops: T[],
+  index: number,
+  direction: -1 | 1,
+): T[] {
+  const nextIndex = index + direction;
+  if (nextIndex < 0 || nextIndex >= stops.length) return stops;
+
+  const reordered = [...stops];
+  const movingStop = reordered[index];
+  const displacedStop = reordered[nextIndex];
+  if (!movingStop || !displacedStop) return stops;
+
+  reordered[index] = displacedStop;
+  reordered[nextIndex] = movingStop;
+
+  const scheduleSlots = stops.map((stop, slotIndex) => {
+    const dateTime = parsePlanScheduleDraftDateTime(stop.date, stop.time);
+    return dateTime
+      ? { date: stop.date, time: stop.time, timestamp: dateTime.getTime(), slotIndex }
+      : null;
+  });
+
+  if (scheduleSlots.every((slot): slot is NonNullable<typeof slot> => Boolean(slot))) {
+    const orderedSlots = [...scheduleSlots].sort((left, right) => left.timestamp - right.timestamp || left.slotIndex - right.slotIndex);
+    return reordered.map((stop, slotIndex) => ({
+      ...stop,
+      date: orderedSlots[slotIndex]!.date,
+      time: orderedSlots[slotIndex]!.time,
+    }));
+  }
+
+  // For unfinished drafts, preserve the route-position slots involved in the
+  // swap without manufacturing a date/time that the user has not entered.
+  return reordered.map((stop, stopIndex) => {
+    if (stopIndex === index) return { ...stop, date: movingStop.date, time: movingStop.time };
+    if (stopIndex === nextIndex) return { ...stop, date: displacedStop.date, time: displacedStop.time };
+    return stop;
+  });
+}
+
 function parsePlanPlaceTime(value: PlanPlaceTimeInput) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);

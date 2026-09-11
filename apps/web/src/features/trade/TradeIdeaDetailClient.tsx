@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { WebIcon } from '../../components/WebIcon';
 import { useWebAuth } from '../../providers/WebAuthProvider';
@@ -97,7 +98,7 @@ function IdeaNextSteps() {
   );
 }
 
-function MoreIdeas({ ideaKey }: { ideaKey: FeedTradeIdeaKey }) {
+function MoreIdeas({ ideaKey, fromExplore }: { ideaKey: FeedTradeIdeaKey; fromExplore: boolean }) {
   const { t } = useWebTranslation();
   const ideas = getRelatedIdeaKeys(ideaKey);
   if (ideas.length === 0) return null;
@@ -112,7 +113,7 @@ function MoreIdeas({ ideaKey }: { ideaKey: FeedTradeIdeaKey }) {
       </div>
       <div className="trade-idea-detail-more-grid">
         {ideas.map((candidate) => (
-          <Link key={candidate} href={createFeedIdeaTradeHref(candidate)} className="trade-idea-detail-more-card">
+          <Link key={candidate} href={`${createFeedIdeaTradeHref(candidate)}${fromExplore ? '?from=explore' : ''}`} className="trade-idea-detail-more-card">
             <span>{t(`trade.feedIdeas.items.${candidate}.pack`)}</span>
             <strong>{getIdeaTitle(t, candidate)}</strong>
             <small>{t('trade.ideaDetail.openIdea')}</small>
@@ -123,19 +124,19 @@ function MoreIdeas({ ideaKey }: { ideaKey: FeedTradeIdeaKey }) {
   );
 }
 
-function NotFoundIdea() {
+function NotFoundIdea({ returnHref, returnLabel }: { returnHref: string; returnLabel: string }) {
   const { t } = useWebTranslation();
   return (
     <article className="mobile-page trade-idea-detail-page">
       <header className="trade-detail-toolbar" aria-label={t('trade.ideaDetail.header')}>
-        <Link href="/trades" className="trade-detail-back-link"><WebIcon name="back" size={17} decorative /><span>{t('trade.ideaDetail.backToFeed')}</span></Link>
+        <Link href={returnHref} className="trade-detail-back-link"><WebIcon name="back" size={17} decorative /><span>{returnLabel}</span></Link>
       </header>
       <section className="trade-hero-section trade-idea-detail-hero trade-idea-detail-not-found">
         <span className="semantic-badge warning">{t('trade.labels.notFound')}</span>
         <h1>{t('trade.ideaDetail.notFoundTitle')}</h1>
         <p>{t('trade.ideaDetail.notFoundBody')}</p>
         <div className="trade-idea-detail-not-found-actions">
-          <Link href="/trades" className="button primary">{t('trade.ideaDetail.backToFeed')}</Link>
+          <Link href={returnHref} className="button primary">{returnLabel}</Link>
           <Link href="/trades/create" className="button secondary">{t('trade.ideaDetail.createFromScratch')}</Link>
         </div>
       </section>
@@ -145,12 +146,16 @@ function NotFoundIdea() {
 
 export function TradeIdeaDetailClient({ ideaId }: TradeIdeaDetailClientProps) {
   const auth = useWebAuth();
+  const searchParams = useSearchParams();
   const { t } = useWebTranslation();
   const ideaKey = parseFeedTradeIdeaKey(ideaId);
   const [expiry, setExpiry] = useState<IdeaExpirySelection>('default');
   const title = useMemo(() => ideaKey ? getIdeaTitle(t, ideaKey) : '', [ideaKey, t]);
+  const fromExplore = searchParams.get('from') === 'explore';
+  const returnHref = fromExplore ? '/explore' : '/trades';
+  const returnLabel = fromExplore ? t('navigation.tabs.explore') : t('trade.ideaDetail.backToFeed');
 
-  if (!ideaKey) return <NotFoundIdea />;
+  if (!ideaKey) return <NotFoundIdea returnHref={returnHref} returnLabel={returnLabel} />;
 
   const pack = t(`trade.feedIdeas.items.${ideaKey}.pack`);
   const createHref = createIdeaActionHref('/trades/create', ideaKey, expiry, auth.isAuthenticated);
@@ -159,7 +164,7 @@ export function TradeIdeaDetailClient({ ideaId }: TradeIdeaDetailClientProps) {
   return (
     <article className="mobile-page trade-idea-detail-page">
       <header className="trade-detail-toolbar" aria-label={t('trade.ideaDetail.header')}>
-        <Link href="/trades" className="trade-detail-back-link"><WebIcon name="back" size={17} decorative /><span>{t('trade.ideaDetail.backToFeed')}</span></Link>
+        <Link href={returnHref} className="trade-detail-back-link"><WebIcon name="back" size={17} decorative /><span>{returnLabel}</span></Link>
       </header>
 
       <section className="trade-hero-section trade-idea-detail-hero">
@@ -204,10 +209,10 @@ export function TradeIdeaDetailClient({ ideaId }: TradeIdeaDetailClientProps) {
         </div>
       </section>
 
-      <MoreIdeas ideaKey={ideaKey} />
+      <MoreIdeas ideaKey={ideaKey} fromExplore={fromExplore} />
 
       <section className="trade-idea-detail-actions" aria-label={t('trade.ideaDetail.actionsLabel')}>
-        <Link href="/trades" className="button ghost">{t('trade.ideaDetail.backToFeed')}</Link>
+        <Link href={returnHref} className="button ghost">{returnLabel}</Link>
         <Link href={fullFormHref} className="button secondary">{t('trade.ideaDetail.editInFullForm')}</Link>
         <Link href={createHref} className="button primary">{t(getIdeaActionKey(ideaKey))}</Link>
       </section>

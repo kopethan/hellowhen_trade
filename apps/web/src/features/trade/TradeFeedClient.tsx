@@ -7,6 +7,7 @@ import { getNormalWorkspaceMenuItems, getTradeOwnerVisibilityState, isTradeOwner
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { WebIcon } from '../../components/WebIcon';
+import { WebAccountHeaderAction } from '../../components/WebAccountHeaderAction';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockTrades } from '../../lib/mockData';
@@ -110,6 +111,13 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
   const createTradeIdeaHref = useCallback((ideaKey: FeedTradeIdeaKey) => createFeedIdeaTradeHref(ideaKey), []);
   const shouldShowHomeIntro = showHomeIntro && homeIntroReady && auth.hydrated && !homeIntroDismissed;
+
+  useEffect(() => {
+    const activity = searchParams.get('activity');
+    if (activity !== 'mine' && activity !== 'involved') return;
+    setActivityTab(activity);
+    setActiveToolPanel('activity');
+  }, [searchParamKey, searchParams]);
 
   const recordSearchKeyword = useCallback(async (pending: { q: string; source: TradeSearchKeywordSource }, resultCount: number) => {
     const normalized = normalizeSearchText(pending.q);
@@ -250,6 +258,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
             <WebIcon name="add" size={21} decorative />
             <span className="trade-action-label">{t('trade.create.title')}</span>
           </Link>
+          <WebAccountHeaderAction local />
         </div>
       </header>
       {activeToolPanel === 'activity' ? <button type="button" className="trade-tools-backdrop" aria-label={t('common.actions.close')} onClick={() => setActiveToolPanel(null)} /> : null}
@@ -386,7 +395,7 @@ function splitFeedIdeaChips(value: string) {
   return value.split('·').map((part) => part.trim()).filter(Boolean).slice(0, 3);
 }
 
-function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: { ideaKey: FeedTradeIdeaKey; createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string; inline?: boolean }) {
+export function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: { ideaKey: FeedTradeIdeaKey; createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string; inline?: boolean }) {
   const { t } = useWebTranslation();
   const idea = feedTradeIdeas[ideaKey];
   const pack = t(`trade.feedIdeas.items.${ideaKey}.pack`);

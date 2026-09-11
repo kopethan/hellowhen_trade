@@ -19,8 +19,8 @@ export const planFilterGroups: PlanFilterGroup[] = [
     title: 'Mode',
     body: 'Match the way the Plan happens.',
     options: [
-      { label: 'Local / offline', value: 'mode:local', body: 'Meet in person' },
-      { label: 'Online', value: 'mode:remote', body: 'Remote or link-based' },
+      { label: 'In person', value: 'mode:local', body: 'Meet in person' },
+      { label: 'Online', value: 'mode:remote', body: 'Online or link-based' },
     ],
   },
   {
@@ -182,13 +182,13 @@ export function applyPlanFilters(plans: PlanDto[], filters: string[], query?: st
   });
 }
 
-export function planFilterSummary(filters: string[], query?: string | null) {
+export function planFilterSummary(filters: string[], query: string | null | undefined, translate: (key: string, values?: Record<string, string | number>) => string) {
   const parts = planFilterKeys.map((key) => {
     const count = planFilterValues(filters, key).length;
-    return count ? `${count} ${key}` : '';
+    return count ? translate(`plans.filters.summary.${key}`, { count }) : '';
   }).filter(Boolean);
   const normalizedQuery = normalizePlanSearchQuery(query);
-  if (normalizedQuery) parts.unshift(`Search: “${normalizedQuery}”`);
+  if (normalizedQuery) parts.unshift(translate('plans.filters.summary.search', { query: normalizedQuery }));
   return parts.join(' · ');
 }
 

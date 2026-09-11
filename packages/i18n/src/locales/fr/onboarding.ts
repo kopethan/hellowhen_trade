@@ -5,11 +5,11 @@ export const onboarding = {
     title: 'Guides',
     eyebrow: 'Bibliothèque de guides',
     heroTitle: 'Revoir les guides à tout moment',
-    heroBody: 'Choisissez le guide de l’app, de Plans ou de Trade. Les fils publics restent accessibles et ces guides sont toujours disponibles dans Me.',
+    heroBody: 'Choisissez le guide de l’app, de Plans ou de Trade. Les fils publics restent accessibles et ces guides sont toujours disponibles depuis Compte.',
     choices: {
       global: {
         title: 'Guide de l’app',
-        body: 'Revoyez le guide général pour la navigation, Me, les fils publics et les bases de sécurité.',
+        body: 'Revoyez le guide général pour Plans, Explore, Trade, Compte et les bases de sécurité.',
         badge: 'App',
         action: 'Revoir le guide de l’app',
       },
@@ -44,7 +44,7 @@ export const onboarding = {
   guides: {
     global: {
       title: 'Guide Hellowhen',
-      summary: 'Un aperçu rapide des échanges, des plans, de Me et de la sécurité.',
+      summary: 'Un aperçu rapide de Plans, Explore, Trade, Compte et de la sécurité.',
     },
     trade: {
       title: 'Guide Trade',
@@ -78,18 +78,18 @@ export const onboarding = {
   slides: {
     globalWelcome: {
       title: 'Bienvenue sur Hellowhen',
-      body: 'Hellowhen aide les personnes à se connecter autour de besoins, d’offres, de plans et de conversations plus sûres.',
+      body: 'Hellowhen réunit Plans, Explore, Trade et des conversations plus sûres dans une app simple.',
       caption: 'Commencez par la vision globale, puis explorez chaque espace quand vous en avez besoin.',
     },
     globalWorlds: {
-      title: 'Trade, Plans et Me',
-      body: 'Utilisez Trade pour un échange, Plans pour des objectifs ou trajets plus grands, et Me pour votre activité, vos outils et votre profil.',
-      caption: 'Trois espaces principaux gardent l’app simple.',
+      title: 'Plans, Explore et Trade',
+      body: 'Utilisez Plans pour des objectifs et trajets plus grands, Explore pour les idées et lieux Hellowhen, et Trade pour un échange.',
+      caption: 'Trois espaces principaux gardent la découverte et l’activité claires.',
     },
-    globalMeHub: {
-      title: 'Votre activité vit dans Me',
-      body: 'Retrouvez vos échanges, propositions, plans, éléments enregistrés, Agenda, notifications, paramètres et assistance dans Me.',
-      caption: 'Me est votre hub personnel.',
+    globalAccountHub: {
+      title: 'Votre compte reste à portée de main',
+      body: 'Utilisez le bouton de profil depuis Plans, Explore ou Trade pour ouvrir votre activité, vos outils, notifications, paramètres et l’assistance.',
+      caption: 'Le compte reste séparé des trois espaces principaux de découverte.',
     },
     globalSafety: {
       title: 'Gardez les accords clairs',
@@ -143,7 +143,7 @@ export const onboarding = {
     },
     plansPlaces: {
       title: 'Les lieux dans les Plans',
-      body: 'Les Plans peuvent inclure des adresses hors ligne et des lieux en ligne pour rendre le trajet ou l’activité plus clair.',
+      body: 'Les Plans peuvent inclure des adresses sur place et des lieux en ligne pour rendre le trajet ou l’activité plus clair.',
       caption: 'Les lieux rendent un Plan plus concret.',
     },
     plansCreateJoin: {
