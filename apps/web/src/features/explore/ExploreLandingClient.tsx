@@ -26,6 +26,11 @@ const tradeExploreIdeaKeys = feedTradeIdeaKeys.filter((ideaKey) => feedTradeIdea
 
 type ExploreConceptKind = 'trade' | 'plan' | 'need' | 'offer' | 'place';
 type ExploreTypeFilter = 'all' | ExploreConceptKind;
+
+function exploreTypeFilterFromQuery(value: string | null): ExploreTypeFilter {
+  if (value === 'trade' || value === 'plan' || value === 'need' || value === 'offer' || value === 'place') return value;
+  return 'all';
+}
 type InventoryTemplatesResponse = { templates?: InventoryTemplateDto[] };
 type PlacesResponse = { places?: PlaceDto[] };
 type TFunction = ReturnType<typeof useWebTranslation>['t'];
@@ -242,6 +247,11 @@ export function ExploreLandingClient() {
     void loadDiscovery();
     return () => { requestSequence.current += 1; };
   }, [loadDiscovery]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setTypeFilter(exploreTypeFilterFromQuery(new URLSearchParams(window.location.search).get('type')));
+  }, []);
 
   const staticGroups = useMemo(() => {
     const tradeItems: ExploreFeedItem[] = tradeExploreIdeaKeys.map((ideaKey) => ({ kind: 'trade', key: `trade-idea-${ideaKey}`, ideaKey }));

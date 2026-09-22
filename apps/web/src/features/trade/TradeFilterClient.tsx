@@ -31,6 +31,11 @@ export function TradeFilterClient() {
     setSelectedValues((current) => toggleTradeFilterValue(current, value));
   }
 
+  function resetFilters() {
+    setSelectedValues([]);
+    setSearchQuery('');
+  }
+
   return (
     <main className="mobile-page plans-page plans-filter-page trade-filter-page app-filter-page app-filter-page--trade web-app-page web-app-page--filter web-app-page--trade">
       <header className="plans-filter-header app-filter-header">
@@ -40,6 +45,11 @@ export function TradeFilterClient() {
           <p>Search and filter exchange cards.</p>
         </div>
       </header>
+
+      <div className="app-filter-actions app-filter-actions--top" aria-label="Trade filter actions">
+        <button type="button" className="button secondary" disabled={activeCount === 0} onClick={resetFilters}>Reset</button>
+        <Link className="button primary" href={tradesHref}>{activeCount ? `Show trades (${activeCount})` : 'Show trades'}</Link>
+      </div>
 
       <section className="plans-filter-hero trade-filter-hero app-filter-hero" aria-label="Trade filter summary">
         <span className="plans-filter-hero__icon app-filter-hero__icon" aria-hidden="true"><WebIcon name="filter" size={18} decorative /></span>
@@ -98,8 +108,8 @@ export function TradeFilterClient() {
         ))}
       </section>
 
-      <footer className="plans-filter-footer app-filter-footer">
-        <button type="button" className="button secondary" disabled={activeCount === 0} onClick={() => { setSelectedValues([]); setSearchQuery(''); }}>Reset</button>
+      <footer className="plans-filter-footer app-filter-footer app-filter-actions">
+        <button type="button" className="button secondary" disabled={activeCount === 0} onClick={resetFilters}>Reset</button>
         <Link className="button primary" href={tradesHref}>{activeCount ? `Show trades (${activeCount})` : 'Show trades'}</Link>
       </footer>
     </main>

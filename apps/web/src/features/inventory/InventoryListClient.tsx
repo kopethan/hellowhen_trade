@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import type { InventoryFolderDto, InventoryFolderItemDto } from '@hellowhen/contracts';
+import { useRouter } from 'next/navigation';
+import type { InventoryAvailabilityPreset, InventoryDurationPreset, InventoryFolderDto, InventoryFolderItemDto } from '@hellowhen/contracts';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { InventoryEmptyState } from '../../components/InventoryEmptyState';
 import { WebIcon } from '../../components/WebIcon';
@@ -12,13 +13,53 @@ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
-import { formatInventoryDate, getInventoryMetadata, getInventoryTags, inventoryStatusLabel, kindLabel, mediaSrc, normalizeInventoryList, sideClassName, sideLabel, type InventoryI18n, type InventoryItem, type InventoryKind } from './inventoryPresentation';
+import { availabilityPresetLabel, durationPresetLabel, formatInventoryDate, getInventoryMetadata, getInventoryTags, inventoryCategoryLabel, inventoryStatusLabel, itemTypeLabel, kindLabel, mediaSrc, modeLabel, normalizeInventoryList, sideClassName, type InventoryI18n, type InventoryItem, type InventoryKind } from './inventoryPresentation';
 
 type InventoryListClientProps = {
   kind: InventoryKind;
 };
 
 type FolderMode = 'create' | 'edit';
+
+type InventoryFilterState = {
+  itemType: string;
+  category: string;
+  mode: string;
+  availability: string;
+  duration: string;
+  status: string;
+};
+
+const defaultInventoryFilters: InventoryFilterState = {
+  itemType: 'all',
+  category: 'all',
+  mode: 'all',
+  availability: 'all',
+  duration: 'all',
+  status: 'all',
+};
+
+function uniqueInventoryValues(values: Array<string | null | undefined>) {
+  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))].sort((left, right) => left.localeCompare(right));
+}
+
+function inventoryDuration(item: InventoryItem, kind: InventoryKind) {
+  if (kind === 'need' && 'estimatedDurationPreset' in item) return item.estimatedDurationPreset ?? null;
+  if (kind === 'offer' && 'typicalDurationPreset' in item) return item.typicalDurationPreset ?? null;
+  return null;
+}
+
+function activeInventoryFilterCount(filters: InventoryFilterState) {
+  return Object.values(filters).filter((value) => value !== 'all').length;
+}
+
+function inventoryStatusTone(status?: string | null) {
+  if (status === 'active' || status === 'accepted' || status === 'fulfilled') return 'success';
+  if (status === 'rejected' || status === 'closed') return 'danger';
+  if (status === 'expired') return 'warning';
+  return 'instruction';
+}
+
 
 function getFolderItemInventoryId(item: InventoryFolderItemDto, kind: InventoryKind) {
   if (kind === 'need') return item.needId ?? item.need?.id ?? null;
@@ -43,23 +84,24 @@ function InventoryCard({ item, kind, i18n }: { item: InventoryItem; kind: Invent
   const metadata = getInventoryMetadata(item, i18n);
   const tags = getInventoryTags(item);
   const image = item.media?.[0];
+  const mediaCount = item.media?.length ?? 0;
 
   return (
     <Link href={`/${kind === 'need' ? 'needs' : 'offers'}/${item.id}`} className="inventory-card inventory-card--owner" aria-label={`${i18n.t?.('common.actions.open') ?? 'Open'} ${item.title}`}>
       <div className="inventory-card__media" aria-hidden="true">
-        {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <WebIcon name={kind === 'need' ? 'need' : 'offer'} size={38} decorative />}
+        {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <WebIcon name={kind === 'need' ? 'need' : 'offer'} size={34} decorative />}
       </div>
       <div className="inventory-card__body">
-        <div className="status-row">
-          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)}</span>
-          <span className="semantic-badge instruction">{inventoryStatusLabel(item.status, i18n)}</span>
+        <div className="status-row inventory-card__badges">
+          <span className={`semantic-badge ${sideClassName(kind)}`}>{kindLabel(kind, i18n)}</span>
+          <span className={`semantic-badge ${inventoryStatusTone(item.status)}`}>{inventoryStatusLabel(item.status, i18n)}</span>
         </div>
         <h3>{item.title}</h3>
         <p>{item.description}</p>
         {metadata ? <p className="meta">{metadata}</p> : null}
         <div className="inventory-card__footer">
-          <span>{formatInventoryDate(item.expiresAt, i18n)}</span>
-          <strong>{i18n.t?.('media.labels.image') ?? 'image'} × {item.media?.length ?? 0}</strong>
+          <span className="inventory-card__expiry">{formatInventoryDate(item.expiresAt, i18n)}</span>
+          {mediaCount ? <strong>{mediaCount} {i18n.t?.('inventory.labels.images') ?? 'images'}</strong> : null}
         </div>
         {tags.length ? (
           <div className="tag-row inventory-card__tags">
@@ -67,17 +109,20 @@ function InventoryCard({ item, kind, i18n }: { item: InventoryItem; kind: Invent
           </div>
         ) : null}
       </div>
-      <span className="inventory-card__chevron" aria-hidden="true">›</span>
     </Link>
   );
 }
 
 export function InventoryListClient({ kind }: InventoryListClientProps) {
+  const router = useRouter();
   const auth = useWebAuth();
   const { t, language } = useWebTranslation();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [folders, setFolders] = useState<InventoryFolderDto[]>([]);
   const [query, setQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState<InventoryFilterState>({ ...defaultInventoryFilters });
   const [selectedFolderId, setSelectedFolderId] = useState<'all' | string>('all');
   const [folderMode, setFolderMode] = useState<FolderMode>('create');
   const [folderTitle, setFolderTitle] = useState('');
@@ -176,11 +221,49 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
     return items.filter((item) => !selectedFolderItemIds.has(item.id));
   }, [items, selectedFolder, selectedFolderItemIds]);
 
+  const filterOptions = useMemo(() => ({
+    itemTypes: uniqueInventoryValues(items.map((item) => item.itemType ?? 'service')),
+    categories: uniqueInventoryValues(items.map((item) => item.category)),
+    modes: uniqueInventoryValues(items.map((item) => item.mode)),
+    availability: uniqueInventoryValues(items.map((item) => item.availabilityPreset)),
+    durations: uniqueInventoryValues(items.map((item) => inventoryDuration(item, kind))),
+    statuses: uniqueInventoryValues(items.map((item) => item.status)),
+  }), [items, kind]);
+  const activeFilterCount = activeInventoryFilterCount(filters);
+  const hasSearchOrFilters = Boolean(query.trim() || activeFilterCount);
+
   const filteredItems = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return folderScopedItems;
-    return folderScopedItems.filter((item) => [item.title, item.description, item.category, getInventoryMetadata(item, i18n), ...getInventoryTags(item)].filter(Boolean).join(' ').toLowerCase().includes(needle));
-  }, [folderScopedItems, i18n, query]);
+    return folderScopedItems.filter((item) => {
+      if (needle && ![item.title, item.description, item.category, getInventoryMetadata(item, i18n), ...getInventoryTags(item)].filter(Boolean).join(' ').toLowerCase().includes(needle)) return false;
+      if (filters.itemType !== 'all' && (item.itemType ?? 'service') !== filters.itemType) return false;
+      if (filters.category !== 'all' && item.category !== filters.category) return false;
+      if (filters.mode !== 'all' && item.mode !== filters.mode) return false;
+      if (filters.availability !== 'all' && item.availabilityPreset !== filters.availability) return false;
+      if (filters.duration !== 'all' && inventoryDuration(item, kind) !== filters.duration) return false;
+      if (filters.status !== 'all' && item.status !== filters.status) return false;
+      return true;
+    });
+  }, [filters, folderScopedItems, i18n, kind, query]);
+
+  function resetLibraryFilters() {
+    setQuery('');
+    setFilters({ ...defaultInventoryFilters });
+  }
+
+  function goBackFromInventory() {
+    if (typeof window !== 'undefined' && document.referrer) {
+      try {
+        if (new URL(document.referrer).origin === window.location.origin) {
+          router.back();
+          return;
+        }
+      } catch {
+        // Fall through to the stable Account destination.
+      }
+    }
+    router.push('/account');
+  }
 
   function openCreateFolderForm() {
     setFolderMode('create');
@@ -292,18 +375,118 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
   const newHref = kind === 'need' ? '/needs/new' : '/offers/new';
   const visibleCount = filteredItems.length;
 
+  const pageTitle = kind === 'need' ? t('inventory.labels.needs') : t('inventory.labels.offers');
+  const helperCopy = kind === 'need' ? t('inventory.empty.needNativeBody') : t('inventory.empty.offerNativeBody');
+  const searchLabel = kind === 'need' ? t('inventory.libraryFilters.searchMyNeeds') : t('inventory.libraryFilters.searchMyOffers');
+  const filterLabel = kind === 'need' ? t('inventory.libraryFilters.filterMyNeeds') : t('inventory.libraryFilters.filterMyOffers');
+
   return (
-    <section className="mobile-page">
-      <div className="inventory-controls">
-        <label className="trade-search-field">
-          <span className="sr-only">{t('common.actions.search')}</span>
-          <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t('common.actions.search')} ${plural}`} type="search" />
+    <section className={`mobile-page web-app-page inventory-library-page inventory-library-page--${kind}`}>
+      <header className="inventory-library-header">
+        <div className="inventory-library-header__title">
+          <button type="button" className="web-back-button inventory-library-back" aria-label={t('navigation.goBack')} onClick={goBackFromInventory}>
+            <WebIcon name="back" size={21} decorative />
+          </button>
+          <h1>{pageTitle}</h1>
+        </div>
+        <div className="inventory-library-header__actions">
+          <button
+            type="button"
+            className={searchOpen || query ? 'inventory-library-action is-active' : 'inventory-library-action'}
+            aria-label={searchLabel}
+            aria-expanded={searchOpen}
+            onClick={() => setSearchOpen((current) => !current)}
+            disabled={!items.length && !query}
+          >
+            <WebIcon name="search" size={20} decorative />
+          </button>
+          <button
+            type="button"
+            className={filtersOpen || activeFilterCount ? 'inventory-library-action is-active' : 'inventory-library-action'}
+            aria-label={filterLabel}
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((current) => !current)}
+            disabled={!items.length}
+          >
+            <WebIcon name="filter" size={20} decorative />
+            {activeFilterCount ? <span className="inventory-library-action__badge">{activeFilterCount}</span> : null}
+          </button>
+          <Link href={newHref} className="inventory-library-action inventory-library-action--create" aria-label={`${t('common.actions.create')} ${singular}`}>
+            <WebIcon name="add" size={23} decorative />
+          </Link>
+        </div>
+      </header>
+
+      <nav className="inventory-library-segments" aria-label={`${pageTitle} ${t('common.librarySegments.mine')} / ${t('common.librarySegments.explore')}`}>
+        <span className="is-active" aria-current="page">{t('common.librarySegments.mine')}</span>
+        <Link href={`/explore?type=${kind}`}>{t('common.librarySegments.explore')}</Link>
+      </nav>
+
+      {searchOpen ? (
+        <label className="inventory-library-search">
+          <WebIcon name="search" size={18} decorative />
+          <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={searchLabel} type="search" />
+          {query ? <button type="button" onClick={() => setQuery('')} aria-label={t('inventory.libraryFilters.clearMineSearch')}>×</button> : null}
         </label>
-        <Link href={newHref} className="trade-create-pill" aria-label={`${t('common.actions.create')} ${singular}`}>
-          <WebIcon name="add" size={21} decorative />
-        </Link>
-      </div>
+      ) : null}
+
+      {filtersOpen ? (
+        <section className="inventory-library-filter-panel" aria-label={filterLabel}>
+          <div className="inventory-library-filter-panel__header">
+            <div>
+              <strong>{t('inventory.libraryFilters.title')}</strong>
+              <p>{kind === 'need' ? t('inventory.libraryFilters.mineNeedsBody') : t('inventory.libraryFilters.mineOffersBody')}</p>
+            </div>
+            <button type="button" className="ghost-button" onClick={() => setFilters({ ...defaultInventoryFilters })} disabled={!activeFilterCount}>{t('inventory.libraryFilters.reset')}</button>
+          </div>
+          <div className="inventory-library-filter-grid">
+            <label>
+              <span>{t('inventory.libraryFilters.type')}</span>
+              <select value={filters.itemType} onChange={(event) => setFilters((current) => ({ ...current, itemType: event.target.value }))}>
+                <option value="all">{t('inventory.itemTypes.all')}</option>
+                {filterOptions.itemTypes.map((value) => <option key={value} value={value}>{itemTypeLabel(value as 'service' | 'goods' | 'other', i18n)}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>{t('inventory.libraryFilters.category')}</span>
+              <select value={filters.category} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value }))}>
+                <option value="all">{t('inventory.libraryFilters.allCategories')}</option>
+                {filterOptions.categories.map((value) => <option key={value} value={value}>{inventoryCategoryLabel(value, i18n)}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>{t('inventory.libraryFilters.mode')}</span>
+              <select value={filters.mode} onChange={(event) => setFilters((current) => ({ ...current, mode: event.target.value }))}>
+                <option value="all">{t('inventory.libraryFilters.allModes')}</option>
+                {filterOptions.modes.map((value) => <option key={value} value={value}>{modeLabel(value, i18n) ?? value}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>{t('inventory.libraryFilters.availability')}</span>
+              <select value={filters.availability} onChange={(event) => setFilters((current) => ({ ...current, availability: event.target.value }))}>
+                <option value="all">{t('inventory.libraryFilters.allAvailability')}</option>
+                {filterOptions.availability.map((value) => <option key={value} value={value}>{availabilityPresetLabel(value as InventoryAvailabilityPreset, i18n)}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>{t('inventory.libraryFilters.duration')}</span>
+              <select value={filters.duration} onChange={(event) => setFilters((current) => ({ ...current, duration: event.target.value }))}>
+                <option value="all">{t('inventory.libraryFilters.allDurations')}</option>
+                {filterOptions.durations.map((value) => <option key={value} value={value}>{durationPresetLabel(value as InventoryDurationPreset, i18n)}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>{t('inventory.libraryFilters.status')}</span>
+              <select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
+                <option value="all">{t('inventory.libraryFilters.allStatuses')}</option>
+                {filterOptions.statuses.map((value) => <option key={value} value={value}>{inventoryStatusLabel(value, i18n)}</option>)}
+              </select>
+            </label>
+          </div>
+        </section>
+      ) : null}
+
+      <p className="inventory-library-helper">{helperCopy}</p>
 
       {auth.isAuthenticated && betaFeatures.inventoryFoldersEnabled ? (
         <section className="inventory-folders-panel" aria-label={t('inventory.labels.myFolders')}>
@@ -384,10 +567,12 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
         </section>
       ) : null}
 
-      <section className="feed-status-row" aria-live="polite">
-        <p>{loading ? t('inventory.messages.loadingItems', { items: plural }) : t('inventory.messages.visibleItems', { count: visibleCount, items: plural })}</p>
-        {!auth.hydrated || loading ? <span className="semantic-badge instruction">{t('inventory.labels.checkingSession')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('inventory.labels.starterExamples')}</span> : auth.isAuthenticated ? <span className="semantic-badge success">{t('inventory.labels.liveInventory')}</span> : <span className="semantic-badge instruction">{t('inventory.labels.accountNeeded')}</span>}
-      </section>
+      {(!auth.hydrated || loading || usingFallback || !auth.isAuthenticated) ? (
+        <section className="feed-status-row inventory-library-status" aria-live="polite">
+          <p>{loading ? t('inventory.messages.loadingItems', { items: plural }) : t('inventory.messages.visibleItems', { count: visibleCount, items: plural })}</p>
+          {!auth.hydrated || loading ? <span className="semantic-badge instruction">{t('inventory.labels.checkingSession')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('inventory.labels.starterExamples')}</span> : <span className="semantic-badge instruction">{t('inventory.labels.accountNeeded')}</span>}
+        </section>
+      ) : null}
 
       {notice ? <p className="notice-box success inventory-library-notice">{notice}</p> : null}
 
@@ -417,14 +602,18 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
             </div>
           ))}
         </div>
+      ) : hasSearchOrFilters && folderScopedItems.length ? (
+        <section className="inventory-library-no-results">
+          <strong>{t('inventory.libraryFilters.noMatchingMineTitle')}</strong>
+          <p>{t('inventory.libraryFilters.noMatchingMineBody')}</p>
+          <button type="button" className="button secondary" onClick={resetLibraryFilters}>{t('inventory.libraryFilters.clearAll')}</button>
+        </section>
       ) : (
         <InventoryEmptyState
           title={selectedFolder ? t('inventory.empty.noFolderItems', { folder: selectedFolder.title }) : kind === 'need' ? t('inventory.empty.createFirstNeed') : t('inventory.empty.createFirstOffer')}
           body={selectedFolder
             ? t('inventory.empty.noFolderItemsBody', { items: plural })
-            : kind === 'need'
-              ? t('inventory.empty.needBody')
-              : t('inventory.empty.offerBody')}
+            : helperCopy}
           href={newHref}
           actionLabel={kind === 'need' ? t('inventory.actions.createNeed') : t('inventory.actions.createOffer')}
         />

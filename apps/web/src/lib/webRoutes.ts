@@ -61,9 +61,9 @@ const routeTitles: WebRouteHeader[] = [
   { match: (pathname) => pathname === '/plans', titleKey: 'navigation.routes.plans', root: true, owner: 'page' },
   { match: (pathname) => pathname === '/explore', titleKey: 'navigation.routes.explore', root: true, owner: 'page' },
 
-  // Root inventory/account destinations still rely on the shell header.
-  { match: (pathname) => pathname === '/needs', titleKey: 'navigation.routes.needs', root: true, owner: 'shell' },
-  { match: (pathname) => pathname === '/offers', titleKey: 'navigation.routes.offers', root: true, owner: 'shell' },
+  // Root inventory pages own their native-style header; Account still relies on the shell header.
+  { match: (pathname) => pathname === '/needs', titleKey: 'navigation.routes.needs', root: true, owner: 'page' },
+  { match: (pathname) => pathname === '/offers', titleKey: 'navigation.routes.offers', root: true, owner: 'page' },
   { match: (pathname) => pathname === '/account' || pathname === '/me', titleKey: 'navigation.routes.account', root: true, owner: 'shell' },
 
   // Explore detail pages own their back/title treatment.

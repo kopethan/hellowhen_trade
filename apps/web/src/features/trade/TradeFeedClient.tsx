@@ -276,13 +276,15 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
         </section>
       ) : null}
 
-      <section className="feed-status-row" aria-live="polite">
-        <p>{loading ? t('trade.filters.loadingTrades') : filteredTrades.length === 1 ? t('trade.filters.activeTradeOne') : t('trade.filters.activeTrades', { count: filteredTrades.length })}</p>
-        <div className="feed-status-actions">
-          {!loading && !loadError ? <button type="button" className="semantic-badge instruction feed-refresh-button" onClick={refreshDiscoveryOrder}>{t('trade.filters.refresh')}</button> : null}
-          {loading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : loadError ? <span className="semantic-badge danger">{t('trade.filters.error')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('trade.filters.starterExamples')}</span> : <span className="semantic-badge success">{t('trade.filters.liveFeed')}</span>}
-        </div>
-      </section>
+      {loading || loadError || filteredTrades.length || hasAppliedFilters ? (
+        <section className="feed-status-row" aria-live="polite">
+          <p>{loading ? t('trade.filters.loadingTrades') : filteredTrades.length === 1 ? t('trade.filters.activeTradeOne') : t('trade.filters.activeTrades', { count: filteredTrades.length })}</p>
+          <div className="feed-status-actions">
+            {!loading && !loadError ? <button type="button" className="semantic-badge instruction feed-refresh-button" onClick={refreshDiscoveryOrder}>{t('trade.filters.refresh')}</button> : null}
+            {loading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : loadError ? <span className="semantic-badge danger">{t('trade.filters.error')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('trade.filters.starterExamples')}</span> : <span className="semantic-badge success">{t('trade.filters.liveFeed')}</span>}
+          </div>
+        </section>
+      ) : null}
 
       {loadError ? (
         <section className="mobile-card mobile-card--soft">
@@ -305,8 +307,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
         ) : (
           <TradeEmptyFeedOnboarding
             createTradeHref={createTradeHref}
-            needsHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs' : '/needs'}
-            offersHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers' : '/offers'}
+            onRefresh={refreshDiscoveryOrder}
             t={t}
           />
         )
@@ -821,24 +822,20 @@ function InvolvedTradesEmptyState({ hasFilter }: { hasFilter: boolean }) {
 
 type TradeEmptyFeedOnboardingProps = {
   createTradeHref: string;
-  needsHref: string;
-  offersHref: string;
+  onRefresh: () => void;
   t: (key: string, values?: Record<string, string | number>) => string;
 };
 
-function TradeEmptyFeedOnboarding({ createTradeHref, needsHref, offersHref, t }: TradeEmptyFeedOnboardingProps) {
+function TradeEmptyFeedOnboarding({ createTradeHref, onRefresh, t }: TradeEmptyFeedOnboardingProps) {
   return (
     <section className="trade-empty-onboarding" aria-labelledby="trade-empty-onboarding-title">
       <div className="trade-empty-onboarding__hero">
-        <span className="trade-empty-onboarding__icon" aria-hidden="true"><WebIcon name="trade" size={34} decorative /></span>
-        <span className="semantic-badge instruction">{t('trade.emptyFeed.betaBadge')}</span>
-        <h2 id="trade-empty-onboarding-title">{t('trade.emptyFeed.title')}</h2>
-        <p>{t('trade.emptyFeed.body')}</p>
+        <span className="trade-empty-onboarding__badge">{t('trade.filters.noActiveTrades')}</span>
+        <h2 id="trade-empty-onboarding-title">{t('trade.filters.noTradesYet')}</h2>
+        <p>{t('trade.filters.emptyBody')}</p>
         <div className="trade-empty-onboarding__actions" aria-label={t('trade.emptyFeed.primaryActions')}>
-          <Link href={createTradeHref} className="button">{t('trade.emptyFeed.createTrade')}</Link>
-          <Link href={needsHref} className="button secondary">{t('trade.emptyFeed.createNeed')}</Link>
-          <Link href={offersHref} className="button secondary">{t('trade.emptyFeed.createOffer')}</Link>
-          <Link href="/explore" className="button secondary"><WebIcon name="compass" size={17} decorative /> {t('navigation.tabs.explore')}</Link>
+          <Link href={createTradeHref} className="button trade-empty-onboarding__primary">{t('trade.create.title')}</Link>
+          <button type="button" className="button secondary trade-empty-onboarding__refresh" onClick={onRefresh}>{t('trade.filters.refresh')}</button>
         </div>
       </div>
     </section>

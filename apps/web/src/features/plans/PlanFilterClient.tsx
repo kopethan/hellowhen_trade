@@ -55,6 +55,11 @@ export function PlanFilterClient({ plansEnabled }: PlanFilterClientProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomingFilterKey, incomingQuery]);
 
+  function resetFilters() {
+    setSelectedFilters([]);
+    setSearchQuery('');
+  }
+
   return (
     <PlansFeatureGate plansEnabled={plansEnabled}>
       <main className="mobile-page plans-page plans-filter-page app-filter-page app-filter-page--plans web-app-page web-app-page--filter web-app-page--plans">
@@ -65,6 +70,11 @@ export function PlanFilterClient({ plansEnabled }: PlanFilterClientProps) {
             <p>{t('plans.filters.groups.status.body')}</p>
           </div>
         </header>
+
+        <div className="app-filter-actions app-filter-actions--top" aria-label={t('plans.filters.title')}>
+          <button type="button" className="button secondary" disabled={activeCount === 0} onClick={resetFilters}><WebIcon name="refresh" size={16} decorative />{t('plans.filters.reset')}</button>
+          <Link className="button primary" href={plansHref}>{activeCount ? t('plans.filters.showCount', { count: activeCount }) : t('plans.filters.show')}</Link>
+        </div>
 
         <section className="plans-filter-hero app-filter-hero" aria-label={t('plans.filters.title')}>
           <span className="plans-filter-hero__icon app-filter-hero__icon" aria-hidden="true">◇</span>
@@ -121,8 +131,8 @@ export function PlanFilterClient({ plansEnabled }: PlanFilterClientProps) {
           ))}
         </section>
 
-        <footer className="plans-filter-footer app-filter-footer">
-          <button type="button" className="button secondary" disabled={activeCount === 0} onClick={() => { setSelectedFilters([]); setSearchQuery(''); }}>{t('plans.filters.reset')}</button>
+        <footer className="plans-filter-footer app-filter-footer app-filter-actions">
+          <button type="button" className="button secondary" disabled={activeCount === 0} onClick={resetFilters}><WebIcon name="refresh" size={16} decorative />{t('plans.filters.reset')}</button>
           <Link className="button primary" href={plansHref}>{activeCount ? t('plans.filters.showCount', { count: activeCount }) : t('plans.filters.show')}</Link>
         </footer>
       </main>
