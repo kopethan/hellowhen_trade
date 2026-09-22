@@ -1,0 +1,12 @@
+diff --git a/apps/web/src/features/explore/ExploreLandingClient.tsx b/apps/web/src/features/explore/ExploreLandingClient.tsx
+--- a/apps/web/src/features/explore/ExploreLandingClient.tsx
++++ b/apps/web/src/features/explore/ExploreLandingClient.tsx
+@@ -281,7 +281,7 @@ export function ExploreLandingClient() {
+   }
+ 
+   return (
+-    <main className="mobile-page web-app-page explore-discovery-page">
++    <main className="mobile-page web-app-page web-app-page--feed explore-discovery-page">
+       <header className="feed-world-header explore-feed-header">
+         <div className="feed-world-header__copy">
+           <h1>{t('navigation.tabs.explore')}</h1>

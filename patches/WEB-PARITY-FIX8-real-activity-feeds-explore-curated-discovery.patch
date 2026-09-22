@@ -1,0 +1,1282 @@
+diff --git a/apps/mobile/src/features/trade/MyNeedsScreen.tsx b/apps/mobile/src/features/trade/MyNeedsScreen.tsx
+index 249abc0..d77522c 100644
+--- a/apps/mobile/src/features/trade/MyNeedsScreen.tsx
++++ b/apps/mobile/src/features/trade/MyNeedsScreen.tsx
+@@ -2,7 +2,6 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
+ import { Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+-import type { InventoryTemplateDto } from '@hellowhen/contracts';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { betaFeatures } from '../../lib/betaFeatures';
+@@ -15,47 +14,28 @@ import { InfoNotice } from '../../components/SemanticUI';
+ import {
+   EMPTY_LIBRARY_HEADER_CONTROLS_STATE,
+   LibraryHeaderActions,
+-  SlidingSegmentedControl,
+   type LibraryHeaderControlsHandle,
+   type LibraryHeaderControlsState,
+ } from '../../components/library';
+-import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
+ import { InventoryCompactRow } from './components/InventoryCompactRow';
+ import { ManagedInventoryLibraryFilters } from './components/ManagedInventoryLibraryFilters';
+ import { InventoryFoldersPanel, type InventoryFolderSelection } from './components/InventoryFoldersPanel';
+-import { useInventoryDisplayResolver, useLocalizedInventoryItem, useLocalizedInventoryItems } from './inventoryDisplay';
++import { useLocalizedInventoryItems } from './inventoryDisplay';
+ import type { NeedItem } from './types';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+-import { useAuth } from '../../providers/AuthProvider';
+ 
+ type ApiResponse = { needs: NeedItem[] };
+-type TemplatesResponse = { templates: InventoryTemplateDto[] };
+-type CloneResponse = { need?: NeedItem };
+-type SourceTab = 'mine' | 'starter';
+ 
+ export function MyNeedsScreen() {
+   const theme = useThemeTokens();
+-  const { t, language } = useTranslation();
+-  const auth = useAuth();
+-  const resolveInventoryDisplay = useInventoryDisplayResolver();
++  const { t } = useTranslation();
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+-  const [sourceTab, setSourceTab] = useState<SourceTab>('mine');
+   const mineControlsRef = useRef<LibraryHeaderControlsHandle>(null);
+-  const exploreControlsRef = useRef<LibraryHeaderControlsHandle>(null);
+-  const [controlsByTab, setControlsByTab] = useState<Record<SourceTab, LibraryHeaderControlsState>>({
+-    mine: { ...EMPTY_LIBRARY_HEADER_CONTROLS_STATE },
+-    starter: { ...EMPTY_LIBRARY_HEADER_CONTROLS_STATE },
+-  });
++  const [controls, setControls] = useState<LibraryHeaderControlsState>({ ...EMPTY_LIBRARY_HEADER_CONTROLS_STATE });
+   const [items, setItems] = useState<NeedItem[]>([]);
+-  const [templates, setTemplates] = useState<InventoryTemplateDto[]>([]);
+   const [error, setError] = useState<string | null>(null);
+-  const [templateError, setTemplateError] = useState<string | null>(null);
+-  const [notice, setNotice] = useState<string | null>(null);
+-  const [createdNeed, setCreatedNeed] = useState<NeedItem | null>(null);
+   const [loading, setLoading] = useState(false);
+-  const [templateLoading, setTemplateLoading] = useState(false);
+-  const [cloningTemplateId, setCloningTemplateId] = useState<string | null>(null);
+   const [folderSelection, setFolderSelection] = useState<InventoryFolderSelection>({ folderId: null, folderTitle: null, itemIds: [] });
+   const [folderRefreshKey, setFolderRefreshKey] = useState(0);
+ 
+@@ -73,33 +53,10 @@ export function MyNeedsScreen() {
+     }
+   }, [t]);
+ 
+-  const loadTemplates = useCallback(async () => {
+-    setTemplateLoading(true);
+-    setTemplateError(null);
+-    try {
+-      const result = await api.inventoryTemplates.list({ kind: 'need', language, countryCode: auth.user?.profile?.countryCode ?? undefined, take: 100 }) as TemplatesResponse;
+-      setTemplates(Array.isArray(result.templates) ? result.templates : []);
+-    } catch (caughtError) {
+-      setTemplates([]);
+-      setTemplateError(getFriendlyApiErrorMessage(caughtError, t('inventory.errors.starterNeedsCouldNotLoad')));
+-    } finally {
+-      setTemplateLoading(false);
+-    }
+-  }, [auth.user?.profile?.countryCode, language, t]);
+-
+-  useFocusEffect(useCallback(() => { void loadItems(); void loadTemplates(); setFolderRefreshKey((key) => key + 1); }, [loadItems, loadTemplates]));
++  useFocusEffect(useCallback(() => { void loadItems(); setFolderRefreshKey((key) => key + 1); }, [loadItems]));
+ 
+   const displayItems = useLocalizedInventoryItems(items);
+-  const displayCreatedItem = useLocalizedInventoryItem(createdNeed);
+-
+-  const activeLoading = sourceTab === 'starter' ? templateLoading : loading;
+-  const activeControls = controlsByTab[sourceTab];
+-  const activeControlsRef = sourceTab === 'starter' ? exploreControlsRef : mineControlsRef;
+-  const updateControls = useCallback((tab: SourceTab, state: LibraryHeaderControlsState) => {
+-    setControlsByTab((current) => ({ ...current, [tab]: state }));
+-  }, []);
+-  const updateMineControls = useCallback((state: LibraryHeaderControlsState) => updateControls('mine', state), [updateControls]);
+-  const updateExploreControls = useCallback((state: LibraryHeaderControlsState) => updateControls('starter', state), [updateControls]);
++  const updateMineControls = useCallback((state: LibraryHeaderControlsState) => setControls(state), []);
+   const handleBack = useCallback(() => {
+     if (navigation.canGoBack()) {
+       navigation.goBack();
+@@ -114,12 +71,12 @@ export function MyNeedsScreen() {
+       rightSlot={(
+         <LibraryHeaderActions
+           tone="need"
+-          state={activeControls}
+-          searchAccessibilityLabel={sourceTab === 'starter' ? t('inventory.libraryFilters.searchStarterLibrary') : t('inventory.libraryFilters.searchMyNeeds')}
+-          filterAccessibilityLabel={sourceTab === 'starter' ? t('inventory.libraryFilters.openFilters') : t('inventory.libraryFilters.filterMyNeeds')}
++          state={controls}
++          searchAccessibilityLabel={t('inventory.libraryFilters.searchMyNeeds')}
++          filterAccessibilityLabel={t('inventory.libraryFilters.filterMyNeeds')}
+           createAccessibilityLabel={t('inventory.actions.createNeed')}
+-          onToggleSearch={() => activeControlsRef.current?.toggleSearch()}
+-          onOpenFilters={() => activeControlsRef.current?.openFilters()}
++          onToggleSearch={() => mineControlsRef.current?.toggleSearch()}
++          onOpenFilters={() => mineControlsRef.current?.openFilters()}
+           onCreate={() => navigation.navigate('CreateNeed')}
+         />
+       )}
+@@ -135,34 +92,11 @@ export function MyNeedsScreen() {
+   const emptyTitle = folderSelection.folderId && folderSelection.folderTitle ? t('inventory.empty.noFolderItems', { folder: folderSelection.folderTitle }) : t('inventory.empty.createFirstNeed');
+   const emptyBody = folderSelection.folderId ? t('inventory.empty.noFolderItemsBody', { items: t('inventory.labels.needs').toLowerCase() }) : t('inventory.empty.needNativeBody');
+ 
+-  async function cloneTemplate(template: InventoryTemplateDto) {
+-    setNotice(null);
+-    setCreatedNeed(null);
+-    setTemplateError(null);
+-    try {
+-      setCloningTemplateId(template.id);
+-      const result = await api.inventoryTemplates.clone(template.id, { status: 'active' }) as CloneResponse;
+-      if (!result.need) throw new Error(t('inventory.errors.starterSavedUnreadableNeed'));
+-      setItems((current) => [result.need!, ...current.filter((item) => item.id !== result.need!.id)]);
+-      setCreatedNeed(result.need);
+-      setNotice(t('inventory.messages.starterSavedToMine', { title: resolveInventoryDisplay(result.need).title, collection: t('inventory.labels.myNeeds') }));
+-      setSourceTab('mine');
+-    } catch (caughtError) {
+-      setTemplateError(getFriendlyApiErrorMessage(caughtError, t('inventory.errors.couldNotSaveStarterNeed')));
+-    } finally {
+-      setCloningTemplateId(null);
+-    }
+-  }
+-
+   return (
+-    <AppSmartHeaderScreen header={header} resetKey={sourceTab}>
++    <AppSmartHeaderScreen header={header} resetKey="need">
+       {(scrollProps) => (
+-        <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} refreshControl={<RefreshControl refreshing={activeLoading} onRefresh={() => { void loadItems(); void loadTemplates(); setFolderRefreshKey((key) => key + 1); }} />}>
+-          <SourceTabs value={sourceTab} onChange={(nextTab) => { setSourceTab(nextTab); setNotice(null); setCreatedNeed(null); }} />
+-          {sourceTab === 'mine' ? <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('inventory.empty.needNativeBody')}</AppText> : null}
+-          {notice ? <InfoNotice tone="success" title={t('inventory.messages.starterSaved')} body={notice} /> : null}
+-          {createdNeed ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: createdNeed.id, title: displayCreatedItem?.title ?? createdNeed.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.need.softBg, borderColor: theme.semantic.need.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.need.text }]}>{t('inventory.actions.openSavedNeed')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.need.text} /></Pressable> : null}
+-          <View style={sourceTab === 'mine' ? undefined : styles.hiddenSegment}>
++        <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadItems(); setFolderRefreshKey((key) => key + 1); }} />}>
++          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('inventory.empty.needNativeBody')}</AppText>
+             {betaFeatures.inventoryFoldersEnabled ? <InventoryFoldersPanel kind="need" items={displayItems.map((item) => ({ id: item.id, title: item.title }))} refreshKey={folderRefreshKey} onSelectionChange={setFolderSelection} /> : null}
+             {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotLoadNeed')} body={error} /> : null}
+             <ManagedInventoryLibraryFilters ref={mineControlsRef} kind="need" items={sortedItems} headerControls onHeaderControlsStateChange={updateMineControls}>
+@@ -170,31 +104,12 @@ export function MyNeedsScreen() {
+                 ? <EmptyInventoryPlaceholder title={emptyTitle} body={emptyBody} tone="need" onPress={() => navigation.navigate('CreateNeed')} />
+                 : visibleItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><InventoryCompactRow kind="need" item={item} /></Pressable>)}
+             </ManagedInventoryLibraryFilters>
+-          </View>
+-          <View style={sourceTab === 'starter' ? undefined : styles.hiddenSegment}>
+-            <StarterInventoryLibrary ref={exploreControlsRef} kind="need" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('inventory.actions.useThisNeed')} onUseTemplate={(template) => { void cloneTemplate(template); }} headerControls onHeaderControlsStateChange={updateExploreControls} />
+-          </View>
+         </ScrollView>
+       )}
+     </AppSmartHeaderScreen>
+   );
+ }
+ 
+-function SourceTabs({ value, onChange }: { value: SourceTab; onChange: (value: SourceTab) => void }) {
+-  const { t } = useTranslation();
+-  return (
+-    <SlidingSegmentedControl<SourceTab>
+-      value={value}
+-      onChange={onChange}
+-      tone="need"
+-      options={[
+-        { value: 'mine', label: t('common.librarySegments.mine') },
+-        { value: 'starter', label: t('common.librarySegments.explore') },
+-      ]}
+-    />
+-  );
+-}
+-
+ function EmptyInventoryPlaceholder({ title, body, tone, onPress }: { title: string; body: string; tone: 'need' | 'offer'; onPress: () => void }) {
+   const theme = useThemeTokens();
+   const semantic = tone === 'need' ? theme.semantic.need : theme.semantic.offer;
+@@ -210,9 +125,6 @@ function EmptyInventoryPlaceholder({ title, body, tone, onPress }: { title: stri
+ const styles = StyleSheet.create({
+   content: { paddingBottom: 28, gap: 14 },
+   subtitle: { lineHeight: 20, fontWeight: '600' },
+-  hiddenSegment: { display: 'none' },
+-  openCreatedButton: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+-  openCreatedText: { fontWeight: '900' },
+   emptyPlaceholder: { minHeight: 208, borderRadius: 28, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', padding: 22, gap: 10 },
+   emptyIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+   emptyTitle: { textAlign: 'center', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 },
+diff --git a/apps/mobile/src/features/trade/MyOffersScreen.tsx b/apps/mobile/src/features/trade/MyOffersScreen.tsx
+index 2de6627..940c469 100644
+--- a/apps/mobile/src/features/trade/MyOffersScreen.tsx
++++ b/apps/mobile/src/features/trade/MyOffersScreen.tsx
+@@ -2,7 +2,6 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
+ import { Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+-import type { InventoryTemplateDto } from '@hellowhen/contracts';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { betaFeatures } from '../../lib/betaFeatures';
+@@ -15,47 +14,28 @@ import { InfoNotice } from '../../components/SemanticUI';
+ import {
+   EMPTY_LIBRARY_HEADER_CONTROLS_STATE,
+   LibraryHeaderActions,
+-  SlidingSegmentedControl,
+   type LibraryHeaderControlsHandle,
+   type LibraryHeaderControlsState,
+ } from '../../components/library';
+-import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
+ import { InventoryCompactRow } from './components/InventoryCompactRow';
+ import { ManagedInventoryLibraryFilters } from './components/ManagedInventoryLibraryFilters';
+ import { InventoryFoldersPanel, type InventoryFolderSelection } from './components/InventoryFoldersPanel';
+-import { useInventoryDisplayResolver, useLocalizedInventoryItem, useLocalizedInventoryItems } from './inventoryDisplay';
++import { useLocalizedInventoryItems } from './inventoryDisplay';
+ import type { OfferItem } from './types';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+-import { useAuth } from '../../providers/AuthProvider';
+ 
+ type ApiResponse = { offers: OfferItem[] };
+-type TemplatesResponse = { templates: InventoryTemplateDto[] };
+-type CloneResponse = { offer?: OfferItem };
+-type SourceTab = 'mine' | 'starter';
+ 
+ export function MyOffersScreen() {
+   const theme = useThemeTokens();
+-  const { t, language } = useTranslation();
+-  const auth = useAuth();
+-  const resolveInventoryDisplay = useInventoryDisplayResolver();
++  const { t } = useTranslation();
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+-  const [sourceTab, setSourceTab] = useState<SourceTab>('mine');
+   const mineControlsRef = useRef<LibraryHeaderControlsHandle>(null);
+-  const exploreControlsRef = useRef<LibraryHeaderControlsHandle>(null);
+-  const [controlsByTab, setControlsByTab] = useState<Record<SourceTab, LibraryHeaderControlsState>>({
+-    mine: { ...EMPTY_LIBRARY_HEADER_CONTROLS_STATE },
+-    starter: { ...EMPTY_LIBRARY_HEADER_CONTROLS_STATE },
+-  });
++  const [controls, setControls] = useState<LibraryHeaderControlsState>({ ...EMPTY_LIBRARY_HEADER_CONTROLS_STATE });
+   const [items, setItems] = useState<OfferItem[]>([]);
+-  const [templates, setTemplates] = useState<InventoryTemplateDto[]>([]);
+   const [error, setError] = useState<string | null>(null);
+-  const [templateError, setTemplateError] = useState<string | null>(null);
+-  const [notice, setNotice] = useState<string | null>(null);
+-  const [createdOffer, setCreatedOffer] = useState<OfferItem | null>(null);
+   const [loading, setLoading] = useState(false);
+-  const [templateLoading, setTemplateLoading] = useState(false);
+-  const [cloningTemplateId, setCloningTemplateId] = useState<string | null>(null);
+   const [folderSelection, setFolderSelection] = useState<InventoryFolderSelection>({ folderId: null, folderTitle: null, itemIds: [] });
+   const [folderRefreshKey, setFolderRefreshKey] = useState(0);
+ 
+@@ -73,33 +53,10 @@ export function MyOffersScreen() {
+     }
+   }, [t]);
+ 
+-  const loadTemplates = useCallback(async () => {
+-    setTemplateLoading(true);
+-    setTemplateError(null);
+-    try {
+-      const result = await api.inventoryTemplates.list({ kind: 'offer', language, countryCode: auth.user?.profile?.countryCode ?? undefined, take: 100 }) as TemplatesResponse;
+-      setTemplates(Array.isArray(result.templates) ? result.templates : []);
+-    } catch (caughtError) {
+-      setTemplates([]);
+-      setTemplateError(getFriendlyApiErrorMessage(caughtError, t('inventory.errors.starterOffersCouldNotLoad')));
+-    } finally {
+-      setTemplateLoading(false);
+-    }
+-  }, [auth.user?.profile?.countryCode, language, t]);
+-
+-  useFocusEffect(useCallback(() => { void loadItems(); void loadTemplates(); setFolderRefreshKey((key) => key + 1); }, [loadItems, loadTemplates]));
++  useFocusEffect(useCallback(() => { void loadItems(); setFolderRefreshKey((key) => key + 1); }, [loadItems]));
+ 
+   const displayItems = useLocalizedInventoryItems(items);
+-  const displayCreatedItem = useLocalizedInventoryItem(createdOffer);
+-
+-  const activeLoading = sourceTab === 'starter' ? templateLoading : loading;
+-  const activeControls = controlsByTab[sourceTab];
+-  const activeControlsRef = sourceTab === 'starter' ? exploreControlsRef : mineControlsRef;
+-  const updateControls = useCallback((tab: SourceTab, state: LibraryHeaderControlsState) => {
+-    setControlsByTab((current) => ({ ...current, [tab]: state }));
+-  }, []);
+-  const updateMineControls = useCallback((state: LibraryHeaderControlsState) => updateControls('mine', state), [updateControls]);
+-  const updateExploreControls = useCallback((state: LibraryHeaderControlsState) => updateControls('starter', state), [updateControls]);
++  const updateMineControls = useCallback((state: LibraryHeaderControlsState) => setControls(state), []);
+   const handleBack = useCallback(() => {
+     if (navigation.canGoBack()) {
+       navigation.goBack();
+@@ -114,12 +71,12 @@ export function MyOffersScreen() {
+       rightSlot={(
+         <LibraryHeaderActions
+           tone="offer"
+-          state={activeControls}
+-          searchAccessibilityLabel={sourceTab === 'starter' ? t('inventory.libraryFilters.searchStarterLibrary') : t('inventory.libraryFilters.searchMyOffers')}
+-          filterAccessibilityLabel={sourceTab === 'starter' ? t('inventory.libraryFilters.openFilters') : t('inventory.libraryFilters.filterMyOffers')}
++          state={controls}
++          searchAccessibilityLabel={t('inventory.libraryFilters.searchMyOffers')}
++          filterAccessibilityLabel={t('inventory.libraryFilters.filterMyOffers')}
+           createAccessibilityLabel={t('inventory.actions.createOffer')}
+-          onToggleSearch={() => activeControlsRef.current?.toggleSearch()}
+-          onOpenFilters={() => activeControlsRef.current?.openFilters()}
++          onToggleSearch={() => mineControlsRef.current?.toggleSearch()}
++          onOpenFilters={() => mineControlsRef.current?.openFilters()}
+           onCreate={() => navigation.navigate('CreateOffer')}
+         />
+       )}
+@@ -135,34 +92,11 @@ export function MyOffersScreen() {
+   const emptyTitle = folderSelection.folderId && folderSelection.folderTitle ? t('inventory.empty.noFolderItems', { folder: folderSelection.folderTitle }) : t('inventory.empty.createFirstOffer');
+   const emptyBody = folderSelection.folderId ? t('inventory.empty.noFolderItemsBody', { items: t('inventory.labels.offers').toLowerCase() }) : t('inventory.empty.offerNativeBody');
+ 
+-  async function cloneTemplate(template: InventoryTemplateDto) {
+-    setNotice(null);
+-    setCreatedOffer(null);
+-    setTemplateError(null);
+-    try {
+-      setCloningTemplateId(template.id);
+-      const result = await api.inventoryTemplates.clone(template.id, { status: 'active' }) as CloneResponse;
+-      if (!result.offer) throw new Error(t('inventory.errors.starterSavedUnreadableOffer'));
+-      setItems((current) => [result.offer!, ...current.filter((item) => item.id !== result.offer!.id)]);
+-      setCreatedOffer(result.offer);
+-      setNotice(t('inventory.messages.starterSavedToMine', { title: resolveInventoryDisplay(result.offer).title, collection: t('inventory.labels.myOffers') }));
+-      setSourceTab('mine');
+-    } catch (caughtError) {
+-      setTemplateError(getFriendlyApiErrorMessage(caughtError, t('inventory.errors.couldNotSaveStarterOffer')));
+-    } finally {
+-      setCloningTemplateId(null);
+-    }
+-  }
+-
+   return (
+-    <AppSmartHeaderScreen header={header} resetKey={sourceTab}>
++    <AppSmartHeaderScreen header={header} resetKey="offer">
+       {(scrollProps) => (
+-        <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} refreshControl={<RefreshControl refreshing={activeLoading} onRefresh={() => { void loadItems(); void loadTemplates(); setFolderRefreshKey((key) => key + 1); }} />}>
+-          <SourceTabs value={sourceTab} onChange={(nextTab) => { setSourceTab(nextTab); setNotice(null); setCreatedOffer(null); }} />
+-          {sourceTab === 'mine' ? <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('inventory.empty.offerNativeBody')}</AppText> : null}
+-          {notice ? <InfoNotice tone="success" title={t('inventory.messages.starterSaved')} body={notice} /> : null}
+-          {createdOffer ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: createdOffer.id, title: displayCreatedItem?.title ?? createdOffer.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.offer.softBg, borderColor: theme.semantic.offer.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.offer.text }]}>{t('inventory.actions.openSavedOffer')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.offer.text} /></Pressable> : null}
+-          <View style={sourceTab === 'mine' ? undefined : styles.hiddenSegment}>
++        <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadItems(); setFolderRefreshKey((key) => key + 1); }} />}>
++          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('inventory.empty.offerNativeBody')}</AppText>
+             {betaFeatures.inventoryFoldersEnabled ? <InventoryFoldersPanel kind="offer" items={displayItems.map((item) => ({ id: item.id, title: item.title }))} refreshKey={folderRefreshKey} onSelectionChange={setFolderSelection} /> : null}
+             {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotLoadOffer')} body={error} /> : null}
+             <ManagedInventoryLibraryFilters ref={mineControlsRef} kind="offer" items={sortedItems} headerControls onHeaderControlsStateChange={updateMineControls}>
+@@ -170,31 +104,12 @@ export function MyOffersScreen() {
+                 ? <EmptyInventoryPlaceholder title={emptyTitle} body={emptyBody} tone="offer" onPress={() => navigation.navigate('CreateOffer')} />
+                 : visibleItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><InventoryCompactRow kind="offer" item={item} /></Pressable>)}
+             </ManagedInventoryLibraryFilters>
+-          </View>
+-          <View style={sourceTab === 'starter' ? undefined : styles.hiddenSegment}>
+-            <StarterInventoryLibrary ref={exploreControlsRef} kind="offer" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('inventory.actions.useThisOffer')} onUseTemplate={(template) => { void cloneTemplate(template); }} headerControls onHeaderControlsStateChange={updateExploreControls} />
+-          </View>
+         </ScrollView>
+       )}
+     </AppSmartHeaderScreen>
+   );
+ }
+ 
+-function SourceTabs({ value, onChange }: { value: SourceTab; onChange: (value: SourceTab) => void }) {
+-  const { t } = useTranslation();
+-  return (
+-    <SlidingSegmentedControl<SourceTab>
+-      value={value}
+-      onChange={onChange}
+-      tone="offer"
+-      options={[
+-        { value: 'mine', label: t('common.librarySegments.mine') },
+-        { value: 'starter', label: t('common.librarySegments.explore') },
+-      ]}
+-    />
+-  );
+-}
+-
+ function EmptyInventoryPlaceholder({ title, body, tone, onPress }: { title: string; body: string; tone: 'need' | 'offer'; onPress: () => void }) {
+   const theme = useThemeTokens();
+   const semantic = tone === 'need' ? theme.semantic.need : theme.semantic.offer;
+@@ -210,9 +125,6 @@ function EmptyInventoryPlaceholder({ title, body, tone, onPress }: { title: stri
+ const styles = StyleSheet.create({
+   content: { paddingBottom: 28, gap: 14 },
+   subtitle: { lineHeight: 20, fontWeight: '600' },
+-  hiddenSegment: { display: 'none' },
+-  openCreatedButton: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+-  openCreatedText: { fontWeight: '900' },
+   emptyPlaceholder: { minHeight: 208, borderRadius: 28, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', padding: 22, gap: 10 },
+   emptyIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+   emptyTitle: { textAlign: 'center', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 },
+diff --git a/apps/web/src/features/inventory/InventoryListClient.tsx b/apps/web/src/features/inventory/InventoryListClient.tsx
+index f357abb..caebb39 100644
+--- a/apps/web/src/features/inventory/InventoryListClient.tsx
++++ b/apps/web/src/features/inventory/InventoryListClient.tsx
+@@ -1,8 +1,7 @@
+ 'use client';
+ 
+ import Link from 'next/link';
+-import { useSearchParams } from 'next/navigation';
+-import type { InventoryFolderDto, InventoryFolderItemDto, InventoryItemType, InventoryTemplateDto } from '@hellowhen/contracts';
++import type { InventoryFolderDto, InventoryFolderItemDto } from '@hellowhen/contracts';
+ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+ import { InventoryEmptyState } from '../../components/InventoryEmptyState';
+ import { WebIcon } from '../../components/WebIcon';
+@@ -13,22 +12,12 @@ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { mockNeeds, mockOffers } from '../../lib/mockData';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+-import { durationPresetLabel, formatInventoryDate, getInventoryMetadata, getInventoryTags, inventoryStatusLabel, itemTypeLabel, itemTypePluralLabel, kindLabel, kindPluralLabel, mediaSrc, modeLabel, normalizeInventoryList, sideClassName, sideLabel, type InventoryI18n, type InventoryItem, type InventoryKind } from './inventoryPresentation';
+-import { STARTER_PACK_FILTERS, matchesStarterPackFilter, type StarterPackFilter } from './starterTemplateFilters';
++import { formatInventoryDate, getInventoryMetadata, getInventoryTags, inventoryStatusLabel, kindLabel, mediaSrc, normalizeInventoryList, sideClassName, sideLabel, type InventoryI18n, type InventoryItem, type InventoryKind } from './inventoryPresentation';
+ 
+ type InventoryListClientProps = {
+   kind: InventoryKind;
+ };
+ 
+-type SourceTab = 'mine' | 'starter';
+-type ItemTypeFilter = InventoryItemType | 'all';
+-
+-type TemplateSection = {
+-  key: InventoryItemType;
+-  label: string;
+-  items: InventoryTemplateDto[];
+-};
+-
+ type FolderMode = 'create' | 'edit';
+ 
+ function getFolderItemInventoryId(item: InventoryFolderItemDto, kind: InventoryKind) {
+@@ -50,10 +39,6 @@ function getFolderItemCount(folder: InventoryFolderDto, kind: InventoryKind) {
+   return getFolderInventoryItemIds(folder, kind).size;
+ }
+ 
+-const ITEM_TYPE_FILTERS: ItemTypeFilter[] = ['all', 'service', 'goods', 'other'];
+-
+-const ITEM_TYPE_ORDER: InventoryItemType[] = ['service', 'goods', 'other'];
+-
+ function InventoryCard({ item, kind, i18n }: { item: InventoryItem; kind: InventoryKind; i18n: InventoryI18n }) {
+   const metadata = getInventoryMetadata(item, i18n);
+   const tags = getInventoryTags(item);
+@@ -87,145 +72,12 @@ function InventoryCard({ item, kind, i18n }: { item: InventoryItem; kind: Invent
+   );
+ }
+ 
+-function normalizeTemplateList(value: unknown): InventoryTemplateDto[] {
+-  if (Array.isArray(value)) return value as InventoryTemplateDto[];
+-  if (!value || typeof value !== 'object') return [];
+-  const record = value as { templates?: unknown[]; items?: unknown[] };
+-  if (Array.isArray(record.templates)) return record.templates as InventoryTemplateDto[];
+-  if (Array.isArray(record.items)) return record.items as InventoryTemplateDto[];
+-  return [];
+-}
+-
+-function templateMetadata(template: InventoryTemplateDto, i18n: InventoryI18n) {
+-  const duration = durationPresetLabel(template.durationPreset, i18n);
+-  return [itemTypeLabel(template.itemType, i18n), template.category, duration, modeLabel(template.mode, i18n), template.locationLabel]
+-    .filter((value): value is string => Boolean(value && value.trim()))
+-    .join(' · ');
+-}
+-
+-function templateTags(template: InventoryTemplateDto) {
+-  return template.kind === 'offer' ? [...(template.includes ?? []), ...(template.tags ?? [])] : template.tags ?? [];
+-}
+-
+-function templateSearchText(template: InventoryTemplateDto, i18n: InventoryI18n) {
+-  return [template.title, template.description, template.category, templateMetadata(template, i18n), ...templateTags(template)]
+-    .filter(Boolean)
+-    .join(' ')
+-    .toLowerCase();
+-}
+-
+-function templateSourceLabel(template: InventoryTemplateDto, i18n: InventoryI18n) {
+-  if (template.businessProfile?.displayName) return template.businessProfile.displayName;
+-  if (template.sourceType === 'brand') return i18n.t?.('inventory.sourceLabels.brandLibrary') ?? 'Brand library';
+-  if (template.sourceType === 'business') return i18n.t?.('inventory.sourceLabels.companyLibrary') ?? 'Company library';
+-  if (template.sourceType === 'partner') return i18n.t?.('inventory.sourceLabels.partnerLibrary') ?? 'Partner library';
+-  return i18n.t?.('inventory.sourceLabels.hellowhenStarter') ?? 'Hellowhen starter';
+-}
+-
+-function groupTemplates(templates: InventoryTemplateDto[], i18n: InventoryI18n): TemplateSection[] {
+-  return ITEM_TYPE_ORDER.map((itemType) => ({
+-    key: itemType,
+-    label: itemTypePluralLabel(itemType, i18n),
+-    items: templates.filter((template) => (template.itemType ?? 'service') === itemType),
+-  })).filter((section) => section.items.length > 0);
+-}
+-
+-function createdItemFromCloneResponse(value: unknown, kind: InventoryKind): InventoryItem | null {
+-  if (!value || typeof value !== 'object') return null;
+-  const record = value as { need?: unknown; offer?: unknown };
+-  const item = kind === 'need' ? record.need : record.offer;
+-  if (!item || typeof item !== 'object') return null;
+-  const typedItem = item as Partial<InventoryItem>;
+-  return typeof typedItem.id === 'string' && typeof typedItem.title === 'string' ? item as InventoryItem : null;
+-}
+-
+-function StarterTemplateCard({
+-  template,
+-  kind,
+-  disabled,
+-  cloning,
+-  onUse,
+-  i18n,
+-}: {
+-  template: InventoryTemplateDto;
+-  kind: InventoryKind;
+-  disabled: boolean;
+-  cloning: boolean;
+-  onUse: (template: InventoryTemplateDto) => void;
+-  i18n: InventoryI18n;
+-}) {
+-  const metadata = templateMetadata(template, i18n);
+-  const tags = templateTags(template);
+-  const label = kindLabel(kind, i18n);
+-  const image = template.media?.[0] ?? null;
+-  const imageCount = template.media?.length ?? 0;
+-  const isDisabled = disabled || cloning;
+-  const actionLabel = cloning
+-    ? (i18n.t?.('common.states.saving') ?? 'Saving...')
+-    : kind === 'need'
+-      ? (i18n.t?.('inventory.actions.useThisNeed') ?? `Use this ${label}`)
+-      : (i18n.t?.('inventory.actions.useThisOffer') ?? `Use this ${label}`);
+-
+-  function handleUse() {
+-    if (isDisabled) return;
+-    onUse(template);
+-  }
+-
+-  return (
+-    <article
+-      className={`inventory-template-card${isDisabled ? ' is-disabled' : ''}`}
+-      role="button"
+-      tabIndex={isDisabled ? -1 : 0}
+-      aria-disabled={isDisabled}
+-      aria-label={actionLabel}
+-      onClick={handleUse}
+-      onKeyDown={(event) => {
+-        if (event.key !== 'Enter' && event.key !== ' ') return;
+-        event.preventDefault();
+-        handleUse();
+-      }}
+-    >
+-      <div className="inventory-template-card__media" aria-hidden="true">
+-        {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <WebIcon name={kind === 'need' ? 'need' : 'offer'} size={34} decorative />}
+-      </div>
+-      <div className="inventory-template-card__body">
+-        <div className="status-row">
+-          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)}</span>
+-          <span className="semantic-badge instruction">{templateSourceLabel(template, i18n)}</span>
+-        </div>
+-        <h3>{template.title}</h3>
+-        <p>{template.description}</p>
+-        {metadata ? <p className="meta">{metadata}</p> : null}
+-        {tags.length ? (
+-          <div className="tag-row inventory-card__tags">
+-            {tags.slice(0, 4).map((tag) => <span key={tag}>{tag}</span>)}
+-          </div>
+-        ) : null}
+-        {imageCount > 0 ? (
+-          <div className="inventory-template-card__footer">
+-            <strong>{i18n.t?.('media.labels.image') ?? 'image'} × {imageCount}</strong>
+-          </div>
+-        ) : null}
+-        <button type="button" className="button secondary inventory-template-card__button" disabled={isDisabled} onClick={(event) => { event.stopPropagation(); handleUse(); }}>
+-          {actionLabel}
+-        </button>
+-      </div>
+-      <span className="inventory-template-card__chevron" aria-hidden="true">›</span>
+-    </article>
+-  );
+-}
+-
+ export function InventoryListClient({ kind }: InventoryListClientProps) {
+   const auth = useWebAuth();
+-  const searchParams = useSearchParams();
+   const { t, language } = useWebTranslation();
+   const [items, setItems] = useState<InventoryItem[]>([]);
+-  const [templates, setTemplates] = useState<InventoryTemplateDto[]>([]);
+   const [folders, setFolders] = useState<InventoryFolderDto[]>([]);
+   const [query, setQuery] = useState('');
+-  const [sourceTab, setSourceTab] = useState<SourceTab>(() => searchParams.get('source') === 'starter' ? 'starter' : 'mine');
+-  const [itemTypeFilter, setItemTypeFilter] = useState<ItemTypeFilter>('all');
+-  const [starterPackFilter, setStarterPackFilter] = useState<StarterPackFilter>('all');
+   const [selectedFolderId, setSelectedFolderId] = useState<'all' | string>('all');
+   const [folderMode, setFolderMode] = useState<FolderMode>('create');
+   const [folderTitle, setFolderTitle] = useState('');
+@@ -235,23 +87,12 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
+   const [folderActionId, setFolderActionId] = useState('');
+   const [loading, setLoading] = useState(true);
+   const [foldersLoading, setFoldersLoading] = useState(false);
+-  const [templateLoading, setTemplateLoading] = useState(true);
+   const [usingFallback, setUsingFallback] = useState(false);
+   const [notice, setNotice] = useState('');
+-  const [actionError, setActionError] = useState('');
+-  const [templateError, setTemplateError] = useState('');
+   const [foldersError, setFoldersError] = useState('');
+-  const [createdHref, setCreatedHref] = useState('');
+-  const [cloningTemplateId, setCloningTemplateId] = useState('');
+   const demoDataEnabled = isWebDemoDataEnabled();
+   const i18n = useMemo(() => ({ t, language }), [language, t]);
+ 
+-  useEffect(() => {
+-    if (searchParams.get('source') === 'starter') {
+-      setSourceTab('starter');
+-    }
+-  }, [searchParams]);
+-
+   const loadInventoryFolders = useCallback(async () => {
+     if (!auth.hydrated) return;
+ 
+@@ -324,27 +165,6 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
+     return () => { mounted = false; };
+   }, [auth.hydrated, auth.isAuthenticated, demoDataEnabled, kind]);
+ 
+-  useEffect(() => {
+-    let mounted = true;
+-    async function loadTemplates() {
+-      setTemplateLoading(true);
+-      try {
+-        const response = await api.inventoryTemplates.list({ kind, language, countryCode: auth.user?.profile?.countryCode ?? undefined, take: 100 });
+-        if (!mounted) return;
+-        setTemplates(normalizeTemplateList(response));
+-        setTemplateError('');
+-      } catch (loadError) {
+-        if (!mounted) return;
+-        setTemplates([]);
+-        setTemplateError(getFriendlyApiErrorMessage(loadError, t('inventory.errors.starterLibraryCouldNotLoad')));
+-      } finally {
+-        if (mounted) setTemplateLoading(false);
+-      }
+-    }
+-    void loadTemplates();
+-    return () => { mounted = false; };
+-  }, [auth.user?.profile?.countryCode, kind, language, t]);
+-
+   const selectedFolder = useMemo(() => selectedFolderId === 'all' ? null : folders.find((folder) => folder.id === selectedFolderId) ?? null, [folders, selectedFolderId]);
+   const selectedFolderItemIds = useMemo(() => getFolderInventoryItemIds(selectedFolder, kind), [kind, selectedFolder]);
+   const folderScopedItems = useMemo(() => {
+@@ -362,18 +182,6 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
+     return folderScopedItems.filter((item) => [item.title, item.description, item.category, getInventoryMetadata(item, i18n), ...getInventoryTags(item)].filter(Boolean).join(' ').toLowerCase().includes(needle));
+   }, [folderScopedItems, i18n, query]);
+ 
+-  const filteredTemplates = useMemo(() => {
+-    const needle = query.trim().toLowerCase();
+-    return templates.filter((template) => {
+-      const matchesPack = matchesStarterPackFilter(template, starterPackFilter);
+-      const matchesType = itemTypeFilter === 'all' || (template.itemType ?? 'service') === itemTypeFilter;
+-      const matchesSearch = !needle || templateSearchText(template, i18n).includes(needle);
+-      return matchesPack && matchesType && matchesSearch;
+-    });
+-  }, [i18n, itemTypeFilter, query, starterPackFilter, templates]);
+-
+-  const templateSections = useMemo(() => groupTemplates(filteredTemplates, i18n), [filteredTemplates, i18n]);
+-
+   function openCreateFolderForm() {
+     setFolderMode('create');
+     setEditingFolderId('');
+@@ -479,83 +287,25 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
+     }
+   }
+ 
+-  async function handleUseTemplate(template: InventoryTemplateDto) {
+-    setNotice('');
+-    setActionError('');
+-    setCreatedHref('');
+-
+-    if (!auth.isAuthenticated) {
+-      setActionError(t('inventory.signedOut.starterBody', { items: kind === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase() }));
+-      return;
+-    }
+-
+-    try {
+-      setCloningTemplateId(template.id);
+-      const response = await api.inventoryTemplates.clone(template.id, { status: 'active' });
+-      const created = createdItemFromCloneResponse(response, kind);
+-      if (!created) throw new Error(kind === 'need' ? t('inventory.errors.starterSavedUnreadableNeed') : t('inventory.errors.starterSavedUnreadableOffer'));
+-      setItems((current) => [created, ...current.filter((item) => item.id !== created.id)]);
+-      setSourceTab('mine');
+-      setQuery('');
+-      setNotice(t('inventory.messages.starterSavedToMine', { title: created.title, collection: kind === 'need' ? t('inventory.labels.myNeeds') : t('inventory.labels.myOffers') }));
+-      setCreatedHref(`/${kind === 'need' ? 'needs' : 'offers'}/${created.id}`);
+-      setUsingFallback(false);
+-    } catch (cloneError) {
+-      setActionError(getFriendlyApiErrorMessage(cloneError, kind === 'need' ? t('inventory.errors.couldNotSaveStarterNeed') : t('inventory.errors.couldNotSaveStarterOffer')));
+-    } finally {
+-      setCloningTemplateId('');
+-    }
+-  }
+-
+   const plural = kind === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
+   const singular = kindLabel(kind, i18n).toLowerCase();
+   const newHref = kind === 'need' ? '/needs/new' : '/offers/new';
+-  const isStarterTab = sourceTab === 'starter';
+-  const activeLoading = isStarterTab ? templateLoading : loading;
+-  const visibleCount = isStarterTab ? filteredTemplates.length : filteredItems.length;
++  const visibleCount = filteredItems.length;
+ 
+   return (
+     <section className="mobile-page">
+-      <div className="inventory-source-tabs" role="tablist" aria-label={`${kindPluralLabel(kind, i18n)} source`}>
+-        <button type="button" role="tab" aria-selected={!isStarterTab} className={!isStarterTab ? 'is-active' : ''} onClick={() => { setSourceTab('mine'); setQuery(''); }}>
+-          {kind === 'need' ? t('inventory.labels.myNeeds') : t('inventory.labels.myOffers')}
+-        </button>
+-        <button type="button" role="tab" aria-selected={isStarterTab} className={isStarterTab ? 'is-active' : ''} onClick={() => { setSourceTab('starter'); setQuery(''); }}>
+-          {kind === 'need' ? t('inventory.labels.starterNeeds') : t('inventory.labels.starterOffers')}
+-        </button>
+-      </div>
+-
+       <div className="inventory-controls">
+         <label className="trade-search-field">
+           <span className="sr-only">{t('common.actions.search')}</span>
+           <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
+-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isStarterTab ? `${t('common.actions.search')} ${t('inventory.labels.starterLibrary').toLowerCase()}` : `${t('common.actions.search')} ${plural}`} type="search" />
++          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t('common.actions.search')} ${plural}`} type="search" />
+         </label>
+         <Link href={newHref} className="trade-create-pill" aria-label={`${t('common.actions.create')} ${singular}`}>
+           <WebIcon name="add" size={21} decorative />
+         </Link>
+       </div>
+ 
+-      {isStarterTab ? (
+-        <div className="inventory-starter-filter-stack">
+-          <div className="inventory-type-filters inventory-starter-pack-filters" aria-label={t('inventory.labels.starterPack')}>
+-            {STARTER_PACK_FILTERS.map((filter) => (
+-              <button key={filter.value} type="button" className={starterPackFilter === filter.value ? 'is-active' : ''} onClick={() => setStarterPackFilter(filter.value)}>
+-                {t(filter.key)}
+-              </button>
+-            ))}
+-          </div>
+-          <div className="inventory-type-filters" aria-label={t('inventory.labels.type')}>
+-            {ITEM_TYPE_FILTERS.map((filter) => (
+-              <button key={filter} type="button" className={itemTypeFilter === filter ? 'is-active' : ''} onClick={() => setItemTypeFilter(filter)}>
+-                {itemTypePluralLabel(filter, i18n)}
+-              </button>
+-            ))}
+-          </div>
+-        </div>
+-      ) : null}
+-
+-      {!isStarterTab && auth.isAuthenticated && betaFeatures.inventoryFoldersEnabled ? (
++      {auth.isAuthenticated && betaFeatures.inventoryFoldersEnabled ? (
+         <section className="inventory-folders-panel" aria-label={t('inventory.labels.myFolders')}>
+           <div className="inventory-folders-panel__header">
+             <div>
+@@ -635,59 +385,22 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
+       ) : null}
+ 
+       <section className="feed-status-row" aria-live="polite">
+-        <p>{activeLoading ? t('inventory.messages.loadingItems', { items: plural }) : isStarterTab ? t('inventory.messages.visibleStarterItems', { count: visibleCount, items: plural }) : t('inventory.messages.visibleItems', { count: visibleCount, items: plural })}</p>
+-        {!auth.hydrated || activeLoading ? <span className="semantic-badge instruction">{t('inventory.labels.checkingSession')}</span> : isStarterTab ? <span className="semantic-badge success">{t('inventory.labels.starterLibrary')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('inventory.labels.starterExamples')}</span> : auth.isAuthenticated ? <span className="semantic-badge success">{t('inventory.labels.liveInventory')}</span> : <span className="semantic-badge instruction">{t('inventory.labels.accountNeeded')}</span>}
++        <p>{loading ? t('inventory.messages.loadingItems', { items: plural }) : t('inventory.messages.visibleItems', { count: visibleCount, items: plural })}</p>
++        {!auth.hydrated || loading ? <span className="semantic-badge instruction">{t('inventory.labels.checkingSession')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('inventory.labels.starterExamples')}</span> : auth.isAuthenticated ? <span className="semantic-badge success">{t('inventory.labels.liveInventory')}</span> : <span className="semantic-badge instruction">{t('inventory.labels.accountNeeded')}</span>}
+       </section>
+ 
+-      {notice ? <p className="notice-box success inventory-library-notice">{notice} {createdHref ? <Link href={createdHref}>{t('inventory.messages.openIt')}</Link> : null}</p> : null}
+-      {actionError ? <p className="notice-box danger inventory-library-notice">{actionError}</p> : null}
+-      {isStarterTab && templateError ? <p className="notice-box danger inventory-library-notice">{templateError}</p> : null}
++      {notice ? <p className="notice-box success inventory-library-notice">{notice}</p> : null}
+ 
+       {!auth.isAuthenticated && auth.hydrated ? (
+         <section className="mobile-card mobile-card--soft">
+           <span className="semantic-badge instruction">{t('common.states.signedOut')}</span>
+-          <h3>{isStarterTab ? t('inventory.signedOut.starterTitle', { items: plural }) : t('inventory.signedOut.mineTitle', { items: plural })}</h3>
+-          <p>{isStarterTab ? t('inventory.signedOut.starterBody', { items: plural }) : demoDataEnabled ? t('inventory.signedOut.mineStarterBody', { items: plural }) : t('inventory.signedOut.mineBody', { items: plural })}</p>
++          <h3>{t('inventory.signedOut.mineTitle', { items: plural })}</h3>
++          <p>{demoDataEnabled ? t('inventory.signedOut.mineStarterBody', { items: plural }) : t('inventory.signedOut.mineBody', { items: plural })}</p>
+           <Link href={`/auth?next=${encodeURIComponent(`/${kind === 'need' ? 'needs' : 'offers'}`)}`} className="button">{t('auth.actions.signIn')}</Link>
+         </section>
+       ) : null}
+ 
+-      {isStarterTab ? (
+-        templateLoading ? (
+-          <InventoryListSkeleton />
+-        ) : templateSections.length ? (
+-          <div className="inventory-template-library">
+-            {templateSections.map((section) => (
+-              <section key={section.key} className="inventory-template-section">
+-                <div className="inventory-template-section__header">
+-                  <strong>{section.label}</strong>
+-                  <span>{section.items.length}</span>
+-                </div>
+-                <div className="inventory-list">
+-                  {section.items.map((template) => (
+-                    <StarterTemplateCard
+-                      key={template.id}
+-                      template={template}
+-                      kind={kind}
+-                      disabled={!auth.isAuthenticated}
+-                      cloning={cloningTemplateId === template.id}
+-                      onUse={handleUseTemplate}
+-                      i18n={i18n}
+-                    />
+-                  ))}
+-                </div>
+-              </section>
+-            ))}
+-          </div>
+-        ) : (
+-          <InventoryEmptyState
+-            title={query.trim() ? t('inventory.empty.noStarterMatches') : t('inventory.empty.noStarterKind', { items: plural })}
+-            body={query.trim() ? t('inventory.empty.searchOrFilterBody') : t('inventory.empty.starterSeedBody', { items: plural })}
+-            href={newHref}
+-            actionLabel={kind === 'need' ? t('inventory.actions.createNeedManual') : t('inventory.actions.createOfferManual')}
+-          />
+-        )
+-      ) : loading ? (
++      {loading ? (
+         <InventoryListSkeleton />
+       ) : filteredItems.length ? (
+         <div className="inventory-list">
+diff --git a/apps/web/src/features/plans/PlansListClient.tsx b/apps/web/src/features/plans/PlansListClient.tsx
+index 1f79c10..30fa3e7 100644
+--- a/apps/web/src/features/plans/PlansListClient.tsx
++++ b/apps/web/src/features/plans/PlansListClient.tsx
+@@ -3,7 +3,7 @@
+ import Link from 'next/link';
+ import { useRouter, useSearchParams } from 'next/navigation';
+ import type { PlanDto } from '@hellowhen/contracts';
+-import { buildPlanFeedItems, getNormalWorkspaceMenuItems, mergeRecentStarterPlanIdeaIds, selectStarterPlanIdeaKeys, starterPlanIdeas, starterPlanIdeaRequirementCounts, starterPlanIdeaStopDestinationPrompt, type NormalWorkspaceMenuItem, type StarterPlanIdeaKey } from '@hellowhen/shared';
++import { getNormalWorkspaceMenuItems, type NormalWorkspaceMenuItem } from '@hellowhen/shared';
+ import { useEffect, useMemo, useState } from 'react';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+@@ -13,7 +13,7 @@ import { WebIcon } from '../../components/WebIcon';
+ import { WebAccountHeaderAction } from '../../components/WebAccountHeaderAction';
+ import { hasCompletedWebOnboardingGuideForVisitor } from '../onboarding-guide/onboardingGuideStorage';
+ import { PlansFeatureGate } from './PlansFeatureGate';
+-import { PlanDtoPreviewDeck, PlanPreviewDeck } from './PlanPreviewDeck';
++import { PlanDtoPreviewDeck } from './PlanPreviewDeck';
+ import { planOwnerName } from './plansPresentation';
+ import { activePlanFilterCount, applyPlanFilters, buildPlanFeedQuery, buildPlanFilterHref, planFilterSummary, planFiltersFromSearchParams, planSearchQueryFromSearchParams } from './planFilters';
+ 
+@@ -39,55 +39,6 @@ function PlanCard({ plan }: PlanCardProps) {
+   );
+ }
+ 
+-function PlanIdeaCard({ ideaKey, onOpen }: { ideaKey: StarterPlanIdeaKey; onOpen?: () => void }) {
+-  const router = useRouter();
+-  const { t } = useWebTranslation();
+-  const idea = starterPlanIdeas[ideaKey];
+-  const requirementCounts = starterPlanIdeaRequirementCounts(idea);
+-  const requirementParts = [
+-    requirementCounts.addressStops
+-      ? t(requirementCounts.addressStops === 1 ? 'plans.deck.realAddressOne' : 'plans.deck.realAddressMany', { count: requirementCounts.addressStops })
+-      : '',
+-    requirementCounts.onlineLinkStops
+-      ? t(requirementCounts.onlineLinkStops === 1 ? 'plans.deck.onlineLinkOne' : 'plans.deck.onlineLinkMany', { count: requirementCounts.onlineLinkStops })
+-      : '',
+-  ].filter(Boolean);
+-  const requirementSummary = requirementParts.length
+-    ? t('plans.deck.requirementsNeeded', { requirements: requirementParts.join(' + ') })
+-    : t('plans.deck.reviewBeforePublishing');
+-  function openIdea() {
+-    onOpen?.();
+-    router.push(`/plans/ideas/${idea.id}`);
+-  }
+-  return (
+-    <article className="plan-deck-link plan-idea-card" aria-label={t('plans.ideaDetail.openAccessibility', { title: idea.title })}>
+-      <PlanPreviewDeck
+-        title={idea.title}
+-        description={idea.description}
+-        rangeLabel={t('plans.ideaDetail.starterLabel')}
+-        badgeLabel={t('plans.ideaDetail.badge', { pack: idea.pack })}
+-        places={idea.stops.map((stop, index) => ({
+-          id: `${idea.id}-${index}`,
+-          mode: stop.mode,
+-          title: stop.title,
+-          location: starterPlanIdeaStopDestinationPrompt(stop),
+-          time: stop.time,
+-        }))}
+-        onOpen={openIdea}
+-        actionLabel={t('plans.ideaDetail.openAction')}
+-      />
+-      <Link href={`/plans/ideas/${idea.id}`} className="plan-deck-link__meta" onClick={onOpen}>
+-        {t('plans.ideaDetail.starterStops', { count: idea.stops.length })} · {requirementSummary}
+-      </Link>
+-      <div className="plan-idea-card__requirements" aria-label={t('plans.ideaDetail.requirements.accessibility')}>
+-        {requirementCounts.addressStops ? <span className="semantic-badge warning">{requirementCounts.addressStops === 1 ? t('plans.ideaDetail.requirements.realAddressOne', { count: requirementCounts.addressStops }) : t('plans.ideaDetail.requirements.realAddressMany', { count: requirementCounts.addressStops })}</span> : null}
+-        {requirementCounts.onlineLinkStops ? <span className="semantic-badge info">{requirementCounts.onlineLinkStops === 1 ? t('plans.ideaDetail.requirements.onlineLinkOne', { count: requirementCounts.onlineLinkStops }) : t('plans.ideaDetail.requirements.onlineLinkMany', { count: requirementCounts.onlineLinkStops })}</span> : null}
+-        <span className="plan-idea-card__hint">{t('plans.ideaDetail.review.hint')}</span>
+-      </div>
+-    </article>
+-  );
+-}
+-
+ type PlansListClientProps = {
+   plansEnabled?: boolean;
+   plansVisible?: boolean;
+@@ -97,34 +48,8 @@ function nextAuthHref(path: string) {
+   return `/auth?next=${encodeURIComponent(path)}`;
+ }
+ 
+-const recentPlanIdeaStorageKey = 'hellowhen_recent_plan_ideas_v1';
+-const anonymousPlanIdeaStorageKey = 'hellowhen_plan_idea_anon_key_v1';
+ const plansGuideIntroSeenKey = 'hellowhen.plans.guideIntro.seen.v1';
+ 
+-function createAnonymousPlanIdeaKey() {
+-  return `anon-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+-}
+-
+-function readRecentPlanIdeaIds() {
+-  if (typeof window === 'undefined') return [];
+-  try {
+-    const raw = window.localStorage.getItem(recentPlanIdeaStorageKey);
+-    const parsed = raw ? JSON.parse(raw) as string[] : [];
+-    return Array.isArray(parsed) ? parsed : [];
+-  } catch {
+-    return [];
+-  }
+-}
+-
+-function readAnonymousPlanIdeaKey() {
+-  if (typeof window === 'undefined') return 'anonymous';
+-  const existing = window.localStorage.getItem(anonymousPlanIdeaStorageKey);
+-  if (existing) return existing;
+-  const next = createAnonymousPlanIdeaKey();
+-  window.localStorage.setItem(anonymousPlanIdeaStorageKey, next);
+-  return next;
+-}
+-
+ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   const auth = useWebAuth();
+   const { t } = useWebTranslation();
+@@ -134,9 +59,6 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState('');
+   const [menuOpen, setMenuOpen] = useState(false);
+-  const [recentStarterIdeaIds, setRecentStarterIdeaIds] = useState<string[]>([]);
+-  const [anonymousStarterKey, setAnonymousStarterKey] = useState('anonymous');
+-  const [starterRefreshKey, setStarterRefreshKey] = useState('stable-plan-ideas');
+   const [guideIntroDismissed, setGuideIntroDismissed] = useState(false);
+   const [guideIntroReady, setGuideIntroReady] = useState(false);
+   const searchParams = useSearchParams();
+@@ -151,13 +73,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   const shouldShowGuideIntro = guideIntroReady && auth.hydrated && !guideIntroDismissed;
+   const activeView = view !== 'feed' && !canLoadPrivateViews ? 'feed' : view;
+   const createPlanHref = auth.isAuthenticated ? '/plans/new' : nextAuthHref('/plans/new');
+-  const workspaceItems = getNormalWorkspaceMenuItems('plans');
+-
+-  useEffect(() => {
+-    setRecentStarterIdeaIds(readRecentPlanIdeaIds());
+-    setAnonymousStarterKey(readAnonymousPlanIdeaKey());
+-    setStarterRefreshKey(`plan-refresh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+-  }, []);
++  const workspaceItems = getNormalWorkspaceMenuItems('plans').filter((item) => item.id !== 'plan_ideas');
+ 
+   useEffect(() => {
+     if (!auth.hydrated) return;
+@@ -217,23 +133,6 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+   const sortedPlans = useMemo(() => [...plans].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime()), [plans]);
+   const activeOwnedPlans = useMemo(() => activeView === 'mine' ? sortedPlans.filter((plan) => plan.status !== 'cancelled') : sortedPlans, [activeView, sortedPlans]);
+   const removedOwnedPlans = useMemo(() => activeView === 'mine' ? sortedPlans.filter((plan) => plan.status === 'cancelled') : [], [activeView, sortedPlans]);
+-  const hasActiveSearchOrFilters = activeFilterCount > 0;
+-  const starterIdeaKeys = useMemo(() => selectStarterPlanIdeaKeys({
+-    realPlanCount: sortedPlans.length,
+-    hasActiveSearchOrFilters: activeView !== 'feed' || hasActiveSearchOrFilters,
+-    userKey: auth.user?.id ?? anonymousStarterKey,
+-    refreshKey: starterRefreshKey,
+-    dayKey: 'stable-plan-ideas',
+-    recentIdeaIds: recentStarterIdeaIds,
+-  }), [activeView, anonymousStarterKey, auth.user?.id, hasActiveSearchOrFilters, recentStarterIdeaIds, sortedPlans.length, starterRefreshKey]);
+-  const feedItems = useMemo(() => buildPlanFeedItems(sortedPlans.length, starterIdeaKeys), [sortedPlans.length, starterIdeaKeys]);
+-
+-  function markStarterIdeaSeen(ideaKey: StarterPlanIdeaKey) {
+-    const next = mergeRecentStarterPlanIdeaIds(recentStarterIdeaIds, [ideaKey]);
+-    setRecentStarterIdeaIds(next);
+-    if (typeof window !== 'undefined') window.localStorage.setItem(recentPlanIdeaStorageKey, JSON.stringify(next));
+-  }
+-
+   function selectView(nextView: PlansView) {
+     setView(nextView);
+     setMenuOpen(false);
+@@ -241,7 +140,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+ 
+   function openWorkspaceItem(item: NormalWorkspaceMenuItem) {
+     setMenuOpen(false);
+-    if (!canLoadPrivateViews && item.id !== 'plan_ideas' && item.id !== 'plan_guide') {
++    if (!canLoadPrivateViews && item.id !== 'plan_guide') {
+       router.push(nextAuthHref('/plans'));
+       return;
+     }
+@@ -306,7 +205,7 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+           {menuOpen ? (
+             <section className="plans-feed-menu plans-workspace-menu normal-workspace-menu normal-workspace-menu--plans" aria-label={t('plans.feed.actions.menu')}>
+               {workspaceItems.map((item) => (
+-                <button key={item.id} type="button" className="plans-workspace-menu__item" onClick={() => openWorkspaceItem(item)} disabled={!canLoadPrivateViews && item.id !== 'plan_ideas' && item.id !== 'plan_guide'}>
++                <button key={item.id} type="button" className="plans-workspace-menu__item" onClick={() => openWorkspaceItem(item)} disabled={!canLoadPrivateViews && item.id !== 'plan_guide'}>
+                   <span className={`plans-workspace-menu__icon plans-workspace-menu__icon--${item.tone}`}><WebIcon name={item.icon} size={17} decorative /></span>
+                   <span>
+                     <strong>{item.titleKey ? t(item.titleKey) : item.title}</strong>
+@@ -333,20 +232,19 @@ export function PlansListClient({ plansEnabled }: PlansListClientProps) {
+         ) : null}
+         {error ? <section className="mobile-card mobile-card--soft"><p>{error}</p></section> : null}
+         {loading ? <section className="mobile-card"><p className="meta">{t('plans.list.loading')}</p></section> : null}
+-        {!loading && !error && sortedPlans.length === 0 && starterIdeaKeys.length === 0 ? (
++        {!loading && !error && sortedPlans.length === 0 ? (
+           <section className="inventory-empty-state">
+             <span className="inventory-empty-state__plus">+</span>
+             <strong>{emptyTitle}</strong>
+             <span>{emptyBody}</span>
+-            <Link className="button secondary" href={createPlanHref}>{t('plans.feed.actions.create')}</Link>
++            <div className="cta-row">
++              <Link className="button secondary" href={createPlanHref}>{t('plans.feed.actions.create')}</Link>
++              <Link className="button secondary" href="/explore">{t('navigation.tabs.explore')}</Link>
++            </div>
+           </section>
+         ) : null}
+         <section className="mobile-list plans-feed-deck-list" aria-label={viewLabel}>
+-          {activeView === 'feed' ? feedItems.map((item) => {
+-            if (item.type === 'idea') return <PlanIdeaCard key={`idea-${item.ideaKey}`} ideaKey={item.ideaKey} onOpen={() => markStarterIdeaSeen(item.ideaKey)} />;
+-            const plan = sortedPlans[item.planIndex];
+-            return plan ? <PlanCard key={plan.id} plan={plan} /> : null;
+-          }) : activeOwnedPlans.map((plan) => <PlanCard key={plan.id} plan={plan} />)}
++          {(activeView === 'feed' ? sortedPlans : activeOwnedPlans).map((plan) => <PlanCard key={plan.id} plan={plan} />)}
+         </section>
+         {activeView === 'mine' && removedOwnedPlans.length ? (
+           <section className="mobile-list plans-feed-deck-list" aria-label={t('plans.list.removed')}>
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index e913cf1..bcdac03 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -15,7 +15,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { formatWebShortDate } from '../../lib/webFormat';
+ import { TradeDeckGrid } from './TradeDeckGrid';
+-import { createFeedIdeaTradeHref, emptyFeedStarterIdeaPlacement, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedStarterIdeaPlacement, getFeedTradeIdeaImageObjectPosition, getFeedTradeIdeaMedia, getInlineFeedIdeaKey, getRandomizedFeedIdeaKeys, type FeedTradeIdeaKey } from './tradeFeedIdeas';
++import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedTradeIdeaImageObjectPosition, getFeedTradeIdeaMedia, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+ import { getExchangeLabel, getStatusLabel, getTradeHeadline } from './tradePresentation';
+ import { TradePosterCard } from './TradePosterCard';
+ import { activeTradeFilterCount, buildTradeFilterHref, tradeFiltersFromSearchParams, tradeFilterSummary, type TradeFeedFilters } from './tradeFilters';
+@@ -109,7 +109,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+   const activeFilterSummary = useMemo(() => tradeFilterSummary(appliedFilters), [appliedFilters]);
+   const filterHref = useMemo(() => buildTradeFilterHref('/trades/filter', appliedFilters), [appliedFilters]);
+   const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
+-  const createTradeIdeaHref = useCallback((ideaKey: FeedTradeIdeaKey) => createFeedIdeaTradeHref(ideaKey), []);
+   const shouldShowHomeIntro = showHomeIntro && homeIntroReady && auth.hydrated && !homeIntroDismissed;
+ 
+   useEffect(() => {
+@@ -205,23 +204,11 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+ 
+   const filteredTrades = useMemo(() => usingFallback ? localFilter(trades, appliedFilters) : trades, [appliedFilters, trades, usingFallback]);
+   const hasAppliedFilters = activeFilterCount > 0;
+-  const randomizedFeedIdeaKeys = useMemo(() => getRandomizedFeedIdeaKeys(refreshSeed), [refreshSeed]);
+-  const starterIdeaPlacement = useMemo(() => (
+-    !loading && !loadError && !hasAppliedFilters
+-      ? getFeedStarterIdeaPlacement(filteredTrades.length, randomizedFeedIdeaKeys)
+-      : emptyFeedStarterIdeaPlacement
+-  ), [filteredTrades.length, hasAppliedFilters, loadError, loading, randomizedFeedIdeaKeys]);
+-  const hasStarterIdeas = Boolean(Object.keys(starterIdeaPlacement.inlineIdeaKeysByAfterIndex).length || starterIdeaPlacement.appendedIdeaKeys.length);
+-
+   function refreshDiscoveryOrder() {
+     setSeenTradeIds((current) => compactSeenTradeIds([...current, ...trades.map((trade) => trade.id)]));
+     setRefreshSeed(createFeedRefreshSeed());
+   }
+ 
+-  function openStarterIdeas() {
+-    setActiveToolPanel(null);
+-    if (hasAppliedFilters && typeof window !== 'undefined') window.location.assign('/trades');
+-  }
+   useEffect(() => {
+     if (activeToolPanel !== 'activity') return undefined;
+     const root = document.documentElement;
+@@ -267,7 +254,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+         <TradeWizardPanel
+           onClose={() => setActiveToolPanel(null)}
+           onOpenActivity={(tab) => { setActivityTab(tab); setActiveToolPanel('activity'); }}
+-          onOpenStarterIdeas={openStarterIdeas}
+         />
+       ) : null}
+ 
+@@ -305,15 +291,11 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+         </section>
+       ) : loading ? <TradeFeedSkeleton /> : (
+         <>
+-          <TradeDeckGrid trades={filteredTrades} renderAfterTrade={(index) => {
+-            const ideaKey = getInlineFeedIdeaKey(index, starterIdeaPlacement);
+-            return ideaKey ? <TradeFeedInlineIdeaCard ideaKey={ideaKey} createIdeaHref={createTradeIdeaHref} /> : null;
+-          }} />
+-          {starterIdeaPlacement.appendedIdeaKeys.length ? <TradeFeedIdeaGroup ideaKeys={starterIdeaPlacement.appendedIdeaKeys} createIdeaHref={createTradeIdeaHref} /> : null}
++          <TradeDeckGrid trades={filteredTrades} />
+         </>
+       )}
+ 
+-      {!loading && !loadError && !filteredTrades.length && !hasStarterIdeas ? (
++      {!loading && !loadError && !filteredTrades.length ? (
+         hasAppliedFilters ? (
+           <section className="mobile-card mobile-card--soft">
+             <h3>{t('trade.filters.noTradesFound')}</h3>
+@@ -325,8 +307,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+             createTradeHref={createTradeHref}
+             needsHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs' : '/needs'}
+             offersHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers' : '/offers'}
+-            starterNeedsHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs%3Fsource%3Dstarter' : '/needs?source=starter'}
+-            starterOffersHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers%3Fsource%3Dstarter' : '/offers?source=starter'}
+             t={t}
+           />
+         )
+@@ -337,30 +317,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+ 
+ 
+ 
+-type TradeFeedIdeaGroupProps = {
+-  ideaKeys: readonly FeedTradeIdeaKey[];
+-  createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string;
+-};
+-
+-function TradeFeedIdeaGroup({ ideaKeys, createIdeaHref }: TradeFeedIdeaGroupProps) {
+-  const { t } = useWebTranslation();
+-
+-  return (
+-    <section className="trade-feed-ideas" aria-labelledby="trade-feed-ideas-title">
+-      <div className="trade-feed-ideas__header">
+-        <span className="semantic-badge instruction">{t('trade.feedIdeas.badge')}</span>
+-        <div>
+-          <h2 id="trade-feed-ideas-title">{t('trade.feedIdeas.title')}</h2>
+-          <p>{t('trade.feedIdeas.body')}</p>
+-        </div>
+-      </div>
+-      <div className="trade-feed-ideas__list">
+-        {ideaKeys.map((key, index) => <TradeFeedIdeaCard key={`starter-appended-${index}-${key}`} ideaKey={key} createIdeaHref={createIdeaHref} />)}
+-      </div>
+-    </section>
+-  );
+-}
+-
+ function getFeedIdeaTypeLabelKey(ideaKey: FeedTradeIdeaKey) {
+   const idea = feedTradeIdeas[ideaKey];
+   return idea.type === 'open_need' ? 'trade.feedIdeas.typeLabels.openNeed' : idea.type === 'open_offer' ? 'trade.feedIdeas.typeLabels.openOffer' : 'trade.feedIdeas.typeLabels.trade';
+@@ -468,14 +424,6 @@ export function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: {
+   );
+ }
+ 
+-function TradeFeedInlineIdeaCard({ ideaKey, createIdeaHref }: { ideaKey: FeedTradeIdeaKey; createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string }) {
+-  return (
+-    <div className="trade-feed-inline-idea">
+-      <TradeFeedIdeaCard ideaKey={ideaKey} createIdeaHref={createIdeaHref} inline />
+-    </div>
+-  );
+-}
+-
+ type HomeTradeIntroBannerProps = {
+   onDismiss: () => void;
+ };
+@@ -504,12 +452,11 @@ function HomeTradeIntroBanner({ onDismiss }: HomeTradeIntroBannerProps) {
+ type TradeWizardPanelProps = {
+   onClose: () => void;
+   onOpenActivity: (tab: TradeActivityTab) => void;
+-  onOpenStarterIdeas: () => void;
+ };
+ 
+-function TradeWizardPanel({ onClose, onOpenActivity, onOpenStarterIdeas }: TradeWizardPanelProps) {
++function TradeWizardPanel({ onClose, onOpenActivity }: TradeWizardPanelProps) {
+   const { t } = useWebTranslation();
+-  const workspaceItems = getNormalWorkspaceMenuItems('trade');
++  const workspaceItems = getNormalWorkspaceMenuItems('trade').filter((item) => item.id !== 'starter_ideas');
+ 
+   function itemTitle(item: NormalWorkspaceMenuItem) {
+     return item.titleKey ? t(item.titleKey) : item.title;
+@@ -532,9 +479,6 @@ function TradeWizardPanel({ onClose, onOpenActivity, onOpenStarterIdeas }: Trade
+       onOpenActivity('involved');
+       return;
+     }
+-    if (item.id === 'starter_ideas') {
+-      onOpenStarterIdeas();
+-    }
+   }
+ 
+   function renderItem(item: NormalWorkspaceMenuItem) {
+@@ -879,18 +823,10 @@ type TradeEmptyFeedOnboardingProps = {
+   createTradeHref: string;
+   needsHref: string;
+   offersHref: string;
+-  starterNeedsHref: string;
+-  starterOffersHref: string;
+   t: (key: string, values?: Record<string, string | number>) => string;
+ };
+ 
+-function TradeEmptyFeedOnboarding({ createTradeHref, needsHref, offersHref, starterNeedsHref, starterOffersHref, t }: TradeEmptyFeedOnboardingProps) {
+-  const starterIdeas = [
+-    t('trade.emptyFeed.ideaPortfolioPhotosLandingReview'),
+-    t('trade.emptyFeed.ideaFrenchCorrectionCanva'),
+-    t('trade.emptyFeed.ideaVideoEditLinkedIn'),
+-  ];
+-
++function TradeEmptyFeedOnboarding({ createTradeHref, needsHref, offersHref, t }: TradeEmptyFeedOnboardingProps) {
+   return (
+     <section className="trade-empty-onboarding" aria-labelledby="trade-empty-onboarding-title">
+       <div className="trade-empty-onboarding__hero">
+@@ -902,25 +838,7 @@ function TradeEmptyFeedOnboarding({ createTradeHref, needsHref, offersHref, star
+           <Link href={createTradeHref} className="button">{t('trade.emptyFeed.createTrade')}</Link>
+           <Link href={needsHref} className="button secondary">{t('trade.emptyFeed.createNeed')}</Link>
+           <Link href={offersHref} className="button secondary">{t('trade.emptyFeed.createOffer')}</Link>
+-        </div>
+-      </div>
+-
+-      <div className="trade-empty-onboarding__starter">
+-        <div className="trade-empty-onboarding__starter-copy">
+-          <span className="semantic-badge success">{t('trade.emptyFeed.starterBadge')}</span>
+-          <h3>{t('trade.emptyFeed.starterTitle')}</h3>
+-          <p>{t('trade.emptyFeed.starterBody')}</p>
+-        </div>
+-        <div className="trade-empty-onboarding__starter-actions">
+-          <Link href={starterNeedsHref} className="button secondary"><WebIcon name="need" size={17} decorative /> {t('trade.emptyFeed.browseStarterNeeds')}</Link>
+-          <Link href={starterOffersHref} className="button secondary"><WebIcon name="offer" size={17} decorative /> {t('trade.emptyFeed.browseStarterOffers')}</Link>
+-        </div>
+-      </div>
+-
+-      <div className="trade-empty-onboarding__ideas" aria-label={t('trade.emptyFeed.ideaTitle')}>
+-        <strong>{t('trade.emptyFeed.ideaTitle')}</strong>
+-        <div>
+-          {starterIdeas.map((idea) => <span key={idea}>{idea}</span>)}
++          <Link href="/explore" className="button secondary"><WebIcon name="compass" size={17} decorative /> {t('navigation.tabs.explore')}</Link>
+         </div>
+       </div>
+     </section>
+diff --git a/package.json b/package.json
+index f29ea05..00e5a31 100644
+--- a/package.json
++++ b/package.json
+@@ -58,6 +58,7 @@
+     "web:auth-isolation-smoke": "node scripts/web-auth-isolation-smoke.mjs",
+     "web:navigation-parity-smoke": "node scripts/web-navigation-parity-smoke.mjs",
+     "web:explore-parity-smoke": "node scripts/web-explore-parity-smoke.mjs",
++    "web:real-activity-feeds-smoke": "node scripts/web-real-activity-feeds-smoke.mjs",
+     "web:account-header-parity-smoke": "node scripts/web-account-header-parity-smoke.mjs",
+     "web:header-ownership-smoke": "node scripts/web-header-ownership-smoke.mjs",
+     "web:explore-return-context-smoke": "node scripts/web-explore-return-context-smoke.mjs",
+diff --git a/scripts/web-real-activity-feeds-smoke.mjs b/scripts/web-real-activity-feeds-smoke.mjs
+new file mode 100644
+index 0000000..c132f6f
+--- /dev/null
++++ b/scripts/web-real-activity-feeds-smoke.mjs
+@@ -0,0 +1,46 @@
++import fs from 'node:fs';
++import path from 'node:path';
++
++const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
++const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8').replace(/\r\n?/g, '\n');
++const assert = (condition, message) => { if (!condition) throw new Error(message); };
++
++const plans = read('apps/web/src/features/plans/PlansListClient.tsx');
++const trade = read('apps/web/src/features/trade/TradeFeedClient.tsx');
++const inventory = read('apps/web/src/features/inventory/InventoryListClient.tsx');
++const explore = read('apps/web/src/features/explore/ExploreLandingClient.tsx');
++const mobileNeeds = read('apps/mobile/src/features/trade/MyNeedsScreen.tsx');
++const mobileOffers = read('apps/mobile/src/features/trade/MyOffersScreen.tsx');
++const mobilePlans = read('apps/mobile/src/features/plans/PlansScreens.tsx');
++const mobileTrade = read('apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx');
++
++assert(!plans.includes('buildPlanFeedItems'), 'Web Plans feed must not mix starter Plan ideas into user-created Plans.');
++assert(!plans.includes('selectStarterPlanIdeaKeys'), 'Web Plans feed must not select starter Plan ideas.');
++assert(!plans.includes('PlanIdeaCard'), 'Web Plans feed must not render starter Plan idea cards.');
++assert(plans.includes("getNormalWorkspaceMenuItems('plans').filter((item) => item.id !== 'plan_ideas')"), 'Web Plans workspace must send curated ideas to Explore instead of exposing a Plan ideas entry.');
++assert(plans.includes('href="/explore"'), 'Empty web Plans feed should link to Explore for curated discovery.');
++
++assert(!trade.includes('getFeedStarterIdeaPlacement'), 'Web Trade feed must not place starter ideas among real Trades.');
++assert(!trade.includes('getInlineFeedIdeaKey'), 'Web Trade feed must not inject inline starter ideas.');
++assert(!trade.includes('renderAfterTrade='), 'Web Trade grid must contain real Trades only.');
++assert(trade.includes("getNormalWorkspaceMenuItems('trade').filter((item) => item.id !== 'starter_ideas')"), 'Web Trade workspace must not expose starter ideas outside Explore.');
++assert(trade.includes('href="/explore"'), 'Empty web Trade feed should link to Explore for curated discovery.');
++
++assert(!inventory.includes('inventoryTemplates.list'), 'Web My Needs / My Offers must not load curated template libraries.');
++assert(!inventory.includes("SourceTab = 'mine' | 'starter'"), 'Web inventory must not expose Mine / Starter source tabs.');
++assert(!inventory.includes('StarterTemplateCard'), 'Web inventory must contain user-owned items only.');
++
++assert(!mobileNeeds.includes('StarterInventoryLibrary') && !mobileNeeds.includes('inventoryTemplates.list'), 'Native My Needs must contain user-owned Needs only.');
++assert(!mobileOffers.includes('StarterInventoryLibrary') && !mobileOffers.includes('inventoryTemplates.list'), 'Native My Offers must contain user-owned Offers only.');
++assert(mobilePlans.includes('const starterIdeas = useMemo<StarterPlanIdeaKey[]>(() => [], []);'), 'Native Plans feed must remain real-activity only.');
++assert(mobileTrade.includes('visibleTrades.map((trade, index) => ({'), 'Native Trade feed must remain real-activity only.');
++
++assert(explore.includes('starterPlanIdeaKeys'), 'Explore must retain starter Plan ideas.');
++assert(explore.includes('TradeFeedIdeaCard'), 'Explore must retain Trade ideas.');
++assert(explore.includes('api.inventoryTemplates.list'), 'Explore must retain Hellowhen Need/Offer templates.');
++assert(explore.includes('api.places.library'), 'Explore must retain Hellowhen Places/library content.');
++
++console.log('Plans / Trade feeds real-activity-only: PASS');
++console.log('My Needs / My Offers user-owned-only: PASS');
++console.log('Explore curated ideas/templates/library ownership: PASS');
++console.log('WEB-PARITY-FIX8 real activity feeds + Explore-only curated discovery smoke: PASS');

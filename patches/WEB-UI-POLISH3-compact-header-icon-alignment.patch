@@ -1,0 +1,30 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -13009,3 +13009,26 @@
+   .explore-discovery-toolbar { display: grid !important; }
+   .account-hub-v2 { padding-top: 4px; }
+ }
++
++/* WEB-UI-POLISH3: keep compact feed-header actions optically centered and equal-sized. */
++@media (max-width: 540px) {
++  .feed-world-header .trade-filter-pill,
++  .feed-world-header .trade-activity-pill,
++  .feed-world-header .trade-create-pill,
++  .feed-world-header .plans-feed-icon-button,
++  .feed-world-header .explore-filter-pill,
++  .feed-world-header .web-account-action {
++    width: 40px;
++    height: 40px;
++    min-width: 40px;
++    min-height: 40px;
++    padding: 0;
++    box-sizing: border-box;
++  }
++
++  .feed-world-header .trade-filter-pill,
++  .feed-world-header .trade-activity-pill,
++  .feed-world-header .trade-create-pill {
++    justify-content: center;
++  }
++}

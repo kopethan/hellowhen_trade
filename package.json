@@ -58,6 +58,7 @@
     "web:auth-isolation-smoke": "node scripts/web-auth-isolation-smoke.mjs",
     "web:navigation-parity-smoke": "node scripts/web-navigation-parity-smoke.mjs",
     "web:explore-parity-smoke": "node scripts/web-explore-parity-smoke.mjs",
+    "web:real-activity-feeds-smoke": "node scripts/web-real-activity-feeds-smoke.mjs",
     "web:account-header-parity-smoke": "node scripts/web-account-header-parity-smoke.mjs",
     "web:header-ownership-smoke": "node scripts/web-header-ownership-smoke.mjs",
     "web:explore-return-context-smoke": "node scripts/web-explore-return-context-smoke.mjs",

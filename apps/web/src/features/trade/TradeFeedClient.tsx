@@ -15,7 +15,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { formatWebShortDate } from '../../lib/webFormat';
 import { TradeDeckGrid } from './TradeDeckGrid';
-import { createFeedIdeaTradeHref, emptyFeedStarterIdeaPlacement, feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedStarterIdeaPlacement, getFeedTradeIdeaImageObjectPosition, getFeedTradeIdeaMedia, getInlineFeedIdeaKey, getRandomizedFeedIdeaKeys, type FeedTradeIdeaKey } from './tradeFeedIdeas';
+import { feedTradeIdeaHasNeed, feedTradeIdeaHasOffer, feedTradeIdeas, getFeedTradeIdeaImageObjectPosition, getFeedTradeIdeaMedia, type FeedTradeIdeaKey } from './tradeFeedIdeas';
 import { getExchangeLabel, getStatusLabel, getTradeHeadline } from './tradePresentation';
 import { TradePosterCard } from './TradePosterCard';
 import { activeTradeFilterCount, buildTradeFilterHref, tradeFiltersFromSearchParams, tradeFilterSummary, type TradeFeedFilters } from './tradeFilters';
@@ -109,7 +109,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   const activeFilterSummary = useMemo(() => tradeFilterSummary(appliedFilters), [appliedFilters]);
   const filterHref = useMemo(() => buildTradeFilterHref('/trades/filter', appliedFilters), [appliedFilters]);
   const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
-  const createTradeIdeaHref = useCallback((ideaKey: FeedTradeIdeaKey) => createFeedIdeaTradeHref(ideaKey), []);
   const shouldShowHomeIntro = showHomeIntro && homeIntroReady && auth.hydrated && !homeIntroDismissed;
 
   useEffect(() => {
@@ -205,23 +204,11 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
 
   const filteredTrades = useMemo(() => usingFallback ? localFilter(trades, appliedFilters) : trades, [appliedFilters, trades, usingFallback]);
   const hasAppliedFilters = activeFilterCount > 0;
-  const randomizedFeedIdeaKeys = useMemo(() => getRandomizedFeedIdeaKeys(refreshSeed), [refreshSeed]);
-  const starterIdeaPlacement = useMemo(() => (
-    !loading && !loadError && !hasAppliedFilters
-      ? getFeedStarterIdeaPlacement(filteredTrades.length, randomizedFeedIdeaKeys)
-      : emptyFeedStarterIdeaPlacement
-  ), [filteredTrades.length, hasAppliedFilters, loadError, loading, randomizedFeedIdeaKeys]);
-  const hasStarterIdeas = Boolean(Object.keys(starterIdeaPlacement.inlineIdeaKeysByAfterIndex).length || starterIdeaPlacement.appendedIdeaKeys.length);
-
   function refreshDiscoveryOrder() {
     setSeenTradeIds((current) => compactSeenTradeIds([...current, ...trades.map((trade) => trade.id)]));
     setRefreshSeed(createFeedRefreshSeed());
   }
 
-  function openStarterIdeas() {
-    setActiveToolPanel(null);
-    if (hasAppliedFilters && typeof window !== 'undefined') window.location.assign('/trades');
-  }
   useEffect(() => {
     if (activeToolPanel !== 'activity') return undefined;
     const root = document.documentElement;
@@ -267,7 +254,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
         <TradeWizardPanel
           onClose={() => setActiveToolPanel(null)}
           onOpenActivity={(tab) => { setActivityTab(tab); setActiveToolPanel('activity'); }}
-          onOpenStarterIdeas={openStarterIdeas}
         />
       ) : null}
 
@@ -305,15 +291,11 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
         </section>
       ) : loading ? <TradeFeedSkeleton /> : (
         <>
-          <TradeDeckGrid trades={filteredTrades} renderAfterTrade={(index) => {
-            const ideaKey = getInlineFeedIdeaKey(index, starterIdeaPlacement);
-            return ideaKey ? <TradeFeedInlineIdeaCard ideaKey={ideaKey} createIdeaHref={createTradeIdeaHref} /> : null;
-          }} />
-          {starterIdeaPlacement.appendedIdeaKeys.length ? <TradeFeedIdeaGroup ideaKeys={starterIdeaPlacement.appendedIdeaKeys} createIdeaHref={createTradeIdeaHref} /> : null}
+          <TradeDeckGrid trades={filteredTrades} />
         </>
       )}
 
-      {!loading && !loadError && !filteredTrades.length && !hasStarterIdeas ? (
+      {!loading && !loadError && !filteredTrades.length ? (
         hasAppliedFilters ? (
           <section className="mobile-card mobile-card--soft">
             <h3>{t('trade.filters.noTradesFound')}</h3>
@@ -325,8 +307,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
             createTradeHref={createTradeHref}
             needsHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs' : '/needs'}
             offersHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers' : '/offers'}
-            starterNeedsHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs%3Fsource%3Dstarter' : '/needs?source=starter'}
-            starterOffersHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers%3Fsource%3Dstarter' : '/offers?source=starter'}
             t={t}
           />
         )
@@ -336,30 +316,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
 }
 
 
-
-type TradeFeedIdeaGroupProps = {
-  ideaKeys: readonly FeedTradeIdeaKey[];
-  createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string;
-};
-
-function TradeFeedIdeaGroup({ ideaKeys, createIdeaHref }: TradeFeedIdeaGroupProps) {
-  const { t } = useWebTranslation();
-
-  return (
-    <section className="trade-feed-ideas" aria-labelledby="trade-feed-ideas-title">
-      <div className="trade-feed-ideas__header">
-        <span className="semantic-badge instruction">{t('trade.feedIdeas.badge')}</span>
-        <div>
-          <h2 id="trade-feed-ideas-title">{t('trade.feedIdeas.title')}</h2>
-          <p>{t('trade.feedIdeas.body')}</p>
-        </div>
-      </div>
-      <div className="trade-feed-ideas__list">
-        {ideaKeys.map((key, index) => <TradeFeedIdeaCard key={`starter-appended-${index}-${key}`} ideaKey={key} createIdeaHref={createIdeaHref} />)}
-      </div>
-    </section>
-  );
-}
 
 function getFeedIdeaTypeLabelKey(ideaKey: FeedTradeIdeaKey) {
   const idea = feedTradeIdeas[ideaKey];
@@ -468,14 +424,6 @@ export function TradeFeedIdeaCard({ ideaKey, createIdeaHref, inline = false }: {
   );
 }
 
-function TradeFeedInlineIdeaCard({ ideaKey, createIdeaHref }: { ideaKey: FeedTradeIdeaKey; createIdeaHref: (ideaKey: FeedTradeIdeaKey) => string }) {
-  return (
-    <div className="trade-feed-inline-idea">
-      <TradeFeedIdeaCard ideaKey={ideaKey} createIdeaHref={createIdeaHref} inline />
-    </div>
-  );
-}
-
 type HomeTradeIntroBannerProps = {
   onDismiss: () => void;
 };
@@ -504,12 +452,11 @@ function HomeTradeIntroBanner({ onDismiss }: HomeTradeIntroBannerProps) {
 type TradeWizardPanelProps = {
   onClose: () => void;
   onOpenActivity: (tab: TradeActivityTab) => void;
-  onOpenStarterIdeas: () => void;
 };
 
-function TradeWizardPanel({ onClose, onOpenActivity, onOpenStarterIdeas }: TradeWizardPanelProps) {
+function TradeWizardPanel({ onClose, onOpenActivity }: TradeWizardPanelProps) {
   const { t } = useWebTranslation();
-  const workspaceItems = getNormalWorkspaceMenuItems('trade');
+  const workspaceItems = getNormalWorkspaceMenuItems('trade').filter((item) => item.id !== 'starter_ideas');
 
   function itemTitle(item: NormalWorkspaceMenuItem) {
     return item.titleKey ? t(item.titleKey) : item.title;
@@ -531,9 +478,6 @@ function TradeWizardPanel({ onClose, onOpenActivity, onOpenStarterIdeas }: Trade
     if (item.id === 'proposals') {
       onOpenActivity('involved');
       return;
-    }
-    if (item.id === 'starter_ideas') {
-      onOpenStarterIdeas();
     }
   }
 
@@ -879,18 +823,10 @@ type TradeEmptyFeedOnboardingProps = {
   createTradeHref: string;
   needsHref: string;
   offersHref: string;
-  starterNeedsHref: string;
-  starterOffersHref: string;
   t: (key: string, values?: Record<string, string | number>) => string;
 };
 
-function TradeEmptyFeedOnboarding({ createTradeHref, needsHref, offersHref, starterNeedsHref, starterOffersHref, t }: TradeEmptyFeedOnboardingProps) {
-  const starterIdeas = [
-    t('trade.emptyFeed.ideaPortfolioPhotosLandingReview'),
-    t('trade.emptyFeed.ideaFrenchCorrectionCanva'),
-    t('trade.emptyFeed.ideaVideoEditLinkedIn'),
-  ];
-
+function TradeEmptyFeedOnboarding({ createTradeHref, needsHref, offersHref, t }: TradeEmptyFeedOnboardingProps) {
   return (
     <section className="trade-empty-onboarding" aria-labelledby="trade-empty-onboarding-title">
       <div className="trade-empty-onboarding__hero">
@@ -902,25 +838,7 @@ function TradeEmptyFeedOnboarding({ createTradeHref, needsHref, offersHref, star
           <Link href={createTradeHref} className="button">{t('trade.emptyFeed.createTrade')}</Link>
           <Link href={needsHref} className="button secondary">{t('trade.emptyFeed.createNeed')}</Link>
           <Link href={offersHref} className="button secondary">{t('trade.emptyFeed.createOffer')}</Link>
-        </div>
-      </div>
-
-      <div className="trade-empty-onboarding__starter">
-        <div className="trade-empty-onboarding__starter-copy">
-          <span className="semantic-badge success">{t('trade.emptyFeed.starterBadge')}</span>
-          <h3>{t('trade.emptyFeed.starterTitle')}</h3>
-          <p>{t('trade.emptyFeed.starterBody')}</p>
-        </div>
-        <div className="trade-empty-onboarding__starter-actions">
-          <Link href={starterNeedsHref} className="button secondary"><WebIcon name="need" size={17} decorative /> {t('trade.emptyFeed.browseStarterNeeds')}</Link>
-          <Link href={starterOffersHref} className="button secondary"><WebIcon name="offer" size={17} decorative /> {t('trade.emptyFeed.browseStarterOffers')}</Link>
-        </div>
-      </div>
-
-      <div className="trade-empty-onboarding__ideas" aria-label={t('trade.emptyFeed.ideaTitle')}>
-        <strong>{t('trade.emptyFeed.ideaTitle')}</strong>
-        <div>
-          {starterIdeas.map((idea) => <span key={idea}>{idea}</span>)}
+          <Link href="/explore" className="button secondary"><WebIcon name="compass" size={17} decorative /> {t('navigation.tabs.explore')}</Link>
         </div>
       </div>
     </section>
