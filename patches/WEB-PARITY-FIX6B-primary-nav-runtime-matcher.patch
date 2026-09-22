@@ -1,0 +1,184 @@
+diff --git a/apps/web/src/components/WebBottomTabs.tsx b/apps/web/src/components/WebBottomTabs.tsx
+index f3a68ff..04b919c 100644
+--- a/apps/web/src/components/WebBottomTabs.tsx
++++ b/apps/web/src/components/WebBottomTabs.tsx
+@@ -2,14 +2,12 @@
+ 
+ import Link from 'next/link';
+ import { usePathname } from 'next/navigation';
+-import { getWebTabs } from '../lib/webRoutes';
+-import { useWebAuth } from '../providers/WebAuthProvider';
++import { getWebTabs, isWebTabActive } from '../lib/webRoutes';
+ import { useWebTranslation } from '../providers/WebI18nProvider';
+ import { WebIcon } from './WebIcon';
+ 
+ export function WebBottomTabs() {
+   const pathname = usePathname() || '/trades';
+-  const auth = useWebAuth();
+   const { t } = useWebTranslation();
+   const tabs = getWebTabs();
+   const className = 'web-bottom-tabs web-bottom-tabs--normal';
+@@ -18,10 +16,8 @@ export function WebBottomTabs() {
+   return (
+     <nav className={className} data-nav-mode={navMode} aria-label={t('navigation.primary')} style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
+       {tabs.map((tab) => {
+-        const active = tab.match(pathname);
+-        const publicTab = tab.key === 'trade' || tab.key === 'plans' || tab.key === 'explore';
+-        const shouldGate = !publicTab && (!auth.hydrated || !auth.isAuthenticated);
+-        const href = shouldGate ? `/auth?next=${encodeURIComponent(tab.href)}` : tab.href;
++        const active = isWebTabActive(tab.key, pathname);
++        const href = tab.href;
+         return (
+           <Link
+             key={tab.key}
+diff --git a/apps/web/src/components/WebTopHeader.tsx b/apps/web/src/components/WebTopHeader.tsx
+index 7eb8aa4..fdb7723 100644
+--- a/apps/web/src/components/WebTopHeader.tsx
++++ b/apps/web/src/components/WebTopHeader.tsx
+@@ -2,8 +2,7 @@
+ 
+ import Link from 'next/link';
+ import { usePathname, useRouter } from 'next/navigation';
+-import { getRouteHeader, getWebTabs, type WebTab } from '../lib/webRoutes';
+-import { useWebAuth } from '../providers/WebAuthProvider';
++import { getRouteHeader, getWebTabs, isWebTabActive, type WebTab } from '../lib/webRoutes';
+ import { useWebTranslation } from '../providers/WebI18nProvider';
+ import { WebIcon } from './WebIcon';
+ import { WebAccountHeaderAction } from './WebAccountHeaderAction';
+@@ -13,14 +12,13 @@ function WebAccountAction() {
+   return <WebAccountHeaderAction />;
+ }
+ 
+-function WebDesktopNav({ pathname, authenticated, tabs }: { pathname: string; authenticated: boolean; tabs: WebTab[] }) {
++function WebDesktopNav({ pathname, tabs }: { pathname: string; tabs: WebTab[] }) {
+   const { t } = useWebTranslation();
+   return (
+     <nav className="web-desktop-nav" aria-label={t('navigation.primary')}>
+       {tabs.map((tab) => {
+-        const active = tab.match(pathname);
+-        const publicTab = tab.key === 'trade' || tab.key === 'plans' || tab.key === 'explore';
+-        const href = !authenticated && !publicTab ? `/auth?next=${encodeURIComponent(tab.href)}` : tab.href;
++        const active = isWebTabActive(tab.key, pathname);
++        const href = tab.href;
+         return (
+           <Link
+             key={tab.key}
+@@ -41,13 +39,11 @@ function WebDesktopNav({ pathname, authenticated, tabs }: { pathname: string; au
+ export function WebTopHeader({ hiddenOnMobile = false }: { hiddenOnMobile?: boolean }) {
+   const pathname = usePathname() || '/explore';
+   const router = useRouter();
+-  const auth = useWebAuth();
+   const { t } = useWebTranslation();
+   const tabs = getWebTabs();
+   const header = getRouteHeader(pathname);
+   const headerBackHref = 'backHref' in header ? header.backHref ?? '/explore' : '/explore';
+   const pageOwnsHeader = header.owner === 'page';
+-  const authenticated = auth.hydrated && auth.isAuthenticated;
+   const accountRoot = pathname === '/account' || pathname === '/me';
+   const accountRoute = pathname === '/me' || pathname.startsWith('/account');
+ 
+@@ -75,7 +71,7 @@ export function WebTopHeader({ hiddenOnMobile = false }: { hiddenOnMobile?: bool
+         <Link href="/explore" className="web-global-brand" aria-label={t('navigation.brand')}>
+           <span>{t('navigation.brand')}</span>
+         </Link>
+-        <WebDesktopNav pathname={pathname} authenticated={authenticated} tabs={tabs} />
++        <WebDesktopNav pathname={pathname} tabs={tabs} />
+         {accountAction}
+       </header>
+     );
+@@ -88,7 +84,7 @@ export function WebTopHeader({ hiddenOnMobile = false }: { hiddenOnMobile?: bool
+           <p className="web-kicker">{t('navigation.brand')}</p>
+           <h1>{t(header.titleKey)}</h1>
+         </div>
+-        <WebDesktopNav pathname={pathname} authenticated={authenticated} tabs={tabs} />
++        <WebDesktopNav pathname={pathname} tabs={tabs} />
+         {accountAction}
+       </header>
+     );
+@@ -108,7 +104,7 @@ export function WebTopHeader({ hiddenOnMobile = false }: { hiddenOnMobile?: bool
+         )}
+         <h1>{t(header.titleKey)}</h1>
+       </div>
+-      <WebDesktopNav pathname={pathname} authenticated={authenticated} tabs={tabs} />
++      <WebDesktopNav pathname={pathname} tabs={tabs} />
+       {accountAction}
+     </header>
+   );
+diff --git a/apps/web/src/lib/webRoutes.ts b/apps/web/src/lib/webRoutes.ts
+index f830445..f83df5b 100644
+--- a/apps/web/src/lib/webRoutes.ts
++++ b/apps/web/src/lib/webRoutes.ts
+@@ -7,9 +7,10 @@ export type WebTab = {
+   labelKey: string;
+   href: string;
+   icon: 'calendar' | 'compass' | 'plan' | 'trade' | 'need' | 'offer' | 'profile' | 'search';
+-  match: (pathname: string) => boolean;
+ };
+ 
++type WebTabMatcher = (pathname: string) => boolean;
++
+ export type WebHeaderOwner = 'shell' | 'page';
+ 
+ export type WebRouteHeader = {
+@@ -20,7 +21,7 @@ export type WebRouteHeader = {
+   owner?: WebHeaderOwner;
+ };
+ 
+-const normalNavMatchById: Record<NormalAppNavItemId, WebTab['match']> = {
++const normalNavMatchById: Record<NormalAppNavItemId, WebTabMatcher> = {
+   plans: (pathname) => pathname.startsWith('/plans') || pathname.startsWith('/places'),
+   explore: (pathname) => pathname === '/explore' || pathname.startsWith('/explore/'),
+   trade: (pathname) => pathname === '/' || pathname.startsWith('/trades') || pathname.startsWith('/users') || pathname.startsWith('/u/') || pathname.startsWith('/needs') || pathname.startsWith('/offers'),
+@@ -31,13 +32,16 @@ export const normalWebTabs: WebTab[] = normalAppNavItems.map((item) => ({
+   labelKey: item.labelKey,
+   href: item.webHref,
+   icon: item.icon,
+-  match: normalNavMatchById[item.id],
+ }));
+ 
+ export function getWebTabs() {
+   return normalWebTabs;
+ }
+ 
++export function isWebTabActive(tabKey: RootTabKey, pathname: string) {
++  return normalNavMatchById[tabKey](pathname);
++}
++
+ export const utilityRoutePrefixes = ['/auth', '/admin', '/reset-password', '/credits', '/onboarding-guide', '/guide'];
+ 
+ export function isWebThreadRoute(pathname: string) {
+diff --git a/scripts/web-navigation-parity-smoke.mjs b/scripts/web-navigation-parity-smoke.mjs
+index ac012cc..e7a1067 100644
+--- a/scripts/web-navigation-parity-smoke.mjs
++++ b/scripts/web-navigation-parity-smoke.mjs
+@@ -18,6 +18,8 @@ assert(!webRoutes.includes("key: 'needs',"), 'legacy Needs primary tab must be r
+ assert(!webRoutes.includes("key: 'offers',"), 'legacy Offers primary tab must be removed');
+ assert(!webRoutes.includes("key: 'account',"), 'legacy Account primary tab must be removed');
+ assert(!webRoutes.includes('usePlansMeTradeNav'), 'web primary navigation must not have a legacy fallback switch');
++assert(webRoutes.includes('export function isWebTabActive'), 'web navigation must use a dedicated active-route matcher');
++assert(!webRoutes.includes('match: normalNavMatchById[item.id]'), 'web tab objects must remain serializable data without matcher functions');
+ assert(webRoutes.includes("pathname === '/explore', titleKey: 'navigation.routes.explore', root: true"), 'Explore must have a root header');
+ 
+ const homePage = read('apps/web/src/app/page.tsx');
+@@ -27,13 +29,20 @@ assert(!homePage.includes('betaFeatures.mainNavPlansMeTrade'), 'home must not fa
+ const bottomTabs = read('apps/web/src/components/WebBottomTabs.tsx');
+ assert(bottomTabs.includes("'plans-explore-trade'"), 'mobile web tabs must identify Plans / Explore / Trade mode');
+ assert(!bottomTabs.includes('mainNavPlansMeTrade'), 'mobile tabs must not be feature-flagged back to legacy navigation');
++assert(bottomTabs.includes('isWebTabActive(tab.key, pathname)'), 'mobile tabs must use the dedicated active-route matcher');
++assert(!bottomTabs.includes('tab.match('), 'mobile tabs must not call matcher functions stored on tab objects');
++assert(bottomTabs.includes('const href = tab.href;'), 'all primary mobile tabs must remain public destinations');
++assert(!bottomTabs.includes('publicTab'), 'mobile primary tabs must not be auth-gated');
+ assert(!bottomTabs.includes('web-bottom-tabs--dock'), 'normal navigation must not force a desktop bottom dock');
+ 
+ const topHeader = read('apps/web/src/components/WebTopHeader.tsx');
+ assert(topHeader.includes('function WebAccountAction'), 'normal header must expose a separate Account action');
+ assert(topHeader.includes('<WebDesktopNav'), 'desktop primary navigation must be rendered');
+-assert(topHeader.includes("tab.key === 'explore'"), 'Explore must remain public in desktop navigation');
++assert(topHeader.includes('const href = tab.href;'), 'all primary desktop tabs must remain public destinations');
++assert(!topHeader.includes('publicTab'), 'desktop primary tabs must not be auth-gated');
+ assert(!topHeader.includes('mainNavPlansMeTrade'), 'desktop header must not be feature-flagged back to legacy navigation');
++assert(topHeader.includes('isWebTabActive(tab.key, pathname)'), 'desktop navigation must use the dedicated active-route matcher');
++assert(!topHeader.includes('tab.match('), 'desktop navigation must not call matcher functions stored on tab objects');
+ 
+ assert(fs.existsSync(path.join(root, 'apps/web/src/app/explore/page.tsx')), 'Explore route must exist');
+ assert(fs.existsSync(path.join(root, 'apps/web/src/features/explore/ExploreLandingClient.tsx')), 'Explore navigation gateway must exist');

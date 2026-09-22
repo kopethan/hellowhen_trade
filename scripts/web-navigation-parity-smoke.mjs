@@ -14,19 +14,35 @@ assert(!appNavigation.includes("id: 'me',\n    labelKey: 'navigation.tabs.me'"),
 
 const webRoutes = read('apps/web/src/lib/webRoutes.ts');
 assert(webRoutes.includes("explore: (pathname) => pathname === '/explore'"), 'web routes must match Explore');
+assert(!webRoutes.includes("key: 'needs',"), 'legacy Needs primary tab must be removed');
+assert(!webRoutes.includes("key: 'offers',"), 'legacy Offers primary tab must be removed');
+assert(!webRoutes.includes("key: 'account',"), 'legacy Account primary tab must be removed');
+assert(!webRoutes.includes('usePlansMeTradeNav'), 'web primary navigation must not have a legacy fallback switch');
+assert(webRoutes.includes('export function isWebTabActive'), 'web navigation must use a dedicated active-route matcher');
+assert(!webRoutes.includes('match: normalNavMatchById[item.id]'), 'web tab objects must remain serializable data without matcher functions');
 assert(webRoutes.includes("pathname === '/explore', titleKey: 'navigation.routes.explore', root: true"), 'Explore must have a root header');
 
 const homePage = read('apps/web/src/app/page.tsx');
 assert(homePage.includes('DEFAULT_NORMAL_APP_NAV_WEB_HREF'), 'home must use the shared normal web default');
+assert(!homePage.includes('betaFeatures.mainNavPlansMeTrade'), 'home must not fall back to the legacy Trade feed');
 
 const bottomTabs = read('apps/web/src/components/WebBottomTabs.tsx');
 assert(bottomTabs.includes("'plans-explore-trade'"), 'mobile web tabs must identify Plans / Explore / Trade mode');
+assert(!bottomTabs.includes('mainNavPlansMeTrade'), 'mobile tabs must not be feature-flagged back to legacy navigation');
+assert(bottomTabs.includes('isWebTabActive(tab.key, pathname)'), 'mobile tabs must use the dedicated active-route matcher');
+assert(!bottomTabs.includes('tab.match('), 'mobile tabs must not call matcher functions stored on tab objects');
+assert(bottomTabs.includes('const href = tab.href;'), 'all primary mobile tabs must remain public destinations');
+assert(!bottomTabs.includes('publicTab'), 'mobile primary tabs must not be auth-gated');
 assert(!bottomTabs.includes('web-bottom-tabs--dock'), 'normal navigation must not force a desktop bottom dock');
 
 const topHeader = read('apps/web/src/components/WebTopHeader.tsx');
 assert(topHeader.includes('function WebAccountAction'), 'normal header must expose a separate Account action');
 assert(topHeader.includes('<WebDesktopNav'), 'desktop primary navigation must be rendered');
-assert(topHeader.includes("tab.key === 'explore'"), 'Explore must remain public in desktop navigation');
+assert(topHeader.includes('const href = tab.href;'), 'all primary desktop tabs must remain public destinations');
+assert(!topHeader.includes('publicTab'), 'desktop primary tabs must not be auth-gated');
+assert(!topHeader.includes('mainNavPlansMeTrade'), 'desktop header must not be feature-flagged back to legacy navigation');
+assert(topHeader.includes('isWebTabActive(tab.key, pathname)'), 'desktop navigation must use the dedicated active-route matcher');
+assert(!topHeader.includes('tab.match('), 'desktop navigation must not call matcher functions stored on tab objects');
 
 assert(fs.existsSync(path.join(root, 'apps/web/src/app/explore/page.tsx')), 'Explore route must exist');
 assert(fs.existsSync(path.join(root, 'apps/web/src/features/explore/ExploreLandingClient.tsx')), 'Explore navigation gateway must exist');

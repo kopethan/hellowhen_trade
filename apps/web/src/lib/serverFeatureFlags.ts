@@ -60,13 +60,5 @@ function plansAllowWithFirstLaunchGuards() {
 }
 
 export function getPlansWebFlags() {
-  if (forceFirstLaunchSafeFlags() && !plansAllowWithFirstLaunchGuards()) {
-    return { plansEnabled: false, plansVisible: false };
-  }
-
-  const plansEnabled = enabled(rootEnvValue('NEXT_PUBLIC_PLANS_ENABLED'));
-  return {
-    plansEnabled,
-    plansVisible: plansEnabled && enabled(rootEnvValue('NEXT_PUBLIC_PLANS_VISIBLE')),
-  };
+  return { plansEnabled: true, plansVisible: true } as const;
 }

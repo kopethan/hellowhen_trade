@@ -1,0 +1,34 @@
+diff --git a/apps/web/src/app/explore-responsive.css b/apps/web/src/app/explore-responsive.css
+index da14010..8df03dd 100644
+--- a/apps/web/src/app/explore-responsive.css
++++ b/apps/web/src/app/explore-responsive.css
+@@ -1,5 +1,6 @@
+ /* Explore-only responsive deck grid.
+-   Plans and Trade keep their existing feed layout rules. */
++   Plans and Trade keep their existing feed layout rules.
++   Use the same deck sizing as those feeds: 360px normally, 370px on wide desktop. */
+ 
+ @media (min-width: 760px) and (max-width: 1039px) {
+   .explore-discovery-feed {
+@@ -7,13 +8,19 @@
+   }
+ }
+ 
+-@media (min-width: 1040px) and (max-width: 1439px) {
++@media (min-width: 1040px) and (max-width: 1519px) {
+   .explore-discovery-feed {
+     grid-template-columns: repeat(2, minmax(0, var(--feed-deck-column)));
+   }
+ }
+ 
+-@media (min-width: 1440px) {
++@media (min-width: 1180px) {
++  .explore-discovery-feed {
++    --feed-deck-visible: 370px;
++  }
++}
++
++@media (min-width: 1520px) {
+   .explore-discovery-feed {
+     grid-template-columns: repeat(3, minmax(0, var(--feed-deck-column)));
+   }

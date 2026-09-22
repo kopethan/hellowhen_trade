@@ -1,14 +1,15 @@
 import { normalAppNavItems, type NormalAppNavItemId } from '@hellowhen/shared';
 
-export type RootTabKey = 'trades' | 'needs' | 'offers' | 'account' | 'plans' | 'explore' | 'trade';
+export type RootTabKey = NormalAppNavItemId;
 
 export type WebTab = {
   key: RootTabKey;
   labelKey: string;
   href: string;
   icon: 'calendar' | 'compass' | 'plan' | 'trade' | 'need' | 'offer' | 'profile' | 'search';
-  match: (pathname: string) => boolean;
 };
+
+type WebTabMatcher = (pathname: string) => boolean;
 
 export type WebHeaderOwner = 'shell' | 'page';
 
@@ -20,38 +21,7 @@ export type WebRouteHeader = {
   owner?: WebHeaderOwner;
 };
 
-export const webTabs: WebTab[] = [
-  {
-    key: 'trades',
-    labelKey: 'navigation.tabs.trades',
-    href: '/trades',
-    icon: 'trade',
-    match: (pathname) => pathname === '/' || pathname.startsWith('/trades') || pathname.startsWith('/users'),
-  },
-  {
-    key: 'needs',
-    labelKey: 'navigation.tabs.needs',
-    href: '/needs',
-    icon: 'need',
-    match: (pathname) => pathname.startsWith('/needs'),
-  },
-  {
-    key: 'offers',
-    labelKey: 'navigation.tabs.offers',
-    href: '/offers',
-    icon: 'offer',
-    match: (pathname) => pathname.startsWith('/offers'),
-  },
-  {
-    key: 'account',
-    labelKey: 'navigation.tabs.account',
-    href: '/account',
-    icon: 'profile',
-    match: (pathname) => pathname === '/me' || pathname.startsWith('/account') || pathname.startsWith('/legal'),
-  },
-];
-
-const normalNavMatchById: Record<NormalAppNavItemId, WebTab['match']> = {
+const normalNavMatchById: Record<NormalAppNavItemId, WebTabMatcher> = {
   plans: (pathname) => pathname.startsWith('/plans') || pathname.startsWith('/places'),
   explore: (pathname) => pathname === '/explore' || pathname.startsWith('/explore/'),
   trade: (pathname) => pathname === '/' || pathname.startsWith('/trades') || pathname.startsWith('/users') || pathname.startsWith('/u/') || pathname.startsWith('/needs') || pathname.startsWith('/offers'),
@@ -62,11 +32,14 @@ export const normalWebTabs: WebTab[] = normalAppNavItems.map((item) => ({
   labelKey: item.labelKey,
   href: item.webHref,
   icon: item.icon,
-  match: normalNavMatchById[item.id],
 }));
 
-export function getWebTabs(usePlansMeTradeNav = false) {
-  return usePlansMeTradeNav ? normalWebTabs : webTabs;
+export function getWebTabs() {
+  return normalWebTabs;
+}
+
+export function isWebTabActive(tabKey: RootTabKey, pathname: string) {
+  return normalNavMatchById[tabKey](pathname);
 }
 
 export const utilityRoutePrefixes = ['/auth', '/admin', '/reset-password', '/credits', '/onboarding-guide', '/guide'];
@@ -175,12 +148,10 @@ const fallbackRouteHeader: WebRouteHeader = {
   owner: 'shell',
 };
 
-export function getRouteHeader(pathname: string, options?: { plansMeTradeNav?: boolean }): WebRouteHeader {
-  const route = routeTitles.find((candidate) => candidate.match(pathname)) ?? fallbackRouteHeader;
-  if (!options?.plansMeTradeNav) return route;
-  return route;
+export function getRouteHeader(pathname: string): WebRouteHeader {
+  return routeTitles.find((candidate) => candidate.match(pathname)) ?? fallbackRouteHeader;
 }
 
-export function pageOwnsWebHeader(pathname: string, options?: { plansMeTradeNav?: boolean }) {
-  return getRouteHeader(pathname, options).owner === 'page';
+export function pageOwnsWebHeader(pathname: string) {
+  return getRouteHeader(pathname).owner === 'page';
 }

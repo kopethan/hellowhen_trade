@@ -19,7 +19,6 @@ const productionSecurityHeaders = process.env.NODE_ENV === 'production'
   ? [{ key: 'Strict-Transport-Security', value: 'max-age=15552000; includeSubDomains' }]
   : [];
 
-const plansEnabled = process.env.NEXT_PUBLIC_PLANS_ENABLED?.toLowerCase() === 'true';
 const privateNoIndexHeaders = [
   { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' },
 ];
@@ -62,13 +61,6 @@ const nextConfig = {
         source: '/plans/:path*',
         headers: privateNoIndexHeaders,
       },
-    ];
-  },
-  async redirects() {
-    if (plansEnabled) return [];
-    return [
-      { source: '/plans', destination: '/trades', permanent: true },
-      { source: '/plans/:path*', destination: '/trades', permanent: true },
     ];
   },
   transpilePackages: [

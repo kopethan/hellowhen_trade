@@ -1,4 +1,5 @@
 import './globals.css';
+import './explore-responsive.css';
 import type { ReactNode } from 'react';
 import type { Metadata } from 'next';
 import { WebMobileShell } from '../components/WebMobileShell';

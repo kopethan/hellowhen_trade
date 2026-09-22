@@ -1,0 +1,7 @@
+diff --git a/apps/web/src/features/explore/ExploreLandingClient.tsx b/apps/web/src/features/explore/ExploreLandingClient.tsx
+index 1111111..2222222 100644
+--- a/apps/web/src/features/explore/ExploreLandingClient.tsx
++++ b/apps/web/src/features/explore/ExploreLandingClient.tsx
+@@ -283 +283 @@
+-    <main className="mobile-page web-app-page explore-discovery-page">
++    <main className="mobile-page web-app-page web-app-page--feed explore-discovery-page">

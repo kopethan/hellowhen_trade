@@ -72,9 +72,8 @@ const proTradePackageFeatures = {
 } as const;
 const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE);
 const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED);
-const plansEnabled = !forcePlansFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_PLANS_ENABLED);
-const plansVisible = plansEnabled && enabled(process.env.NEXT_PUBLIC_PLANS_VISIBLE);
-const mainNavPlansMeTrade = plansVisible && !disabled(process.env.NEXT_PUBLIC_MAIN_NAV_PLANS_ME_TRADE);
+const plansEnabled = true;
+const plansVisible = true;
 
 export const betaFeatures = {
   storeReleaseMode,
@@ -106,7 +105,6 @@ export const betaFeatures = {
   adsDebugPlaceholders,
   plansEnabled,
   plansVisible,
-  mainNavPlansMeTrade,
   aiFeatures,
 } as const;
 

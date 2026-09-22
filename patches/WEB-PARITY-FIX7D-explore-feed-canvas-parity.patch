@@ -1,0 +1,22 @@
+diff --git a/apps/web/src/features/explore/ExploreLandingClient.tsx b/apps/web/src/features/explore/ExploreLandingClient.tsx
+index 361aef4..19acb8e 100644
+--- a/apps/web/src/features/explore/ExploreLandingClient.tsx
++++ b/apps/web/src/features/explore/ExploreLandingClient.tsx
+@@ -1,16 +1,16 @@
+   async function refresh() {
+     setRefreshing(true);
+     try {
+       await loadDiscovery({ showLoading: false });
+       setMixSeed(createExploreDiscoverySeed());
+     } finally {
+       setRefreshing(false);
+     }
+   }
+ 
+   return (
+-    <main className="mobile-page web-app-page explore-discovery-page">
++    <main className="mobile-page web-app-page web-app-page--feed explore-discovery-page">
+       <header className="feed-world-header explore-feed-header">
+         <div className="feed-world-header__copy">
+           <h1>{t('navigation.tabs.explore')}</h1>
+         </div>

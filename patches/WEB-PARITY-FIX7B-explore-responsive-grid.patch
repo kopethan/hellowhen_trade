@@ -1,0 +1,36 @@
+diff --git a/apps/web/src/app/explore-responsive.css b/apps/web/src/app/explore-responsive.css
+new file mode 100644
+index 0000000..da14010
+--- /dev/null
++++ b/apps/web/src/app/explore-responsive.css
+@@ -0,0 +1,20 @@
++/* Explore-only responsive deck grid.
++   Plans and Trade keep their existing feed layout rules. */
++
++@media (min-width: 760px) and (max-width: 1039px) {
++  .explore-discovery-feed {
++    grid-template-columns: minmax(0, var(--feed-deck-column));
++  }
++}
++
++@media (min-width: 1040px) and (max-width: 1439px) {
++  .explore-discovery-feed {
++    grid-template-columns: repeat(2, minmax(0, var(--feed-deck-column)));
++  }
++}
++
++@media (min-width: 1440px) {
++  .explore-discovery-feed {
++    grid-template-columns: repeat(3, minmax(0, var(--feed-deck-column)));
++  }
++}
+diff --git a/apps/web/src/app/layout.tsx b/apps/web/src/app/layout.tsx
+index fcf3bd5..0992e82 100644
+--- a/apps/web/src/app/layout.tsx
++++ b/apps/web/src/app/layout.tsx
+@@ -1,4 +1,5 @@
+ import './globals.css';
++import './explore-responsive.css';
+ import type { ReactNode } from 'react';
+ import type { Metadata } from 'next';
+ import { WebMobileShell } from '../components/WebMobileShell';

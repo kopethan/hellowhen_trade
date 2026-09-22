@@ -2,28 +2,22 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { getWebTabs } from '../lib/webRoutes';
-import { betaFeatures } from '../lib/betaFeatures';
-import { useWebAuth } from '../providers/WebAuthProvider';
+import { getWebTabs, isWebTabActive } from '../lib/webRoutes';
 import { useWebTranslation } from '../providers/WebI18nProvider';
 import { WebIcon } from './WebIcon';
 
 export function WebBottomTabs() {
   const pathname = usePathname() || '/trades';
-  const auth = useWebAuth();
   const { t } = useWebTranslation();
-  const useNormalAppNav = betaFeatures.mainNavPlansMeTrade;
-  const tabs = getWebTabs(useNormalAppNav);
-  const className = useNormalAppNav ? 'web-bottom-tabs web-bottom-tabs--normal' : 'web-bottom-tabs';
-  const navMode = useNormalAppNav ? 'plans-explore-trade' : 'classic';
+  const tabs = getWebTabs();
+  const className = 'web-bottom-tabs web-bottom-tabs--normal';
+  const navMode = 'plans-explore-trade';
 
   return (
     <nav className={className} data-nav-mode={navMode} aria-label={t('navigation.primary')} style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
       {tabs.map((tab) => {
-        const active = tab.match(pathname);
-        const publicTab = tab.key === 'trades' || tab.key === 'trade' || tab.key === 'plans' || tab.key === 'explore';
-        const shouldGate = !publicTab && (!auth.hydrated || !auth.isAuthenticated);
-        const href = shouldGate ? `/auth?next=${encodeURIComponent(tab.href)}` : tab.href;
+        const active = isWebTabActive(tab.key, pathname);
+        const href = tab.href;
         return (
           <Link
             key={tab.key}
